@@ -22,6 +22,7 @@ import {
   IconInbox,
   IconListCheck,
   IconMail,
+  IconPlus,
   IconSend,
   IconStar,
   IconTrash,
@@ -77,6 +78,7 @@ export interface MailSidebarProps {
   labels?: MailSidebarLabel[];
   inboxUnreadCount?: number | undefined;
   queuedDraftCount: number;
+  onNewLabel?: () => void;
   mobileOpen: boolean;
   onMobileOpenChange: (open: boolean) => void;
   className?: string;
@@ -103,6 +105,7 @@ export function MailSidebar({
   labels = [],
   inboxUnreadCount,
   queuedDraftCount,
+  onNewLabel,
   mobileOpen,
   onMobileOpenChange,
   className,
@@ -214,7 +217,7 @@ export function MailSidebar({
         isMobile ? "min-h-0 flex-1 border-e-0" : cn("shrink-0", className)
       }
     >
-      {!showCollapsed && labels.length > 0 && (
+      {!showCollapsed && (labels.length > 0 || onNewLabel) && (
         <AppSidebarSection title={t("mail.views.labels")}>
           {labels.map((label) => (
             <AppSidebarNavItem
@@ -255,6 +258,16 @@ export function MailSidebar({
               }
             />
           ))}
+          {onNewLabel && (
+            <AppSidebarNavItem
+              icon={IconPlus}
+              label={t("mail.actions.newLabel")}
+              onClick={() => {
+                closeMobile();
+                onNewLabel();
+              }}
+            />
+          )}
         </AppSidebarSection>
       )}
     </AppSidebar>

@@ -29,6 +29,7 @@ import type {
   ContentDatabaseFilterOperator,
   ContentDatabaseItem,
   ContentDatabaseNavigationGroup,
+  ContentDatabaseNavigationItem,
   ContentDatabaseNavigationPage,
   ContentDatabaseNavigationPageResponse,
   ContentDatabaseNavigationSort,
@@ -52,6 +53,15 @@ import {
   type ContentDatabaseDateFilterBound,
 } from "../shared/database-query.js";
 import {
+  isLocalSourceDirectoryId,
+  localSourceDirectoryId,
+  localSourceDirectoryTitle,
+  localSourceFileDirectory,
+  parentLocalSourceDirectory,
+  parseLocalSourceDirectoryId,
+  type LocalSourceDirectory,
+} from "../shared/local-source-directory.js";
+import {
   FILES_PROPERTY_TYPES,
   parsePropertyOptions,
   parsePropertyValue,
@@ -59,6 +69,8 @@ import {
 import { processWithConcurrency } from "./_batch-utils.js";
 import { favoritesSystemIds } from "./_content-favorites.js";
 import { softDeletedDatabaseDocumentExclusions } from "./_document-discovery-query.js";
+import { linkedNestedLocalFile } from "./_document-source.js";
+import { LOCAL_FOLDER_SOURCE_TYPE } from "./_local-folder-source.js";
 import {
   parseDatabaseViewConfig,
   serializePropertyDefinition,
@@ -80,6 +92,7 @@ type NavigationCursor = {
   sortValue: string | number;
   position?: number;
   itemId: string;
+  folder?: [rootPath: string, name: string];
   group?: string;
 };
 
@@ -109,8 +122,15 @@ function decodeCursor(value: string): NavigationCursor {
         typeof parsed.sortValue === "number"
       ) ||
       typeof parsed.itemId !== "string" ||
+      !(
+        parsed.folder === undefined ||
+        (Array.isArray(parsed.folder) &&
+          parsed.folder.length === 2 &&
+          parsed.folder.every((part: unknown) => typeof part === "string"))
+      ) ||
       !(parsed.group === undefined || typeof parsed.group === "string") ||
-      ((parsed.sort === "custom" || parsed.sort === "property") &&
+      (parsed.folder === undefined &&
+        (parsed.sort === "custom" || parsed.sort === "property") &&
         (typeof parsed.sortValue !== "number" ||
           typeof parsed.position !== "number"))
     ) {
@@ -945,6 +965,89 @@ function navigationAccessContext(
   return { userEmail, ...(database.orgId ? { orgId: database.orgId } : {}) };
 }
 
+type LocalFolderSources = { databaseId: string; rootPaths: string[] };
+
+type FolderLevel = {
+  folders: LocalFolderSources;
+  directory: LocalSourceDirectory | null;
+};
+
+async function localFolderSources(
+  databaseId: string,
+): Promise<LocalFolderSources> {
+  const rows = await getDb()
+    .select({
+      rootPath: schema.contentDatabaseSources.sourceTable,
+    })
+    .from(schema.contentDatabaseSources)
+    .where(
+      and(
+        eq(schema.contentDatabaseSources.databaseId, databaseId),
+        eq(schema.contentDatabaseSources.sourceType, LOCAL_FOLDER_SOURCE_TYPE),
+      ),
+    );
+  return {
+    databaseId,
+    rootPaths: [...new Set(rows.map((row) => row.rootPath))],
+  };
+}
+
+function inLocalFolder(folders: LocalFolderSources) {
+  return and(
+    isNull(schema.documents.parentId),
+    linkedNestedLocalFile(getDb(), folders.databaseId),
+  );
+}
+
+function outsideLocalFolders(folders: LocalFolderSources): SQL {
+  return sql`not coalesce(${inLocalFolder(folders)}, false)`;
+}
+
+function pathInDirectory(directory: LocalSourceDirectory | null): SQL<string> {
+  return directory
+    ? sql<string>`substr(${schema.documents.sourcePath}, char_length(${directory.path}::text) + 2)`
+    : sql<string>`${schema.documents.sourcePath}`;
+}
+
+function withinDirectory(directory: LocalSourceDirectory | null) {
+  return directory
+    ? and(
+        eq(schema.documents.sourceRootPath, directory.rootPath),
+        sql`starts_with(${schema.documents.sourcePath}, ${`${directory.path}/`}::text)`,
+      )
+    : undefined;
+}
+
+export async function localFolderDirectoryOfDocument(args: {
+  databaseId: string;
+  documentId: string;
+  accessContext: AccessContext;
+}): Promise<LocalSourceDirectory | null> {
+  const folders = await localFolderSources(args.databaseId);
+  if (folders.rootPaths.length === 0) return null;
+  const rows = await getDb()
+    .select({
+      rootPath: schema.documents.sourceRootPath,
+      sourcePath: schema.documents.sourcePath,
+    })
+    .from(schema.documents)
+    .where(
+      and(
+        eq(schema.documents.id, args.documentId),
+        accessFilter(
+          schema.documents,
+          schema.documentShares,
+          args.accessContext,
+        ),
+        inLocalFolder(folders),
+      ),
+    )
+    .limit(1);
+  const row = rows.length > 0 ? rows[0] : undefined;
+  const path = localSourceFileDirectory(row?.sourcePath);
+  return row?.rootPath && path ? { rootPath: row.rootPath, path } : null;
+}
+
 /**
  * The children the Files tree draws under `parentId`: pages in the same Files
  * database that aren't trashed, that the reader can see, and that pass the
@@ -1042,6 +1145,7 @@ export async function getContentDatabaseNavigationPage(args: {
   limit: number;
   cursor?: string;
   expand?: readonly string[];
+  pagesOnly?: boolean;
   group?: string;
   locate?: string;
 }): Promise<ContentDatabaseNavigationPageResponse> {
@@ -1125,6 +1229,7 @@ export async function getContentDatabaseNavigationPage(args: {
       personalView: personalView ?? null,
       effectiveSort,
       descending,
+      ...(args.pagesOnly ? { pagesOnly: true } : {}),
       // A relative date filter matches other rows on another day, and one
       // with a time can in another time zone.
       ...(effectiveFilters.some(contentDatabaseFilterIsRelative)
@@ -1157,10 +1262,36 @@ export async function getContentDatabaseNavigationPage(args: {
     invalidCursor();
   }
 
-  const definitionById = await navigationFilterDefinitions(
-    args.database.id,
-    effectiveFilters,
-  );
+  const readsLocalFolders =
+    args.group === undefined &&
+    args.locate === undefined &&
+    (args.parentId === null ||
+      isLocalSourceDirectoryId(args.parentId) ||
+      (args.expand ?? []).some(isLocalSourceDirectoryId));
+  const [definitionById, localFolders] = await Promise.all([
+    navigationFilterDefinitions(args.database.id, effectiveFilters),
+    readsLocalFolders ? localFolderSources(args.database.id) : null,
+  ]);
+  const linkedFolders =
+    localFolders && localFolders.rootPaths.length > 0 ? localFolders : null;
+  const folderLevel = (parentId: string | null): FolderLevel | null => {
+    if (!linkedFolders) return null;
+    if (parentId === null) return { folders: linkedFolders, directory: null };
+    const directory = parseLocalSourceDirectoryId(parentId);
+    return directory && linkedFolders.rootPaths.includes(directory.rootPath)
+      ? { folders: linkedFolders, directory }
+      : null;
+  };
+  if (
+    args.parentId !== null &&
+    isLocalSourceDirectoryId(args.parentId) &&
+    !folderLevel(args.parentId)
+  ) {
+    fail("The Files navigation parent is unavailable.", {
+      errorCode: "invalid_navigation_parent",
+      statusCode: 400,
+    });
+  }
   const effectiveFilter = navigationFilterSql({
     filters: effectiveFilters,
     filterMode: effectiveFilterMode,
@@ -1193,13 +1324,26 @@ export async function getContentDatabaseNavigationPage(args: {
     ...softDeletedDatabaseDocumentExclusions(schema.documents.id),
     effectiveFilter,
   );
-  const siblingsOf = (parentId: string | null) =>
-    and(
-      parentId === null
-        ? isNull(schema.documents.parentId)
-        : eq(schema.documents.parentId, parentId),
+  const siblingsOf = (parentId: string | null) => {
+    const level = folderLevel(parentId);
+    const directory = level?.directory ?? null;
+    return and(
+      directory
+        ? undefined
+        : parentId === null
+          ? isNull(schema.documents.parentId)
+          : eq(schema.documents.parentId, parentId),
       filesRows,
+      level && !directory ? outsideLocalFolders(level.folders) : undefined,
+      level && directory
+        ? and(
+            inLocalFolder(level.folders),
+            withinDirectory(directory),
+            sql`strpos(${pathInDirectory(directory)}, '/') = 0`,
+          )
+        : undefined,
     );
+  };
   const groupRows = (candidate: NavigationGroup) =>
     and(
       filesRows,
@@ -1296,6 +1440,8 @@ export async function getContentDatabaseNavigationPage(args: {
     icon: schema.documents.icon,
     spaceId: schema.documents.spaceId,
     sourceKind: schema.documents.sourceKind,
+    sourceMode: schema.documents.sourceMode,
+    sourcePath: schema.documents.sourcePath,
     ownerEmail: schema.documents.ownerEmail,
     createdAt: schema.documents.createdAt,
     updatedAt: schema.documents.updatedAt,
@@ -1349,6 +1495,7 @@ export async function getContentDatabaseNavigationPage(args: {
     page: (
       siblings: SQL | undefined,
       after: NavigationCursor | null,
+      take: number,
     ) => Promise<NavigationRow[]>;
     through: (
       siblings: SQL | undefined,
@@ -1372,7 +1519,7 @@ export async function getContentDatabaseNavigationPage(args: {
       ),
     );
   const sortedOrder: NavigationOrder = {
-    page: (siblings, after) =>
+    page: (siblings, after, take) =>
       db
         .select({ ...rowFields, sortValue })
         .from(schema.contentDatabaseItems)
@@ -1385,7 +1532,7 @@ export async function getContentDatabaseNavigationPage(args: {
           ascending ? asc(sortValue) : desc(sortValue),
           asc(schema.contentDatabaseItems.id),
         )
-        .limit(args.limit + 1),
+        .limit(take),
     through: (siblings, cursor) =>
       Promise.all([
         revisionOf(
@@ -1443,7 +1590,7 @@ export async function getContentDatabaseNavigationPage(args: {
   const positionThrough = (key: { position?: number; itemId: string }) =>
     sql`(${schema.contentDatabaseItems.position}, ${schema.contentDatabaseItems.id}) <= (${key.position!}, ${key.itemId})`;
   const savedListOrder: NavigationOrder = {
-    page: async (siblings, after) => {
+    page: async (siblings, after, take) => {
       const cursorRank = after ? Number(after.sortValue) : 0;
       const rankedAfterCursor = allRanks.filter(
         ([, rank]) => rank > cursorRank,
@@ -1453,16 +1600,16 @@ export async function getContentDatabaseNavigationPage(args: {
           ? rankedRows(ranks)
               .where(siblings)
               .orderBy(sql`navigation_rank.rank`)
-              .limit(args.limit + 1)
+              .limit(take)
           : Promise.resolve([]);
       // A saved order can hold thousands of IDs, but a page usually fills
       // from the first few, so the whole list is only sent when that window
       // falls short. Rows past the last saved sibling come from the unranked
       // side.
-      const window = rankedAfterCursor.slice(0, (args.limit + 1) * 4);
+      const window = rankedAfterCursor.slice(0, take * 4);
       let ranked = await rankedPage(window);
       let unranked: Awaited<ReturnType<typeof membershipRows>> = [];
-      if (ranked.length <= args.limit) {
+      if (ranked.length < take) {
         const [rest, tail] = await Promise.all([
           rankedPage(rankedAfterCursor.slice(window.length)),
           membershipRows(
@@ -1478,10 +1625,10 @@ export async function getContentDatabaseNavigationPage(args: {
               asc(schema.contentDatabaseItems.position),
               asc(schema.contentDatabaseItems.id),
             )
-            .limit(args.limit + 1),
+            .limit(take),
         ]);
-        ranked = [...ranked, ...rest].slice(0, args.limit + 1);
-        unranked = tail.slice(0, args.limit + 1 - ranked.length);
+        ranked = [...ranked, ...rest].slice(0, take);
+        unranked = tail.slice(0, take - ranked.length);
       }
       return [
         ...ranked,
@@ -1546,7 +1693,7 @@ export async function getContentDatabaseNavigationPage(args: {
     const cursorKey = (key: NavigationCursor) =>
       sql`(${Number(key.sortValue)}, ${Number(key.position)}, ${key.itemId})`;
     return {
-      page: (siblings, after) =>
+      page: (siblings, after, take) =>
         db
           .select({ ...rowFields, sortValue: siblingRank })
           .from(schema.contentDatabaseItems)
@@ -1566,7 +1713,7 @@ export async function getContentDatabaseNavigationPage(args: {
             asc(schema.contentDatabaseItems.position),
             asc(schema.contentDatabaseItems.id),
           )
-          .limit(args.limit + 1),
+          .limit(take),
       through: (siblings, cursor) =>
         Promise.all([
           revisionOf(
@@ -1634,6 +1781,83 @@ export async function getContentDatabaseNavigationPage(args: {
     return new Map(sorted.map((item, index) => [item.id, index + 1]));
   };
 
+  const folderPages = (level: FolderLevel) =>
+    and(
+      filesRows,
+      inLocalFolder(level.folders),
+      withinDirectory(level.directory),
+      sql`strpos(${pathInDirectory(level.directory)}, '/') > 0`,
+    );
+  const folderEntries = (level: FolderLevel) =>
+    sql`(${db
+      .select({
+        rootPath: sql`${schema.documents.sourceRootPath}`.as("root_path"),
+        name: sql`split_part(${pathInDirectory(level.directory)}, '/', 1)`.as(
+          "name",
+        ),
+        createdAt: sql`${schema.documents.createdAt}`.as("created_at"),
+        updatedAt: sql`${schema.documents.updatedAt}`.as("updated_at"),
+      })
+      .from(schema.contentDatabaseItems)
+      .innerJoin(
+        schema.documents,
+        eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+      )
+      .where(folderPages(level))}) as navigation_folder_entry`;
+  const folderRoot = sql<string>`navigation_folder_entry.root_path`;
+  const folderName = sql<string>`navigation_folder_entry.name`;
+  const folderKey = sql`(${folderName}, ${folderRoot})`;
+  const folderKeyOf = ([rootPath, name]: [string, string]) =>
+    sql`(${name}::text, ${rootPath}::text)`;
+  const folderCreatedAt = sql<string>`min(navigation_folder_entry.created_at)`;
+  const folderUpdatedAt = sql<string>`max(navigation_folder_entry.updated_at)`;
+  const folderHash = sql`hashtextextended(concat_ws('|', ${folderRoot}, ${folderName}, ${folderCreatedAt}::text, ${folderUpdatedAt}::text), 0)`;
+  const readFolders = (
+    level: FolderLevel,
+    after: [string, string] | null,
+    take: number,
+  ) =>
+    db
+      .select({
+        rootPath: folderRoot,
+        name: folderName,
+        createdAt: folderCreatedAt,
+        updatedAt: folderUpdatedAt,
+        rowHash: sql<string>`${folderHash}::text`,
+      })
+      .from(folderEntries(level))
+      .where(after ? sql`${folderKey} > ${folderKeyOf(after)}` : undefined)
+      .groupBy(folderRoot, folderName)
+      .orderBy(asc(folderName), asc(folderRoot))
+      .limit(take);
+  const folderRevision = (
+    level: FolderLevel,
+    through: [string, string] | null,
+  ) =>
+    revisionOf(
+      db
+        .select({
+          count: sql<number>`count(*)::int`,
+          checksum: sql<string>`coalesce(sum(navigation_folder.row_hash::numeric), 0)::text`,
+        })
+        .from(
+          sql`(${db
+            .select({ rowHash: sql`${folderHash}`.as("row_hash") })
+            .from(folderEntries(level))
+            .where(
+              through
+                ? sql`${folderKey} <= ${folderKeyOf(through)}`
+                : undefined,
+            )
+            .groupBy(folderRoot, folderName)}) as navigation_folder`,
+        )
+        .limit(1),
+    );
+  const revisionOfRows = (rows: Array<{ rowHash: string }>) => ({
+    count: rows.length,
+    checksum: rows.reduce((total, row) => total + BigInt(row.rowHash), 0n),
+  });
+
   let groupedRanks: Promise<Map<string, number>> | undefined;
   const readBranch = async (
     parentId: string | null,
@@ -1654,67 +1878,150 @@ export async function getContentDatabaseNavigationPage(args: {
         : parentId === null && !inGroup
           ? savedListOrder
           : rankOrder(rankById, unrankedValue);
-    const [rows, prefixRevision] = await Promise.all([
-      order.page(siblings, after),
-      after ? order.through(siblings, after) : [],
+    const level = inGroup ? null : folderLevel(parentId);
+    const listed = args.pagesOnly ? null : level;
+    if (after?.folder && !listed) invalidCursor();
+    const foldersAfter = listed && (!after || after.folder) ? listed : null;
+    const [folders, rows, prefixRevision] = await Promise.all([
+      foldersAfter
+        ? readFolders(foldersAfter, after?.folder ?? null, args.limit + 1)
+        : [],
+      order.page(siblings, foldersAfter ? null : after, args.limit + 1),
+      !after
+        ? []
+        : !listed
+          ? order.through(siblings, after)
+          : after.folder
+            ? Promise.all([folderRevision(listed, after.folder)])
+            : Promise.all([
+                folderRevision(listed, null),
+                order.through(siblings, after),
+              ]).then(([folderPart, pageParts]) => [folderPart, ...pageParts]),
     ]);
     if (after && combineRevisions(prefixRevision) !== after.revision) {
       invalidCursor();
     }
-    const hasMore = rows.length > args.limit;
-    const pageRows = rows.slice(0, args.limit);
-    const last = pageRows[pageRows.length - 1];
+    const hasMore = folders.length + rows.length > args.limit;
+    const folderRows = folders.slice(0, args.limit);
+    const pageRows = rows.slice(0, args.limit - folderRows.length);
+    const candidates = pageRows.filter(
+      (row) =>
+        row.sourceMode === "local-files" &&
+        row.sourceKind === "file" &&
+        localSourceFileDirectory(row.sourcePath),
+    );
+    const linkedRows =
+      candidates.length > 0
+        ? await db
+            .select({ id: schema.documents.id })
+            .from(schema.documents)
+            .where(
+              and(
+                inArray(
+                  schema.documents.id,
+                  candidates.map((row) => row.documentId),
+                ),
+                linkedNestedLocalFile(db),
+              ),
+            )
+        : [];
+    const immovable = new Set(linkedRows.map((row) => row.id));
+    const folderPath = (name: string) =>
+      level?.directory ? `${level.directory.path}/${name}` : name;
+    const last =
+      pageRows.length > 0 ? pageRows[pageRows.length - 1] : undefined;
+    const lastFolder =
+      folderRows.length > 0 ? folderRows[folderRows.length - 1] : undefined;
+    const cursorFields = {
+      version: CURSOR_VERSION,
+      databaseId: args.database.id,
+      parentId,
+      sort: effectiveSort,
+      viewId,
+      orderHash,
+      revision: combineRevisions([
+        ...prefixRevision,
+        revisionOfRows(folderRows),
+        revisionOfRows(pageRows),
+      ]),
+      configHash: (inGroup ? groupConfigHash : null) ?? configHash,
+      ...(inGroup ? { group: inGroup.id } : {}),
+    } as const;
     return {
-      items: pageRows.map(
-        ({
-          sortValue: _sortValue,
-          rowHash: _rowHash,
-          ownerEmail,
-          sharedEditor,
-          sharedManager,
-          ...row
-        }) => {
-          const isOwner =
-            ownerEmail.toLowerCase() === args.userEmail.toLowerCase();
+      items: [
+        ...folderRows.map((folder): ContentDatabaseNavigationItem => {
+          const path = folderPath(folder.name);
+          const id = localSourceDirectoryId({
+            rootPath: folder.rootPath,
+            path,
+          });
           return {
-            ...row,
-            canEdit: isOwner || sharedEditor,
-            canManage: isOwner || sharedManager,
+            membershipId: id,
+            membershipPosition: 0,
+            documentId: id,
+            parentId,
+            title: localSourceDirectoryTitle(path),
+            icon: null,
+            type: "folder",
+            hasChildren: true,
+            spaceId: args.database.spaceId,
+            sourceKind: "folder",
+            isFavorite: false,
+            canEdit: false,
+            canManage: false,
+            createdAt: folder.createdAt,
+            updatedAt: folder.updatedAt,
           };
-        },
-      ),
+        }),
+        ...pageRows.map(
+          ({
+            sortValue: _sortValue,
+            rowHash: _rowHash,
+            ownerEmail,
+            sharedEditor,
+            sharedManager,
+            sourceMode: _sourceMode,
+            sourcePath: _sourcePath,
+            ...row
+          }) => {
+            const isOwner =
+              ownerEmail.toLowerCase() === args.userEmail.toLowerCase();
+            return {
+              ...row,
+              ...(immovable.has(row.documentId) ? { canMove: false } : {}),
+              ...(level?.directory ? { parentId } : {}),
+              canEdit: isOwner || sharedEditor,
+              canManage: isOwner || sharedManager,
+            };
+          },
+        ),
+      ],
       pagination: {
         limit: args.limit,
         hasMore,
-        nextCursor:
-          hasMore && last
+        nextCursor: !hasMore
+          ? null
+          : last
             ? encodeCursor({
-                version: CURSOR_VERSION,
-                databaseId: args.database.id,
-                parentId,
-                sort: effectiveSort,
-                viewId,
-                orderHash,
-                revision: combineRevisions([
-                  ...prefixRevision,
-                  {
-                    count: pageRows.length,
-                    checksum: pageRows.reduce(
-                      (total, row) => total + BigInt(row.rowHash),
-                      0n,
-                    ),
-                  },
-                ]),
-                configHash: (inGroup ? groupConfigHash : null) ?? configHash,
+                ...cursorFields,
                 sortValue: last.sortValue,
                 position:
                   effectiveSort === "custom" || effectiveSort === "property"
                     ? last.membershipPosition
                     : undefined,
                 itemId: last.membershipId,
-                group: inGroup?.id,
               })
-            : null,
+            : lastFolder
+              ? encodeCursor({
+                  ...cursorFields,
+                  sortValue: lastFolder.name,
+                  itemId: localSourceDirectoryId({
+                    rootPath: lastFolder.rootPath,
+                    path: folderPath(lastFolder.name),
+                  }),
+                  folder: [lastFolder.rootPath, lastFolder.name],
+                })
+              : null,
       },
     };
   };
@@ -1764,9 +2071,11 @@ export async function getContentDatabaseNavigationPage(args: {
   // The requested parent and the expanded folders pass the same access,
   // trash, and deletion checks before any of their children are read.
   const checkedIds = [
-    ...(args.parentId === null ? [] : [args.parentId]),
-    ...new Set(expandIds),
-  ];
+    ...new Set([
+      ...(args.parentId === null ? [] : [args.parentId]),
+      ...expandIds,
+    ]),
+  ].filter((id) => !isLocalSourceDirectoryId(id));
   const checked =
     checkedIds.length === 0
       ? Promise.resolve([])
@@ -1774,6 +2083,11 @@ export async function getContentDatabaseNavigationPage(args: {
           .select({
             id: schema.documents.id,
             parentId: schema.documents.parentId,
+            inLocalFolder: linkedFolders
+              ? sql<boolean>`not ${outsideLocalFolders(linkedFolders)}`
+              : sql<boolean>`false`,
+            sourceRootPath: schema.documents.sourceRootPath,
+            sourcePath: schema.documents.sourcePath,
           })
           .from(schema.contentDatabaseItems)
           .innerJoin(
@@ -1796,7 +2110,9 @@ export async function getContentDatabaseNavigationPage(args: {
           );
   const pageRead = readBranch(args.parentId, cursor, group);
   const parentFound = (rows: Array<{ id: string }>) =>
-    args.parentId === null || rows.some((row) => row.id === args.parentId);
+    args.parentId === null ||
+    folderLevel(args.parentId) !== null ||
+    rows.some((row) => row.id === args.parentId);
 
   // Expanded folders under the requested parent return their first pages
   // with it. Which ones open follows from the checked parent links alone, so
@@ -1809,12 +2125,32 @@ export async function getContentDatabaseNavigationPage(args: {
     const expand = new Set(expandIds);
     const parentOf = new Map<string, string | null>();
     const expandedChildren = new Map<string | null, string[]>();
+    const expandUnder = (id: string, parentId: string | null) => {
+      parentOf.set(id, parentId);
+      const siblings = expandedChildren.get(parentId) ?? [];
+      siblings.push(id);
+      expandedChildren.set(parentId, siblings);
+    };
     for (const row of rows) {
       if (!expand.has(row.id)) continue;
-      parentOf.set(row.id, row.parentId);
-      const siblings = expandedChildren.get(row.parentId) ?? [];
-      siblings.push(row.id);
-      expandedChildren.set(row.parentId, siblings);
+      const directory = row.inLocalFolder
+        ? localSourceFileDirectory(row.sourcePath)
+        : null;
+      expandUnder(
+        row.id,
+        directory && row.sourceRootPath
+          ? localSourceDirectoryId({
+              rootPath: row.sourceRootPath,
+              path: directory,
+            })
+          : row.parentId,
+      );
+    }
+    for (const id of expand) {
+      const directory = folderLevel(id)?.directory;
+      if (!directory) continue;
+      const above = parentLocalSourceDirectory(directory);
+      expandUnder(id, above ? localSourceDirectoryId(above) : null);
     }
     let level = expandedChildren.get(args.parentId) ?? [];
     if (cursor && level.length > 0) {

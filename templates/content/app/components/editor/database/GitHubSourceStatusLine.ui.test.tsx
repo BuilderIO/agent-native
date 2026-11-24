@@ -39,6 +39,7 @@ vi.mock("@/hooks/use-github-folder", () => ({
   useRefreshAfterGitHubFolder: () => (action: string) => refreshes.push(action),
 }));
 vi.mock("@/hooks/use-content-database", () => ({
+  useContentDatabaseSourceRefreshing: () => false,
   useDisconnectContentDatabaseSource: () => unlink,
 }));
 vi.mock("sonner", () => ({ toast: toasts.toast }));
@@ -90,7 +91,7 @@ function problem(
 
 function statusLine() {
   const element = document.querySelector<HTMLElement>(
-    "[data-github-source-status]",
+    '[data-source-status="github"]',
   );
   if (!element) throw new Error("No GitHub status line");
   return element;
@@ -154,7 +155,7 @@ function renderLine(
 
 async function checkForUpdates(response: SyncGitHubFolderResponse) {
   await click(button("Details"));
-  await click(button("Check for updates"));
+  await click(button("Sync now"));
   const [variables, options] = sync.mutate.mock.calls[0] as [
     { databaseId: string },
     MutateOptions<SyncGitHubFolderResponse>,
@@ -223,23 +224,23 @@ describe("GitHub source status line", () => {
     );
   });
 
-  it("keeps the folder's details, Check for updates and Unlink behind Details", async () => {
+  it("keeps the folder's details, Sync now and Unlink behind Details", async () => {
     renderLine(githubSource());
-    expect(queryButton("Check for updates")).toBe(null);
+    expect(queryButton("Sync now")).toBe(null);
     await click(button("Details"));
     const text = document.body.textContent ?? "";
     expect(text).toContain("Folderacme/handbook/docs");
     expect(text).toContain("Branchmain");
     expect(text).toContain("Version65b1d83");
-    expect(queryButton("Check for updates")).not.toBe(null);
-    expect(queryButton("Unlink folder…")).not.toBe(null);
+    expect(queryButton("Sync now")).not.toBe(null);
+    expect(queryButton("Unlink…")).not.toBe(null);
   });
 
   it("doesn't offer Unlink to people who can't edit the collection", async () => {
     renderLine(githubSource(), { canEdit: false });
     await click(button("Details"));
-    expect(queryButton("Check for updates")).not.toBe(null);
-    expect(queryButton("Unlink folder…")).toBe(null);
+    expect(queryButton("Sync now")).not.toBe(null);
+    expect(queryButton("Unlink…")).toBe(null);
   });
 
   it.each([
@@ -276,7 +277,7 @@ describe("GitHub source status line", () => {
       "Stopped updating: the “docs” folder is gone from that branch. Showing pages as of 2 minutes ago.",
     );
     expect(alert?.textContent).toContain("Open in GitHub");
-    expect(alert?.textContent).toContain("Unlink folder…");
+    expect(alert?.textContent).toContain("Unlink…");
     expect(statusLine().textContent).not.toContain("Updated 2 minutes ago");
   });
 
@@ -407,7 +408,7 @@ describe("GitHub source status line", () => {
   it("asks before unlinking, then says the pages are kept", async () => {
     renderLine(githubSource());
     await click(button("Details"));
-    await click(button("Unlink folder…"));
+    await click(button("Unlink…"));
     const text = document.body.textContent ?? "";
     expect(text).toContain("Unlink this GitHub folder?");
     expect(text).toContain(
@@ -432,7 +433,7 @@ describe("GitHub source status line", () => {
       ...githubSource(),
       sourceType: "builder-cms",
     } as ContentDatabaseSource);
-    expect(document.querySelector("[data-github-source-status]")).toBe(null);
+    expect(document.querySelector('[data-source-status="github"]')).toBe(null);
   });
 });
 

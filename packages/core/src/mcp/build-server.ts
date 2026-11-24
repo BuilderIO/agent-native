@@ -99,6 +99,8 @@ import {
 import {
   type McpAnalyticsContext,
   describeMcpError,
+  mcpAnalyticsEnabled,
+  mcpToolResultSize,
   readClientInfoFromRequest,
   trackMcpResourceRead,
   trackMcpResourcesList,
@@ -195,6 +197,7 @@ import {
   recordMcpScriptDenial,
   runMcpScript,
   searchMcpScriptActions,
+  withMcpScriptCatalogPointer,
 } from "./script-tools.js";
 import {
   createScriptWriteGate,
@@ -527,6 +530,8 @@ export interface MCPRequestMeta {
    * `run.browserTabId`) so the call does not impersonate an open editor tab.
    */
   browserTabId?: string;
+  /** Optional viewport mode (`foreground` or `background`) from `x-agent-native-viewport-mode`. */
+  viewportMode?: import("../server/request-context.js").ViewportMode;
   /** Origin verified at the HTTP boundary for a page-grant review link. */
   approvalOrigin?: string;
   localAgentTaskClient?: import("../a2a/mcp-task-client.js").McpAgentTaskClient;
@@ -3623,14 +3628,10 @@ export async function createMCPServerForRequest(
         orgId: orgId ?? null,
       }),
   );
-  // A connection that asks for the script catalog, on an app that turned the
-  // script tools on, is offered only `search-actions` and `run-script`, and
-  // every other tool name is unknown to it. Directory mode keeps its own
-  // closed catalog.
+  const scriptCatalogOffered =
+    !directoryCatalog && mcpScriptCatalogOfferedToOrg(orgId);
   const scriptCatalog =
-    requestMeta.scriptCatalog === true &&
-    !directoryCatalog &&
-    getAppConfig().mcp.scriptTools === true;
+    requestMeta.scriptCatalog === true && scriptCatalogOffered;
   const scriptWrites =
     scriptCatalog && getAppConfig().mcp.scriptWrites === true;
   // The compact catalog is the default for every caller. Directory mode is a
@@ -3922,16 +3923,23 @@ export async function createMCPServerForRequest(
   const servedKeyToolNames = config.keyToolNames?.filter(
     (name) => name in advertisedActions && isAdvertisable(name),
   );
+  const pointedScriptCatalog =
+    scriptCatalogOffered && !scriptCatalog
+      ? await scriptCatalogForPointer()
+      : undefined;
   const server = new Server(mcpServerInfo(config, requestMeta), {
     instructions: directoryCatalog
       ? config.directoryProfile?.instructions
       : scriptCatalog
         ? mcpScriptInstructions({ writes: scriptWrites })
-        : agentNativeMcpInstructions(
-            config.instructions,
-            servedKeyToolNames,
-            TOOL_SEARCH_TOOL_NAME in advertisedActions &&
-              isAdvertisable(TOOL_SEARCH_TOOL_NAME),
+        : withMcpScriptCatalogPointer(
+            agentNativeMcpInstructions(
+              config.instructions,
+              servedKeyToolNames,
+              TOOL_SEARCH_TOOL_NAME in advertisedActions &&
+                isAdvertisable(TOOL_SEARCH_TOOL_NAME),
+            ),
+            pointedScriptCatalog,
           ),
     capabilities: {
       tools: {},
@@ -4031,7 +4039,15 @@ export async function createMCPServerForRequest(
     const browserTabTarget = hasVerifiedMcpUserIdentity(effectiveIdentity)
       ? createBrowserTabTargetSlot(requestMeta?.browserTabId)
       : undefined;
+    const viewportMode = requestMeta?.viewportMode;
     const authUserId = await resolveCallerAuthUserId();
+    const runContext: RequestRunContext | undefined =
+      browserTabTarget || viewportMode
+        ? {
+            ...(browserTabTarget ? { browserTabTarget } : {}),
+            ...(viewportMode ? { viewportMode } : {}),
+          }
+        : undefined;
     const result = await runWithMcpChatTurnCall(
       effectiveIdentity,
       toolName,
@@ -4041,7 +4057,7 @@ export async function createMCPServerForRequest(
           fn,
           mcpRequestId,
           authUserId,
-          browserTabTarget ? { browserTabTarget } : undefined,
+          runContext,
           timezone,
           "UTC",
         ),
@@ -4508,6 +4524,28 @@ export async function createMCPServerForRequest(
     return buildMcpScriptCatalog(directlyReachable(allowedActions), {
       writes: scriptWrites,
     });
+  }
+
+  async function scriptCatalogForPointer() {
+    if (!hasMcpOAuthScope(effectiveIdentity?.oauthScopes, "mcp:read")) {
+      return undefined;
+    }
+    let allowedActions: string[] | null;
+    try {
+      ({ allowedActions } = await resolveServiceGrant());
+    } catch {
+      // coercion-ok: an unreadable grant only leaves out the optional instructions pointer; each tool call checks the grant again.
+      return undefined;
+    }
+    const toolsGranted = [MCP_SCRIPT_SEARCH_TOOL, MCP_SCRIPT_RUN_TOOL].every(
+      (name) =>
+        isActionGranted(allowedActions, name) && !deniedToolNames.has(name),
+    );
+    return toolsGranted
+      ? buildMcpScriptCatalog(directlyReachable(allowedActions), {
+          writes: getAppConfig().mcp.scriptWrites === true,
+        })
+      : undefined;
   }
 
   async function callScriptTool(
@@ -4987,6 +5025,7 @@ export async function createMCPServerForRequest(
           : {}),
         parameters: analyticsParameters(toolName, calledArgs),
         durationMs: Date.now() - startedAt,
+        ...(mcpAnalyticsEnabled() ? mcpToolResultSize(result) : {}),
         isError: (result as { isError?: boolean }).isError === true,
         ...(failure ?? {}),
       });
@@ -6015,6 +6054,25 @@ export async function resolveOrgIdFromDomain(
     throw new McpIdentityVerificationRefusedError();
   }
   return result.status === "found" ? result.org.orgId : undefined;
+}
+
+/**
+ * Whether this request's caller may use the script catalog: the app turned
+ * the script tools on and lists the caller's organization in
+ * `mcp.scriptOrgs`. Read per request from the organization resolved for the
+ * caller, which every listing and call of the request shares, so a caller
+ * with no organization, or no identity, never gets it.
+ */
+export function mcpScriptCatalogOfferedToOrg(
+  orgId: string | null | undefined,
+): boolean {
+  const { scriptTools, scriptOrgs } = getAppConfig().mcp;
+  return (
+    scriptTools === true &&
+    typeof orgId === "string" &&
+    orgId.length > 0 &&
+    scriptOrgs.includes(orgId)
+  );
 }
 
 export async function resolveMcpIdentityOrgId(

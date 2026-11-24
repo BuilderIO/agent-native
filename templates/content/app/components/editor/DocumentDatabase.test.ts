@@ -87,8 +87,6 @@ import {
   databaseVisibleGroups,
   databaseGridColumns,
   databaseItemPropertyForColumn,
-  databaseInlineFilterLabel,
-  databaseFilterRuleCandidate,
   databaseViewSummaries,
   databaseViewItemGroups,
   databaseResultCountLabel,
@@ -96,7 +94,6 @@ import {
   deleteDatabaseView,
   duplicateDatabaseView,
   isDatabasePropertyVisibleInView,
-  moveDatabaseFilter,
   moveDatabaseSort,
   moveDatabaseViewProperty,
   moveDatabaseView,
@@ -408,40 +405,9 @@ describe("database property picker", () => {
       }).map((item) => item.key),
     ).toEqual(["number", "date", "end"]);
   });
-
-  it("prefers an unfiltered field for a new rule but never runs out", () => {
-    const filterOn = (key: string): DatabaseFilter => ({
-      key,
-      label: key,
-      operator: "is_not_empty",
-      value: "",
-    });
-
-    expect(databaseFilterRuleCandidate(properties, []).key).toBe("number");
-    expect(
-      databaseFilterRuleCandidate(properties, [
-        filterOn("number"),
-        filterOn("checkbox"),
-      ]).key,
-    ).toBe("date");
-    expect(
-      databaseFilterRuleCandidate(
-        properties,
-        ["number", "checkbox", "date", "end"].map(filterOn),
-      ).key,
-    ).toBe("name");
-    expect(
-      databaseFilterRuleCandidate(
-        properties,
-        ["name", "number", "checkbox", "date", "end"].map(filterOn),
-      ).key,
-    ).toBe("number");
-    expect(databaseFilterRuleCandidate([], [filterOn("name")]).key).toBe(
-      "name",
-    );
-  });
 });
 
+// oracle-change: the tests of the new-rule field picker, inline chip labels and filter reordering went with those helpers, which the shared filter kit replaces
 describe("database view filtering", () => {
   it("supports number comparisons", () => {
     expect(
@@ -499,17 +465,6 @@ describe("database view filtering", () => {
         value: JSON.stringify(["2026-05-26", "2026-05-20"]),
       }),
     ).toEqual(["Alpha", "Beta"]);
-    expect(
-      databaseInlineFilterLabel(
-        {
-          key: "date",
-          label: "Publish date",
-          operator: "between",
-          value: JSON.stringify(["2026-05-20", "2026-05-26"]),
-        },
-        properties,
-      ),
-    ).toBe("Publish date: 2026-05-20 to 2026-05-26");
   });
 
   it("supports option-backed select filters by stable id and label", () => {
@@ -828,122 +783,6 @@ describe("database view filtering", () => {
         [],
       ).map((row) => row.document.title),
     ).toEqual(["Gamma"]);
-  });
-
-  it("summarizes inline filter chips with selected values", () => {
-    const ownerProperty = property("owner", "Owner", "person");
-
-    expect(
-      databaseInlineFilterLabel(
-        {
-          key: "owner",
-          label: "Owner",
-          operator: "contains",
-          value: "Alice Moore",
-        },
-        [ownerProperty],
-      ),
-    ).toBe("Owner: Alice Moore");
-    expect(
-      databaseInlineFilterLabel(
-        {
-          key: "owner",
-          label: "Owner",
-          operator: "contains",
-          value: "",
-        },
-        [ownerProperty],
-      ),
-    ).toBe("Owner");
-    expect(
-      databaseInlineFilterLabel(
-        {
-          key: "owner",
-          label: "Owner",
-          operator: "is_empty",
-          value: "",
-        },
-        [ownerProperty],
-      ),
-    ).toBe("Owner: is empty");
-  });
-
-  it("names the operator on a chip unless it reads as a plain match", () => {
-    const chipProperties = [
-      property("status", "Status", "status", null, {
-        options: [{ id: "done", name: "done", color: "green" }],
-      }),
-      property("context", "Context", "multi_select", null, {
-        options: [
-          { id: "builder", name: "Builder", color: "blue" },
-          { id: "agent-native", name: "Agent-Native", color: "purple" },
-        ],
-      }),
-      property("rank", "Rank", "number"),
-      property("deadline", "Deadline", "date"),
-      property("done", "Done", "checkbox"),
-    ];
-    const chip = (
-      key: string,
-      label: string,
-      operator: DatabaseFilter["operator"],
-      value = "",
-    ) =>
-      databaseInlineFilterLabel(
-        { key, label, operator, value },
-        chipProperties,
-      );
-    const context = JSON.stringify(["Builder", "Agent-Native"]);
-
-    expect(chip("status", "Status", "does_not_equal", "done")).toBe(
-      "Status: is not done",
-    );
-    expect(chip("status", "Status", "contains", "done")).toBe("Status: done");
-    expect(chip("context", "Context", "does_not_equal", context)).toBe(
-      "Context: does not contain Builder, Agent-Native",
-    );
-    expect(chip("context", "Context", "contains", context)).toBe(
-      "Context: Builder, Agent-Native",
-    );
-
-    expect(chip("name", "Name", "contains", "foo")).toBe("Name: foo");
-    expect(chip("name", "Name", "equals", "foo")).toBe("Name: is foo");
-    expect(chip("name", "Name", "does_not_equal", "foo")).toBe(
-      "Name: is not foo",
-    );
-
-    expect(chip("rank", "Rank", "equals", "25")).toBe("Rank: = 25");
-    expect(chip("rank", "Rank", "does_not_equal", "25")).toBe("Rank: ≠ 25");
-    expect(chip("rank", "Rank", "greater_than", "25")).toBe("Rank: > 25");
-    expect(chip("rank", "Rank", "less_than", "25")).toBe("Rank: < 25");
-    expect(chip("rank", "Rank", "greater_than_or_equal", "25")).toBe(
-      "Rank: ≥ 25",
-    );
-    expect(chip("rank", "Rank", "less_than_or_equal", "25")).toBe("Rank: ≤ 25");
-    expect(chip("rank", "Rank", "is_not_empty")).toBe("Rank: is not empty");
-
-    expect(chip("deadline", "Deadline", "equals", "2026-11-01")).toBe(
-      "Deadline: is 2026-11-01",
-    );
-    expect(chip("deadline", "Deadline", "does_not_equal", "2026-11-01")).toBe(
-      "Deadline: is not 2026-11-01",
-    );
-    expect(chip("deadline", "Deadline", "before", "2026-11-01")).toBe(
-      "Deadline: before 2026-11-01",
-    );
-    expect(chip("deadline", "Deadline", "after", "2026-11-01")).toBe(
-      "Deadline: after 2026-11-01",
-    );
-    expect(
-      chip(
-        "deadline",
-        "Deadline",
-        "between",
-        JSON.stringify(["2026-11-01", "2026-11-30"]),
-      ),
-    ).toBe("Deadline: 2026-11-01 to 2026-11-30");
-
-    expect(chip("done", "Done", "is_checked")).toBe("Done: checked");
   });
 
   it("can match any active filter instead of requiring every filter", () => {
@@ -1532,30 +1371,6 @@ describe("database column filters", () => {
       sortDirection: "desc",
       activeFilterCount: 1,
     });
-  });
-
-  it("reorders stacked filters", () => {
-    const filters: DatabaseFilter[] = [
-      { key: "name", label: "Name", operator: "contains", value: "a" },
-      {
-        key: "number",
-        label: "Priority",
-        operator: "greater_than",
-        value: "4",
-      },
-      {
-        key: "checkbox",
-        label: "Done",
-        operator: "is_checked",
-        value: "",
-      },
-    ];
-
-    expect(
-      moveDatabaseFilter(filters, 0, "down").map((filter) => filter.key),
-    ).toEqual(["number", "name", "checkbox"]);
-    expect(moveDatabaseFilter(filters, 0, "up")).toBe(filters);
-    expect(moveDatabaseFilter(filters, 2, "down")).toBe(filters);
   });
 
   it("counts active search, sort, and filter constraints", () => {

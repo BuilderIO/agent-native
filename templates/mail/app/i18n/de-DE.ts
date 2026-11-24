@@ -206,9 +206,19 @@ const messages = {
       markRead: "Als gelesen markieren",
       markUnread: "Als ungelesen markieren",
       moveTo: "Verschieben nach",
+      labelAs: "Label zuweisen",
+      newLabel: "Neues Label…",
       moveToTrash: "In Papierkorb verschieben",
       star: "Markieren",
       unstar: "Markierung entfernen",
+    },
+    labels: {
+      labelAsPlaceholder: "Label zuweisen…",
+      moveToPlaceholder: "Verschieben nach…",
+      newLabelPlaceholder: "Name des neuen Labels",
+      create: "Label „{{name}}“ erstellen",
+      empty: "Noch keine Labels. Gib einen Namen ein, um eines zu erstellen.",
+      alreadyExists: "„{{name}}“ gibt es schon.",
     },
     compose: {
       addImage: "Bild hinzufügen",
@@ -482,6 +492,14 @@ const messages = {
         "{{succeeded}} von {{total}} Unterhaltungen verschoben; {{failed}} fehlgeschlagen.",
       moveSucceeded: "Nach {{label}} verschoben.",
       moveManySucceeded: "{{count}} Unterhaltungen nach {{label}} verschoben.",
+      labelSucceeded: "Label {{label}} zugewiesen.",
+      labelManySucceeded:
+        "Label {{label}} {{count}} Unterhaltungen zugewiesen.",
+      labelPartialFailed:
+        "Label {{succeeded}} von {{total}} Unterhaltungen zugewiesen; {{failed}} fehlgeschlagen.",
+      labelFailed: "Das Label konnte nicht zugewiesen werden.",
+      labelCreated: "Label {{label}} erstellt.",
+      createLabelFailed: "Das Label konnte nicht erstellt werden.",
       trashed: "In den Papierkorb verschoben.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Geplante E-Mail gesendet.",
@@ -658,7 +676,7 @@ const messages = {
       instructionsTitle: "Anweisungen",
       instructionCount: "{{count}} Anweisung(en)",
       instructionPlaceholder:
-        "z. B. Betreffzeilen wie „question for you, Steve“ sind unerwünscht",
+        "z. B. Betreffzeilen wie „quick question for you“ sind unerwünscht",
       addInstruction: "Hinzufügen",
       noInstructions: "Noch keine Anweisungen.",
       instructionExample:
@@ -936,6 +954,7 @@ const messages = {
     sendAndMarkDone: "Senden und als erledigt markieren",
     autocompleteSaveFailed:
       "Die Autovervollständigungseinstellung konnte nicht gespeichert werden.",
+    signaturePlaceholder: "Viele Grüße\nDein Name",
     writingStylePlaceholder:
       "Kurz, konkret, warm. Vermeide formelle Füllwörter.",
     saveDraftingSettings: "Entwurfseinstellungen speichern",

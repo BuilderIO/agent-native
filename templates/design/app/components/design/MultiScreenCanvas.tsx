@@ -15926,7 +15926,7 @@ function BreakpointPreviewRow({
                       ) : null}
                       {onRemoveBreakpoint ? (
                         <DropdownMenuItem
-                          className="text-destructive focus:text-destructive"
+                          variant="destructive"
                           disabled={breakpointMutationPending}
                           onSelect={() => {
                             if (breakpointMutationPending) return;

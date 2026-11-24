@@ -2,6 +2,7 @@ import type { ActionRunContext } from "../action.js";
 import {
   AGENT_NATIVE_ACTION_EVENTS,
   normalizeTrackingDimension,
+  type AgentNativeActionKind,
 } from "../shared/analytics-events.js";
 import { classifyTrackingFailure } from "./failure-category.js";
 
@@ -20,6 +21,7 @@ function shouldTrackAction(ctx: ActionRunContext | undefined): boolean {
 
 function actionProperties(
   ctx: ActionRunContext,
+  kind: AgentNativeActionKind,
   extra: Record<string, unknown> = {},
 ): Record<string, unknown> {
   const appName = normalizeTrackingDimension(ctx.appId) ?? "framework";
@@ -28,7 +30,7 @@ function actionProperties(
     ...(ctx.appId ? { template_name: appName } : {}),
     action_name: ctx.actionName!.trim(),
     action_source: ctx.caller,
-    action_kind: "write",
+    action_kind: kind,
     ...(ctx.userEmail ? { user_email: ctx.userEmail } : {}),
     ...(ctx.orgId ? { workspace_id: ctx.orgId } : {}),
     ...(ctx.threadId ? { thread_id: ctx.threadId } : {}),
@@ -59,16 +61,32 @@ function outputId(result: unknown): string | undefined {
   return undefined;
 }
 
+async function isAppUiCall(ctx: ActionRunContext): Promise<boolean> {
+  if (ctx.caller !== "frontend") return false;
+  const { getRequestContext } = await import("../server/request-context.js");
+  return getRequestContext()?.appPageRequest === true;
+}
+
 export function wrapRunWithActionTracking(
   run: (args: any, ctx?: ActionRunContext) => any,
   readOnly: boolean | undefined,
-  options: { includeOutputId?: boolean } = {},
+  options: {
+    includeOutputId?: boolean;
+    actionKind?: (
+      args: unknown,
+      ctx: ActionRunContext,
+      fromAppUi: boolean,
+    ) => AgentNativeActionKind | Promise<AgentNativeActionKind>;
+  } = {},
 ): (args: any, ctx?: ActionRunContext) => Promise<any> {
   if (readOnly === true) return run;
 
   return async function trackedRun(args: any, ctx?: ActionRunContext) {
     if (!ctx || !shouldTrackAction(ctx)) return run(args, ctx);
 
+    const kind =
+      (await options.actionKind?.(args, ctx, await isAppUiCall(ctx))) ??
+      "write";
     const { track } = await import("./registry.js");
     const startedAt = Date.now();
     const operationId =
@@ -76,7 +94,10 @@ export function wrapRunWithActionTracking(
       `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     track(
       AGENT_NATIVE_ACTION_EVENTS.started,
-      actionProperties(ctx, { operation_id: operationId, status: "started" }),
+      actionProperties(ctx, kind, {
+        operation_id: operationId,
+        status: "started",
+      }),
       ctx,
     );
     try {
@@ -88,7 +109,7 @@ export function wrapRunWithActionTracking(
           : outputId(result);
       track(
         AGENT_NATIVE_ACTION_EVENTS.completed,
-        actionProperties(ctx, {
+        actionProperties(ctx, kind, {
           operation_id: operationId,
           status: "completed",
           outcome: "success",
@@ -102,7 +123,7 @@ export function wrapRunWithActionTracking(
     } catch (error) {
       track(
         AGENT_NATIVE_ACTION_EVENTS.failed,
-        actionProperties(ctx, {
+        actionProperties(ctx, kind, {
           operation_id: operationId,
           status: "failed",
           outcome: classifyTrackingFailure(error),

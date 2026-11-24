@@ -33,6 +33,12 @@ const openAppSchema = z.object({
     .describe(
       "What the user wants to see, in their words (for example: my unread email from Dana). Used to pick the app when app is not given; app wins when both are set.",
     ),
+  screen: z
+    .string()
+    .optional()
+    .describe(
+      "Declared manifest screen id to resolve with params, e.g. deck or thread.",
+    ),
   view: z.string().optional().describe("Target view in the app, e.g. inbox."),
   path: z
     .string()
@@ -44,6 +50,12 @@ const openAppSchema = z.object({
     .record(z.string(), deepLinkParam)
     .optional()
     .describe("Optional record-focus or filter params."),
+  focus: z
+    .boolean()
+    .optional()
+    .describe(
+      "Explicitly transfer foreground pane focus when another app was already committed during this turn.",
+    ),
   embed: z
     .boolean()
     .optional()

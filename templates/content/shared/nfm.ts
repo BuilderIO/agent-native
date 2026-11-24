@@ -1549,13 +1549,22 @@ function isEmptyParagraphNode(node: PMNode | undefined): boolean {
   return (Number(node.attrs?.indent) || 0) === 0;
 }
 
+export function isEditorTerminalFiller(
+  last: PMNode | undefined,
+  previous: Pick<PMNode, "type"> | undefined,
+): boolean {
+  return (
+    isEmptyParagraphNode(last) &&
+    previous !== undefined &&
+    previous.type !== "paragraph"
+  );
+}
+
 function trimEditorTerminalFiller(blocks: PMNode[]): PMNode[] {
   if (blocks.length < 2) return blocks;
   const last = blocks[blocks.length - 1];
   const previous = blocks[blocks.length - 2];
-  if (!isEmptyParagraphNode(last) || previous?.type === "paragraph") {
-    return blocks;
-  }
+  if (!isEditorTerminalFiller(last, previous)) return blocks;
   return blocks.slice(0, -1);
 }
 

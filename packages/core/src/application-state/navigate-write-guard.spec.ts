@@ -11,10 +11,12 @@ import {
   AgentNavigationRefusedError,
   assertNavigateWriteAllowed,
   buildAgentNavigationKeptResult,
+  evaluateAgentNavigationPolicy,
   isAgentNavigationKeptResult,
   isAgentNavigationRefusedError,
   isDefaultDetailNavigation,
   navigationKeyForCommandKey,
+  registerViewportModeProbe,
   withAuthorizedFrameworkUrlTool,
 } from "./navigate-write-guard.js";
 
@@ -508,5 +510,28 @@ describe("kept-view result and guard helpers", () => {
       "navigation:tab-2",
     );
     expect(navigationKeyForCommandKey("draft")).toBeNull();
+  });
+
+  it("refuses navigation when the registered viewport mode probe reports background", () => {
+    registerViewportModeProbe(() => "background");
+    try {
+      const refusal = evaluateAgentNavigationPolicy({
+        intent: "open",
+        caller: "a2a",
+      });
+      expect(refusal).toEqual({
+        reason: "background-viewport-locked",
+        message:
+          "Refused: background viewport requests cannot navigate the foreground app view.",
+      });
+      const kept = buildAgentNavigationKeptResult(
+        "background-viewport-locked",
+        { view: "inbox" },
+      );
+      expect(kept.reason).toBe("background-viewport-locked");
+      expect(kept.message).toContain("during a background viewport request");
+    } finally {
+      registerViewportModeProbe(() => undefined);
+    }
   });
 });

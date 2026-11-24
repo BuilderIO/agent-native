@@ -585,6 +585,7 @@ import {
   RunEvent,
   RESPONSE_GUARD_DRAFT_KEPT_EVENT,
   RESPONSE_GUARD_RICH_EVENT_NAMESPACE,
+  UNKNOWN_TOOL_ERROR_CODE,
   type ToolErrorClass,
   type UnknownWriteCause,
 } from "./types.js";
@@ -1408,6 +1409,7 @@ export interface ActionEntry {
   access?: import("../authorization/check-action.js").ActionAccessConfig;
   fileMutationProof?: (args: unknown) => AgentFileMutationProof | undefined;
   schema?: unknown;
+  outputSchema?: import("@standard-schema/spec").StandardSchemaV1;
   /** The input schema agents are shown, when `defineAction` was given one
    *  narrower than `schema`. */
   agentInputSchema?: unknown;
@@ -9742,7 +9744,7 @@ export async function runAgentLoop(opts: {
               }
             : {
                 message:
-                  "The model returned an empty response. This usually means reasoning used the full output-token budget. Try again, or pick a different model from the model menu.",
+                  "The model returned an empty response, even after retrying. Try again, or pick a different model from the model menu.",
                 errorCode: "empty_final_response",
               };
         const keptDraft = finalGuardKeptDraft.current;
@@ -10456,6 +10458,7 @@ export async function runAgentLoop(opts: {
           result,
           isError: true,
           completedSideEffect: false,
+          ...(noLongerAvailable ? {} : { errorCode: UNKNOWN_TOOL_ERROR_CODE }),
         });
         recordToolResult(result, true);
         if (noLongerAvailable && isHistoryToolName(toolCall.name)) {
@@ -13581,34 +13584,131 @@ interface QueueableAttachments {
   requestAttachments: AgentRequestAttachment[];
 }
 
-function requestAttachmentIndexes(
+type SubmissionBinding = {
+  index: number;
+  name: string;
+  type: string;
+  imageFile: boolean;
+};
+
+function submissionAttachmentBindings(
   submission: AgentSubmissionPayload,
   attachments: AgentChatAttachment[],
-): Set<number> | null {
-  const unmatched = new Set(attachments.map((_, index) => index));
-  for (const identity of submission.attachments ?? []) {
-    const match = [...unmatched].find(
-      (index) =>
-        fingerprintAgentSubmissionAttachment(attachments[index], "file") ===
-        identity.fingerprint,
-    );
-    if (match === undefined) return null;
-    unmatched.delete(match);
-  }
+): {
+  count: number;
+  files: SubmissionBinding[];
+  images: SubmissionBinding[];
+} | null {
+  const remaining = new Set(attachments.map((_, index) => index));
+  const bind = (
+    items: readonly { fingerprint: string; name: string }[],
+    kind: "file" | "image",
+  ): SubmissionBinding[] | null => {
+    const bindings: SubmissionBinding[] = [];
+    for (const item of items) {
+      const index = [...remaining].find(
+        (candidate) =>
+          (kind !== "image" || attachments[candidate]?.type === "image") &&
+          fingerprintAgentSubmissionAttachment(attachments[candidate], kind) ===
+            item.fingerprint,
+      );
+      if (index === undefined) return null;
+      remaining.delete(index);
+      const original = attachments.at(index);
+      if (!original || original.name !== item.name) return null;
+      bindings.push({
+        index,
+        name: item.name,
+        type: original.type,
+        imageFile:
+          (original.type === "file" || original.type === "document") &&
+          typeof original.url === "string" &&
+          original.url.startsWith("data:image/"),
+      });
+    }
+    return bindings;
+  };
+  const files = bind(submission.attachments ?? [], "file");
+  const images = bind(submission.requestAttachments ?? [], "image");
+  return files && images ? { count: attachments.length, files, images } : null;
+}
 
-  const requestIndexes = new Set<number>();
-  for (const identity of submission.requestAttachments ?? []) {
-    const match = [...unmatched].find(
-      (index) =>
-        attachments[index]?.type === "image" &&
-        fingerprintAgentSubmissionAttachment(attachments[index], "image") ===
-          identity.fingerprint,
-    );
-    if (match === undefined) return null;
-    unmatched.delete(match);
-    requestIndexes.add(match);
+const DURABLE_SUBMISSION_PROJECTION =
+  "__agentNativeDurableSubmissionProjection";
+
+function submissionDigest(value: unknown): string {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("Submission identity is missing");
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function submissionDigestAt(values: string[], index: number): string {
+  const value = values.at(index);
+  if (value === undefined)
+    throw new Error("Submission projection is incomplete");
+  return value;
+}
+
+function isSubmissionDigestArray(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (entry: unknown) =>
+        typeof entry === "string" && /^[a-f0-9]{64}$/.test(entry),
+    )
+  );
+}
+
+function serializeBoundDurableSubmission(
+  body: Record<string, unknown>,
+  bindings: ReturnType<typeof submissionAttachmentBindings> | undefined,
+): string {
+  const sanitized = JSON.parse(serializeDurableDispatchPayload(body)) as Record<
+    string,
+    unknown
+  >;
+  if (bindings) {
+    const durableAttachments = sanitized.attachments;
+    if (
+      !Array.isArray(durableAttachments) ||
+      durableAttachments.length !== bindings.count
+    ) {
+      throw new Error("Durable submission attachment binding lost");
+    }
+    const project = (bindings: SubmissionBinding[], kind: "file" | "image") =>
+      bindings.map(({ index, name, type, imageFile }) => {
+        const attachment = durableAttachments[index];
+        if (
+          attachment &&
+          typeof attachment === "object" &&
+          type === "image" &&
+          attachment.type === "file" &&
+          attachment.referenceOnly === true &&
+          (attachment.contentType === "image/svg+xml" ||
+            (attachment.contentType === "application/octet-stream" &&
+              name.toLowerCase().endsWith(".svg")))
+        ) {
+          attachment.type = "image";
+        }
+        if (
+          !attachment ||
+          typeof attachment !== "object" ||
+          attachment.name !== name ||
+          (attachment.type !== type &&
+            !(imageFile && attachment.type === "image") &&
+            !(type === "document" && attachment.type === "file"))
+        ) {
+          throw new Error("Durable submission attachment binding lost");
+        }
+        return fingerprintAgentSubmissionAttachment(attachment, kind);
+      });
+    sanitized[DURABLE_SUBMISSION_PROJECTION] = {
+      canonicalDigest: submissionDigest(sanitized.submissionPayload),
+      files: project(bindings.files, "file"),
+      images: project(bindings.images, "image"),
+    };
   }
-  return requestIndexes;
+  return JSON.stringify(sanitized);
 }
 
 async function queueableAttachments(
@@ -14167,6 +14267,7 @@ export async function chainServerDrivenContinuation(opts: {
   chainViaDurableBackground: boolean;
   turnInitiator?: AgentTurnInitiator;
   workerProvenInBackgroundFunction?: boolean;
+  submissionBindings?: ReturnType<typeof submissionAttachmentBindings>;
   deps?: ChainServerDrivenContinuationDeps;
 }): Promise<void> {
   const d = {
@@ -14350,11 +14451,15 @@ export async function chainServerDrivenContinuation(opts: {
         `chain_dispatch_start nextRunId=${nextRunId} reason=${continuationReason} path=${continuationDispatchPath}`,
       )
       .catch(() => {});
+    const continuationPayload = serializeBoundDurableSubmission(
+      continuationBody,
+      opts.submissionBindings,
+    );
     let nextRowInserted = false;
     try {
       await d.insertRun(nextRunId, effectiveThreadId, effectiveTurnId, {
         dispatchMode: "background",
-        dispatchPayload: serializeDurableDispatchPayload(continuationBody),
+        dispatchPayload: continuationPayload,
         ...(opts.turnInitiator ? { turnInitiator: opts.turnInitiator } : {}),
       });
       nextRowInserted = true;
@@ -14416,7 +14521,9 @@ export async function chainServerDrivenContinuation(opts: {
           },
         }
       : {
-          ...continuationBody,
+          ...(opts.submissionBindings
+            ? (JSON.parse(continuationPayload) as Record<string, unknown>)
+            : continuationBody),
           [AGENT_CHAT_BACKGROUND_RUN_FIELD]: continuationMarker,
         };
     const { dispatched, lastDispatchErr, nestedDepthExceeded } =
@@ -14694,7 +14801,17 @@ export function createProductionAgentHandler(
   const getEngineTools = (actions: Record<string, ActionEntry>) =>
     actionsToEngineTools(getRequestActions(actions));
 
-  return defineEventHandler(async (event) => {
+  type PrepCleanupState = {
+    runId?: string;
+    runStarted: boolean;
+    dispatchMayOwnRun?: boolean;
+    runRowState?: { foregroundInserted: boolean; durableInserted: boolean };
+    setupResumeClaim?: { release: () => Promise<unknown> } | null | undefined;
+  };
+  const handleAgentChatEvent = async (
+    event: Parameters<typeof getMethod>[0],
+    prepCleanup: PrepCleanupState,
+  ) => {
     let completionTrackingSource = options.onRunComplete
       ? snapshotAgentRunTrackingSource()
       : undefined;
@@ -14920,6 +15037,9 @@ export function createProductionAgentHandler(
     if (!isBackgroundWorker) {
       delete body[AGENT_CHAT_BACKGROUND_RUN_FIELD];
       delete (body as unknown as Record<string, unknown>)[
+        DURABLE_SUBMISSION_PROJECTION
+      ];
+      delete (body as unknown as Record<string, unknown>)[
         AGENT_CHAT_RECOVERY_OF_RUN_FIELD
       ];
       delete body.__resolvedActionSurface;
@@ -15103,15 +15223,66 @@ export function createProductionAgentHandler(
     }
     let requestMessage = hasMessageText ? message : "Use the attached context.";
     let requestAttachments = Array.isArray(attachments) ? attachments : [];
-    // The worker's body is the foreground's server-built dispatch payload, whose
-    // attachments were sanitized after the client fingerprints were validated, so
-    // they can no longer match those fingerprints.
+    const projection = isBackgroundWorker
+      ? (body as unknown as Record<string, unknown>)[
+          DURABLE_SUBMISSION_PROJECTION
+        ]
+      : undefined;
+    let attachmentSubmission = submissionPayload;
+    if (projection !== undefined && submissionPayload) {
+      const candidate =
+        projection &&
+        typeof projection === "object" &&
+        !Array.isArray(projection)
+          ? (projection as Record<string, unknown>)
+          : {};
+      const files = candidate.files;
+      const images = candidate.images;
+      if (
+        candidate.canonicalDigest !==
+          submissionDigest(requestedSubmissionPayload) ||
+        !isSubmissionDigestArray(files) ||
+        !isSubmissionDigestArray(images) ||
+        files.length !== (submissionPayload.attachments?.length ?? 0) ||
+        images.length !== (submissionPayload.requestAttachments?.length ?? 0)
+      ) {
+        setResponseStatus(event, 400);
+        return {
+          error: "submissionPayload does not match this message",
+          code: "submission_payload_attachments_mismatch",
+        };
+      }
+      attachmentSubmission = {
+        ...submissionPayload,
+        ...(submissionPayload.attachments
+          ? {
+              attachments: submissionPayload.attachments.map((item, index) => ({
+                ...item,
+                fingerprint: submissionDigestAt(files, index),
+              })),
+            }
+          : {}),
+        ...(submissionPayload.requestAttachments
+          ? {
+              requestAttachments: submissionPayload.requestAttachments.map(
+                (item, index) => ({
+                  ...item,
+                  fingerprint: submissionDigestAt(images, index),
+                }),
+              ),
+            }
+          : {}),
+      };
+    }
     const validateSubmissionAttachments =
-      submissionPayload !== undefined && !isBackgroundWorker;
+      !isBackgroundWorker || projection !== undefined;
+    const submissionAttachmentsAreConsistent =
+      attachmentSubmission !== undefined &&
+      submissionAttachmentsMatch(attachmentSubmission, requestAttachments);
     if (
       submissionPayload &&
       validateSubmissionAttachments &&
-      !submissionAttachmentsMatch(submissionPayload, requestAttachments)
+      !submissionAttachmentsAreConsistent
     ) {
       setResponseStatus(event, 400);
       return {
@@ -15119,17 +15290,28 @@ export function createProductionAgentHandler(
         code: "submission_payload_attachments_mismatch",
       };
     }
-    const submissionRequestAttachmentIndexes =
-      submissionPayload && validateSubmissionAttachments
-        ? requestAttachmentIndexes(submissionPayload, requestAttachments)
-        : new Set<number>();
-    if (!submissionRequestAttachmentIndexes) {
+    const bindings =
+      attachmentSubmission && validateSubmissionAttachments
+        ? submissionAttachmentBindings(attachmentSubmission, requestAttachments)
+        : { count: requestAttachments.length, files: [], images: [] };
+    if (!bindings) {
       setResponseStatus(event, 400);
       return {
         error: "submissionPayload does not match this message",
         code: "submission_payload_attachment_indexes_mismatch",
       };
     }
+    const submissionRequestAttachmentIndexes = new Set(
+      bindings.images.map(({ index }) => index),
+    );
+    const durableSubmissionBindings =
+      submissionPayload && !isBackgroundWorker && requestAttachments.length > 0
+        ? bindings
+        : undefined;
+    if (isBackgroundWorker)
+      requestAttachments = requestAttachments.map((attachment) => ({
+        ...attachment,
+      }));
     let attachmentHydrationBudget: OwnedAttachmentHydrationBudget | undefined;
     let requestDisplayMessage = displayMessage;
     let requestContext = buildRecentUserRequestContext({
@@ -16079,7 +16261,7 @@ export function createProductionAgentHandler(
           : {}),
       },
     );
-    const contextPrefetchDeadlineAt = Date.now() + 1_300;
+    let contextPrefetchDeadlineAt = Date.now() + 1_300;
     const preparedRequest = await options.prepareRequest?.({
       event,
       ownerEmail,
@@ -16614,6 +16796,128 @@ export function createProductionAgentHandler(
       });
     }
 
+    const promptRunContext = ensureRequestRunContext();
+    if (promptRunContext) {
+      promptRunContext.appDiscoveryQuery = requestMessage;
+      if (ownerEmail && !promptRunContext.owner) {
+        promptRunContext.owner = ownerEmail;
+      }
+    }
+
+    const isChainedBackgroundContinuation =
+      isBackgroundWorker && backgroundContinuationCount > 0;
+    const isReaperSuccessor =
+      isBackgroundWorker &&
+      typeof mutableBody[AGENT_CHAT_RECOVERY_OF_RUN_FIELD] === "string" &&
+      Boolean(mutableBody[AGENT_CHAT_RECOVERY_OF_RUN_FIELD]);
+    const isClientTurnContinuation =
+      !isBackgroundWorker &&
+      internalContinuation === true &&
+      !continueOf &&
+      !approvedToolCallsForExecution?.length &&
+      typeof message === "string" &&
+      message.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT) &&
+      typeof threadId === "string" &&
+      threadId.trim().length > 0 &&
+      typeof requestTurnId === "string" &&
+      requestTurnId.trim().length > 0;
+    const shouldRecoverCompletedExecutionSteps =
+      isChainedBackgroundContinuation ||
+      isReaperSuccessor ||
+      Boolean(continueOf) ||
+      isClientTurnContinuation;
+    const runId = backgroundRunMarker?.runId ?? generateRunId();
+    const effectiveThreadId = threadId ?? runId;
+    const effectiveTurnId =
+      typeof backgroundRunMarker?.turnId === "string" &&
+      backgroundRunMarker.turnId.trim()
+        ? backgroundRunMarker.turnId.trim()
+        : (resolvedApprovalTurnId ??
+          (typeof requestTurnId === "string" && requestTurnId.trim()
+            ? requestTurnId.trim()
+            : runId));
+    if (dispatchToBackground && getAppConfig().agent.interactiveChatTurns) {
+      const grant = mintDurableTurnGrant({
+        runId,
+        turnId: effectiveTurnId,
+        initiator: turnInitiator,
+        interactive: isProviderInteractiveScope(),
+        continuation:
+          internalContinuation === true ||
+          Boolean(continueOf) ||
+          Boolean(requestedAutoContinueOfRunId) ||
+          Boolean(requestedContinueOfRunId),
+        lifetimeMs: MAX_TURN_WALL_CLOCK_MS,
+      });
+      if (grant) mutableBody[AGENT_CHAT_TURN_GRANT_FIELD] = grant;
+    }
+    let durableDispatchPayload: string | undefined;
+    if (dispatchToBackground) {
+      try {
+        const dispatchBody = {
+          ...body,
+          ...(Array.isArray(attachments) || requestAttachments.length > 0
+            ? { attachments: requestAttachments }
+            : {}),
+        } as unknown as Record<string, unknown>;
+        delete dispatchBody.queuedMessageClaimId;
+        durableDispatchPayload = serializeBoundDurableSubmission(
+          dispatchBody,
+          durableSubmissionBindings,
+        );
+      } catch (error) {
+        if (!(error instanceof DurableAttachmentReferenceRequiredError)) {
+          throw error;
+        }
+        setResponseStatus(event, 503);
+        return {
+          error: error.message,
+          code: error.code,
+          retryable: false,
+        };
+      }
+    }
+    const foregroundSelfChainEligible =
+      !isBackgroundWorker &&
+      !dispatchToBackground &&
+      typeof threadId === "string" &&
+      threadId.trim().length > 0 &&
+      isAgentChatForegroundSelfChainEnabled();
+    const runRowState = {
+      foregroundInserted: false,
+      durableInserted: false,
+    };
+    prepCleanup.runId = runId;
+    prepCleanup.runRowState = runRowState;
+    let setupResumeClaim:
+      | Awaited<ReturnType<typeof claimSetupResume>>
+      | undefined;
+    const messageToPersist =
+      typeof requestDisplayMessage === "string" &&
+      requestDisplayMessage.trim().length > 0
+        ? requestDisplayMessage
+        : requestMessage;
+
+    const deferExecutionContext =
+      dispatchToBackground && !shouldRecoverCompletedExecutionSteps;
+    let backgroundDispatchAttempted = false;
+    if (deferExecutionContext) {
+      backgroundDispatchAttempted = true;
+      const slotResult = await claimForegroundRunSlot();
+      if (slotResult.earlyResponse !== null) {
+        return slotResult.earlyResponse;
+      }
+      const preparedResult = await runOnRunPreparedHook();
+      if (preparedResult.earlyResponse !== null) {
+        return preparedResult.earlyResponse;
+      }
+      const dispatchResult = await dispatchDurableBackgroundRun();
+      if (dispatchResult.earlyResponse !== null) {
+        return dispatchResult.earlyResponse;
+      }
+      contextPrefetchDeadlineAt = Date.now() + 1_300;
+    }
+
     attachmentHydrationBudget ??= createOwnedAttachmentHydrationBudget();
     const resolvedHistoryImages = await hydrateStructuredHistoryImageReferences(
       requestStructuredHistory,
@@ -16660,9 +16964,6 @@ export function createProductionAgentHandler(
         userEmail: ownerEmail ?? getRequestUserEmail() ?? null,
         orgId: getRequestOrgId() ?? null,
       }).catch(() => readAgentLoopSettings({}));
-
-    const promptRunContext = ensureRequestRunContext();
-    if (promptRunContext) promptRunContext.appDiscoveryQuery = requestMessage;
 
     let systemPromptError: Error | null = null;
     const systemPromptThunk = (): Promise<string> =>
@@ -16895,6 +17196,36 @@ export function createProductionAgentHandler(
               const skillLines: string[] = [];
               const agentLines: string[] = [];
               const jobLines: string[] = [];
+              const detailResources = allResources.filter((r) => {
+                const kind = getResourceKind(r.path);
+                return (
+                  kind === "skill" ||
+                  kind === "agent" ||
+                  kind === "remote-agent"
+                );
+              });
+              const fullById = new Map<
+                string,
+                Awaited<ReturnType<typeof resourceGet>>
+              >();
+              if (detailResources.length > 0) {
+                const resourceOpts = {
+                  userEmail: ownerEmail,
+                  ...(orgId !== undefined ? { orgId } : {}),
+                };
+                const concurrency = Math.min(4, detailResources.length);
+                let nextIndex = 0;
+                await Promise.all(
+                  Array.from({ length: concurrency }, async () => {
+                    while (nextIndex < detailResources.length) {
+                      const item = detailResources.at(nextIndex++);
+                      if (!item) break;
+                      const full = await resourceGet(item.id, resourceOpts);
+                      fullById.set(item.id, full);
+                    }
+                  }),
+                );
+              }
               for (const r of allResources) {
                 const scope = isWorkspaceResourceOwner(r.owner)
                   ? "workspace"
@@ -16917,10 +17248,7 @@ export function createProductionAgentHandler(
                   kind === "agent" ||
                   kind === "remote-agent"
                 ) {
-                  const full = await resourceGet(r.id, {
-                    userEmail: ownerEmail,
-                    orgId,
-                  });
+                  const full = fullById.get(r.id);
                   if (!full) continue;
                   if (kind === "skill") {
                     const skill = parseSkillMetadata(full.content, r.path);
@@ -17069,7 +17397,7 @@ export function createProductionAgentHandler(
         // The foreground of a dispatched run never prompts the model; the
         // worker re-reads, so reading here would pay for it twice.
         (): Promise<PriorConnectionNote> =>
-          threadId && !dispatchToBackground
+          threadId && (!dispatchToBackground || backgroundDispatchAttempted)
             ? resolvePriorConnectionNote({
                 threadId,
                 orgId: getRequestOrgId() ?? null,
@@ -17085,11 +17413,26 @@ export function createProductionAgentHandler(
     workerStep("context_all");
 
     if (systemPromptError) {
-      if (isBackgroundWorker) throw systemPromptError;
+      const err = systemPromptError as Error;
+      if (runRowState.foregroundInserted || runRowState.durableInserted) {
+        try {
+          const terminalized = await updateRunStatusIfRunning(runId, "errored");
+          if (terminalized) {
+            await setRunTerminalReason(runId, "system_prompt_failed");
+            await setRunError(runId, "system_prompt_failed", err.message);
+          }
+        } catch (cleanupErr) {
+          console.warn(
+            "[agent-chat] failed to mark run errored after system prompt failure:",
+            cleanupErr,
+          );
+        }
+      }
+      await setupResumeClaim?.release();
+      if (isBackgroundWorker) throw err;
       setResponseHeader(event, "Content-Type", "text/event-stream");
       setResponseHeader(event, "Cache-Control", "no-cache");
       const encoder = new TextEncoder();
-      const err = systemPromptError as Error;
       return new ReadableStream({
         start(controller) {
           controller.enqueue(
@@ -17158,10 +17501,13 @@ export function createProductionAgentHandler(
           COMPACT_PROMPT_RESOURCES_TOTAL_MAX_CHARS - systemPrompt.length - 2,
         )
       : undefined;
+    const effectiveDispatchToBackground = backgroundDispatchAttempted
+      ? false
+      : dispatchToBackground;
     const [requestTools, jevPreload] = await Promise.all([
       preloadJevTools({
         request: jevRequestContext,
-        skip: Boolean(internalContinuation || dispatchToBackground),
+        skip: Boolean(internalContinuation || effectiveDispatchToBackground),
         deadlineAt: contextPrefetchDeadlineAt,
         apiKey: jevContextCredentials.apiKey,
         personalApiKey: jevContextCredentials.personalApiKey,
@@ -17187,7 +17533,7 @@ export function createProductionAgentHandler(
         compact: options.jevContextCompact,
         maxChars: jevContextMaxChars,
         contextPrefetchDeadlineAt,
-        dispatchToBackground,
+        dispatchToBackground: effectiveDispatchToBackground,
         internalContinuation: Boolean(internalContinuation),
         candidates: jevPromptCandidates,
         fallbackCandidateIds: jevFallbackCandidateIds,
@@ -17327,97 +17673,19 @@ export function createProductionAgentHandler(
       tools: requestTools,
       availableToolCount: availableRequestTools.length,
     });
-    const isChainedBackgroundContinuation =
-      isBackgroundWorker && backgroundContinuationCount > 0;
-    const isReaperSuccessor =
-      isBackgroundWorker &&
-      typeof mutableBody[AGENT_CHAT_RECOVERY_OF_RUN_FIELD] === "string" &&
-      Boolean(mutableBody[AGENT_CHAT_RECOVERY_OF_RUN_FIELD]);
-    const isClientTurnContinuation =
-      !isBackgroundWorker &&
-      internalContinuation === true &&
-      !continueOf &&
-      !approvedToolCallsForExecution?.length &&
-      typeof message === "string" &&
-      message.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT) &&
-      typeof threadId === "string" &&
-      threadId.trim().length > 0 &&
-      typeof requestTurnId === "string" &&
-      requestTurnId.trim().length > 0;
-    const shouldRecoverCompletedExecutionSteps =
-      isChainedBackgroundContinuation ||
-      isReaperSuccessor ||
-      Boolean(continueOf) ||
-      isClientTurnContinuation;
-    const runId = backgroundRunMarker?.runId ?? generateRunId();
-    const effectiveThreadId = threadId ?? runId;
-    const effectiveTurnId =
-      typeof backgroundRunMarker?.turnId === "string" &&
-      backgroundRunMarker.turnId.trim()
-        ? backgroundRunMarker.turnId.trim()
-        : (resolvedApprovalTurnId ??
-          (typeof requestTurnId === "string" && requestTurnId.trim()
-            ? requestTurnId.trim()
-            : runId));
-    // Only a fresh turn the owner is driving from the page right now hands its
-    // foreground standing to the durable run; continuations never mint one.
-    if (dispatchToBackground && getAppConfig().agent.interactiveChatTurns) {
-      const grant = mintDurableTurnGrant({
-        runId,
-        turnId: effectiveTurnId,
-        initiator: turnInitiator,
-        interactive: isProviderInteractiveScope(),
-        continuation:
-          internalContinuation === true ||
-          Boolean(continueOf) ||
-          Boolean(requestedAutoContinueOfRunId) ||
-          Boolean(requestedContinueOfRunId),
-        lifetimeMs: MAX_TURN_WALL_CLOCK_MS,
-      });
-      if (grant) mutableBody[AGENT_CHAT_TURN_GRANT_FIELD] = grant;
-    }
-    let durableDispatchPayload: string | undefined;
-    if (dispatchToBackground) {
-      try {
-        const dispatchBody = {
-          ...body,
-          ...(Array.isArray(attachments) || requestAttachments.length > 0
-            ? { attachments: requestAttachments }
-            : {}),
-        } as unknown as Record<string, unknown>;
-        // This one-time claim authorizes only the request that consumes it.
-        delete dispatchBody.queuedMessageClaimId;
-        durableDispatchPayload = serializeDurableDispatchPayload(dispatchBody);
-      } catch (error) {
-        if (!(error instanceof DurableAttachmentReferenceRequiredError)) {
-          throw error;
-        }
-        setResponseStatus(event, 503);
-        return {
-          error: error.message,
-          code: error.code,
-          retryable: false,
-        };
-      }
-    }
-    const foregroundSelfChainEligible =
-      !isBackgroundWorker &&
-      !dispatchToBackground &&
-      typeof threadId === "string" &&
-      threadId.trim().length > 0 &&
-      isAgentChatForegroundSelfChainEnabled();
-    let foregroundRunRowInserted = false;
-    let setupResumeClaim:
-      | Awaited<ReturnType<typeof claimSetupResume>>
-      | undefined;
 
-    if (threadId && !isBackgroundWorker) {
+    async function claimForegroundRunSlot(): Promise<
+      { earlyResponse: unknown } | { earlyResponse: null }
+    > {
+      if (!threadId || isBackgroundWorker) {
+        return { earlyResponse: null };
+      }
       if (
         typeof requestTurnId === "string" &&
         requestTurnId &&
         (await isTurnAborted(threadId, requestTurnId))
       ) {
-        return { ok: true, stopped: true };
+        return { earlyResponse: { ok: true, stopped: true } };
       }
       const setupResumeOfRunId = setupResumeRefusedRunId(body);
       setupResumeClaim =
@@ -17429,9 +17697,11 @@ export function createProductionAgentHandler(
               turnId: effectiveTurnId,
             })
           : undefined;
+      prepCleanup.setupResumeClaim = setupResumeClaim;
       if (setupResumeOfRunId && ownerEmail && !setupResumeClaim) {
-        // Another tab already sent this refused prompt again.
-        return { ok: true, stopped: true, resumeAlreadySent: true };
+        return {
+          earlyResponse: { ok: true, stopped: true, resumeAlreadySent: true },
+        };
       }
       let slot;
       try {
@@ -17448,7 +17718,6 @@ export function createProductionAgentHandler(
         if (ownerEmail && !isAuthorizedApprovalContinuation) {
           await ensureAgentToolApprovalTable();
         }
-        // The inbox read runs under the slot lock, but its schema must be ready first.
         await queuedSubmissionStore?.ensureChatThreadTables();
         slot = await tryClaimRunSlot(threadId, runId, undefined, {
           turnId: effectiveTurnId,
@@ -17465,7 +17734,7 @@ export function createProductionAgentHandler(
             : foregroundSelfChainEligible
               ? "foreground-self-chain"
               : "foreground",
-          ...(dispatchToBackground
+          ...(dispatchToBackground && durableDispatchPayload !== undefined
             ? { dispatchPayload: durableDispatchPayload }
             : {}),
           ...(continueOf ? { continueOf } : {}),
@@ -17494,47 +17763,59 @@ export function createProductionAgentHandler(
           error instanceof AgentTurnInitiatorUnavailableError
         ) {
           setResponseStatus(event, 409);
-          return { error: "This agent turn cannot resume for this initiator" };
+          return {
+            earlyResponse: {
+              error: "This agent turn cannot resume for this initiator",
+            },
+          };
         }
         throw error;
       }
       if (slot.turnAborted) {
         await setupResumeClaim?.release();
-        return { ok: true, stopped: true };
+        return { earlyResponse: { ok: true, stopped: true } };
       }
       if (slot.continueRefused) {
         await setupResumeClaim?.release();
         setResponseStatus(event, 409);
-        return continueRefusal(slot.continueRefused);
+        return { earlyResponse: continueRefusal(slot.continueRefused) };
       }
       if (slot.completedRunId) {
         const stream = await replayCompletedTurn(threadId, effectiveTurnId);
         if (!stream) {
           setResponseStatus(event, 500);
-          return { error: "Failed to replay completed agent run" };
+          return {
+            earlyResponse: { error: "Failed to replay completed agent run" },
+          };
         }
         setResponseHeader(event, "Content-Type", "text/event-stream");
         setResponseHeader(event, "Cache-Control", "no-cache");
         setResponseHeader(event, "Connection", "keep-alive");
         setResponseHeader(event, "X-Run-Id", slot.completedRunId);
-        // The client leaves a replay's turn out unless named here, and this
-        // replay was found by its turn, so the stored turn is known.
         setRunTurnIdHeader(event, effectiveTurnId);
         setResponseHeader(event, "X-Dispatch-Mode", "replay");
-        return stream;
+        return { earlyResponse: stream };
       }
       if (!slot.claimed) {
         await setupResumeClaim?.release();
         if (slot.queuedSubmissionPending) {
           const queued = await tryAdmitBusySubmission();
-          if (queued !== null) return queued;
-          return runSlotBusy(event, null);
+          if (queued !== null) return { earlyResponse: queued };
+          return { earlyResponse: runSlotBusy(event, null) };
         }
         const queued = await tryAdmitBusySubmission();
-        if (queued !== null) return queued;
-        return runSlotBusy(event, slot.activeRunId);
+        if (queued !== null) return { earlyResponse: queued };
+        return { earlyResponse: runSlotBusy(event, slot.activeRunId) };
       }
-      foregroundRunRowInserted = true;
+      runRowState.foregroundInserted = true;
+      return { earlyResponse: null };
+    }
+
+    if (!backgroundDispatchAttempted) {
+      const slotResult = await claimForegroundRunSlot();
+      if (slotResult.earlyResponse !== null) {
+        return slotResult.earlyResponse;
+      }
     }
 
     const approvalStoreBinding = (
@@ -17583,11 +17864,6 @@ export function createProductionAgentHandler(
       await markRunAborted(runId, "user").catch(() => {});
       return { ok: true, stopped: true };
     }
-    const messageToPersist =
-      typeof requestDisplayMessage === "string" &&
-      requestDisplayMessage.trim().length > 0
-        ? requestDisplayMessage
-        : requestMessage;
     const priorTurnInputTokensFromBody = Number(
       (body as unknown as Record<string, unknown>)[
         AGENT_CHAT_TURN_INPUT_TOKENS_FIELD
@@ -17743,8 +18019,12 @@ export function createProductionAgentHandler(
         const { getThread } = await import("../chat-threads/store.js");
         const { recoverThreadHistoryForRequest } =
           await import("./thread-data-builder.js");
+        const threadData = (await getThread(threadId))?.threadData;
         const recovered = recoverThreadHistoryForRequest(
-          (await getThread(threadId))?.threadData,
+          threadData,
+          backgroundDispatchAttempted
+            ? { excludeSubmittedTurnId: effectiveTurnId }
+            : undefined,
         );
         if (recovered.length > 0) messages.unshift(...recovered);
       } catch (err) {
@@ -17776,7 +18056,16 @@ export function createProductionAgentHandler(
     setupMark("depsThread");
     workerStep("owner_thread");
 
-    if (options.onRunPrepared && !internalContinuation && !isBackgroundWorker) {
+    async function runOnRunPreparedHook(): Promise<
+      { earlyResponse: unknown } | { earlyResponse: null }
+    > {
+      if (
+        !options.onRunPrepared ||
+        internalContinuation ||
+        isBackgroundWorker
+      ) {
+        return { earlyResponse: null };
+      }
       try {
         const prepared = await options.onRunPrepared({
           runId,
@@ -17802,7 +18091,7 @@ export function createProductionAgentHandler(
             ? prepared.duplicateRunId.trim()
             : undefined;
         if (duplicateRunId) {
-          if (foregroundRunRowInserted) {
+          if (runRowState.foregroundInserted) {
             await markRunAborted(runId, "duplicate_submission");
           }
           await setupResumeClaim?.release();
@@ -17810,9 +18099,11 @@ export function createProductionAgentHandler(
           if (!stream) {
             setResponseStatus(event, 503);
             return {
-              error: "The accepted submission run is no longer replayable",
-              code: "queued_message_run_unavailable",
-              retryable: true,
+              earlyResponse: {
+                error: "The accepted submission run is no longer replayable",
+                code: "queued_message_run_unavailable",
+                retryable: true,
+              },
             };
           }
           setResponseHeader(event, "Content-Type", "text/event-stream");
@@ -17821,10 +18112,10 @@ export function createProductionAgentHandler(
           setResponseHeader(event, "X-Run-Id", duplicateRunId);
           setRunTurnIdHeader(event, getRun(duplicateRunId)?.turnId);
           setResponseHeader(event, "X-Dispatch-Mode", "replay");
-          return stream;
+          return { earlyResponse: stream };
         }
       } catch (error) {
-        if (foregroundRunRowInserted) {
+        if (runRowState.foregroundInserted) {
           const terminalized = await updateRunStatusIfRunning(runId, "errored");
           if (terminalized) {
             await setRunTerminalReason(runId, "run_preparation_failed");
@@ -17837,15 +18128,23 @@ export function createProductionAgentHandler(
         }
         throw error;
       }
+      return { earlyResponse: null };
     }
 
-    if (dispatchToBackground) {
-      let backgroundRowInserted = foregroundRunRowInserted;
+    async function dispatchDurableBackgroundRun(): Promise<
+      { earlyResponse: unknown } | { earlyResponse: null }
+    > {
+      if (!dispatchToBackground) {
+        return { earlyResponse: null };
+      }
+      let backgroundRowInserted = runRowState.foregroundInserted;
       if (!backgroundRowInserted) {
         try {
           await insertRun(runId, effectiveThreadId, effectiveTurnId, {
             dispatchMode: "background",
-            dispatchPayload: durableDispatchPayload!,
+            ...(durableDispatchPayload !== undefined
+              ? { dispatchPayload: durableDispatchPayload }
+              : {}),
             ...(turnInitiator ? { turnInitiator } : {}),
           });
           backgroundRowInserted = true;
@@ -17857,32 +18156,24 @@ export function createProductionAgentHandler(
           );
         }
       }
+      runRowState.durableInserted = backgroundRowInserted;
 
       if (
         backgroundRowInserted &&
         (await isTurnAborted(effectiveThreadId, effectiveTurnId))
       ) {
         await markRunAborted(runId, "user");
-        return { ok: true, stopped: true };
+        return { earlyResponse: { ok: true, stopped: true } };
       }
 
       let dispatched = false;
       const backgroundDispatchPath = resolveAgentChatProcessRunDispatchPath();
       const expectsNetlifyBackgroundFunction =
         dispatchPathTargetsNetlifyBackgroundFunction(backgroundDispatchPath);
+      prepCleanup.dispatchMayOwnRun = true;
       try {
         await fireInternalDispatch({
           event,
-          // On hosted Netlify this resolves to the background function's DEFAULT
-          // url (/.netlify/functions/<name>, or per-app <app>-agent-background for
-          // workspaces) — the function declares NO custom config.path, so it keeps
-          // its default url, and `background: true` makes that url async (202,
-          // 15-min budget). The `server` /* catch-all already excludes /.netlify/*
-          // so it never shadows it. Off-Netlify this resolves to the framework
-          // `_process-run` route and the same in-process catch-all handles it
-          // inline. `fireInternalDispatch` strips the app base path for
-          // /.netlify/* targets so the request reaches the host-root function url;
-          // the Authorization Bearer HMAC is preserved either way.
           path: backgroundDispatchPath,
           taskId: runId,
           ...(expectsNetlifyBackgroundFunction
@@ -17942,45 +18233,79 @@ export function createProductionAgentHandler(
           setResponseHeader(event, "X-Run-Id", runId);
           setRunTurnIdHeader(event, effectiveTurnId);
           setResponseHeader(event, "X-Dispatch-Mode", "background");
-          return stream;
+          return { earlyResponse: stream };
         }
         const terminalReason =
           backgroundOutcome.action === "stream"
             ? "background_subscribe_failed"
             : "background_dispatch_failed";
-        const statusUpdated = await updateRunStatusIfRunning(
-          runId,
-          "errored",
-        ).catch(() => false);
-        if (statusUpdated) {
-          await setRunTerminalReason(runId, terminalReason).catch(() => {});
+        try {
+          const statusUpdated = await updateRunStatusIfRunning(
+            runId,
+            "errored",
+          );
+          if (statusUpdated) {
+            await setRunTerminalReason(runId, terminalReason);
+          }
+        } catch (cleanupErr) {
+          console.warn(
+            "[agent-chat] failed to mark background run errored after subscribe failure:",
+            cleanupErr,
+          );
         }
         setResponseStatus(event, 500);
         return {
-          error:
-            backgroundOutcome.action === "stream"
-              ? "Failed to subscribe to background run"
-              : "Failed to dispatch background run",
+          earlyResponse: {
+            error:
+              backgroundOutcome.action === "stream"
+                ? "Failed to subscribe to background run"
+                : "Failed to dispatch background run",
+          },
         };
       }
 
+      prepCleanup.dispatchMayOwnRun = false;
       if (backgroundOutcome.reason === "worker-never-claimed") {
-        const priorClaim = await readBackgroundRunClaim(runId).catch(
-          () => null,
-        );
-        const priorDiag = priorClaim?.diagStage ?? "none";
+        let priorDiag = "none";
+        try {
+          const priorClaim = await readBackgroundRunClaim(runId);
+          priorDiag = priorClaim?.diagStage ?? "none";
+        } catch (diagErr) {
+          console.warn(
+            "[agent-chat] failed to read prior background claim diagnostic:",
+            diagErr,
+          );
+        }
         console.error(
           "[agent-chat] background worker did not claim the 202-dispatched run " +
             `within grace; recovering inline. bgFnPriorDiag=${priorDiag}`,
           runId,
         );
-        await recordRunDiagnostic(
-          runId,
-          RUN_DIAG_STAGE.foregroundInlineRecovery,
-          `202 dispatched but no worker claimed within grace; bgFnPriorDiag=${priorDiag}`,
-        ).catch(() => {});
+        try {
+          await recordRunDiagnostic(
+            runId,
+            RUN_DIAG_STAGE.foregroundInlineRecovery,
+            `202 dispatched but no worker claimed within grace; bgFnPriorDiag=${priorDiag}`,
+          );
+        } catch (diagErr) {
+          console.warn(
+            "[agent-chat] failed to record foreground inline recovery diagnostic:",
+            diagErr,
+          );
+        }
       }
-      // Fall through to the inline `startRun` path below.
+      return { earlyResponse: null };
+    }
+
+    if (!backgroundDispatchAttempted) {
+      const preparedResult = await runOnRunPreparedHook();
+      if (preparedResult.earlyResponse !== null) {
+        return preparedResult.earlyResponse;
+      }
+      const dispatchResult = await dispatchDurableBackgroundRun();
+      if (dispatchResult.earlyResponse !== null) {
+        return dispatchResult.earlyResponse;
+      }
     }
 
     const trackedProgressOwner =
@@ -18169,6 +18494,11 @@ export function createProductionAgentHandler(
                     ? { attachments: requestAttachments }
                     : {}),
                 } as unknown as Record<string, unknown>,
+                ...(submissionPayload &&
+                validateSubmissionAttachments &&
+                requestAttachments.length > 0
+                  ? { submissionBindings: bindings }
+                  : {}),
                 backgroundContinuationCount,
                 noProgressRepeat,
                 turnInputTokens,
@@ -18265,6 +18595,7 @@ export function createProductionAgentHandler(
     }
 
     // raw-sql-ok: run callback IDs and prompts reach static queries as bound arguments.
+    prepCleanup.runStarted = true;
     const startedRun = startRun(
       runId,
       effectiveThreadId,
@@ -19117,7 +19448,7 @@ export function createProductionAgentHandler(
           : foregroundSelfChainEligible
             ? "foreground-self-chain"
             : "foreground",
-        runRowAlreadyInserted: foregroundRunRowInserted,
+        runRowAlreadyInserted: runRowState.foregroundInserted,
         executionLease: true,
         // An anonymous run is not a user; `run_started` does not name one either.
         userId: turnInitiator?.anonymous
@@ -19160,6 +19491,53 @@ export function createProductionAgentHandler(
     );
 
     return stream;
+  };
+
+  return defineEventHandler(async (event) => {
+    const prepCleanup: PrepCleanupState = { runStarted: false };
+    try {
+      return await handleAgentChatEvent(event, prepCleanup);
+    } catch (error) {
+      if (
+        !prepCleanup.runStarted &&
+        !prepCleanup.dispatchMayOwnRun &&
+        prepCleanup.runId &&
+        (prepCleanup.runRowState?.foregroundInserted ||
+          prepCleanup.runRowState?.durableInserted)
+      ) {
+        try {
+          const terminalized = await updateRunStatusIfRunning(
+            prepCleanup.runId,
+            "errored",
+          );
+          if (terminalized) {
+            await setRunTerminalReason(
+              prepCleanup.runId,
+              "run_preparation_failed",
+            );
+            await setRunError(
+              prepCleanup.runId,
+              "run_preparation_failed",
+              error instanceof Error ? error.message : String(error),
+            );
+          }
+        } catch (cleanupErr) {
+          console.warn(
+            "[agent-chat] failed to mark run errored after preparation failure:",
+            cleanupErr,
+          );
+        }
+      }
+      try {
+        await prepCleanup.setupResumeClaim?.release();
+      } catch (releaseErr) {
+        console.warn(
+          "[agent-chat] failed to release setup resume claim:",
+          releaseErr,
+        );
+      }
+      throw error;
+    }
   });
 }
 
