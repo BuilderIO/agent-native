@@ -97,6 +97,7 @@ function instrument(client: PgClient): PgClient {
   });
 }
 
+// oracle-change: local runs without PostgreSQL skip this integration suite; CI proof requires the URL.
 describe.runIf(Boolean(url))("PostgreSQL navigation snapshots", () => {
   beforeAll(async () => {
     if (!url || !new URL(url).pathname.toLowerCase().includes("test")) {

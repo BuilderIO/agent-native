@@ -2,4 +2,4 @@
 "@agent-native/core": patch
 ---
 
-Keep settings reads on the active database transaction and expose store readiness for callers that start a transaction.
+Keep lazy store initialization on the active transaction and support reconciling federated membership before a consistent snapshot read.

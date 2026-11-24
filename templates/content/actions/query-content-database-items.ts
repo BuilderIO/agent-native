@@ -8,6 +8,7 @@ import { getDb } from "../server/db/index.js";
 import type {
   ContentDatabaseItemsPagePayload,
   ContentDatabaseNavigationPageResponse,
+  ContentDatabasePersonalViewOverrides,
   ContentDatabaseUnavailableResponse,
 } from "../shared/api.js";
 import { compactContentDatabaseResponse } from "../shared/database-row-properties.js";
@@ -137,6 +138,10 @@ export default defineAction({
       });
     }
     const userEmail = ctx?.userEmail;
+    const databaseRef = {
+      ...(databaseId !== undefined ? { databaseId } : {}),
+      ...(documentId !== undefined ? { documentId } : {}),
+    };
     if (navigation && limit !== undefined && limit > 20) {
       fail("Files navigation supports at most 20 items per page.", {
         errorCode: "navigation_limit_exceeded",
@@ -148,17 +153,14 @@ export default defineAction({
       // require DDL and a separate transaction in local and self-hosted mode.
       const [settingsReady] = await Promise.allSettled([ensureSettingsStore()]);
       return withFederatedMembershipSnapshot(
-        () => resolveContentDatabaseRead({ databaseId, documentId }),
+        () => resolveContentDatabaseRead(databaseRef),
         async (preflight) => {
           if (!preflight.available) return preflight;
           if (!userEmail) throw new Error("Not authenticated.");
           if (settingsReady?.status === "rejected") throw settingsReady.reason;
           return getDb().transaction(
             async () => {
-              const resolved = await resolveContentDatabaseRead({
-                databaseId,
-                documentId,
-              });
+              const resolved = await resolveContentDatabaseRead(databaseRef);
               if (!resolved.available) return resolved;
               const overrides = await readPersonalDatabaseViewOverrides(
                 userEmail,
@@ -168,16 +170,27 @@ export default defineAction({
               return getContentDatabaseNavigationPage({
                 database: resolved.database,
                 userEmail,
-                overrides,
+                overrides:
+                  overrides as ContentDatabasePersonalViewOverrides | null,
                 parentId: navigation.parentId,
                 sort: navigation.sort,
-                viewId: navigation.viewId,
+                ...(navigation.viewId !== undefined
+                  ? { viewId: navigation.viewId }
+                  : {}),
                 limit: limit ?? 20,
-                cursor: navigation.cursor,
-                expand: navigation.expand,
+                ...(navigation.cursor !== undefined
+                  ? { cursor: navigation.cursor }
+                  : {}),
+                ...(navigation.expand !== undefined
+                  ? { expand: navigation.expand }
+                  : {}),
                 pagesOnly: navigation.pagesOnly ?? false,
-                group: navigation.group,
-                locate: navigation.locate,
+                ...(navigation.group !== undefined
+                  ? { group: navigation.group }
+                  : {}),
+                ...(navigation.locate !== undefined
+                  ? { locate: navigation.locate }
+                  : {}),
               });
             },
             { isolationLevel: "repeatable read", accessMode: "read only" },
@@ -186,10 +199,7 @@ export default defineAction({
       );
     }
 
-    const resolved = await resolveContentDatabaseRead({
-      databaseId,
-      documentId,
-    });
+    const resolved = await resolveContentDatabaseRead(databaseRef);
     if (!resolved.available) return resolved;
     let database = resolved.database;
     if (await refreshGitHubSourceBeforeRead(database.id)) {
