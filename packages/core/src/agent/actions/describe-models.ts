@@ -121,6 +121,7 @@ export default defineAction({
   outputSchema: describeModelsResultSchema,
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: false,
   run: async (args): Promise<DescribeModelsResult> => {
     let modelIds = args.models;
     if (!modelIds && args.engine) {

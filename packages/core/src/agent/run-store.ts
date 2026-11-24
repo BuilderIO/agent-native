@@ -219,8 +219,15 @@ export function __resetNoRunningRunsProbeForTests(): void {
   _noRunningRunsUntil = 0;
 }
 
-async function hasRunningRuns(): Promise<boolean> {
-  if (Date.now() < _noRunningRunsUntil) return false;
+/**
+ * Whether any agent run is still running. A "no" is cached for a few seconds
+ * because hot paths probe on every request; `fresh` skips that cache for a
+ * caller about to act on the answer.
+ */
+export async function hasRunningRuns(
+  options: { fresh?: boolean } = {},
+): Promise<boolean> {
+  if (!options.fresh && Date.now() < _noRunningRunsUntil) return false;
   const { rows } = await getDbExec().execute({
     sql: `SELECT id FROM agent_runs WHERE status = 'running' LIMIT 1`,
     args: [],
@@ -3426,6 +3433,23 @@ async function reapSingleStaleRun(
       (run.worker_generation == null ||
         String(run.worker_generation) === lease.generation);
     if (lease?.isLive && generationMatches) {
+      return { reaped: false, outcome: null };
+    }
+    if (
+      typeof maxStaleMs !== "number" &&
+      lease &&
+      generationMatches &&
+      (await ownsLapsedTurnLease(
+        tx,
+        {
+          threadId: runScope.thread_id as string,
+          turnId: runScope.turn_id as string,
+          runId,
+          generation: lease.generation,
+        },
+        { lapsedWithinMs: TURN_EXECUTION_LEASE_MS },
+      ))
+    ) {
       return { reaped: false, outcome: null };
     }
     const repaired = await reconcileTerminalRunInRecoveryTransaction(tx, runId);

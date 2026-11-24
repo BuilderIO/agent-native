@@ -62,7 +62,7 @@ async function withTaskExecutionFence<T>(
 
 describe("task-store lifecycle (real pglite)", () => {
   beforeEach(async () => {
-    pglite = await createTestPglite();
+    pglite = await createTestPglite({ reuseEmptyBootstrap: true });
     vi.resetModules();
   });
 

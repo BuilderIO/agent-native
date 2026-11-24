@@ -60,6 +60,7 @@ export default defineAction({
     intent: navigationIntentSchema,
   }),
   http: false,
+  mcpTool: "search",
   run: async (args) => {
     const { intent: _intent, ...nav } = args;
     await writeAppStateForCurrentTab("navigate", { ...nav, ts: Date.now() });

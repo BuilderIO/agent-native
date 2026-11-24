@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconInfoCircle, IconMessage } from "@tabler/icons-react";
+import type { ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -12,9 +13,11 @@ import { cn } from "@/lib/utils";
 export function ReadOnlyDesignBanner({
   pinMode = false,
   onCommentPin,
+  zoomControl,
 }: {
   pinMode?: boolean;
   onCommentPin?: () => void;
+  zoomControl?: ReactNode;
 }) {
   const t = useT();
 
@@ -55,6 +58,9 @@ export function ReadOnlyDesignBanner({
             </TooltipTrigger>
             <TooltipContent side="top">{commentLabel}</TooltipContent>
           </Tooltip>
+        ) : null}
+        {zoomControl ? (
+          <div className="pointer-events-auto shrink-0">{zoomControl}</div>
         ) : null}
       </div>
     </div>

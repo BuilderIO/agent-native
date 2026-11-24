@@ -5,6 +5,8 @@ import {
   CHUNK_RECOVERY_QUERY_PARAM,
   CHUNK_RECOVERY_QUERY_VALUE,
   EXTERNAL_EMBED_WINDOW_KEY,
+  OFFLINE_RETRY_KEY,
+  OFFLINE_RETRY_LISTENING_KEY,
   ROUTE_WARMUP_PRELOAD_ATTRIBUTE,
   STALE_CHUNK_EXHAUSTED_KEY,
   STALE_CHUNK_NAVIGATING_AT_KEY,
@@ -393,11 +395,57 @@ function reportStaleChunkRecoveryExhausted(
   );
 }
 
+interface OfflineRetry {
+  href: string;
+  from: string;
+  at: number;
+}
+
+function isOffline(win: Window): boolean {
+  return win.navigator.onLine === false;
+}
+
+function retryNavigationWhenOnline(
+  win: Window,
+  target: string,
+  now: number,
+): void {
+  const flags = win as unknown as Record<string, unknown>;
+  flags[OFFLINE_RETRY_KEY] = {
+    href: target,
+    from: win.location.href,
+    at: now,
+  } satisfies OfflineRetry;
+  if (flags[OFFLINE_RETRY_LISTENING_KEY]) return;
+  flags[OFFLINE_RETRY_LISTENING_KEY] = true;
+  win.addEventListener("online", () => {
+    const pending = flags[OFFLINE_RETRY_KEY] as OfflineRetry | undefined;
+    delete flags[OFFLINE_RETRY_KEY];
+    if (!pending || isExternalEmbed(win) || isAgentNativeDesktop(win)) return;
+    if (win.location.href !== pending.from) return;
+    if (pending.href.split("#")[0] === win.location.href.split("#")[0]) {
+      win.location.reload();
+      return;
+    }
+    hardNavigate(win, pending.href);
+  });
+}
+
 export function reloadForStaleChunk(
   win: Window | undefined = typeof window === "undefined" ? undefined : window,
   now = Date.now(),
 ): boolean {
   if (!win?.location) return false;
+  if (isOffline(win) && !isExternalEmbed(win) && !isAgentNativeDesktop(win)) {
+    const state = recoveryStates.get(win);
+    retryNavigationWhenOnline(
+      win,
+      (state && getFreshIntendedNavigation(state, win.location.href, now)) ||
+        win.location.href,
+      now,
+    );
+    return true;
+  }
   if (isAgentNativeDesktop(win)) {
     reportStaleChunkRecoveryExhausted(win, "desktop");
     return false;
@@ -447,7 +495,7 @@ function recoverToIntendedNavigation(
   win: Window,
   state: RouteChunkRecoveryState,
 ): boolean {
-  if (isExternalEmbed(win)) return false;
+  if (isExternalEmbed(win) || isOffline(win)) return false;
   const target = getFreshIntendedNavigation(state, win.location.href);
   const sameCurrentTarget =
     isAgentNativeDesktop(win) &&
@@ -614,7 +662,9 @@ export function installRouteChunkRecovery(
     consoleRef.error = (...args: unknown[]) => {
       if (args.some(isRouteModuleReloadMessage)) {
         state.routeModuleFailureAt = Date.now();
-        if (hasViteDevRecovery(win) !== true) {
+        if (isOffline(win)) {
+          reloadForStaleChunk(win);
+        } else if (hasViteDevRecovery(win) !== true) {
           recoverToIntendedNavigation(win, state);
         }
       }

@@ -2,6 +2,7 @@ import { isMcpReadOnlyTool } from "../action-call-classification.js";
 import {
   ACTION_EXECUTION_KEY,
   isActionDefinitionError,
+  isMcpScriptWriteContract,
   namedActionDefinitionError,
   validateSearchHints,
 } from "../action.js";
@@ -74,6 +75,13 @@ export function preserveActionFlags(
     out.schema = entry.schema;
   }
   if (
+    entry.outputSchema &&
+    typeof entry.outputSchema === "object" &&
+    "~standard" in entry.outputSchema
+  ) {
+    out.outputSchema = entry.outputSchema as Flag<"outputSchema">;
+  }
+  if (
     entry.agentInputSchema &&
     typeof entry.agentInputSchema === "object" &&
     "~standard" in entry.agentInputSchema
@@ -91,6 +99,13 @@ export function preserveActionFlags(
     out.mcpAnnotations = entry.mcpAnnotations;
   }
   if (entry.mcpScript === "read") out.mcpScript = "read";
+  if (
+    entry.mcpScript === "write" &&
+    isMcpScriptWriteContract(entry.mcpScriptWrite)
+  ) {
+    out.mcpScript = "write";
+    out.mcpScriptWrite = entry.mcpScriptWrite;
+  }
   const outputContract = entry.mcpOutputContract;
   if (
     outputContract &&
@@ -209,6 +224,15 @@ export function preserveActionFlags(
   }
   if (typeof entry.approvalLabel === "function") {
     out.approvalLabel = entry.approvalLabel as Flag<"approvalLabel">;
+  }
+  if (typeof entry.mcpNeedsApproval === "function") {
+    out.mcpNeedsApproval = entry.mcpNeedsApproval as Flag<"mcpNeedsApproval">;
+  }
+  if (typeof entry.approvalNotice === "function") {
+    out.approvalNotice = entry.approvalNotice as Flag<"approvalNotice">;
+  }
+  if (entry.approvalProof === "review-page") {
+    out.approvalProof = entry.approvalProof;
   }
   if (typeof entry.allowPersistentApproval === "boolean") {
     out.allowPersistentApproval = entry.allowPersistentApproval;

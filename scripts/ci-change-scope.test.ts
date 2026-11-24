@@ -147,6 +147,64 @@ test("normalizes paths from git output", () => {
   );
 });
 
+test("keeps standalone end-to-end runners on their own checks and retains helper unit coverage", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "standalone-e2e-scope-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  for (const path of [
+    "templates/analytics-2/e2e/thread-layout.ts",
+    "templates/mail/e2e/daily/run.ts",
+    "packages/core/e2e/run.ts",
+    "community-templates/demo/e2e/run.ts",
+  ]) {
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    writeFileSync(join(root, path), "console.log(process.argv.slice(2));");
+    const scope = classifyChangedPaths([path], [], root);
+    assert.equal(scope.full, false, path);
+    assert.equal(scope.checks.fast_tests, false, path);
+    assert.equal(scope.checks.lint, true, path);
+    assert.equal(scope.checks.typecheck, true, path);
+    assert.equal(scope.checks.build, true, path);
+    for (const production of [
+      "templates/mail/actions/send-email.ts",
+      "templates/mail/actions/e2e/inspect-catalog.ts",
+      "packages/core/src/mcp/server.ts",
+    ]) {
+      assert.equal(
+        classifyChangedPaths([path, production], [], root).checks.fast_tests,
+        true,
+        production,
+      );
+    }
+  }
+  for (const source of [
+    "export const args = process.argv.slice(2);",
+    "export async function prepare() {}",
+    "console.log('loaded');",
+    "console.log('process.argv');",
+    "/* process.argv */ console.log('loaded');",
+    "console.log(/process.argv/);",
+  ]) {
+    const helper = "templates/mail/e2e/helper.ts";
+    writeFileSync(join(root, helper), source);
+    assert.equal(
+      classifyChangedPaths([helper], [], root).checks.fast_tests,
+      true,
+      source,
+    );
+  }
+  assert.equal(
+    classifyChangedPaths(["templates/mail/e2e/unreadable.ts"], [], root).checks
+      .fast_tests,
+    true,
+  );
+  assert.equal(
+    classifyChangedPaths([
+      "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
+    ]).checks.pre_auth_session_replay_e2e,
+    true,
+  );
+});
+
 test("rejects runtime changes hidden under a test-only PR title", () => {
   assert.deepEqual(
     runtimeSourceChangesInTestTitledPr(
@@ -578,6 +636,7 @@ test("keeps slow app lanes scoped on full CI tooling changes", () => {
       "slides_text_surface_e2e",
       "slides_authoring_e2e",
       "slides_oracle",
+      "storybook_tests",
     ] as const) {
       assert.equal(scope.checks[check], false, `${path}: ${check}`);
     }
@@ -4663,6 +4722,82 @@ test("runs the oracle ratchet only for changes that can alter test modes", () =>
   }
 });
 
+void test("runs story tests for the stories, the source they render, and their config", () => {
+  for (const path of [
+    "packages/toolkit/dev/stories/components/button.stories.tsx",
+    "packages/toolkit/dev/foundations/themes.tsx",
+    "packages/toolkit/.storybook/preview.tsx",
+    "packages/toolkit/src/ui/base-ui/table.tsx",
+    "packages/toolkit/src/app/settings/SettingsSection.tsx",
+    "packages/design-system/css/parts/table.css",
+    "packages/design-system/src/index.ts",
+    "packages/toolkit/vitest.storybook.config.ts",
+    "packages/toolkit/package.json",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.storybook_tests,
+      true,
+      path,
+    );
+  }
+  for (const path of [
+    "packages/toolkit/src/ui/base-ui/table.spec.tsx",
+    "packages/design-system/src/palette.test.ts",
+    "packages/toolkit/vitest.config.ts",
+    "packages/core/src/feature-flags/registry.ts",
+    "templates/calendar/app/routes/index.tsx",
+    "packages/design-system/README.md",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.storybook_tests,
+      false,
+      path,
+    );
+  }
+  for (const path of [
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "package.json",
+  ]) {
+    assert.equal(
+      classifyChangedPaths([path]).checks.storybook_tests,
+      true,
+      `full run: ${path}`,
+    );
+  }
+  assert.equal(classifyChangedPaths([]).checks.storybook_tests, true);
+  assert.equal(
+    classifyChangedPaths(["scripts/ci-change-scope.ts"]).checks.storybook_tests,
+    false,
+    "tooling-only full run",
+  );
+  const ownWorkflow = classifyChangedPaths([
+    ".github/workflows/storybook-tests.yml",
+  ]);
+  assert.equal(ownWorkflow.full, true);
+  assert.equal(ownWorkflow.checks.storybook_tests, true, "its own workflow");
+});
+
+void test("the Storybook workflow records on main only paths that run story tests on a PR", () => {
+  // source-read-ok: the workflow's push paths are the subject, checked against the classifier.
+  const workflow = readFileSync(
+    ".github/workflows/storybook-tests.yml",
+    "utf8",
+  );
+  const paths = [...workflow.matchAll(/^ {6}- "([^"]+)"$/gmu)].flatMap(
+    ([, path]) => (path ? [path] : []),
+  );
+  assert.ok(paths.length > 0, "missing push paths");
+  for (const path of paths) {
+    const sample = path.replace(/\*\*$/u, "x/y.tsx");
+    assert.equal(
+      classifyChangedPaths([sample]).checks.storybook_tests,
+      true,
+      `${path} records a baseline on main but runs no story tests on a PR`,
+    );
+  }
+});
+
 test("runs the execution-lease model check for its model, script, and covered code", () => {
   for (const path of [
     "verification/execution-lease/ExecutionLease.tla",
@@ -4772,6 +4907,7 @@ test(
         ".github/workflows/slides-authoring-nightly.yml",
         ".github/workflows/slides-authoring-image.yml",
         ".github/workflows/email-workflow-failures.yml",
+        ".github/workflows/storybook-tests.yml",
         ".github/actions/slides-authoring-shard/action.yml",
         ".github/actions/slides-authoring-image/action.yml",
         "docker/ci-slides-authoring/Dockerfile",

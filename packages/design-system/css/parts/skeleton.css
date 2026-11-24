@@ -1,0 +1,78 @@
+/*
+ * Part: skeleton
+ *
+ *   <div class="skeleton" aria-hidden inert>                  empty: fills its box
+ *   <span class="skeleton" data-inline-skeleton>text</span>   around text
+ *   <img class="skeleton …">                                  around an element, as that element
+ *
+ * Radix Themes' skeleton: a placeholder in the shape of loading content.
+ * Empty, it fills the box its layout gives it, one text line tall when that
+ * box has no height. Around content it takes the content's shape and hides
+ * it. It pulses between two gray tints, and holds still under reduced
+ * motion.
+ */
+
+@layer components {
+  .skeleton {
+    border: 0;
+    border-radius: calc(var(--shape-control) * var(--corner-scale, 1));
+    corner-shape: var(--corner-shape, round);
+    background-color: var(--gray-a3);
+    background-image: none;
+    box-shadow: none;
+    box-decoration-break: clone;
+    color: transparent;
+    outline: none;
+    pointer-events: none;
+    cursor: default;
+    -webkit-user-select: none;
+    user-select: none;
+    animation: skeleton-pulse 1s var(--ease-standard) infinite alternate-reverse;
+  }
+
+  .skeleton:empty:not(img) {
+    display: block;
+    width: 100%;
+    height: 100%;
+    min-height: 1lh;
+  }
+
+  img.skeleton {
+    /* Move the artwork outside its box while retaining its intrinsic dimensions. */
+    object-position: calc(infinity * 1px) center;
+  }
+
+  /* Inline, it adds no height to its line, so wrapped text keeps its rhythm. */
+  .skeleton[data-inline-skeleton] {
+    line-height: 0;
+  }
+
+  .skeleton > *,
+  .skeleton::before,
+  .skeleton::after {
+    visibility: hidden;
+  }
+
+  @media (forced-colors: active) {
+    .skeleton {
+      forced-color-adjust: none;
+      background-color: GrayText;
+      animation: none;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .skeleton {
+      animation: none;
+    }
+  }
+}
+
+@keyframes skeleton-pulse {
+  from {
+    background-color: var(--gray-a3);
+  }
+  to {
+    background-color: var(--gray-a4);
+  }
+}

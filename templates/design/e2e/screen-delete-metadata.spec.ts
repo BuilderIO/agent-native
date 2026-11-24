@@ -426,9 +426,7 @@ test("Delete removes the last selected Screen", async ({ app, page }) => {
   );
   await expect(screenTitle).toBeVisible();
   await screenTitle.click();
-  await expect(
-    page.getByRole("button", { name: "Remove screen" }),
-  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Remove page" })).toBeVisible();
 
   await page.keyboard.press("Delete");
   await expect

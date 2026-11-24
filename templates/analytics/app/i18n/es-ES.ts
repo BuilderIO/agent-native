@@ -2192,6 +2192,10 @@ export default {
     flagsUnavailable: "Los indicadores de funciones no están disponibles",
     flagsUnreachable:
       "No se pudo acceder al directorio del espacio de trabajo. Inténtalo de nuevo cuando esté disponible.",
+    verifiedFlagChangeOrg:
+      "Verificado a las {{time}}: {{flag}} en {{app}} está configurado como {{availability}} para esta organización.",
+    verifiedFlagChangeGlobal:
+      "Verificado a las {{time}}: {{flag}} en {{app}} está configurado como {{availability}} para todas las organizaciones.",
     flagsEmpty: "Ninguna aplicación informó indicadores",
     flagsEmptyDetail:
       "Los indicadores registrados aparecerán aquí cuando las aplicaciones conectadas estén listas.",
@@ -2357,6 +2361,16 @@ export default {
     addedBy: "Añadido por {{email}}",
     more: "+{{count}} más",
     flagLabel: "Notas de datos",
+  },
+  citedIn: {
+    menu: "Citado en",
+    menuTooltip: "Páginas de Content con gráficos de este panel",
+    empty:
+      "Aún no hay páginas de Content que pueda abrir con gráficos de este panel",
+    unavailable:
+      "No se pudo conectar con Content. Inténtelo de nuevo en un minuto.",
+    untitledPage: "Sin título",
+    more: "Content solo revisó las páginas editadas más recientemente, así que puede haber más.",
   },
   annotations: {
     menu: "Anotaciones",

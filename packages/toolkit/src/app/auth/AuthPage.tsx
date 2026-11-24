@@ -20,6 +20,7 @@ import { whenConsentDecided } from "@agent-native/core/client/consent";
 import { startMobileGoogleAuth } from "@agent-native/core/client/mobile-auth";
 import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
 import { navigateForSession } from "@agent-native/core/client/use-session";
+import { consentBannerMessagesForLocale } from "@agent-native/core/localization/privacy-choice-messages";
 import { normalizeLocaleCode } from "@agent-native/core/localization/shared";
 import { canonicalTrackingEvent } from "@agent-native/core/shared/analytics-events";
 import { getAppStatus } from "@agent-native/core/shared/app-status";
@@ -44,6 +45,7 @@ import { AuthForm } from "@agent-native/toolkit/onboarding";
 import { IconLoader2 } from "@tabler/icons-react";
 import * as React from "react";
 
+import { ConsentBannerPanel } from "../shared/ConsentBanner.js";
 import { WaveBackground } from "../shared/WaveBackground.js";
 
 export type {
@@ -467,17 +469,37 @@ function builderPreviewReturnOrigin(): string {
   return "";
 }
 
+function isLoopbackOrigin(origin: string): boolean {
+  try {
+    const hostname = new URL(origin).hostname.toLowerCase();
+    return (
+      hostname === "localhost" ||
+      hostname === "[::1]" ||
+      /^127(?:\.\d{1,3}){3}$/.test(hostname)
+    );
+  } catch {
+    // coercion-ok: an unreadable origin is treated as hosted.
+    return false;
+  }
+}
+
 export function resolveOAuthReturnOrigin(input: {
   previewOrigin: string;
   workspaceGatewayReturnOrigin: string;
   userAgent: string;
+  currentOrigin?: string;
 }): string {
+  const currentOrigin =
+    input.currentOrigin ??
+    (typeof window === "undefined" ? "" : window.location.origin);
+  const desktopGatewayReturn =
+    (isAgentNativeDesktop(input.userAgent) ||
+      isBuilderDesktop(input.userAgent)) &&
+    isLoopbackOrigin(currentOrigin);
   return (
     input.previewOrigin ||
     input.workspaceGatewayReturnOrigin ||
-    (isAgentNativeDesktop(input.userAgent) || isBuilderDesktop(input.userAgent)
-      ? BUILDER_DESKTOP_RETURN_ORIGIN
-      : "")
+    (desktopGatewayReturn ? BUILDER_DESKTOP_RETURN_ORIGIN : "")
   );
 }
 
@@ -485,12 +507,14 @@ export function oauthReturnTarget(
   target: string,
   workspaceGatewayReturnOrigin: string,
   userAgent = typeof navigator === "undefined" ? "" : navigator.userAgent,
+  currentOrigin = typeof window === "undefined" ? "" : window.location.origin,
 ): string {
   const path = normalizeOAuthReturnPath(target);
   const origin = resolveOAuthReturnOrigin({
     previewOrigin: builderPreviewReturnOrigin(),
     workspaceGatewayReturnOrigin,
     userAgent,
+    currentOrigin,
   });
   return origin ? origin + path : path;
 }
@@ -1118,8 +1142,10 @@ export function AuthPage(props: AuthPageProps) {
         basePath: runtimeAppBasePath,
         homePath,
       }).resumeHref;
+      const landing = new URL(resumeHref, window.location.origin);
       captureAttribution({
-        landingPath: new URL(resumeHref, window.location.origin).pathname,
+        landingPath: landing.pathname,
+        landingSearch: landing.search,
       });
     }
     const identity = normalizeEmail(signupEmail);
@@ -3257,12 +3283,16 @@ export function AuthPage(props: AuthPageProps) {
       </div>
     </div>
   ) : null;
+  const consentBanner = (
+    <ConsentBannerPanel messages={consentBannerMessagesForLocale(locale)} />
+  );
   const marketingSurface = marketingCopy ? (
     <main className="auth-marketing-home" data-agent-native-marketing-home>
       <div className="auth-marketing-shell">
         <div className="split auth-marketing-layout">
           <aside className="form-panel w-full max-w-md justify-self-end">
             {authCard}
+            {consentBanner}
           </aside>
           <section className="marketing-panel">
             <div className="auth-marketing-visual">{marketingContent}</div>
@@ -3271,7 +3301,10 @@ export function AuthPage(props: AuthPageProps) {
       </div>
     </main>
   ) : (
-    <div className="auth-centered">{authCard}</div>
+    <div className="auth-centered">
+      {authCard}
+      {consentBanner}
+    </div>
   );
   const localePicker = (
     <div className="locale-picker">
@@ -3345,7 +3378,10 @@ export function AuthPage(props: AuthPageProps) {
       <div className="auth-page-content">
         {localePicker}
         {initialPrompt ? (
-          <div className="auth-centered">{authCard}</div>
+          <div className="auth-centered">
+            {authCard}
+            {consentBanner}
+          </div>
         ) : (
           marketingSurface
         )}

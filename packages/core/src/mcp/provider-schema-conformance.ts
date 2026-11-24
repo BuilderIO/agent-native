@@ -11,6 +11,7 @@ import {
   actionsToEngineTools,
   type ActionEntry,
 } from "../agent/production-agent.js";
+import { attachToolSearch } from "../agent/tool-search.js";
 import {
   isJsonSchemaObject,
   walkSubschemas,
@@ -616,7 +617,7 @@ export async function loadTemplateMcpConformance(
     ...filterMcpOnlyActions(directoryActions),
     ...filterAgentTools(directoryActions),
   });
-  const config = conformanceMcpConfig(appId, actions);
+  const config = conformanceMcpConfig(appId, attachToolSearch({ ...actions }));
   const profile = await loadTemplateDirectoryProfile(projectRoot, importModule);
   return {
     appId,

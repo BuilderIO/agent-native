@@ -1,0 +1,175 @@
+/*
+ * The design system's Tailwind v4 layer. Import after `@import "tailwindcss"`.
+ *
+ * It maps semantic roles and scale steps onto utilities, so app chrome can be
+ * written with the same tokens the parts use: `bg-surface-canvas`,
+ * `text-fg-muted`, `border-line`, `bg-fill-hover`, `rounded-control`,
+ * `text-brand-11`, `h-control-md`, `text-1`. None of these names collide
+ * with shadcn's (`bg-background`, `bg-accent`, ...), which keep working.
+ *
+ * `@theme inline` keeps every utility pointed at the live variable, so a
+ * `.dark`, `data-theme`, `data-density` or `data-palette` subtree restyles
+ * the utilities inside it too.
+ */
+
+@import "./text-style-utilities.css";
+
+@theme inline {
+  --color-surface-app: var(--surface-app);
+  --color-surface-nav: var(--surface-nav);
+  --color-surface-canvas: var(--surface-canvas);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-surface-overlay: var(--surface-overlay);
+  --color-surface-inverse: var(--surface-inverse);
+
+  --color-fg: var(--fg-default);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-fg-disabled: var(--fg-disabled);
+  --color-fg-on-brand: var(--fg-on-brand);
+  --color-fg-on-danger: var(--fg-on-danger);
+  --color-fg-brand: var(--fg-brand);
+  --color-fg-danger: var(--fg-danger);
+  --color-fg-inverse: var(--fg-inverse);
+
+  --color-line: var(--line-default);
+  --color-line-subtle: var(--line-subtle);
+  --color-line-strong: var(--line-strong);
+  --color-line-focus: var(--line-focus);
+
+  --color-fill-hover: var(--fill-hover);
+  --color-fill-pressed: var(--fill-pressed);
+  --color-fill-selected: var(--fill-selected);
+  --color-fill-neutral: var(--fill-neutral);
+  --color-fill-neutral-hover: var(--fill-neutral-hover);
+  --color-fill-field: var(--fill-field);
+  --color-fill-brand: var(--fill-brand);
+  --color-fill-brand-hover: var(--fill-brand-hover);
+  --color-fill-brand-subtle: var(--fill-brand-subtle);
+  --color-fill-danger: var(--fill-danger);
+  --color-fill-danger-hover: var(--fill-danger-hover);
+  --color-fill-danger-subtle: var(--fill-danger-subtle);
+
+  --color-status-danger: var(--status-danger-solid);
+  --color-status-danger-subtle: var(--status-danger-subtle);
+  --color-status-danger-fg: var(--status-danger-fg);
+  --color-status-danger-line: var(--status-danger-line);
+  --color-status-warning: var(--status-warning-solid);
+  --color-status-warning-subtle: var(--status-warning-subtle);
+  --color-status-warning-fg: var(--status-warning-fg);
+  --color-status-warning-line: var(--status-warning-line);
+  --color-status-success: var(--status-success-solid);
+  --color-status-success-subtle: var(--status-success-subtle);
+  --color-status-success-fg: var(--status-success-fg);
+  --color-status-success-line: var(--status-success-line);
+  --color-status-info: var(--status-info-solid);
+  --color-status-info-subtle: var(--status-info-subtle);
+  --color-status-info-fg: var(--status-info-fg);
+  --color-status-info-line: var(--status-info-line);
+
+  --color-gray-1: var(--gray-1);
+  --color-gray-2: var(--gray-2);
+  --color-gray-3: var(--gray-3);
+  --color-gray-4: var(--gray-4);
+  --color-gray-5: var(--gray-5);
+  --color-gray-6: var(--gray-6);
+  --color-gray-7: var(--gray-7);
+  --color-gray-8: var(--gray-8);
+  --color-gray-9: var(--gray-9);
+  --color-gray-10: var(--gray-10);
+  --color-gray-11: var(--gray-11);
+  --color-gray-12: var(--gray-12);
+  --color-gray-a1: var(--gray-a1);
+  --color-gray-a2: var(--gray-a2);
+  --color-gray-a3: var(--gray-a3);
+  --color-gray-a4: var(--gray-a4);
+  --color-gray-a5: var(--gray-a5);
+  --color-gray-a6: var(--gray-a6);
+  --color-gray-a7: var(--gray-a7);
+  --color-gray-a8: var(--gray-a8);
+  --color-gray-a9: var(--gray-a9);
+  --color-gray-a10: var(--gray-a10);
+  --color-gray-a11: var(--gray-a11);
+  --color-gray-a12: var(--gray-a12);
+
+  --color-brand-1: var(--brand-1);
+  --color-brand-2: var(--brand-2);
+  --color-brand-3: var(--brand-3);
+  --color-brand-4: var(--brand-4);
+  --color-brand-5: var(--brand-5);
+  --color-brand-6: var(--brand-6);
+  --color-brand-7: var(--brand-7);
+  --color-brand-8: var(--brand-8);
+  --color-brand-9: var(--brand-9);
+  --color-brand-10: var(--brand-10);
+  --color-brand-11: var(--brand-11);
+  --color-brand-12: var(--brand-12);
+  --color-brand-a1: var(--brand-a1);
+  --color-brand-a2: var(--brand-a2);
+  --color-brand-a3: var(--brand-a3);
+  --color-brand-a4: var(--brand-a4);
+  --color-brand-a5: var(--brand-a5);
+  --color-brand-a6: var(--brand-a6);
+  --color-brand-a7: var(--brand-a7);
+  --color-brand-a8: var(--brand-a8);
+  --color-brand-a9: var(--brand-a9);
+  --color-brand-a10: var(--brand-a10);
+  --color-brand-a11: var(--brand-a11);
+  --color-brand-a12: var(--brand-a12);
+  --color-brand-contrast: var(--brand-contrast);
+
+  --radius-control: var(--shape-control);
+  --radius-popup: var(--shape-popup);
+  --radius-card: var(--shape-card);
+  --radius-panel: var(--shape-panel);
+  --radius-dialog: var(--shape-dialog);
+  --radius-pill: var(--shape-pill);
+
+  --shadow-elevation-1: var(--shadow-1);
+  --shadow-elevation-2: var(--shadow-2);
+  --shadow-elevation-3: var(--shadow-3);
+  --shadow-elevation-4: var(--shadow-4);
+  --shadow-elevation-5: var(--shadow-5);
+  --shadow-elevation-6: var(--shadow-6);
+
+  --spacing-control-1: var(--control-height-1);
+  --spacing-control-2: var(--control-height-2);
+  --spacing-control-3: var(--control-height-3);
+  --spacing-control-4: var(--control-height-4);
+
+  --text-0: var(--font-size-0);
+  --text-0--line-height: var(--line-height-0);
+  --text-0--letter-spacing: var(--letter-spacing-0);
+  --text-1: var(--font-size-1);
+  --text-1--line-height: var(--line-height-1);
+  --text-1--letter-spacing: var(--letter-spacing-1);
+  --text-2: var(--font-size-2);
+  --text-2--line-height: var(--line-height-2);
+  --text-2--letter-spacing: var(--letter-spacing-2);
+  --text-3: var(--font-size-3);
+  --text-3--line-height: var(--line-height-3);
+  --text-3--letter-spacing: var(--letter-spacing-3);
+  --text-4: var(--font-size-4);
+  --text-4--line-height: var(--line-height-4);
+  --text-4--letter-spacing: var(--letter-spacing-4);
+  --text-5: var(--font-size-5);
+  --text-5--line-height: var(--line-height-5);
+  --text-5--letter-spacing: var(--letter-spacing-5);
+  --text-6: var(--font-size-6);
+  --text-6--line-height: var(--line-height-6);
+  --text-6--letter-spacing: var(--letter-spacing-6);
+  --text-7: var(--font-size-7);
+  --text-7--line-height: var(--line-height-7);
+  --text-7--letter-spacing: var(--letter-spacing-7);
+  --text-8: var(--font-size-8);
+  --text-8--line-height: var(--line-height-8);
+  --text-8--letter-spacing: var(--letter-spacing-8);
+  --text-9: var(--font-size-9);
+  --text-9--line-height: var(--line-height-9);
+  --text-9--letter-spacing: var(--letter-spacing-9);
+}
+
+/* Scope variants: `compact:gap-1`. */
+@custom-variant compact (&:where([data-density="compact"], [data-density="compact"] *));
+@custom-variant comfortable (&:where([data-density="comfortable"], [data-density="comfortable"] *));

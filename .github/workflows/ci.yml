@@ -64,6 +64,7 @@ jobs:
       slides_authoring_e2e: ${{ steps.scope.outputs.slides_authoring_e2e }}
       slides_authoring_matrix: ${{ steps.scope.outputs.slides_authoring_matrix }}
       slides_oracle: ${{ steps.scope.outputs.slides_oracle }}
+      storybook_tests: ${{ steps.scope.outputs.storybook_tests }}
       changeset: ${{ steps.scope.outputs.changeset }}
       verify_execution_lease: ${{ steps.scope.outputs.verify_execution_lease }}
       core_mutation: ${{ steps.scope.outputs.core_mutation }}
@@ -341,6 +342,15 @@ jobs:
           --exclude "**/*.perf.test.ts"
           --exclude "**/create-e2e.spec.ts"
 
+      - name: Upload action conformance measurements
+        if: always() && hashFiles('.tmp/action-conformance/*.json') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: action-conformance-${{ github.job }}-${{ matrix.lane }}
+          path: .tmp/action-conformance/*.json
+          include-hidden-files: true
+          retention-days: 14
+
       - name: Run package fast tests for lane
         if: matrix.filters != ''
         run: >-
@@ -468,6 +478,15 @@ jobs:
             --exclude "**/create-e2e.spec.ts"
           )
           pnpm --filter @agent-native/core exec vitest "${args[@]}"
+
+      - name: Upload action conformance measurements
+        if: always() && hashFiles('.tmp/action-conformance/*.json') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: action-conformance-${{ github.job }}-${{ matrix.lane }}
+          path: .tmp/action-conformance/*.json
+          include-hidden-files: true
+          retention-days: 14
 
       - name: Run package fast tests for lane
         if: matrix.filters != ''
@@ -1495,7 +1514,9 @@ jobs:
       # uploaded anything. So the job with the latest start time ran the group,
       # and among equal start times the lowest attempt is the one that ran it.
       # A page that fails mid-pagination would leave a list that can miss the
-      # newest attempts, so only a complete list reaches the merge.
+      # newest attempts, so only a complete list reaches the merge. Keep
+      # per_page=25 because GitHub's jobs endpoint returns HTTP 502 on
+      # per_page=100 once a full run accumulates multiple attempts.
       - name: Read the attempt that last ran each group
         id: jobs
         continue-on-error: true
@@ -1506,7 +1527,7 @@ jobs:
           mkdir -p .tmp
           for attempt in 1 2 3 4; do
             if gh api --paginate \
-              "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=all&per_page=100" \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=all&per_page=25" \
               --jq '.jobs[] | select(.name | startswith("Content convergence (")) | [.name, .run_attempt, (.started_at // ""), (.conclusion // "none")] | @tsv' \
               > "$JOBS_FILE.partial" 2> "$JOBS_FILE.err"; then
               mv "$JOBS_FILE.partial" "$JOBS_FILE"
@@ -1828,6 +1849,18 @@ jobs:
         run: >-
           pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
           ${{ matrix.browser == 'webkit' && '--browser webkit' || '' }}
+
+  storybook-tests:
+    name: Storybook story tests
+    needs: change-scope
+    if: needs.change-scope.outputs.storybook_tests == 'true'
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/storybook-tests.yml
+    secrets:
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+      STORYBOOK_NETLIFY_SITE_ID: ${{ secrets.STORYBOOK_NETLIFY_SITE_ID }}
 
   brain-evals:
     name: Brain evals
@@ -2267,6 +2300,7 @@ jobs:
           pnpm --filter @agent-native/agentkit build
           pnpm --filter @agent-native/core build
           pnpm --filter @agent-native/otel build
+          pnpm --filter @agent-native/design-system build
           pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/creative-context build
 
@@ -2500,6 +2534,7 @@ jobs:
           pnpm --filter @agent-native/recap-cli build
           pnpm --filter @agent-native/agentkit build
           pnpm --filter @agent-native/core build
+          pnpm --filter @agent-native/design-system build
           pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/creative-context build
           pnpm --filter @agent-native/otel build

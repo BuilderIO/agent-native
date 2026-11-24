@@ -132,6 +132,11 @@ export interface UseCollabReconcileOptions {
     updatedAt: string;
     sequence: number;
   } | null;
+  mergedLocalSave?: {
+    sent: string;
+    value: string;
+    revision: string;
+  } | null;
   collabContentRevision?: string | null;
   requestCollabSync?: () => Promise<{
     status: "synced" | "failed" | "unavailable";
@@ -288,6 +293,7 @@ export function useCollabReconcile({
   contentRevision,
   compareContentRevisions,
   acknowledgedLocalSnapshot,
+  mergedLocalSave = null,
   collabContentRevision,
   requestCollabSync,
   onBaseAwareReconcile,
@@ -364,6 +370,8 @@ export function useCollabReconcile({
     updatedAt: string;
     sequence: number;
   } | null>(null);
+  const mergedLocalSaveRef = useRef(mergedLocalSave);
+  mergedLocalSaveRef.current = mergedLocalSave;
   const latestObservedUpdatedAtRef = useRef<string | null>(
     contentUpdatedAt ?? null,
   );
@@ -1353,7 +1361,22 @@ export function useCollabReconcile({
           authoritativeBase &&
           authoritativeBase.revision !== contentRevision
         ) {
-          const baseDoc = parse?.(editor, authoritativeBase.value) ?? null;
+          const mergedSave = mergedLocalSaveRef.current;
+          const holdsChanges = scheduledCallbacks.serverHoldsLiveChanges;
+          const planBase =
+            holdsChanges &&
+            mergedSave &&
+            mergedSave.revision === contentRevision &&
+            mergedSave.value === value &&
+            holdsChanges(authoritativeBase.value, value, mergedSave.sent) &&
+            holdsChanges(
+              authoritativeBase.value,
+              scheduledCallbacks.getMarkdown(editor),
+              mergedSave.sent,
+            )
+              ? mergedSave.sent
+              : authoritativeBase.value;
+          const baseDoc = parse?.(editor, planBase) ?? null;
           const serverDoc = parse?.(editor, value) ?? null;
           const report = (status: "conflict" | "failed") => {
             if (reportedConflictRevisionRef.current === contentRevision) return;
@@ -1433,7 +1456,7 @@ export function useCollabReconcile({
           const serverHoldsLive = () =>
             !stillTyping() &&
             !!scheduledCallbacks.serverHoldsLiveChanges?.(
-              authoritativeBase.value,
+              planBase,
               value,
               scheduledCallbacks.getMarkdown(editor),
             );

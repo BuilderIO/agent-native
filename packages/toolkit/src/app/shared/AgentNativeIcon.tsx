@@ -4,6 +4,7 @@ interface AgentNativeIconProps extends Omit<SVGProps<SVGSVGElement>, "fill"> {
   size?: number | string;
 }
 
+/** @import import { AgentNativeIcon } from "@agent-native/toolkit/app/shared"; */
 export function AgentNativeIcon({
   size = 24,
   className,

@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 
 import { ActionQueryError } from "../../components/action-query-error";
+import { ChatActionSuggestions } from "../../components/chat-action-suggestions";
 import { DispatchChatHomeApps } from "../../components/chat-home-apps";
 import { useDispatchExtensions } from "../../components/layout/Layout";
 import { Skeleton } from "../../components/ui/skeleton";
@@ -43,6 +44,10 @@ function stripBasePath(pathname: string): string {
     return pathname.slice(basePath.length) || "/";
   }
   return pathname;
+}
+
+function isChatPath(pathname: string): boolean {
+  return pathname === "/chat" || pathname.startsWith("/chat/");
 }
 
 function threadIdFromPath(pathname: string): string | null {
@@ -139,9 +144,38 @@ export default function ChatRoute() {
     readChatFirstMode() ||
     new URLSearchParams(location.search).get("chatFirst") === "1";
 
+  const isMountedRef = useRef(true);
+  const locationPathnameRef = useRef(location.pathname);
+  const tracksWindowChatPathRef = useRef(false);
+  useEffect(() => {
+    locationPathnameRef.current = location.pathname;
+    if (
+      typeof window !== "undefined" &&
+      isChatPath(stripBasePath(window.location.pathname))
+    ) {
+      tracksWindowChatPathRef.current = true;
+    }
+  }, [location.pathname]);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   const navigateThreadUrl = useCallback(
-    (path: string, options?: { replace?: boolean }) =>
-      navigate(dispatchNavTarget(path), options),
+    (path: string, options?: { replace?: boolean }) => {
+      if (!isMountedRef.current) return;
+      if (!isChatPath(stripBasePath(locationPathnameRef.current))) return;
+      if (
+        tracksWindowChatPathRef.current &&
+        typeof window !== "undefined" &&
+        !isChatPath(stripBasePath(window.location.pathname))
+      ) {
+        return;
+      }
+      void navigate(dispatchNavTarget(path), options);
+    },
     [navigate],
   );
   const threadUrlSync = useMemo<DispatchThreadUrlSync>(
@@ -339,6 +373,11 @@ export default function ChatRoute() {
                 })}
               </h1>
             </div>
+          ) : null
+        }
+        threadFooterSlot={({ threadId }) =>
+          threadId ? (
+            <ChatActionSuggestions key={threadId} threadId={threadId} />
           ) : null
         }
         afterComposerSlot={

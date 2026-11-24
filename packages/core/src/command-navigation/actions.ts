@@ -2,20 +2,19 @@ import { z } from "zod";
 
 import { defineAction } from "../action.js";
 import {
-  AgentNavigationRefusedError,
-  buildAgentNavigationKeptResult,
-  evaluateAgentNavigation,
   navigationIntentSchema,
-  withAuthorizedAgentNavigation,
+  writeNavigationCommand,
   type DetailViewPredicate,
 } from "../application-state/agent-navigation.js";
-import { readAppState, writeAppState } from "../application-state/index.js";
+import { readAppState } from "../application-state/index.js";
+import { navigationModeSchema } from "../manifest/index.js";
 
 const navigateSchema = z
   .object({
     view: z.string().optional().describe("View name to navigate to"),
     path: z.string().optional().describe("URL path to navigate to"),
     intent: navigationIntentSchema,
+    navigationMode: navigationModeSchema.optional(),
   })
   .passthrough();
 
@@ -50,10 +49,6 @@ export interface CreateViewScreenActionOptions {
     | Promise<Record<string, unknown> | string>;
 }
 
-function writeId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
 export function createNavigateAction(
   options: CreateNavigateActionOptions = {},
 ) {
@@ -61,43 +56,32 @@ export function createNavigateAction(
   return defineAction({
     description:
       options.description ??
-      'Navigate the UI to a specific view or path. Pass intent: "open" only when the user asked to open or show an item; otherwise keep the user\'s current view.',
+      'Show an app screen. Use navigationMode "open" for an explicit request, "reveal" to show an answer or artifact, and "keep" for background work.',
     schema: navigateSchema,
     http: false,
     run: async (args, ctx) => {
-      if (!args.view && !args.path) {
+      const { intent, navigationMode, ...target } = args;
+      if (!target.view && !target.path) {
         throw new Error("At least --view or --path is required.");
       }
-      const { intent, ...target } = args;
       const navigation = options.normalize
         ? await options.normalize(target)
         : ({
             ...(target.view ? { view: target.view } : null),
             ...(target.path ? { path: target.path } : null),
           } as Record<string, unknown>);
-      const refusal = evaluateAgentNavigation(navigation, {
+      const result = await writeNavigationCommand(navigation, {
         ctx,
         intent,
+        navigationMode,
         isDetailView: options.isDetailView,
         isNavigateAction: true,
+        stateKey,
       });
-      if (refusal) {
-        if (refusal.reason === "read-only-action") {
-          throw new AgentNavigationRefusedError(refusal.message, {
-            reason: refusal.reason,
-          });
-        }
-        const currentView = await readAppState("navigation");
-        return buildAgentNavigationKeptResult(refusal.reason, currentView);
-      }
-      navigation._writeId = writeId();
-      await withAuthorizedAgentNavigation(() =>
-        writeAppState(stateKey, navigation),
-      );
-      return (
-        options.describeResult?.(navigation, args) ??
-        `Navigating to ${String(args.view || args.path)}`
-      );
+      const message = result.navigated
+        ? options.describeResult?.(navigation, args)
+        : undefined;
+      return message === undefined ? result : { ...result, message };
     },
   });
 }

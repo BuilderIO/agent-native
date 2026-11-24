@@ -32,6 +32,7 @@ function createFakeWindow(
     lockReload?: boolean;
     sessionStorageGetterThrows?: boolean;
     sessionStorageThrows?: boolean;
+    onLine?: boolean;
     userAgent?: string;
     viteDevRecovery?: boolean;
   } = {},
@@ -107,6 +108,7 @@ function createFakeWindow(
     sessionStorage,
     navigator: {
       userAgent: opts.userAgent ?? "Mozilla/5.0",
+      onLine: opts.onLine ?? true,
     },
     console: {
       error: vi.fn(),
@@ -519,6 +521,152 @@ describe("route chunk recovery", () => {
 
     expect(unrelatedPreventDefault).not.toHaveBeenCalled();
     expect(fakeLocation.assign).toHaveBeenCalledOnce();
+  });
+
+  it("stays on the current page while offline and navigates to the clicked target once online", () => {
+    const { fakeWindow, fakeLocation, dispatchDocument, dispatchWindow } =
+      createFakeWindow(undefined, { onLine: false });
+    installRouteChunkRecovery(fakeWindow);
+
+    dispatchDocument("click", {
+      defaultPrevented: false,
+      button: 0,
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: false,
+      target: {
+        tagName: "A",
+        href: "https://example.com/dispatch/new-app?x=1#top",
+        hasAttribute: () => false,
+        getAttribute: () => null,
+        parentElement: null,
+      },
+    } as unknown as MouseEvent);
+
+    const preventDefault = vi.fn();
+    dispatchWindow("unhandledrejection", {
+      reason: new Error(
+        "Failed to fetch dynamically imported module: https://example.com/dispatch/assets/new-app.js",
+      ),
+      preventDefault,
+    } as unknown as PromiseRejectionEvent);
+
+    expect(preventDefault).toHaveBeenCalled();
+    expect(fakeLocation.assign).not.toHaveBeenCalled();
+    expect(fakeWindow.sessionStorage.setItem).not.toHaveBeenCalled();
+    expect(readStaleChunkRecoveryExhausted(fakeWindow)).toBeUndefined();
+
+    dispatchWindow("online", new Event("online"));
+    expect(fakeLocation.assign).toHaveBeenCalledExactlyOnceWith(
+      "https://example.com/dispatch/new-app?x=1#top",
+    );
+  });
+
+  function offlineClick(
+    harness: ReturnType<typeof createFakeWindow>,
+    href: string,
+  ) {
+    rememberRouteChunkRecoveryNavigation(href, harness.fakeWindow);
+    harness.dispatchWindow("unhandledrejection", {
+      reason: new Error(
+        "Failed to fetch dynamically imported module: https://example.com/dispatch/assets/x.js",
+      ),
+      preventDefault: vi.fn(),
+    } as unknown as PromiseRejectionEvent);
+  }
+
+  it("retries only the latest offline click", () => {
+    const harness = createFakeWindow(undefined, { onLine: false });
+    installRouteChunkRecovery(harness.fakeWindow);
+
+    offlineClick(harness, "https://example.com/dispatch/a");
+    offlineClick(harness, "https://example.com/dispatch/b");
+    harness.dispatchWindow("online", new Event("online"));
+    harness.dispatchWindow("online", new Event("online"));
+
+    expect(harness.fakeLocation.assign).toHaveBeenCalledExactlyOnceWith(
+      "https://example.com/dispatch/b",
+    );
+  });
+
+  it("drops the pending retry when the user navigated elsewhere while offline", () => {
+    const harness = createFakeWindow(undefined, { onLine: false });
+    installRouteChunkRecovery(harness.fakeWindow);
+
+    offlineClick(harness, "https://example.com/dispatch/a");
+    harness.fakeLocation.href = "https://example.com/dispatch/loaded";
+    harness.dispatchWindow("online", new Event("online"));
+
+    expect(harness.fakeLocation.assign).not.toHaveBeenCalled();
+    expect(harness.originalReload).not.toHaveBeenCalled();
+  });
+
+  it("reloads the document instead of assigning when the retry target is the current page with a fragment", () => {
+    const harness = createFakeWindow("https://example.com/dispatch/apps#top", {
+      onLine: false,
+    });
+
+    expect(reloadForStaleChunk(harness.fakeWindow, 1_000)).toBe(true);
+    harness.dispatchWindow("online", new Event("online"));
+
+    expect(harness.originalReload).toHaveBeenCalledOnce();
+    expect(harness.fakeLocation.assign).not.toHaveBeenCalled();
+  });
+
+  it("never queues an offline retry inside an external embed", () => {
+    const harness = createFakeWindow(undefined, { onLine: false });
+    (harness.fakeWindow as unknown as Record<string, unknown>)[
+      EXTERNAL_EMBED_WINDOW_KEY
+    ] = { origin: "https://app.example.com" };
+
+    expect(reloadForStaleChunk(harness.fakeWindow, 1_000)).toBe(false);
+    harness.dispatchWindow("online", new Event("online"));
+
+    expect(harness.fakeLocation.assign).not.toHaveBeenCalled();
+    expect(harness.originalReload).not.toHaveBeenCalled();
+    expect(readStaleChunkRecoveryExhausted(harness.fakeWindow)).toEqual({
+      reason: "external-embed",
+    });
+  });
+
+  it("reports desktop exhaustion instead of arming an offline retry", () => {
+    const harness = createFakeWindow(undefined, {
+      onLine: false,
+      userAgent: "Mozilla/5.0 AgentNativeDesktop/1.0",
+    });
+
+    expect(reloadForStaleChunk(harness.fakeWindow, 1_000)).toBe(false);
+    harness.dispatchWindow("online", new Event("online"));
+
+    expect(harness.fakeLocation.assign).not.toHaveBeenCalled();
+    expect(harness.originalReload).not.toHaveBeenCalled();
+    expect(readStaleChunkRecoveryExhausted(harness.fakeWindow)).toEqual({
+      reason: "desktop",
+    });
+  });
+
+  it("arms the retry from the console hook when reload cannot be patched offline", () => {
+    const harness = createFakeWindow(undefined, {
+      onLine: false,
+      lockReload: true,
+    });
+    installRouteChunkRecovery(harness.fakeWindow);
+    rememberRouteChunkRecoveryNavigation(
+      "https://example.com/dispatch/a",
+      harness.fakeWindow,
+    );
+
+    harness.fakeWindow.console.error(
+      "Error loading route module `/dispatch/assets/a.js`, reloading page...",
+    );
+
+    expect(harness.fakeLocation.assign).not.toHaveBeenCalled();
+    expect(readStaleChunkRecoveryExhausted(harness.fakeWindow)).toBeUndefined();
+    harness.dispatchWindow("online", new Event("online"));
+    expect(harness.fakeLocation.assign).toHaveBeenCalledExactlyOnceWith(
+      "https://example.com/dispatch/a",
+    );
   });
 
   it("recovers global dynamic import errors using the intended target", () => {

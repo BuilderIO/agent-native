@@ -15,9 +15,11 @@ import {
   enterDirectMode,
   gotoEditor,
   installBridge,
+  must,
   pickFrameMode,
   selectByText,
   openAppMenuSubmenu,
+  openPageOverview,
   selectTool,
   type ToolbarTool,
 } from "./helpers";
@@ -123,7 +125,10 @@ function toolButton(page: Page, name: string): Locator {
 }
 
 function modeButton(page: Page, mode: "edit" | "interact"): Locator {
-  return page.locator(`[data-design-top-bar] [data-design-mode="${mode}"]`);
+  const label = mode === "edit" ? "Edit" : "Interact";
+  return page.locator(
+    `[data-design-bottom-toolbar] button[aria-label="${label}"]`,
+  );
 }
 
 function roundedBox(
@@ -967,18 +972,26 @@ async function insertTextByDrag(
     "aria-pressed",
     "true",
   );
-  await dragBetween(
-    page,
-    {
-      x: cardBox.x + cardBox.width * 0.28,
-      y: cardBox.y + cardBox.height * 0.28,
-    },
-    {
-      x: cardBox.x + cardBox.width * 0.64,
-      y: cardBox.y + cardBox.height * 0.38,
-    },
-  );
+  await dragBetween(page, ...textDragPoints(cardBox));
   await replaceActiveText(page, text);
+}
+
+function textDragPoints(cardBox: {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}): [{ x: number; y: number }, { x: number; y: number }] {
+  return [
+    {
+      x: Math.round(cardBox.x + cardBox.width * 0.28),
+      y: Math.round(cardBox.y + cardBox.height * 0.28),
+    },
+    {
+      x: Math.round(cardBox.x + cardBox.width * 0.64),
+      y: Math.round(cardBox.y + cardBox.height * 0.38),
+    },
+  ];
 }
 
 async function waitForScreenDeletion(page: Page): Promise<void> {
@@ -1084,13 +1097,7 @@ function expectPathStartsInsideViewBox(vector: VectorPrimitiveSummary): void {
 }
 
 async function restoreHome(page: Page): Promise<void> {
-  const allScreens = page.getByRole("button", {
-    name: "All screens",
-    exact: true,
-  });
-  if (await allScreens.isVisible()) {
-    await allScreens.click();
-  }
+  await openPageOverview(page);
   await homeLayerRow(page).click();
   await expect(toolButton(page, "Move")).toHaveAttribute(
     "aria-pressed",
@@ -1202,16 +1209,18 @@ test("top bar modes toggle the editor mode buttons", async ({ page }) => {
 
   await modeButton(page, "interact").click();
   await expect(
-    page.locator("[data-design-top-bar] [data-design-interact-route]"),
+    page.locator(
+      "[data-design-interact-floating-bar] [data-design-interact-route]",
+    ),
   ).toBeVisible();
-  // Interact has no bottom toolbar; the canvas tools return with Design.
+  // oracle-change: Interact keeps the bottom toolbar for its mode switch and zoom; only the tool groups leave, and return with Design.
   const toolbarGroups = () =>
     page
       .locator("[data-design-bottom-toolbar] [data-design-toolbar-group]")
       .evaluateAll((groups) =>
         groups.map((group) => group.getAttribute("data-design-toolbar-group")),
       );
-  await expect(page.locator("[data-design-bottom-toolbar]")).toHaveCount(0);
+  await expect.poll(toolbarGroups).toEqual([]);
   await modeButton(page, "edit").click();
   await expect(modeButton(page, "edit")).toHaveAttribute(
     "aria-pressed",
@@ -1231,22 +1240,16 @@ test("top bar modes toggle the editor mode buttons", async ({ page }) => {
 test("keyboard shortcuts dialog opens without remounting the overview iframe", async ({
   page,
 }) => {
-  const railBox = await page
-    .getByRole("navigation", { name: "Design workspace" })
-    .boundingBox();
+  // oracle-change: the workspace rail is gone; the left column (File tab with the Layers panel) opens at its default width.
+  const leftBox = await page.locator("[data-design-left-column]").boundingBox();
   const layersBox = await page
     .getByRole("complementary", { name: "Layers" })
     .boundingBox();
-  // The rail is 7 baseline units (`--design-chrome-rail-width`); the Layers
-  // panel opens at its default width beside it.
-  expect(railBox?.width).toBe(56);
-  expect(layersBox).not.toBeNull();
+  expect(leftBox?.width).toBe(DEFAULT_LEFT_SIDEBAR_WIDTH);
+  const layers = must(layersBox, "Layers panel");
+  const left = must(leftBox, "left column");
   expect(
-    Math.abs(
-      layersBox!.x +
-        layersBox!.width -
-        (railBox!.width + DEFAULT_LEFT_SIDEBAR_WIDTH),
-    ),
+    Math.abs(layers.x + layers.width - (left.x + left.width)),
   ).toBeLessThanOrEqual(1);
 
   const iframe = screenShell(page, "Home")
@@ -2033,9 +2036,11 @@ test("drag text creates bounded text the size of the drag", async ({
 
   const primitive = await waitForTextPrimitive(page, "index.html", text);
   expect(primitive.display).toBe("flex");
+  // oracle-change: the expected size is the drag the mouse actually made. Mouse events truncate to whole pixels, and one pixel is over 3 canvas px at this zoom, so 36% x 10% of the card was only within 2px when the card happened to sit on a whole pixel (it moved when the top bar went away).
+  const [from, to] = textDragPoints(cardBox);
   const expected = {
-    width: (0.36 * cardBox.width) / scale,
-    height: (0.1 * cardBox.height) / scale,
+    width: (to.x - from.x) / scale,
+    height: (to.y - from.y) / scale,
   };
   expect(
     Math.abs(parseFloat(primitive.width) - expected.width),
@@ -2931,8 +2936,8 @@ test("frame drawn left of the first screen creates a new screen", async ({
   const filesBeforeFrame = await designFiles(page);
   const screenCountBeforeFrame = htmlScreenFiles(filesBeforeFrame).length;
 
-  await pickFrameMode(page, "Screen");
-  await expect(toolButton(page, "Screen")).toHaveAttribute(
+  await pickFrameMode(page, "Page");
+  await expect(toolButton(page, "Page")).toHaveAttribute(
     "aria-pressed",
     "true",
   );
@@ -3580,7 +3585,6 @@ test("single-screen undo does not consume overview history", async ({
     .toBe(aboutRectanglesBefore + 1);
 
   const sidebar = page.locator("aside").first();
-  const allScreens = sidebar.getByRole("button", { name: "All screens" });
   const homeScreen = sidebar
     .getByRole("button", { name: "Home", exact: true })
     .first();
@@ -3589,7 +3593,14 @@ test("single-screen undo does not consume overview history", async ({
   await homeScreen.click();
   await expect(selectedLayerRow(page)).toContainText("Home");
   await modeButton(page, "interact").click();
-  await expect(homeScreen).toHaveAttribute("aria-current", "page");
+  // oracle-change: Interact has no Pages list, so the current-row check moves to the Interact screen shell, which must be Home.
+  await expect(
+    page.locator('[data-screen-shell][data-screen-interact-mode="true"]'),
+  ).toHaveCount(1);
+  await expect(screenShell(page, "Home")).toHaveAttribute(
+    "data-screen-interact-mode",
+    "true",
+  );
 
   await pressPrimaryShortcut(page, "z");
   await page.waitForTimeout(300);
@@ -3597,8 +3608,8 @@ test("single-screen undo does not consume overview history", async ({
     aboutRectanglesBefore + 1,
   );
 
-  await allScreens.click();
-  await expect(allScreens).toHaveAttribute("aria-current", "page");
+  // oracle-change: the All screens row is gone, so the overview is entered from Interact through the View menu and its current-row check is dropped.
+  await openPageOverview(page);
   await expect(screenShell(page, "About")).toBeVisible();
   await pressPrimaryShortcut(page, "z");
   await expect
