@@ -261,7 +261,7 @@ describe("answerLinkSummaries", () => {
       readTitle: async ({ id }) => {
         reading += 1;
         most = Math.max(most, reading);
-        await new Promise((resolve) => setTimeout(resolve, 1));
+        await Promise.resolve();
         reading -= 1;
         return `Title ${id}`;
       },

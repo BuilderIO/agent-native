@@ -32,12 +32,6 @@ export function isLinkSummaryApp(value: unknown): value is LinkSummaryApp {
 const CREDENTIAL_PARAM =
   /token|secret|pass|pwd|key|code|session|auth|cred|ticket|grant|access|otp|jwt|nonce|invit|(?:^|[-_.])sig/i;
 
-/**
- * Whether a query or hash parameter may be what lets the link's holder in:
- * one named like a credential, or too long to be a view setting. Every reader
- * of the page that holds a link can see it, so a link like that has no
- * summary and stays as it was pasted.
- */
 function mayCarryCredential(url: URL): boolean {
   for (const part of [url.search, url.hash]) {
     for (const [name, value] of new URLSearchParams(part.slice(1))) {
@@ -53,7 +47,12 @@ function mayCarryCredential(url: URL): boolean {
   return false;
 }
 
-/** An http(s) URL that carries no credential, as a reader would paste it. */
+/**
+ * An http(s) URL that carries no credential, as a reader would paste it. Every
+ * reader of the page that holds a link can see it, so a link whose query or
+ * hash may let its holder in has no summary: one with a parameter named like a
+ * credential, or too long to be a view setting.
+ */
 export function parseLinkSummaryUrl(value: string): URL | null {
   const trimmed = value.trim();
   if (trimmed.length > LINK_SUMMARY_URL_CHARS || !URL.canParse(trimmed)) {

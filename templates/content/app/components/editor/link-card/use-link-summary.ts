@@ -117,12 +117,14 @@ export function useLinkSummary(link: string): LinkSummaryState {
     staleTime: SUMMARY_STALE_MS,
     gcTime: SUMMARY_STALE_MS,
     retry: false,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: false,
   });
   if (reader === null) {
     return status === "loading" ? { state: "loading" } : { state: "untitled" };
   }
-  if (query.isPending) return { state: "loading" };
+  if (query.isPending || (query.isStale && query.isFetching)) {
+    return { state: "loading" };
+  }
   if (!query.isError && query.data.status === "available") {
     return { state: "available", title: query.data.title };
   }

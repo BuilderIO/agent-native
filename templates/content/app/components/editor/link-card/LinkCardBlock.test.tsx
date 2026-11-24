@@ -1,11 +1,7 @@
 // @vitest-environment happy-dom
 
 import type { BlockRenderContext } from "@agent-native/core/blocks/server";
-import {
-  QueryClient,
-  QueryClientProvider,
-  focusManager,
-} from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -40,7 +36,7 @@ let container: HTMLDivElement;
 let root: Root;
 let client: QueryClient;
 
-async function render(items: Array<{ app: string; url: string }>) {
+async function show(items: Array<{ app: string; url: string }>) {
   const Read = linkCardBlock.Read;
   await act(async () => {
     root.render(
@@ -56,6 +52,10 @@ async function render(items: Array<{ app: string; url: string }>) {
       </QueryClientProvider>,
     );
   });
+}
+
+async function render(items: Array<{ app: string; url: string }>) {
+  await show(items);
   await vi.waitFor(() => {
     for (const card of cards()) {
       expect(card.dataset.linkCardState).not.toBe("loading");
@@ -78,18 +78,6 @@ function answer(title: string, answeredFor: Record<string, unknown> = {}) {
       },
     ],
   };
-}
-
-async function returnToTab() {
-  const asked = hooks.callAction.mock.calls.length;
-  await act(async () => {
-    focusManager.setFocused(false);
-    focusManager.setFocused(true);
-    await vi.waitFor(() => {
-      expect(hooks.callAction.mock.calls.length).toBe(asked + 1);
-      expect(client.isFetching()).toBe(0);
-    });
-  });
 }
 
 function cards() {
@@ -118,7 +106,6 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   client.clear();
-  focusManager.setFocused(undefined);
   vi.useRealTimers();
 });
 
@@ -201,29 +188,32 @@ describe("link card", () => {
     expect(card(0).textContent).toContain("Launch page");
   });
 
-  it.each([
-    [
-      "no longer opens the item",
-      () =>
-        hooks.callAction.mockResolvedValue({
-          ...answer(""),
-          summaries: [{ status: "unavailable" }],
-        }),
-    ],
-    [
-      "can't be checked",
-      () => hooks.callAction.mockRejectedValue(new Error("Request failed")),
-    ],
-  ])(
-    "takes the title away when the reader comes back and %s",
-    async (_why, change) => {
+  it.each(["refuses", "fails"])(
+    "asks again before showing a title over a minute old, and drops it when the ask %s",
+    async (outcome) => {
       vi.useFakeTimers({ toFake: ["Date"] });
-      hooks.callAction.mockResolvedValue(answer("Launch page"));
+      hooks.callAction.mockResolvedValueOnce(answer("Launch page"));
       await render([{ app: "design", url: DESIGN }]);
       expect(card(0).textContent).toContain("Launch page");
-      change();
+      act(() => root.render(null));
       vi.setSystemTime(Date.now() + 61_000);
-      await returnToTab();
+      let finish = () => {};
+      hooks.callAction.mockReturnValueOnce(
+        new Promise((resolve, reject) => {
+          finish = () =>
+            outcome === "fails"
+              ? reject(new Error("Request failed"))
+              : resolve({
+                  ...answer(""),
+                  summaries: [{ status: "unavailable" }],
+                });
+        }),
+      );
+      await show([{ app: "design", url: DESIGN }]);
+      await vi.waitFor(() => expect(hooks.callAction).toHaveBeenCalledTimes(2));
+      expect(card(0).dataset.linkCardState).toBe("loading");
+      expect(container.textContent).not.toContain("Launch page");
+      finish();
       await vi.waitFor(() =>
         expect(card(0).dataset.linkCardState).toBe("untitled"),
       );
