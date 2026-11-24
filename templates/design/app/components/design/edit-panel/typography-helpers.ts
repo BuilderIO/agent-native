@@ -184,6 +184,18 @@ export function resolveLineHeightFieldValue(
     }
   }
 
+  const em = raw.match(/^([+]?(?:\d*\.)?\d+)\s*em$/i);
+  if (em) {
+    const value = Number(em[1]) * 100;
+    if (Number.isFinite(value) && value >= 0) {
+      return {
+        text: formatScrubValue(value, { unit: "%", precision: 2 }),
+        value,
+        unit: "%",
+      };
+    }
+  }
+
   const unitless = raw.match(/^([+]?(?:\d*\.)?\d+)$/);
   if (unitless) {
     const ratio = Number(unitless[1]);

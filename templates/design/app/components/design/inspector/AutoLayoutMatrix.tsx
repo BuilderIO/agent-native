@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconAdjustmentsHorizontal,
   IconArrowBackUp,
@@ -12,6 +13,7 @@ import {
   IconChevronDown,
   IconLayoutDistributeHorizontal,
   IconLayoutDistributeVertical,
+  IconUnlink,
 } from "@tabler/icons-react";
 import {
   Fragment,
@@ -26,7 +28,9 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -79,6 +83,11 @@ import {
   type ScrubInputChangeMeta,
   type ScrubInputProps,
 } from "./ScrubInput";
+import {
+  TokenScrubInput,
+  useTokenFieldMenu,
+  type TokenFieldBinding,
+} from "./TokenScrubInput";
 
 export type AutoLayoutDirection = "horizontal" | "vertical";
 export type AutoLayoutWrap = "nowrap" | "wrap";
@@ -294,6 +303,9 @@ export interface AutoLayoutMatrixProps {
     value: number,
     meta?: ScrubInputChangeMeta,
   ) => void;
+  sizeTokenBindings?: Partial<
+    Record<AutoLayoutSizingAxis, Omit<TokenFieldBinding, "extraGroups">>
+  >;
   onChildMinMaxChange?: (
     axis: AutoLayoutSizingAxis,
     kind: "min" | "max",
@@ -388,6 +400,7 @@ export function AutoLayoutMatrix({
   onFlowChange,
   onDisplayChange,
   onChildSizeChange,
+  sizeTokenBindings,
   availableChildSizing,
   showChildLayoutControls = true,
   showSizingControls = true,
@@ -543,6 +556,7 @@ export function AutoLayoutMatrix({
                 }
                 onMinMaxChange={onChildMinMaxChange}
                 onApplyVariable={onApplyVariable}
+                tokenBinding={sizeTokenBindings?.horizontal}
               />
             </InspectorGridCell>
             <InspectorGridCell span={1} ariaHidden />
@@ -568,6 +582,7 @@ export function AutoLayoutMatrix({
                 }
                 onMinMaxChange={onChildMinMaxChange}
                 onApplyVariable={onApplyVariable}
+                tokenBinding={sizeTokenBindings?.vertical}
               />
             </InspectorGridCell>
             {canResizeToFit ? <InspectorGridCell span={1} ariaHidden /> : null}
@@ -1907,6 +1922,7 @@ export interface SizingFieldProps {
     meta?: ScrubInputChangeMeta,
   ) => void;
   onApplyVariable?: (axis: AutoLayoutSizingAxis) => void;
+  tokenBinding?: Omit<TokenFieldBinding, "extraGroups">;
 }
 
 export function SizingField({
@@ -1925,8 +1941,11 @@ export function SizingField({
   onSizeChange,
   onMinMaxChange,
   onApplyVariable,
+  tokenBinding,
 }: SizingFieldProps) {
   const labels = { ...DEFAULT_AUTO_LAYOUT_LABELS, ...labelOverrides };
+  const t = useT();
+  const tokenMenu = useTokenFieldMenu(tokenBinding);
   const isWidth = sizingAxis === "horizontal";
 
   const minValue = minMax?.min ?? null;
@@ -1954,6 +1973,7 @@ export function SizingField({
 
   const handleShortcut = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (
+      (event.target as HTMLElement).hasAttribute("aria-autocomplete") ||
       disabled ||
       event.metaKey ||
       event.ctrlKey ||
@@ -1979,6 +1999,53 @@ export function SizingField({
 
   const dropdownContent = (
     <DropdownMenuContent align="start" className="min-w-[180px]" sideOffset={4}>
+      {tokenBinding && tokenMenu.boundVar ? (
+        <>
+          <SizingMenuItem
+            icon={<IconUnlink />}
+            label={t("designEditor.tokens.field.detach")}
+            onSelect={() => tokenBinding.onDetach(tokenMenu.boundResolved)}
+          />
+          <DropdownMenuSeparator />
+        </>
+      ) : null}
+      {tokenBinding &&
+      (tokenMenu.status === "loading" || tokenMenu.status === "error") ? (
+        <>
+          <DropdownMenuLabel className="text-muted-foreground">
+            {tokenMenu.status === "loading"
+              ? t("designEditor.tokens.field.loading")
+              : t("editPanel.colorPicker.tokensFailed")}
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+        </>
+      ) : null}
+      {tokenBinding && tokenMenu.groups.length > 0 ? (
+        <>
+          {tokenMenu.groups.map((group) => (
+            <DropdownMenuGroup key={group.key}>
+              {group.label ? (
+                <DropdownMenuLabel>{group.label}</DropdownMenuLabel>
+              ) : null}
+              {group.options.map((option) => (
+                <DropdownMenuItem
+                  key={option.cssVar}
+                  data-token-field-option={option.name}
+                  onSelect={() =>
+                    tokenBinding.onBind(option.cssVar, option.resolved)
+                  }
+                >
+                  <span className="min-w-0 flex-1 truncate">{option.name}</span>
+                  <span className="shrink-0 tabular-nums text-muted-foreground">
+                    {option.value}
+                  </span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+          ))}
+          <DropdownMenuSeparator />
+        </>
+      ) : null}
       <SizingMenuItem
         icon={<IconSizingFixed />}
         label={labels.fixed}
@@ -2030,7 +2097,7 @@ export function SizingField({
         </>
       ) : null}
 
-      {showAdvancedOptions ? (
+      {showAdvancedOptions && !tokenBinding ? (
         <>
           <DropdownMenuSeparator />
           <SizingMenuItem
@@ -2047,7 +2114,7 @@ export function SizingField({
   return (
     <div className="flex min-w-0 flex-col gap-1" onKeyDown={handleShortcut}>
       {isEditableFixed ? (
-        <DropdownMenu>
+        <DropdownMenu onOpenChange={(open) => open && tokenMenu.request()}>
           <div
             className={cn(
               "flex h-6 w-full items-center overflow-hidden rounded-md",
@@ -2055,7 +2122,9 @@ export function SizingField({
               disabled && "pointer-events-none opacity-40",
             )}
           >
-            <ScrubInput
+            <TokenScrubInput
+              tokenBinding={tokenBinding}
+              showChevron={false}
               label={axis}
               ariaLabel={`${axis} size in pixels`}
               tooltipLabel={`${axis} size`}
@@ -2099,7 +2168,7 @@ export function SizingField({
           {dropdownContent}
         </DropdownMenu>
       ) : (
-        <DropdownMenu>
+        <DropdownMenu onOpenChange={(open) => open && tokenMenu.request()}>
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>

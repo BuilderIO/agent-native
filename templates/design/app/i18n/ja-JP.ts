@@ -1159,6 +1159,12 @@ export default {
         opacity: "不透明度",
       },
       editColor: "{{name}} のカラーを編集",
+      field: {
+        open: "トークン",
+        detach: "トークンを切り離す",
+        primitives: "{{group}}のプリミティブ",
+        loading: "トークンを読み込み中…",
+      },
     },
     import: {
       description:

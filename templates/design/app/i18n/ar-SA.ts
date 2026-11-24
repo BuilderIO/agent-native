@@ -1137,6 +1137,12 @@ export default {
         opacity: "العتامة",
       },
       editColor: "تعديل لون {{name}}",
+      field: {
+        open: "الرموز",
+        detach: "فصل الرمز",
+        primitives: "رموز {{group}} الأساسية",
+        loading: "جارٍ تحميل الرموز…",
+      },
     },
     import: {
       description: "استورد HTML من حافظة Figma أو HTML مستقلًا كصفحات في Design.",

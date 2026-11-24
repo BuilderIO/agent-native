@@ -1169,6 +1169,12 @@ export default {
         opacity: "Deckkraft",
       },
       editColor: "Farbe von {{name}} bearbeiten",
+      field: {
+        open: "Tokens",
+        detach: "Token lösen",
+        primitives: "{{group}}-Primitive",
+        loading: "Tokens werden geladen…",
+      },
     },
     import: {
       description:

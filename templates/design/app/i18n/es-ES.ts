@@ -1161,6 +1161,12 @@ export default {
         opacity: "Opacidad",
       },
       editColor: "Editar el color de {{name}}",
+      field: {
+        open: "Tokens",
+        detach: "Desvincular token",
+        primitives: "Primitivos de {{group}}",
+        loading: "Cargando tokens…",
+      },
     },
     import: {
       description:
