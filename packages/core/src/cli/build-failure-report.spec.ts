@@ -46,11 +46,54 @@ describe("buildStepFailureReport", () => {
       "build-step",
       "deploy-build",
       "signal",
+      "SIGKILL",
     ]);
     expect(failed.fingerprint).toEqual([
       "build-step",
       "deploy-build",
       "failed",
+    ]);
+  });
+
+  it("groups each recognized termination signal separately and stably", () => {
+    const report = (signal: string, template?: string) =>
+      buildStepFailureReport({
+        label: "deploy-build",
+        exitCode: 1,
+        signal,
+        template,
+      });
+    const killed = report("SIGKILL");
+    const terminated = report("SIGTERM");
+
+    expect(killed.fingerprint).not.toEqual(terminated.fingerprint);
+    expect(killed.fingerprint).toEqual([
+      "build-step",
+      "deploy-build",
+      "signal",
+      "SIGKILL",
+    ]);
+    expect(terminated.fingerprint).toEqual([
+      "build-step",
+      "deploy-build",
+      "signal",
+      "SIGTERM",
+    ]);
+    expect(report("SIGKILL", "content").fingerprint).toEqual(
+      killed.fingerprint,
+    );
+    expect(report("SIGTERM", "content").fingerprint).toEqual(
+      terminated.fingerprint,
+    );
+    expect(report("toString").fingerprint).toEqual([
+      "build-step",
+      "deploy-build",
+      "signal",
+    ]);
+    expect(report("SIGKILL-private-value").fingerprint).toEqual([
+      "build-step",
+      "deploy-build",
+      "signal",
     ]);
   });
 
