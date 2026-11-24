@@ -2231,10 +2231,6 @@ function DispatchLayout({
       });
     return () => {
       active = false;
-      // A cleanup that lands before the read settles (dependency change or
-      // StrictMode remount) must not leave the guard set, or the saved pane
-      // is never read again. A chat switch is different: that pane belongs
-      // to the chat being left.
       if (!settled && chatFirstSurfaceScopeRef.current === scope) {
         chatFirstPaneHydratedRef.current = false;
       }
