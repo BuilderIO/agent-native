@@ -1,6 +1,6 @@
 import { ActionContractError } from "@agent-native/core/action";
 import { alias } from "@agent-native/core/db/schema";
-import { and, eq, exists, inArray, sql } from "drizzle-orm";
+import { and, eq, exists, inArray, sql, type SQLWrapper } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import type { DocumentSourceInfo } from "../shared/api.js";
@@ -23,7 +23,7 @@ interface DocumentSourceColumns {
 
 export function linkedNestedLocalFile(
   db: ReturnType<typeof getDb>,
-  databaseId?: string,
+  databaseId?: string | SQLWrapper,
 ) {
   const items = alias(schema.contentDatabaseItems, "linked_local_file_items");
   const rows = schema.contentDatabaseSourceRows;

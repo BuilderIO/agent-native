@@ -1425,6 +1425,86 @@ describe("PagedContentFilesSidebarView", () => {
       await act(async () => root.unmount());
     });
 
+    it.each([
+      [
+        "nested linked without metadata",
+        "notes/linked.md",
+        false,
+        false,
+        false,
+      ],
+      ["nested linked with metadata", "notes/linked.md", false, false, true],
+      ["top-level linked", "readme.md", undefined, true, true],
+      ["nested unlinked", "notes/unlinked.md", undefined, true, true],
+    ])(
+      "uses the server's move eligibility for a grouped active reveal: %s",
+      async (_label, path, canMove, movable, withMetadata) => {
+        useFilesNavigationPage.mockImplementation((args) => ({
+          data: args.navigation.locate
+            ? { ...page([]), locatedGroupIds: ["stage:draft"] }
+            : {
+                ...page([]),
+                groups: [
+                  {
+                    id: "stage:draft",
+                    label: "Draft",
+                    unset: false,
+                    count: 1,
+                    page: page([], "next"),
+                  },
+                ],
+              },
+          isLoading: false,
+          isError: false,
+          isFetching: false,
+          refetch: vi.fn(),
+        }));
+        const activeDocument: ActivePathDocument & { canMove?: boolean } = {
+          id: "revealed",
+          parentId: "ordinary-parent",
+          title: "Revealed",
+          content: "",
+          icon: null,
+          position: 0,
+          isFavorite: false,
+          hideFromSearch: false,
+          canEdit: true,
+          canManage: true,
+          databaseMembership: {
+            databaseId: "files",
+            databaseDocumentId: "files-document",
+            databaseTitle: null,
+            position: null,
+          },
+          ...(canMove === false ? { canMove } : {}),
+          source: {
+            mode: "local-files",
+            kind: "file",
+            path,
+            rootPath: "vault",
+          },
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        };
+        const { container, root } = await renderHarness({
+          activeDocumentId: activeDocument.id,
+          activePathDocuments: [activeDocument],
+          ...(withMetadata
+            ? {
+                documentMetadata: new Map([
+                  [activeDocument.id, activeDocument],
+                ]),
+              }
+            : {}),
+          pageActions,
+          onDeleteItem: vi.fn(),
+        });
+        await openMenuOf(container, activeDocument.id);
+        expect(menuItems().includes("Move to")).toBe(movable);
+        await act(async () => root.unmount());
+      },
+    );
+
     it("keeps local-file menu behavior when full metadata is available", async () => {
       serveFolderTree();
       const metadata: Document = {

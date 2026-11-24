@@ -225,6 +225,7 @@ export interface ContentNavigationPathEntry {
   databaseId: string | null;
   databaseDocumentId: string | null;
   isFavorite: boolean;
+  canMove?: boolean;
   /**
    * Whether the Files tree draws children under this page, by the rule its
    * own navigation row follows. Absent outside a Files database.

@@ -121,7 +121,10 @@ export interface ContentFilesSidebarRenderReorder {
  * A page on the open page's path. The Files tree draws it before its own
  * page of rows loads, so it carries whether it has children.
  */
-export type ActivePathDocument = Document & { hasChildren?: boolean };
+export type ActivePathDocument = Document & {
+  hasChildren?: boolean;
+  canMove?: boolean;
+};
 
 function activePathItem(
   document: ActivePathDocument,
@@ -148,6 +151,7 @@ function activePathItem(
     spaceId: null,
     sourceKind: document.source?.kind ?? null,
     isFavorite: document.isFavorite,
+    ...(document.canMove === false ? { canMove: false } : {}),
     canEdit: document.canEdit !== false,
     canManage: document.canManage === true,
     createdAt: document.createdAt,
@@ -1448,6 +1452,10 @@ function DatabaseSidebarRow({
   }, [active]);
   const isLocalFile = item.document.source?.mode === "local-files";
   const canChangePage = canEdit && !isLocalFile && pageActions !== null;
+  const canMovePage =
+    canEdit &&
+    pageActions !== null &&
+    (!isLocalFile || Boolean(item.document.databaseMembership));
 
   function commitRename(nextTitle: string) {
     setRenaming(false);
@@ -1590,7 +1598,7 @@ function DatabaseSidebarRow({
                     : undefined
                 }
                 onMove={
-                  canChangePage && canMove
+                  canMovePage && canMove
                     ? () =>
                         pageActions.movePage({
                           documentId: item.document.id,

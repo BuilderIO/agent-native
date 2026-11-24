@@ -416,7 +416,7 @@ export default defineAction({
                   and(eq(schema.documents.id, id), linkedNestedLocalFile(tx)),
                 )
                 .limit(1)
-            ).at(0);
+            )[0];
             if (linked) {
               throw new ActionContractError(
                 "This page follows a file in a local subfolder, so it stays in that folder.",

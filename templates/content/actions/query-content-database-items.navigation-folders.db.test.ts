@@ -542,6 +542,79 @@ describe("Files navigation of linked local folders", () => {
     }
   });
 
+  it("reports move eligibility for Files path entries using their linked source rows", async () => {
+    await page({
+      id: "unlinked-nested",
+      title: "Unlinked nested",
+      linked: { folderId: "vault", path: "unlinked/note.md", sourceRow: false },
+    });
+    await page({
+      id: "foreign-linked",
+      linked: { folderId: "vault", path: "foreign/note.md", sourceRow: false },
+    });
+    await getDb().insert(schema.documents).values({
+      id: "other-collection-document",
+      spaceId: SPACE,
+      ownerEmail: OWNER,
+      title: "Other collection",
+      content: "",
+      visibility: "private",
+      createdAt: TIMESTAMP,
+      updatedAt: TIMESTAMP,
+    });
+    await getDb().insert(schema.contentDatabases).values({
+      id: "other-collection",
+      spaceId: SPACE,
+      ownerEmail: OWNER,
+      documentId: "other-collection-document",
+      title: "Other collection",
+      createdAt: TIMESTAMP,
+      updatedAt: TIMESTAMP,
+    });
+    await linkFolder("other-collection", "vault");
+    await getDb().insert(schema.contentDatabaseItems).values({
+      id: "other-unlinked-membership",
+      ownerEmail: OWNER,
+      databaseId: "other-collection",
+      documentId: "foreign-linked",
+      createdAt: TIMESTAMP,
+      updatedAt: TIMESTAMP,
+    });
+    await getDb().insert(schema.contentDatabaseSourceRows).values({
+      id: "other-unlinked-source-row",
+      ownerEmail: OWNER,
+      sourceId: "other-collection-source-vault",
+      databaseItemId: "other-unlinked-membership",
+      documentId: "foreign-linked",
+      sourceRowId: "foreign/note.md",
+      sourceQualifiedId: "local-folder://vault/foreign%2Fnote.md",
+      sourceDisplayKey: "foreign/note.md",
+    });
+    const context = await runWithRequestContext({ userEmail: OWNER }, () =>
+      navigationContextAction.run({ id: "child-of-today" }),
+    );
+    expect(context.path.find((entry) => entry.id === "today")).toMatchObject({
+      canMove: false,
+    });
+    expect(
+      context.path.find((entry) => entry.id === "child-of-today"),
+    ).not.toHaveProperty("canMove");
+
+    for (const id of [
+      "readme",
+      "unlinked-nested",
+      "foreign-linked",
+      "plain-page",
+    ]) {
+      const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+        navigationContextAction.run({ id }),
+      );
+      expect(result.path.find((entry) => entry.id === id)).not.toHaveProperty(
+        "canMove",
+      );
+    }
+  });
+
   it("refuses a folder that isn't linked to the space as a parent", async () => {
     await expect(
       navigate(FILES, { parentId: folder("elsewhere", "daily-notes") }),

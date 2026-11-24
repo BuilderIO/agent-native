@@ -24,7 +24,10 @@ import {
   filesNavigationParentsWithChildren,
   localFolderDirectoryOfDocument,
 } from "./_database-navigation.js";
-import { serializeDocumentSource } from "./_document-source.js";
+import {
+  linkedNestedLocalFile,
+  serializeDocumentSource,
+} from "./_document-source.js";
 import {
   getContentSourceMode,
   getLocalFileDocument,
@@ -332,8 +335,16 @@ export default defineAction({
           databaseId: schema.contentDatabaseItems.databaseId,
           databaseDocumentId: schema.contentDatabases.documentId,
           systemRole: schema.contentDatabases.systemRole,
+          linkedNestedLocalFile: linkedNestedLocalFile(
+            db,
+            schema.contentDatabases.id,
+          ),
         })
         .from(schema.contentDatabaseItems)
+        .innerJoin(
+          schema.documents,
+          eq(schema.documents.id, schema.contentDatabaseItems.documentId),
+        )
         .innerJoin(
           schema.contentDatabases,
           eq(
@@ -446,6 +457,7 @@ export default defineAction({
         icon: row.icon,
         databaseId: navigationMembership?.databaseId ?? null,
         databaseDocumentId: navigationMembership?.databaseDocumentId ?? null,
+        ...(membership?.linkedNestedLocalFile ? { canMove: false } : {}),
         isFavorite: favorites.has(row.id),
         ...(childrenOnPath.has(row.id)
           ? { hasChildren: childrenOnPath.get(row.id) }
