@@ -43,6 +43,7 @@ import {
   createPublicRemoteAgentsHandler,
   createOpenAiAppsChallengeHandler,
   createOAuthPopupWaitingHandler,
+  redirectToBuilderAuthorization,
 } from "./core-routes-plugin.js";
 import { signEmbedSessionToken } from "./embed-session.js";
 import type { H3AppShim } from "./framework-request-handler.js";
@@ -311,6 +312,33 @@ describe("OAuth popup waiting route", () => {
     expect(popupPolicy).toBe("unsafe-none");
     expect([null, "unsafe-none", "same-origin-allow-popups"]).toContain(
       openerPolicy,
+    );
+  });
+
+  it("keeps its opener through Builder's connect redirect", async () => {
+    const authorizationUrl = "https://mcp.builder.io/oauth/authorize?state=x";
+    const app = createApp();
+    app.use(createSecurityHeadersMiddleware());
+    app.use("/_agent-native/oauth/popup", createOAuthPopupWaitingHandler());
+    app.use(
+      "/_agent-native/builder/connect",
+      defineEventHandler((event) =>
+        redirectToBuilderAuthorization(event, authorizationUrl),
+      ),
+    );
+
+    const popup = await app.fetch(
+      new Request("http://example.test/_agent-native/oauth/popup"),
+    );
+    const redirect = await app.fetch(
+      new Request("http://example.test/_agent-native/builder/connect"),
+    );
+
+    expect(redirect.status).toBe(302);
+    expect(redirect.headers.get("location")).toBe(authorizationUrl);
+    expect(redirect.headers.get("cache-control")).toBe("no-store");
+    expect(redirect.headers.get("cross-origin-opener-policy")).toBe(
+      popup.headers.get("cross-origin-opener-policy"),
     );
   });
 
