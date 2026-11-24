@@ -16,6 +16,15 @@ import {
   verifyA2AOrganizationIdentity,
 } from "../a2a/organization-identity.js";
 import { isMcpReadOnlyTool } from "../action-call-classification.js";
+import { z } from "zod";
+
+import {
+  MCP_SKILLS_EXTENSION_ID,
+  getMcpSkill,
+  listMcpSkills,
+  readMcpSkillFile,
+} from "./skills-extension.js";
+
 import {
   MCP_APP_EXTENSION_ID,
   MCP_APP_MIME_TYPE,
@@ -288,6 +297,8 @@ export interface MCPConfig {
   builtinCrossAppTools?: boolean;
   /** Opt in to an MCP-only, strictly read-only resource lookup. */
   readOnlyResources?: boolean;
+  /** Serve the `an` skill through the MCP Skills extension (SEP-2640). */
+  servesAnSkill?: boolean;
   /** Server-only candidate source; it must enforce current workspace grants. */
   taskCandidates?: (input: {
     callableActionNames: readonly string[];
@@ -3927,6 +3938,9 @@ export async function createMCPServerForRequest(
     scriptCatalogOffered && !scriptCatalog
       ? await scriptCatalogForPointer()
       : undefined;
+  // Only an authenticated connection sees the skill, as with tools/list.
+  const servesSkills =
+    config.servesAnSkill === true && Boolean(effectiveIdentity?.userEmail);
   const server = new Server(mcpServerInfo(config, requestMeta), {
     instructions: directoryCatalog
       ? config.directoryProfile?.instructions
@@ -3943,13 +3957,18 @@ export async function createMCPServerForRequest(
           ),
     capabilities: {
       tools: {},
-      ...(supportsMcpApps
+      ...(supportsMcpApps || servesSkills
         ? {
             resources: {},
             extensions: {
-              [MCP_APP_EXTENSION_ID]: {
-                mimeTypes: [MCP_APP_MIME_TYPE],
-              },
+              ...(supportsMcpApps
+                ? {
+                    [MCP_APP_EXTENSION_ID]: {
+                      mimeTypes: [MCP_APP_MIME_TYPE],
+                    },
+                  }
+                : {}),
+              ...(servesSkills ? { [MCP_SKILLS_EXTENSION_ID]: {} } : {}),
             },
           }
         : {}),
@@ -5125,6 +5144,8 @@ export async function createMCPServerForRequest(
             await grantedResourceActions("mcp:resources/read");
           return await withCallerContext(async () => {
             const uri = request.params?.uri;
+            const skillFile = servesSkills ? readMcpSkillFile(uri) : null;
+            if (skillFile) return skillFile;
             let found: {
               actionName: string;
               resource: ResolvedMcpAppResource;
@@ -5189,6 +5210,44 @@ export async function createMCPServerForRequest(
         }
       },
     );
+  }
+
+  if (servesSkills) {
+    const notFound = (uri: unknown) =>
+      new ResourceNotFoundError(String(uri ?? ""), `Skill not found: ${uri}`);
+    const skillParams = z.object({
+      uri: z.string().optional(),
+      cursor: z.string().optional(),
+    });
+    server.setRequestHandler(
+      "skills/list",
+      { params: skillParams },
+      async () => {
+        await resolveServiceGrant("mcp:skills/list");
+        return listMcpSkills();
+      },
+    );
+    server.setRequestHandler(
+      "skills/get",
+      { params: skillParams },
+      async (params) => {
+        await resolveServiceGrant("mcp:skills/get");
+        const result = getMcpSkill(params.uri);
+        if (!result) throw notFound(params.uri);
+        return result;
+      },
+    );
+    if (!supportsMcpApps) {
+      server.setRequestHandler("resources/list", async () => ({
+        resources: [],
+      }));
+      server.setRequestHandler("resources/read", async (request: any) => {
+        await resolveServiceGrant("mcp:resources/read");
+        const skillFile = readMcpSkillFile(request.params?.uri);
+        if (!skillFile) throw notFound(request.params?.uri);
+        return skillFile;
+      });
+    }
   }
 
   return server;
