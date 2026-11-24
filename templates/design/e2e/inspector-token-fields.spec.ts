@@ -2,7 +2,7 @@ import { expect, styleOf, test, type App } from "./rails";
 
 const SCREEN_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Tokens</title>
-<style>:root{--container-sm:640px;--space-14:56px;--space-page:var(--space-14);--leading-tight:1.2;--space-rem:1rem;--radius-rem:0.5rem;}</style>
+<style>:root{--container-sm:640px;--space-14:56px;--space-page:var(--space-14);--leading-tight:1.2;--space-rem:1rem;--radius-rem:0.5rem;--opacity-muted:0.6;--font-size-lg:24px;}</style>
 </head>
 <body style="margin:0;min-height:600px">
 <main data-agent-native-node-id="main" style="position:relative;min-height:600px">
@@ -145,4 +145,58 @@ test("binding W with proportions locked scales H to match", async ({
   const photo = styleOf((await app.savedNodes(designId)).get("photo"));
   expect(photo.width).toBe("var(--container-sm)");
   expect(photo.height).toBe("427px");
+
+  const height = page.getByRole("textbox", { name: "H size in pixels" });
+  await height.focus();
+  await page.keyboard.press("ArrowDown");
+  await page
+    .getByRole("listbox")
+    .locator('[data-token-field-option="space-rem"]')
+    .dispatchEvent("pointerdown");
+  await app.settled();
+  const relative = styleOf((await app.savedNodes(designId)).get("photo"));
+  expect(relative.height).toBe("var(--space-rem)");
+  expect(relative.width).toBe("var(--container-sm)");
+});
+
+test("opacity and font size keep their token names through reload and detach to the value", async ({
+  app,
+  page,
+}) => {
+  const designId = await openScreen(app);
+  await selectLayer(app, "copy");
+  const pickToken = async (
+    field: ReturnType<typeof page.getByRole>,
+    name: string,
+  ) => {
+    await field.focus();
+    await page.keyboard.press("ArrowDown");
+    await page
+      .getByRole("listbox")
+      .locator(`[data-token-field-option="${name}"]`)
+      .dispatchEvent("pointerdown");
+    await app.settled();
+  };
+  const opacity = page
+    .getByRole("textbox", { name: "Opacity", exact: true })
+    .first();
+  const size = page.getByRole("textbox", { name: "Size", exact: true });
+  await pickToken(opacity, "opacity-muted");
+  await pickToken(size, "font-size-lg");
+  const bound = styleOf((await app.savedNodes(designId)).get("copy"));
+  expect(bound.opacity).toBe("var(--opacity-muted)");
+  expect(bound["font-size"]).toBe("var(--font-size-lg)");
+
+  await page.reload();
+  await app.zoomToFit();
+  await selectLayer(app, "copy");
+  await expect(opacity).toHaveValue("opacity-muted");
+  await expect(size).toHaveValue("font-size-lg");
+
+  await size.focus();
+  await page.keyboard.press("Backspace");
+  await app.settled();
+  expect(
+    styleOf((await app.savedNodes(designId)).get("copy"))["font-size"],
+  ).toBe("24px");
 });

@@ -39,8 +39,8 @@ export function resolveTokenValue(
     if (seen.has(reference.name)) return null;
     seen.add(reference.name);
     const next = byVar.get(reference.name);
-    if (!next) return reference.fallback ?? null;
-    current = next.value.trim();
+    if (!next && reference.fallback === undefined) return null;
+    current = (next ? next.value : (reference.fallback ?? "")).trim();
   }
   return null;
 }

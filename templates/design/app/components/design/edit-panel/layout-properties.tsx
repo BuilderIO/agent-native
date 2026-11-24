@@ -106,7 +106,8 @@ function elementSizeTokenBinding(
     accepts: axis === "horizontal" ? ["container", "spacing"] : ["spacing"],
     authored: authoredStyleValue(element, property),
     onBind: (cssVar, resolved) => {
-      const px = resolvedPxSize(resolved) ?? measuredElementSize(element, axis);
+      const tokenPx = resolvedPxSize(resolved);
+      const px = tokenPx ?? measuredElementSize(element, axis);
       if (px === null) return;
       commitElementSizeToken(
         element,
@@ -115,7 +116,7 @@ function elementSizeTokenBinding(
         px,
         onStyleChange,
         onStylesChange,
-        lockedPairPx?.(px),
+        tokenPx === null ? undefined : lockedPairPx?.(tokenPx),
       );
     },
     onDetach: (resolved) => {

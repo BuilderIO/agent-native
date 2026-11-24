@@ -5,6 +5,7 @@ import {
   boundTokenVar,
   buildTokenFieldGroups,
   isNumericDraft,
+  resolveTokenValue,
   tokenGroupShowsTier,
   unitlessTokenValue,
 } from "./token-field-options";
@@ -103,12 +104,25 @@ describe("field helpers", () => {
     expect(isNumericDraft("space")).toBe(false);
   });
 
-  it("drops px and em, keeps %, and shows degrees as °", () => {
+  it("drops only the field's own unit and shows degrees as °", () => {
     expect(unitlessTokenValue("640px")).toBe("640");
     expect(unitlessTokenValue("1rem")).toBe("1rem");
     expect(unitlessTokenValue("1.5em", "em")).toBe("1.5");
     expect(unitlessTokenValue("1.5em")).toBe("1.5em");
     expect(unitlessTokenValue("40%")).toBe("40%");
     expect(unitlessTokenValue("90deg")).toBe("90°");
+  });
+
+  it("resolves a missing alias through its fallback, nested or literal", () => {
+    const byVar = new Map(
+      [{ cssVar: "--space-base", value: "16px", type: "spacing" }].map(
+        (token) => [token.cssVar, token],
+      ),
+    );
+    expect(resolveTokenValue("var(--missing, var(--space-base))", byVar)).toBe(
+      "16px",
+    );
+    expect(resolveTokenValue("var(--missing, 8px)", byVar)).toBe("8px");
+    expect(resolveTokenValue("var(--missing)", byVar)).toBeNull();
   });
 });
