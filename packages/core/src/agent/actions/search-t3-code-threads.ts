@@ -17,6 +17,18 @@ export default defineAction({
     query: z.string().max(200).optional(),
     limit: z.number().int().min(1).max(30).optional(),
   }),
+  outputSchema: z.object({
+    threads: z.array(
+      z.object({
+        threadId: z.string(),
+        title: z.string(),
+        status: z.string(),
+        agent: z.enum(["claude-code", "codex"]).nullable(),
+        projectId: z.string().nullable(),
+        updatedAt: z.string().nullable(),
+      }),
+    ),
+  }),
   http: { method: "GET" },
   mcpTool: false,
   run: async ({ agent, query, limit = 12 }, ctx) => {

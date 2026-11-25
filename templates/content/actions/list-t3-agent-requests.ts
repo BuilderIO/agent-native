@@ -8,6 +8,7 @@ import { z } from "zod";
 import {
   listT3AgentRequests,
   serializeT3AgentRequest,
+  t3AgentRequestViewSchema,
 } from "../server/lib/t3-agent-requests.js";
 
 export default defineAction({
@@ -20,6 +21,7 @@ export default defineAction({
   schema: z.object({
     documentId: z.string().min(1).describe("Page ID"),
   }),
+  outputSchema: z.object({ requests: z.array(t3AgentRequestViewSchema) }),
   run: async ({ documentId }, ctx) => {
     await assertLabEnabled(T3_CODE_AGENTS_LAB, ctx);
     await assertAccess("document", documentId, "commenter");

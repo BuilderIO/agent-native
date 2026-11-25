@@ -12,6 +12,7 @@ import { documentChangeResource } from "../server/lib/document-change-resource.j
 import {
   listT3AgentRequests,
   serializeT3AgentRequest,
+  t3AgentRequestViewSchema,
   syncT3AgentRequests,
 } from "../server/lib/t3-agent-requests.js";
 import { displayNameFromEmail } from "../shared/author-name.js";
@@ -23,6 +24,10 @@ export default defineAction({
   agentTool: false,
   schema: z.object({
     documentId: z.string().min(1).describe("Page ID"),
+  }),
+  outputSchema: z.object({
+    requests: z.array(t3AgentRequestViewSchema),
+    unreachable: z.boolean(),
   }),
   changeResource: (input) => documentChangeResource(input.documentId),
   run: async ({ documentId }, ctx) => {

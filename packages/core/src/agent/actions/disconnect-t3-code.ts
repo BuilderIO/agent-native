@@ -10,6 +10,7 @@ export default defineAction({
   description:
     "Sign the current user out of T3 Code. Their agents leave the @ menu at once; T3 is asked to revoke the sign-in.",
   schema: z.object({}),
+  outputSchema: z.object({ disconnected: z.boolean() }),
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: true,

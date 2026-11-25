@@ -11,6 +11,7 @@ import {
 } from "@agent-native/core/mcp-client";
 import { getAppProductionUrl } from "@agent-native/core/server";
 import { and, desc, eq, inArray, lt, or } from "drizzle-orm";
+import { z } from "zod";
 
 import { addCommentWithGuard } from "../../actions/add-comment.js";
 import { getDb, schema } from "../db/index.js";
@@ -48,21 +49,24 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-export interface T3AgentRequestView {
-  id: string;
-  documentId: string;
-  threadId: string;
-  commentId: string;
-  agent: T3CodeAgentKind;
-  status: T3AgentRequestStatus;
-  t3ThreadId: string | null;
-  t3ThreadTitle: string | null;
-  t3ThreadLink: string | null;
-  replyCommentId: string | null;
-  error: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
+/** A request as its person's page sees it. */
+export const t3AgentRequestViewSchema = z.object({
+  id: z.string(),
+  documentId: z.string(),
+  threadId: z.string(),
+  commentId: z.string(),
+  agent: z.enum(["claude-code", "codex"]),
+  status: z.enum(["sending", "working", "needs-you", "answered", "failed"]),
+  t3ThreadId: z.string().nullable(),
+  t3ThreadTitle: z.string().nullable(),
+  t3ThreadLink: z.string().nullable(),
+  replyCommentId: z.string().nullable(),
+  error: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+export type T3AgentRequestView = z.infer<typeof t3AgentRequestViewSchema>;
 
 export function serializeT3AgentRequest(
   row: T3AgentRequestRow,
@@ -76,7 +80,7 @@ export function serializeT3AgentRequest(
     // A claimed start reads as sending until its thread is recorded.
     status: (row.status === "starting"
       ? "sending"
-      : row.status) as T3AgentRequestStatus,
+      : row.status) as T3AgentRequestView["status"],
     t3ThreadId: row.t3ThreadId,
     t3ThreadTitle: row.t3ThreadTitle,
     t3ThreadLink: row.t3ThreadLink,

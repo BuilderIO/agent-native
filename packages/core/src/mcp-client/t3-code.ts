@@ -263,6 +263,7 @@ export async function withT3Code<R>(
   const failWith = async (error: unknown): Promise<never> => {
     const status = httpStatusFromError(error);
     if (status === 401 || status === 403) {
+      // coercion-ok: the refused sign-in is reported below either way; marking it only shows Reconnect sooner.
       await markMcpOAuthReconnectRequired(identity).catch(() => false);
       throw new T3CodeReconnectRequiredError();
     }

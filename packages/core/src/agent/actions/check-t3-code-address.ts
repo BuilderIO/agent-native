@@ -14,6 +14,13 @@ export default defineAction({
   schema: z.object({
     url: z.string().min(1).max(2048).describe("The T3 Code MCP URL."),
   }),
+  outputSchema: z.discriminatedUnion("ok", [
+    z.object({ ok: z.literal(true), url: z.string() }),
+    z.object({
+      ok: z.literal(false),
+      reason: z.enum(["http", "invalid", "not-mcp", "unreachable"]),
+    }),
+  ]),
   mcpTool: false,
   run: async ({ url }, ctx) => {
     const email = ctx?.userEmail;

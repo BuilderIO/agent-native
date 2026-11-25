@@ -356,7 +356,7 @@ export function T3CodeRow() {
                 placeholder="https://…/mcp"
                 autoComplete="off"
                 spellCheck={false}
-                className="font-mono text-xs"
+                className="font-mono"
                 aria-invalid={addressError ? true : undefined}
                 aria-describedby={
                   addressError ? "t3-code-address-error" : "t3-code-access"
