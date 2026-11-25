@@ -23,7 +23,6 @@ const COMMENT_MUTATIONS = new Set([
 /** Changes that open, resolve, or remove a Comment thread. */
 const COMMENT_COUNT_MUTATIONS = new Set([
   ...COMMENT_MUTATIONS,
-  "sync-t3-agent-requests",
   "apply-comment-ai-request",
   "undo-comment-ai-request",
 ]);
