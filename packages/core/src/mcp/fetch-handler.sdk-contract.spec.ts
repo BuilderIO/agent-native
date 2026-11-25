@@ -33,7 +33,21 @@ function createEchoServer() {
   return server;
 }
 
-async function parseRpcResponse(response: Response): Promise<any> {
+interface RpcPayload {
+  jsonrpc?: string;
+  id?: number | string;
+  result?: {
+    protocolVersion?: string;
+    content?: Array<{ type: string; text?: string }>;
+    tools?: Array<{ name: string }>;
+  };
+  error?: {
+    code?: number;
+    message?: string;
+  };
+}
+
+async function parseRpcResponse(response: Response): Promise<RpcPayload> {
   const contentType = response.headers.get("content-type") ?? "";
   const raw = await response.text();
   if (contentType.includes("text/event-stream")) {
@@ -43,9 +57,9 @@ async function parseRpcResponse(response: Response): Promise<any> {
     if (!dataLine) {
       throw new Error(`Expected SSE data payload, got: ${raw}`);
     }
-    return JSON.parse(dataLine.slice("data:".length).trim());
+    return JSON.parse(dataLine.slice("data:".length).trim()) as RpcPayload;
   }
-  return JSON.parse(raw);
+  return JSON.parse(raw) as RpcPayload;
 }
 
 async function postMcp(
@@ -95,7 +109,7 @@ describe("handleMcpFetchRequest with real MCP SDK 2.4.0", () => {
     );
     expect(init.status).toBe(200);
     expect(init.json.error).toBeUndefined();
-    expect(init.json.result.protocolVersion).toBe(LEGACY_VERSION);
+    expect(init.json.result?.protocolVersion).toBe(LEGACY_VERSION);
     expect(onInitialize).toHaveBeenCalledWith(
       expect.objectContaining({
         method: "initialize",
@@ -114,7 +128,7 @@ describe("handleMcpFetchRequest with real MCP SDK 2.4.0", () => {
     );
     expect(legacyCall.status).toBe(200);
     expect(legacyCall.json.error).toBeUndefined();
-    expect(legacyCall.json.result.content).toEqual([
+    expect(legacyCall.json.result?.content).toEqual([
       { type: "text", text: "echoed" },
     ]);
 
@@ -132,7 +146,7 @@ describe("handleMcpFetchRequest with real MCP SDK 2.4.0", () => {
     );
     expect(modernList.status).toBe(200);
     expect(modernList.json.error).toBeUndefined();
-    expect(modernList.json.result.tools.map((t: any) => t.name)).toEqual([
+    expect(modernList.json.result?.tools?.map((tool) => tool.name)).toEqual([
       "echo_note",
     ]);
 
@@ -155,74 +169,75 @@ describe("handleMcpFetchRequest with real MCP SDK 2.4.0", () => {
     );
     expect(modernCall.status).toBe(200);
     expect(modernCall.json.error).toBeUndefined();
-    expect(modernCall.json.result.content).toEqual([
+    expect(modernCall.json.result?.content).toEqual([
       { type: "text", text: "echoed" },
     ]);
   });
 
-  it("rejects mismatched or missing Mcp-Method, Mcp-Name, and protocol-version headers with -32020 before invoking the server factory", async () => {
-    const toolCallBody = {
-      jsonrpc: "2.0",
-      id: 10,
-      method: "tools/call",
-      params: {
-        name: "echo_note",
-        arguments: {},
-        _meta: modernEnvelopeMeta(),
+  const headerMismatchCases: Array<{
+    label: string;
+    headers: Record<string, string>;
+  }> = [
+    {
+      label: "mismatched Mcp-Method",
+      headers: {
+        "mcp-protocol-version": MODERN_VERSION,
+        "mcp-method": "tools/list",
+        "mcp-name": "echo_note",
       },
-    };
+    },
+    {
+      label: "missing Mcp-Method",
+      headers: {
+        "mcp-protocol-version": MODERN_VERSION,
+        "mcp-name": "echo_note",
+      },
+    },
+    {
+      label: "missing Mcp-Name",
+      headers: {
+        "mcp-protocol-version": MODERN_VERSION,
+        "mcp-method": "tools/call",
+      },
+    },
+    {
+      label: "mismatched Mcp-Name",
+      headers: {
+        "mcp-protocol-version": MODERN_VERSION,
+        "mcp-method": "tools/call",
+        "mcp-name": "other_tool",
+      },
+    },
+    {
+      label: "mismatched MCP-Protocol-Version",
+      headers: {
+        "mcp-protocol-version": LEGACY_VERSION,
+        "mcp-method": "tools/call",
+        "mcp-name": "echo_note",
+      },
+    },
+  ];
 
-    const cases: Array<{ label: string; headers: Record<string, string> }> = [
-      {
-        label: "mismatched Mcp-Method",
-        headers: {
-          "mcp-protocol-version": MODERN_VERSION,
-          "mcp-method": "tools/list",
-          "mcp-name": "echo_note",
+  it.each(headerMismatchCases)(
+    "rejects $label with -32020 before invoking the server factory",
+    async ({ headers }) => {
+      const toolCallBody = {
+        jsonrpc: "2.0",
+        id: 10,
+        method: "tools/call",
+        params: {
+          name: "echo_note",
+          arguments: {},
+          _meta: modernEnvelopeMeta(),
         },
-      },
-      {
-        label: "missing Mcp-Method",
-        headers: {
-          "mcp-protocol-version": MODERN_VERSION,
-          "mcp-name": "echo_note",
-        },
-      },
-      {
-        label: "missing Mcp-Name",
-        headers: {
-          "mcp-protocol-version": MODERN_VERSION,
-          "mcp-method": "tools/call",
-        },
-      },
-      {
-        label: "mismatched Mcp-Name",
-        headers: {
-          "mcp-protocol-version": MODERN_VERSION,
-          "mcp-method": "tools/call",
-          "mcp-name": "other_tool",
-        },
-      },
-      {
-        label: "mismatched MCP-Protocol-Version",
-        headers: {
-          "mcp-protocol-version": LEGACY_VERSION,
-          "mcp-method": "tools/call",
-          "mcp-name": "echo_note",
-        },
-      },
-    ];
-
-    for (const testCase of cases) {
+      };
       const createServer = vi.fn(createEchoServer);
-      const result = await postMcp(toolCallBody, testCase.headers, {
+      const result = await postMcp(toolCallBody, headers, {
         createServer,
       });
-      expect(result.status, testCase.label).toBe(400);
-      expect(result.json.error?.code, testCase.label).toBe(
-        HEADER_MISMATCH_CODE,
-      );
-      expect(createServer, testCase.label).not.toHaveBeenCalled();
-    }
-  });
+      expect(result.status).toBe(400);
+      expect(result.json.error?.code).toBe(HEADER_MISMATCH_CODE);
+      expect(createServer).not.toHaveBeenCalled();
+    },
+  );
 });
