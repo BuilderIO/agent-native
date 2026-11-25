@@ -23,13 +23,13 @@ Run against `builderio/agent-native` at `origin/main` (b8fcf8fd).
 
 ## Requested outputs
 
-| Item | Value |
-| --- | --- |
-| ERRORS-BEFORE | not measured (no harness logs available) |
-| ERRORS-AFTER | not measured |
-| Fresh sample of 20+ chat-ui cases | not run (no fixtures, no credential) |
-| Raw outputs JSON artifact | none, deliberately not fabricated |
-| Agreement and variance | not computed |
+| Item                              | Value                                    |
+| --------------------------------- | ---------------------------------------- |
+| ERRORS-BEFORE                     | not measured (no harness logs available) |
+| ERRORS-AFTER                      | not measured                             |
+| Fresh sample of 20+ chat-ui cases | not run (no fixtures, no credential)     |
+| Raw outputs JSON artifact         | none, deliberately not fabricated        |
+| Agreement and variance            | not computed                             |
 
 ## Owner note
 
