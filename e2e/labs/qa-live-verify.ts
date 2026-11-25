@@ -304,7 +304,7 @@ async function signInWithQaEmailLink(page: Page) {
       usedMessages,
     );
     usedMessages.add(message.id);
-    const link = labsQaEmailLink(message, target.app);
+    const link = labsQaEmailLink(message, target.app, email, requestedAt);
     stage = "redeem the QA email link";
     const response = await page.goto(link.href, {
       waitUntil: "domcontentloaded",

@@ -5,7 +5,18 @@ import {
 
 export const LABS_QA_ORIGIN = "https://labs.agent-native.com";
 
-export function labsQaEmailLink(message: MailosaurMessage, app: string): URL {
+export function labsQaEmailLink(
+  message: MailosaurMessage,
+  app: string,
+  email: string,
+  requestedAt: number,
+): URL {
+  if (
+    !(Date.parse(message.received ?? "") >= requestedAt) ||
+    !message.to?.some((recipient) => recipient.email?.toLowerCase() === email)
+  ) {
+    throw new Error("Unexpected QA email-link message");
+  }
   const landing = "/_agent-native/auth/email-link/landing";
   const link = new URL(verificationLinkFor(message, LABS_QA_ORIGIN));
   if (
