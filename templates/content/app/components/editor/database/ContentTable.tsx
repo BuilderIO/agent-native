@@ -288,7 +288,6 @@ export const ContentTableToolbarButton = forwardRef<
     props["aria-label"] ?? (count ? `${count} ${label}` : label);
   return (
     <Button
-      // A caller with a richer hint of its own passes `title={undefined}`.
       title={label}
       {...props}
       ref={ref}

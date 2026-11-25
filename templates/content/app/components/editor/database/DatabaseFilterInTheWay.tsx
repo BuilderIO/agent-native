@@ -1,5 +1,3 @@
-// A search that finds nothing in a filtered view says which filter hides
-// what the search alone would find, and pressing that filter opens it.
 import {
   filterItemRules,
   findFilterField,
@@ -17,9 +15,7 @@ import { dbText } from "./text";
 
 export interface FilterInTheWay {
   search: string;
-  /** A few rows the search finds with no filters. */
   rows: readonly ContentDatabaseItem[];
-  /** How many more the search finds. */
   more: number;
   properties: DocumentProperty[];
   fields: readonly FilterField<never>[];
@@ -36,7 +32,6 @@ export function useFilterInTheWay() {
   return useContext(FilterInTheWayContext);
 }
 
-/** The top-level filter lines that each hide this row. */
 export function filtersHidingRow(
   row: ContentDatabaseItem,
   state: FilterState,

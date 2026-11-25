@@ -1,7 +1,3 @@
-// Edits for the filter list where each line has its own "and" or "or". "And"
-// binds before "or", as in SQL: "A and B or C and D" is two groups, (A and B)
-// or (C and D). A group never holds a group with its own mode; it would only
-// repeat the word, so those are flattened.
 import {
   createFilterGroup,
   filterItemId,
@@ -29,8 +25,6 @@ export interface FilterJoinResult {
   whole: boolean;
 }
 
-// The top level works as a group with this id, so one set of helpers covers
-// both. Item ids are never empty.
 const TOP = "";
 
 const flip = (mode: FilterMode): FilterMode => (mode === "and" ? "or" : "and");
@@ -48,7 +42,6 @@ function depth(item: FilterItem): number {
   return 1 + Math.max(0, ...item.rules.map(depth));
 }
 
-// The members of groups with `mode` stand in for those groups.
 function sameIn(mode: FilterMode, items: readonly FilterItem[]): FilterItem[] {
   return items.flatMap((item) =>
     item.kind === "group" && item.mode === mode ? item.rules : [item],
@@ -76,7 +69,6 @@ function parentOf(group: FilterGroup, id: string): FilterGroup | undefined {
   return undefined;
 }
 
-// Replaces the item `id` with any number of items, given it and its parent.
 function swap(
   group: FilterGroup,
   id: string,
@@ -100,8 +92,6 @@ function patchGroup(
   return swap(top, id, (item) => [item.kind === "group" ? patch(item) : item]);
 }
 
-// Gives a whole group one word. A group that comes to match its parent's
-// word joins the parent.
 function setWhole(top: FilterGroup, groupId: string, mode: FilterMode) {
   if (top.id === groupId)
     return { ...top, mode, rules: sameIn(mode, top.rules) };
@@ -153,10 +143,6 @@ export function joinFilterLine(
   if (parent.rules.length === 2) return { state: whole, whole: false };
   let next: FilterGroup;
   if (mode === "or") {
-    // The parent is an "and" group: the lines before and after the word
-    // become an "and" group each, side by side in an "or". Inside an "or",
-    // they join it; elsewhere (an "and" group saved inside another "and"),
-    // the group itself becomes the "or".
     const outer = parent.id === TOP ? undefined : parentOf(top, parent.id);
     const lifted = outer?.mode === "or";
     const part = (items: FilterItem[], id?: string): FilterItem[] =>
@@ -181,8 +167,6 @@ export function joinFilterLine(
             lifted ? parts : [{ ...parent, mode: "or", rules: parts }],
           );
   } else {
-    // The parent is an "or" group: the two lines the word joins become one
-    // "and" group, keeping the id of an "and" group among them.
     const pair = parent.rules.slice(at - 1, at + 1);
     const kept = pair.find(
       (item) => item.kind === "group" && item.mode === "and",

@@ -1,5 +1,3 @@
-// The Sort menu on a collection's toolbar: one line per sort, in the order
-// they apply, dragged by their handles the way Content's other lists drag.
 import {
   FilterFieldPicker,
   useFilterText,
@@ -57,7 +55,6 @@ import type { DatabaseSort } from "./types";
 
 const NAME_KEY = "name";
 
-// The properties a view can sort by, in the kit's picker shape.
 function sortFields(
   properties: readonly DocumentProperty[],
 ): FilterField<never>[] {
@@ -69,7 +66,7 @@ function sortFields(
       icon: <IconFileText className="size-4" />,
     },
     ...properties.map((property): FilterField<never> => {
-      const Icon = TYPE_ICONS[property.definition.type] ?? IconFileText;
+      const Icon = TYPE_ICONS[property.definition.type];
       return {
         id: property.definition.id,
         label: property.definition.name,
@@ -80,7 +77,6 @@ function sortFields(
   ];
 }
 
-// Sorts carry no ids; a property sorted twice gets its place as well.
 function sortIds(sorts: readonly DatabaseSort[]) {
   return sorts.map((sort, index) =>
     sorts.findIndex((other) => other.key === sort.key) === index
@@ -98,10 +94,10 @@ export function SortMenu({
   properties: DocumentProperty[];
   sorts: DatabaseSort[];
   onSortsChange: (sorts: DatabaseSort[]) => void;
-  /** What pointing at the button shows: the sorts in words. */
   hint?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  const [hintOpen, setHintOpen] = useState(false);
   const text = useFilterText();
   const fields = useMemo(() => sortFields(properties), [properties]);
   const ids = sortIds(sorts);
@@ -145,7 +141,7 @@ export function SortMenu({
   return (
     <Popover modal open={open} onOpenChange={setOpen}>
       {hint ? (
-        <Tooltip open={open ? false : undefined}>
+        <Tooltip open={hintOpen && !open} onOpenChange={setHintOpen}>
           <TooltipTrigger asChild>
             <PopoverTrigger asChild>{button}</PopoverTrigger>
           </TooltipTrigger>
@@ -199,7 +195,7 @@ export function SortMenu({
                 items={ids}
                 strategy={verticalListSortingStrategy}
               >
-                <ul className="flex min-w-0 flex-col gap-1">
+                <ul className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto_auto] gap-1">
                   {sorts.map((sort, index) => (
                     <SortLine
                       key={ids[index]}
@@ -226,7 +222,12 @@ export function SortMenu({
               </SortableContext>
             </DndContext>
             <div className="flex items-center">
-              <PropertyPickButton fields={fields} onPick={add}>
+              <PropertyPickButton
+                fields={fields.filter(
+                  (field) => !sorts.some((sort) => sort.key === field.id),
+                )}
+                onPick={add}
+              >
                 <Button
                   type="button"
                   variant="ghost"
@@ -277,7 +278,7 @@ function SortLine({
       ref={setNodeRef}
       style={{ transform: DragCss.Transform.toString(transform), transition }}
       className={cn(
-        "flex min-w-0 items-center gap-1 rounded-md",
+        "col-span-full grid min-w-0 grid-cols-subgrid items-center rounded-md",
         isDragging && "relative z-10 bg-popover shadow-md",
       )}
     >
@@ -296,7 +297,7 @@ function SortLine({
           type="button"
           variant="outline"
           size="sm"
-          className="h-8 min-w-0 flex-1 justify-start gap-1.5 font-normal"
+          className="h-8 min-w-0 justify-start gap-1.5 font-normal"
         >
           <span className="flex shrink-0 text-muted-foreground">
             {field?.icon}
@@ -307,7 +308,7 @@ function SortLine({
       </PropertyPickButton>
       <button
         type="button"
-        className="flex h-8 items-center whitespace-nowrap rounded px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+        className="flex h-8 items-center justify-center whitespace-nowrap rounded px-2 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
         onClick={onToggle}
       >
         {databaseSortDirectionLabel(
@@ -363,7 +364,6 @@ function PropertyPickButton({
   );
 }
 
-/** The sorts in words, as the Sort button's hint shows them. */
 export function DatabaseSortWords({
   sorts,
   properties,

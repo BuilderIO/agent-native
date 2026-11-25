@@ -39,7 +39,6 @@ describe("Collection and Trash table composition", () => {
   it("routes both callers through the shared search and constraint controls", () => {
     expect(databaseViewSource).toContain("<ContentTableToolbar");
     expect(databaseViewSource).toContain("<ContentTableSearch");
-    // A collection's sorts and filters live in its toolbar menus, with no chips below.
     expect(databaseViewSource).not.toContain("<ContentTableConstraintChip");
     expect(trashFiltersSource).toContain("<ContentTableToolbar");
     expect(trashFiltersSource).toContain("<ContentTableSearch");

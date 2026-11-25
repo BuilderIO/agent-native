@@ -36,11 +36,6 @@ import {
   type FilterState,
   type FilterText,
 } from "@agent-native/toolkit/app/filters";
-// The Filter menu on a collection's toolbar. Each line after the first has
-// its own "and" or "or", and "and" binds before "or", so the lines read the way
-// they'd be said: a run of "and"s sits in one box, and an "or" between two
-// runs makes two boxes. A box holds its own word and drag handle, and lines
-// drag in and out of boxes the way Content's other lists drag.
 import { useIsMobile } from "@agent-native/toolkit/hooks";
 import {
   closestCenter,
@@ -113,7 +108,6 @@ import { cn } from "@/lib/utils";
 
 import { dbText } from "./text";
 
-// Lists and drop targets need ids, and the top level has none of its own.
 const TOP = "filter-top";
 const END = "filter-end:";
 const GLOW_MS = 1600;
@@ -122,15 +116,10 @@ export interface DatabaseFilterMenuProps {
   fields: readonly FilterField<never>[];
   state: FilterState;
   onChange: (next: FilterState) => void;
-  /** The Content color classes for one of a field's options, if it has any. */
   optionClass: (fieldId: string, optionId: string) => string | undefined;
-  /** How many rows the filter shows, when the view knows. */
   summary?: string | undefined;
-  /** What pointing at the button shows: the filter in words. */
-  hint: ReactNode;
-  /** The toolbar button that opens the menu. */
+  hint?: ReactNode;
   children: ReactElement;
-  /** Opens the menu with this line open; a new `at` asks again. */
   openLine?: { id: string; at: number } | null;
 }
 
@@ -146,6 +135,7 @@ export function DatabaseFilterMenu({
 }: DatabaseFilterMenuProps) {
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
+  const [hintOpen, setHintOpen] = useState(false);
   const [startOpenId, setStartOpenId] = useState<string | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -171,8 +161,6 @@ export function DatabaseFilterMenu({
       );
       return;
     }
-    // Lines left without a value would filter nothing; drop the ones added
-    // while the menu was open.
     if (hasIncompleteFilterRules(stateRef.current, fields)) {
       const pruned = pruneFilterState(
         stateRef.current,
@@ -203,19 +191,20 @@ export function DatabaseFilterMenu({
       inSheet={isMobile}
     />
   );
-  const trigger = (
-    <Tooltip open={open ? false : undefined}>
-      <TooltipTrigger asChild>
-        {isMobile ? (
-          <SheetTrigger asChild>{children}</SheetTrigger>
-        ) : (
-          <PopoverTrigger asChild>{children}</PopoverTrigger>
-        )}
-      </TooltipTrigger>
+  const opener = isMobile ? (
+    <SheetTrigger asChild>{children}</SheetTrigger>
+  ) : (
+    <PopoverTrigger asChild>{children}</PopoverTrigger>
+  );
+  const trigger = hint ? (
+    <Tooltip open={hintOpen && !open} onOpenChange={setHintOpen}>
+      <TooltipTrigger asChild>{opener}</TooltipTrigger>
       <TooltipContent side="bottom" align="end" className="max-w-80">
         {hint}
       </TooltipContent>
     </Tooltip>
+  ) : (
+    opener
   );
 
   if (isMobile) {
@@ -264,7 +253,6 @@ interface PanelProps {
   inSheet: boolean;
 }
 
-/** What a line's parts need: the filter, its edits and the open line. */
 interface LineEdits {
   fields: readonly FilterField<never>[];
   state: FilterState;
@@ -318,7 +306,6 @@ function FilterLinesPanel({
   };
 
   const announce = (message: string) => {
-    // The same words twice in a row still need saying.
     setAnnouncement("");
     later(() => setAnnouncement(message), 20);
   };
@@ -348,7 +335,6 @@ function FilterLinesPanel({
     if (next !== stateRef.current) onChange(next);
   };
 
-  // A line or box removed leaves no box of one behind.
   const withoutLine = (current: FilterState, id: string) => {
     const parent = filterLineParent(current, id);
     const next = removeFilterItem(current, id);
@@ -357,7 +343,6 @@ function FilterLinesPanel({
       : next;
   };
 
-  // Closing a line that never got a value takes it away again.
   const setOpenId = (id: string | null) => {
     const closing = openId;
     setOpenIdState(id);
@@ -380,8 +365,6 @@ function FilterLinesPanel({
     return field ? text.ruleLabel(field, item) : item.field;
   };
 
-  // Focus the word now in front of a line: its own, or its box's when the
-  // line now opens a box.
   const focusJoin = (next: FilterState, id: string) => {
     let target = id;
     while (filterLineJoin(next, target) === undefined) {
@@ -477,9 +460,6 @@ function FilterLinesPanel({
     },
   };
 
-  // #8514: a single-option property such as Status already on the list,
-  // in a line that can take another value, opens that line instead of
-  // adding a second one beside it.
   const lineThatTakesAnother = (field: FilterField<never>) => {
     const current = stateRef.current;
     if (current.mode !== "and" || field.type !== "choice") return undefined;
@@ -543,9 +523,6 @@ function FilterLinesPanel({
       coordinateGetter: sortableKeyboardCoordinates,
     }),
   );
-  // The deepest target under the pointer wins, so a line inside a box is
-  // its own target rather than the box around it. A dragged box can't land
-  // inside itself.
   const collisions: CollisionDetection = (args) => {
     const droppableContainers = args.droppableContainers.filter(
       (container) => !blocked.current.has(String(container.id)),
@@ -661,7 +638,6 @@ function FilterLinesPanel({
       aria-label={dbText("filter")}
       className="flex min-w-0 flex-col gap-1 p-2"
       onKeyDown={(event) => {
-        // Escape closes the open line before the menu.
         if (event.key === "Escape" && openId) {
           event.stopPropagation();
           event.preventDefault();
@@ -809,7 +785,6 @@ function FilterLines({
   );
 }
 
-// The word that opens a box: "either" for "or", "both" or "all of" for "and".
 function openerFor(group: FilterGroup) {
   if (group.mode === "or") return dbText("filterEither");
   return group.rules.length > 2 ? dbText("filterAllOf") : dbText("filterBoth");
@@ -837,7 +812,6 @@ function FilterLine({
     transition,
     isDragging,
   } = useSortable({ id: item.id });
-  // In a box, the box's own handle drags it; its first line has none.
   const handleHidden = level > 0 && index === 0 && !isDragging;
   const name = edits.lineName(item);
   const dropMark =
@@ -1075,8 +1049,6 @@ function FilterRuleLine({
   );
 }
 
-// A line in words: the property, how it compares and the values, with
-// options in their own colors.
 function RuleSentence({
   rule,
   field,
@@ -1192,7 +1164,6 @@ function FilterBox({
   );
 }
 
-// The end of a list, where a dragged line lands after its last line.
 function EndDrop({
   groupId,
   edits,
@@ -1243,7 +1214,6 @@ function MenuItemButton({
   );
 }
 
-// A line's ⋯: its menu, then a property list for "Turn into group".
 function LineMoreMenu({
   rule,
   level,
@@ -1393,8 +1363,6 @@ function BoxMoreMenu({
   );
 }
 
-// A button that opens the kit's property list, and with `includeValues`,
-// its values too.
 function FieldPickButton({
   fields,
   text,
@@ -1427,21 +1395,16 @@ function FieldPickButton({
             setOpen(false);
             onPickField(field);
           }}
-          onPickValue={
-            onPickValue
-              ? (field, candidate) => {
-                  setOpen(false);
-                  onPickValue(field, candidate);
-                }
-              : undefined
-          }
+          onPickValue={(field, candidate) => {
+            setOpen(false);
+            onPickValue?.(field, candidate);
+          }}
         />
       </PopoverContent>
     </Popover>
   );
 }
 
-/** The filter in words, as the Filter button's hint shows it. */
 export function DatabaseFilterWords({
   fields,
   state,

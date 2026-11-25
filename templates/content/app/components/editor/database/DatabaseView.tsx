@@ -1440,7 +1440,6 @@ function DatabaseTable({
     nameLabel: DATABASE_NAME_PICKER_OPTION.label,
     onChange: setActiveFiltersAndMode,
   });
-  // The Filter menu shows an option in the color it has in the collection.
   const filterOptionClass = useCallback(
     (fieldId: string, optionId: string) => {
       const option = orderedProperties
@@ -1633,8 +1632,6 @@ function DatabaseTable({
     (isDatabaseInitialLoading ||
       isClientQueryExpansionPending ||
       (database.isFetching && Boolean(tableQuery)));
-  // A search that finds nothing through the filters asks what it finds
-  // without them, so the empty view can name the filter in the way.
   const searchFindsNothing =
     searchQuery.trim().length > 0 &&
     activeFilters.length > 0 &&
@@ -2743,9 +2740,6 @@ function DatabaseTable({
     }
   }
 
-  // Puts back the view everyone saw before a Save for everyone, and leaves
-  // the saved changes as this person's own again. Someone else's save since
-  // wins: Undo then changes nothing.
   async function undoSaveForEveryone(
     expectedDatabaseId: string,
     sharedBefore: ContentDatabaseViewConfig,
@@ -6181,7 +6175,9 @@ function DatabaseTableView({
   canEdit: boolean;
   canEditRows: boolean;
   canManageDatabase: boolean;
-  workspaceCreationPropertyValues?: Record<string, DocumentPropertyValue>;
+  workspaceCreationPropertyValues?:
+    | Record<string, DocumentPropertyValue>
+    | undefined;
   isLoading: boolean;
   isCreating: boolean;
   columnWidths: Record<string, number>;
@@ -6196,7 +6192,7 @@ function DatabaseTableView({
   rowsAreManuallyOrdered: boolean;
   wrapCells: boolean;
   columnWrapOverrides: Record<string, boolean>;
-  frozenThroughColumnId?: string | null;
+  frozenThroughColumnId?: string | null | undefined;
   onGroupByChange: (id: string | null) => void;
   onEffectiveFrozenColumnsChange: (ids: string[]) => void;
   onWrapColumn: (id: string, wrapped: boolean) => void;
@@ -14461,8 +14457,7 @@ function DatabaseViewTabs({
   }
 
   // `flex-auto`, not `flex-1`: a zero basis let the toolbar keep the tabs'
-  // line on phones and squeezed every view into a ~150px scroller. From
-  // `sm` up the row never wraps, so tabs that don't fit scroll under a fade.
+  // line on phones and squeezed every view into a ~150px scroller.
   return (
     <div className="group/viewtabs relative flex min-w-0 flex-auto items-center gap-1 overflow-x-auto [scrollbar-width:none] sm:pe-4 sm:[mask-image:linear-gradient(to_left,transparent,black_1rem)] sm:rtl:[mask-image:linear-gradient(to_right,transparent,black_1rem)] [&::-webkit-scrollbar]:hidden">
       <DatabaseDragPreview preview={dragPreview} />

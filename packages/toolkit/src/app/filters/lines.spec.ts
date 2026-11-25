@@ -40,8 +40,6 @@ const state = (mode: FilterMode, ...items: FilterItem[]): FilterState => ({
   pinned: {},
 });
 
-// Reads a filter the way the list shows it: each line after the first has
-// its word, and a group opens with "both", "all of" or "either".
 function read(filter: FilterState): string {
   const list = (items: readonly FilterItem[], mode: FilterMode): string =>
     items
@@ -56,7 +54,6 @@ function read(filter: FilterState): string {
   return `Where ${list(filter.items, filter.mode)}`;
 }
 
-// The view the prototype started from: four lines and an either/or.
 const start = () =>
   state(
     "and",
@@ -69,7 +66,6 @@ const start = () =>
 const START =
   "Where turn and status and needs and area and [either status2 or needs2]";
 
-// The id of the group that holds `id`.
 function box(filter: FilterState, id: string): string {
   const parent = filterLineParent(filter, id);
   if (!parent) throw new Error(`${id} is not in a group`);
@@ -98,7 +94,6 @@ describe("and before or", () => {
     expect(read(filter)).toBe(
       "Where [both turn and status] or needs or [both area and [either status2 or needs2]]",
     );
-    // Needs alone is a line again, and Area starts a new box.
     expect(filterLineParent(filter, "needs")).toBeUndefined();
     expect(filterLineParent(filter, "area")?.id).not.toBe(second);
     filter = join(filter, "needs", "and");
@@ -294,7 +289,7 @@ describe("group edits", () => {
     expect(copy.id).toBeDefined();
     expect(copy.id).not.toBe("g");
     expect(copy.state.items).toHaveLength(3);
-    const copied = copy.state.items[2];
+    const copied = copy.state.items.at(2);
     expect(
       copied?.kind === "group" && copied.rules.map((item) => item.id),
     ).not.toContain("b");

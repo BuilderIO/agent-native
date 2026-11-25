@@ -1,6 +1,3 @@
-// The one place on a collection's toolbar to keep or drop the sorts and
-// filters someone changed for themselves. It shows only while they differ
-// from the view everyone sees.
 import {
   IconArrowBackUp,
   IconChevronDown,

@@ -171,7 +171,8 @@ describe("the Filter menu's lines", () => {
     ]);
     await pickJoin("Name: contains “c”", "and", "or");
     expect(latest.filterMode).toBe("or");
-    const [a, b, c] = latest.filters;
+    const filters: readonly (DatabaseFilter | undefined)[] = latest.filters;
+    const [a, b, c] = filters;
     expect(a?.filterGroupId).toBeTruthy();
     expect(b?.filterGroupId).toBe(a?.filterGroupId);
     expect(a?.filterGroupMode).toBe("and");
@@ -186,7 +187,6 @@ describe("the Filter menu's lines", () => {
       nameFilter("c", { filterGroupId: "either", filterGroupMode: "or" }),
     ]);
     const box = byLabel("Group: either is enough");
-    // The box holds the word that joins it, then opens with its own.
     expect(box.textContent).toMatch(/^and\s*either/);
     expect(byLabel("Remove filter: Name: contains “b”", box)).toBeDefined();
     expect(byLabel("Remove filter: Name: contains “c”", box)).toBeDefined();
