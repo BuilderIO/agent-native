@@ -512,11 +512,9 @@ export default defineAction({
               sourceTable: source.sourceTable,
               now,
               existingRows: [],
+              importedEntriesByDocumentId,
             })
           : new Map<string, BuilderCmsSourceEntry>();
-      for (const [documentId, entry] of importedEntriesByDocumentId) {
-        builderEntriesByDocumentId.set(documentId, entry);
-      }
       await seedMockSourceFields({
         sourceId: source.id,
         ownerEmail: database.ownerEmail,
