@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { safeParseIconValue } from "@agent-native/core/icons";
+import { interactiveHtmlTitle } from "@shared/interactive-html";
 import { renderMathToHtml } from "@shared/math-rendering";
 import { nfmToDoc } from "@shared/nfm";
 import {
@@ -8,15 +9,20 @@ import {
   type Node as ProseMirrorNode,
   type Schema,
 } from "@tiptap/pm/model";
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 
+import { buttonVariants } from "@/components/ui/button";
 import {
   CONTENT_BODY_DOM_MARK,
   CONTENT_BODY_ELEMENT_TIMING,
   markStartupMilestone,
 } from "@/lib/startup-timing";
+import { cn } from "@/lib/utils";
 
-import { isMermaidCodeBlock } from "./extensions/CodeBlockNode";
+import {
+  isInteractiveHtmlCodeBlock,
+  isMermaidCodeBlock,
+} from "./extensions/CodeBlockNode";
 import {
   EMPTY_TOGGLE_BODY_PLACEHOLDER,
   humanizeTag,
@@ -26,6 +32,7 @@ import {
   toggleTitleNode,
 } from "./extensions/NotionExtensions";
 import { isEmptyCell } from "./extensions/TablePresentation";
+import { SEALED_FRAME_FIRST_HEIGHT } from "./interactive-html/SealedFrame";
 import { imageDisplaySrc } from "./private-media-src";
 import {
   noteStoredBodyImageFailed,
@@ -45,6 +52,16 @@ type Child = Node | string | null;
 export interface StaticBodyLabels {
   imageBroken: string;
   mermaidSource: string;
+  interactiveHtmlUntitled: string;
+  interactiveHtmlRunHint: string;
+  interactiveHtmlRun: string;
+  runInteractiveHtml: boolean;
+}
+
+function sameLabels(a: StaticBodyLabels, b: StaticBodyLabels): boolean {
+  return (Object.keys(a) as (keyof StaticBodyLabels)[]).every(
+    (key) => a[key] === b[key],
+  );
 }
 
 // Null draws the node as its `renderHTML`, as a view factory returning nothing
@@ -662,6 +679,9 @@ export const STATIC_NODE_VIEWS: Partial<Record<string, StaticNodeView>> = {
   // once drawn; an empty one shows its source. Other code blocks keep their
   // plain markup, as in the editor.
   codeBlock: (node, document, labels) => {
+    if (isInteractiveHtmlCodeBlock(node)) {
+      return interactiveHtmlBlock(node, document, labels);
+    }
     if (!isMermaidCodeBlock(node)) return null;
     const empty = node.textContent.trim() === "";
     const { dom: code, contentDOM } = nodeViewContent(document, {}, "code");
@@ -711,6 +731,90 @@ export const STATIC_NODE_VIEWS: Partial<Record<string, StaticNodeView>> = {
     };
   },
 };
+
+function interactiveHtmlBlock(
+  node: ProseMirrorNode,
+  document: Document,
+  labels: StaticBodyLabels,
+) {
+  const source = node.textContent;
+  const empty = source.trim() === "";
+  const { dom: code, contentDOM } = nodeViewContent(document, {}, "code");
+  const control = {
+    contenteditable: "false",
+    "data-interactive-html-control": "",
+  };
+  return {
+    dom: reactNodeView(
+      document,
+      node,
+      nodeViewWrapper(
+        document,
+        "dialog",
+        { role: "figure", class: "content-interactive-html" },
+        h(
+          document,
+          "div",
+          { class: "content-interactive-html__header", ...control },
+          h(
+            document,
+            "div",
+            { class: "content-interactive-html__title" },
+            interactiveHtmlTitle(source) ?? labels.interactiveHtmlUntitled,
+          ),
+          empty
+            ? null
+            : h(
+                document,
+                "div",
+                { class: "flex shrink-0 items-center gap-0.5" },
+                ...["source", "copy", "fullScreen"].map(() =>
+                  h(document, "button", {
+                    type: "button",
+                    tabindex: "-1",
+                    "aria-hidden": "true",
+                    class: cn(
+                      buttonVariants({ variant: "ghost", size: "icon-xs" }),
+                    ),
+                  }),
+                ),
+              ),
+        ),
+        h(document, "pre", { hidden: empty ? null : "" }, code),
+        empty
+          ? null
+          : h(
+              document,
+              "div",
+              { class: "content-interactive-html__body", ...control },
+              labels.runInteractiveHtml
+                ? h(document, "div", {
+                    class: "skeleton-shimmer bg-muted w-full",
+                    style: `height: ${SEALED_FRAME_FIRST_HEIGHT}px`,
+                  })
+                : h(
+                    document,
+                    "div",
+                    { class: "content-interactive-html__waiting" },
+                    h(document, "p", {}, labels.interactiveHtmlRunHint),
+                    h(
+                      document,
+                      "button",
+                      {
+                        type: "button",
+                        class: cn(
+                          buttonVariants({ variant: "outline", size: "sm" }),
+                        ),
+                      },
+                      labels.interactiveHtmlRun,
+                    ),
+                  ),
+            ),
+      ),
+    ),
+    contentDOM,
+  };
+}
 
 /** Node views whose DOM lays out as their `renderHTML` does. */
 export const NODE_VIEWS_LAID_OUT_BY_RENDER_HTML = new Set([
@@ -813,15 +917,26 @@ export function StaticDocumentBody({
   schema,
   content,
   documentId,
+  runInteractiveHtml,
 }: {
   schema: Schema;
   content: string;
   /** Marks the body-visible startup milestone for this page when given. */
-  documentId?: string;
+  documentId?: string | undefined;
+  runInteractiveHtml: boolean;
 }) {
   const t = useT();
-  const imageBroken = t("editor.media.imageBroken");
-  const mermaidSource = t("editor.mermaid.source");
+  const labels = useMemo(
+    (): StaticBodyLabels => ({
+      imageBroken: t("editor.media.imageBroken"),
+      mermaidSource: t("editor.mermaid.source"),
+      interactiveHtmlUntitled: t("editor.interactiveHtml.untitled"),
+      interactiveHtmlRunHint: t("editor.interactiveHtml.runHint"),
+      interactiveHtmlRun: t("editor.interactiveHtml.run"),
+      runInteractiveHtml,
+    }),
+    [t, runInteractiveHtml],
+  );
   const bodyRef = useRef<HTMLDivElement>(null);
   const markedRef = useRef(false);
   const [failedContent, setFailedContent] = useState<string | null>(null);
@@ -833,7 +948,7 @@ export function StaticDocumentBody({
     const handOver = () => {
       const slot = {
         content,
-        labels: { imageBroken, mermaidSource },
+        labels,
         nodes: [...body.childNodes],
       };
       handedOver = slot;
@@ -844,8 +959,7 @@ export function StaticDocumentBody({
     };
     if (
       handedOver?.content === content &&
-      handedOver.labels.imageBroken === imageBroken &&
-      handedOver.labels.mermaidSource === mermaidSource
+      sameLabels(handedOver.labels, labels)
     ) {
       body.replaceChildren(...handedOver.nodes);
       handedOver = null;
@@ -853,10 +967,7 @@ export function StaticDocumentBody({
     }
     let timed: boolean;
     try {
-      ({ timed } = renderStaticDocumentBody(schema, content, body, {
-        imageBroken,
-        mermaidSource,
-      }));
+      ({ timed } = renderStaticDocumentBody(schema, content, body, labels));
     } catch (error) {
       console.error("[content] could not draw the stored body", error);
       setFailedContent(content);
@@ -867,7 +978,7 @@ export function StaticDocumentBody({
       markStartupMilestone(CONTENT_BODY_DOM_MARK, documentId);
     }
     return handOver;
-  }, [schema, content, documentId, imageBroken, mermaidSource]);
+  }, [schema, content, documentId, labels]);
   // Sizes the drawn tables as the editor sizes its own, so its body doesn't
   // move when it takes over.
   useLayoutEffect(() => {
@@ -889,7 +1000,7 @@ export function StaticDocumentBody({
       return [sizer];
     });
     return () => sizers.forEach((sizer) => sizer.destroy());
-  }, [schema, content, documentId, imageBroken, mermaidSource, failed]);
+  }, [schema, content, documentId, labels, failed]);
 
   if (failed) {
     return (

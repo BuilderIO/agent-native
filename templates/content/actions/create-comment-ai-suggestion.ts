@@ -22,6 +22,10 @@ import {
   verifyCommentAiAttempt,
 } from "../server/lib/comment-ai.js";
 import { commentAiChangeResource } from "../server/lib/document-change-resource.js";
+import {
+  assertInteractiveHtmlBlocks,
+  savePiecesOfCheckedEdit,
+} from "../server/lib/interactive-html-blocks.js";
 import { CONTENT_DOCUMENT_SUGGESTION_ADAPTER } from "../server/lib/suggested-edits.js";
 import {
   createWithSavedUnits,
@@ -155,6 +159,10 @@ export default defineAction({
     const verification = await verifyCommentAiAttempt(request, args.attemptId);
     const { text } = verification.source;
     assertCommentAiEditsResolve(verification, text.content, args.edits);
+    const edited = resolveDocumentTextEdits(text.content, args.edits);
+    if (edited.ok && !verification.attempt.payloadJson) {
+      assertInteractiveHtmlBlocks(ctx, text.content, edited.content);
+    }
     try {
       const payload = payloadSchema.parse(
         await retainCommentAiAttemptPayload(request, args.attemptId, args),
@@ -214,14 +222,16 @@ export default defineAction({
       // under its own key, because a retry may propose different edits.
       const suggestion =
         operations.length === 1
-          ? await createSuggestion.run(
-              {
-                ...proposal,
-                idempotencyKey: `comment-ai:${args.attemptId}:suggestion`,
-                operations: operations.map(onText),
-                metadata,
-              },
-              ctx,
+          ? await savePiecesOfCheckedEdit(() =>
+              createSuggestion.run(
+                {
+                  ...proposal,
+                  idempotencyKey: `comment-ai:${args.attemptId}:suggestion`,
+                  operations: operations.map(onText),
+                  metadata,
+                },
+                ctx,
+              ),
             )
           : (
               await createWithSavedUnits({
@@ -229,17 +239,20 @@ export default defineAction({
                 idempotencyKey: `comment-ai:${args.attemptId}:proposal`,
                 ctx,
                 create: (labels) =>
-                  createSuggestionProposal.run(
-                    {
-                      ...proposal,
-                      idempotencyKey: `comment-ai:${args.attemptId}:proposal`,
-                      suggestions: operations.map((operation, index) => ({
-                        summary: markdownSuggestionOperationSummary(operation),
-                        operations: [onText({ ...operation, ordinal: 0 })],
-                        metadata: { ...metadata, reviewUnit: labels[index] },
-                      })),
-                    },
-                    ctx,
+                  savePiecesOfCheckedEdit(() =>
+                    createSuggestionProposal.run(
+                      {
+                        ...proposal,
+                        idempotencyKey: `comment-ai:${args.attemptId}:proposal`,
+                        suggestions: operations.map((operation, index) => ({
+                          summary:
+                            markdownSuggestionOperationSummary(operation),
+                          operations: [onText({ ...operation, ordinal: 0 })],
+                          metadata: { ...metadata, reviewUnit: labels[index] },
+                        })),
+                      },
+                      ctx,
+                    ),
                   ),
               })
             ).suggestions[0]!;

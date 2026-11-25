@@ -12,6 +12,7 @@ import {
   setResponseStatus,
 } from "h3";
 
+import { interactiveHtmlBlockLinks } from "../../../actions/_interactive-html-blocks.js";
 import {
   buildContentDocumentMcpGuidance,
   buildContentPublicDocumentUrl,
@@ -117,6 +118,12 @@ export default defineEventHandler(async (event) => {
         })
       : undefined;
 
+  const interactiveBlocks = await interactiveHtmlBlockLinks(
+    document.id,
+    document.content,
+    getForwardedRequestOrigin(event),
+  );
+
   return {
     resourceType: "document",
     id: document.id,
@@ -125,6 +132,7 @@ export default defineEventHandler(async (event) => {
     icon: document.icon,
     content: document.content,
     ...(privateMediaLinks ? { privateMediaLinks } : {}),
+    ...(interactiveBlocks.length > 0 ? { interactiveBlocks } : {}),
     visibility: document.visibility,
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,

@@ -544,9 +544,9 @@ Create a one-off artifact, then promote it into a governed reusable Custom Block
 
 **Example workflow:** An agent creates a one-off interactive calculator inside a Page; its owner inspects the source and rendered result, then promotes it to an approved Custom Block that coworkers can insert from the slash menu.
 
-**What works today:** Sandboxed Extensions, local MDX components, HTML artifacts, executable-code foundations, and shared component toolkits already demonstrate several rendering and execution modes.
+**What works today:** Artifact Blocks run Page-owned HTML as `html interactive` code blocks in a sealed frame, with inspectable source, full screen, their own links, agent edits, and captioned fallbacks. Sandboxed Extensions, local MDX components, executable-code foundations, and shared component toolkits demonstrate other rendering and execution modes.
 
-**What remains:** These pieces need one Custom Block lifecycle with inspectable source, secure sandboxing, optional typed props, one-off artifacts, promotion, governed catalogs, source-backed origins, and slash-command discovery.
+**What remains:** These pieces need one Custom Block lifecycle with optional typed props, promotion of one-off artifacts, governed catalogs, source-backed origins, and slash-command discovery.
 
 **What this Feature includes:**
 

@@ -12,6 +12,7 @@ import {
   BUILDER_CMS_BODY_BLOCK_COUNT_KEY,
   BUILDER_CMS_BODY_CONTENT_KEY,
 } from "./_builder-cms-source-adapter.js";
+import { withPublishedInteractiveHtmlLinks } from "./_interactive-html-blocks.js";
 
 const MODEL = "collection-local-edits";
 const OWNER = "owner@example.com";
@@ -686,6 +687,40 @@ it("takes Builder's body for an unedited page and flags an edited one Builder ch
   await hydrateBody("entry-a", "Body A, theirs");
   expect(await pendingEdit("entry-a")).toBeNull();
   expect(await editConflicts("entry-a")).toBe("none");
+});
+
+it("keeps interactive blocks, which Builder holds only the links of", async () => {
+  const id = "entry-interactive";
+  builder.entries.set(id, { title: id, author: "Ida", updatedAt: tick() });
+  await refresh();
+  await hydrateBody(id, "Body");
+  const block = (count: number) =>
+    `\`\`\`html interactive\n<title>Tap counter</title>\n<button>${count}</button>\n\`\`\``;
+  const local = `Body\n${block(0)}\n${block(1)}`;
+  await editBody(id, local);
+  const linked = await withPublishedInteractiveHtmlLinks(
+    await documentIdFor(id),
+    local,
+  );
+  const [, firstLink = "", secondLink = ""] = linked.split("\n");
+
+  const sent = (await pendingEdit(id))?.bodyChange?.proposedBlocksJson;
+  for (const link of [firstLink, secondLink]) {
+    expect(link).toContain("[Open “Tap counter”](");
+    expect(sent).toContain(/block=([^&)]+)/.exec(link)?.[1]);
+  }
+  expect(sent).not.toContain("<button>");
+
+  await hydrateBody(id, linked);
+  expect(await localBody(id)).toBe(local);
+  expect(await pendingEdit(id)).toBeNull();
+
+  await hydrateBody(id, `Body, revised\n${firstLink}\n${secondLink}`);
+  expect(await localBody(id)).toBe(`Body, revised\n${block(0)}\n${block(1)}`);
+  expect(await pendingEdit(id)).toBeNull();
+
+  await hydrateBody(id, `Body, revised\n${secondLink}`);
+  expect(await localBody(id)).toBe(`Body, revised\n${block(1)}`);
 });
 
 it("moves an unedited property to the value a body read brings and flags an edited one", async () => {

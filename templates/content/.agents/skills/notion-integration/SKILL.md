@@ -210,6 +210,14 @@ equivalent: `canonicalizeNotionNfm` leaves it out of pushes and sync hashes,
 and `keepCodeBlockWrap` puts it back on the blocks whose code Notion returns
 unchanged, so toggling it is not a change to sync.
 
+Interactive HTML (`html interactive` code blocks) can't run in Notion. A push
+writes each as an `html` code block whose first line is
+`<!-- Runs in Content: <url> -->`, followed by a paragraph that is only a link
+to that URL (`interactiveHtmlForNotion`). A pull reads a code block that starts
+with that comment as the block, with any edits made to its code, and drops the
+link right below it (`notionMarkdownToNfm`). A code block whose comment is gone
+comes back as plain code, and its link stays a link.
+
 ## Sync State
 
 The `document_sync_links` table tracks sync relationships:

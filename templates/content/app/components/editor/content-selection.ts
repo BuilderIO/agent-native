@@ -1,10 +1,13 @@
+import { blockIdentityIdOf } from "@shared/block-identity-ids";
 import {
   CLIP_EMBED_BLOCK_TYPE,
   clipEmbedRecordingIdFromRaw,
 } from "@shared/clip-embed-block";
+import { interactiveHtmlTitle } from "@shared/interactive-html";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 
 import { captureAnchor } from "./comment-anchors";
+import { isInteractiveHtmlCodeBlock } from "./extensions/CodeBlockNode";
 
 export const SELECTION_TEXT_LIMIT = 2000;
 const BLOCK_TEXT_LIMIT = 200;
@@ -73,10 +76,43 @@ function selectedRegistryBlock(
   return { blockType, blockId, ...(recordingId ? { recordingId } : {}) };
 }
 
+export interface ContentSelectedInteractiveBlock {
+  title: string | null;
+  blockId: string | null;
+  number: number;
+  whole: boolean;
+}
+
+function selectedInteractiveBlock(
+  doc: ProseMirrorNode,
+  from: number,
+  to: number,
+): ContentSelectedInteractiveBlock | null {
+  let found: ContentSelectedInteractiveBlock | null = null;
+  let number = 0;
+  doc.descendants((node, pos) => {
+    if (found) return false;
+    if (!isInteractiveHtmlCodeBlock(node)) return !node.isTextblock;
+    number++;
+    const end = pos + node.nodeSize;
+    if (from >= pos && to <= end && from < end) {
+      found = {
+        title: interactiveHtmlTitle(node.textContent),
+        blockId: blockIdentityIdOf(node),
+        number,
+        whole: from === pos && to === end,
+      };
+    }
+    return false;
+  });
+  return found;
+}
+
 export interface ContentSelectionPayload {
   documentId: string;
   collapsed: boolean;
   selectedBlock?: ContentSelectedBlock;
+  interactiveBlock?: ContentSelectedInteractiveBlock;
   selectedText?: string;
   textTruncated?: boolean;
   prefix?: string;
@@ -93,8 +129,13 @@ export function buildContentSelectionPayload(
   to: number,
 ): ContentSelectionPayload {
   const { blockText, heading } = captureBlockContext(doc, from);
+  const interactiveBlock = selectedInteractiveBlock(doc, from, to);
+  const within = interactiveBlock ? { interactiveBlock } : {};
   if (from === to) {
-    return { documentId, collapsed: true, blockText, heading };
+    return { documentId, collapsed: true, ...within, blockText, heading };
+  }
+  if (interactiveBlock?.whole) {
+    return { documentId, collapsed: false, ...within, blockText: "", heading };
   }
   const selectedBlock = selectedRegistryBlock(doc, from, to);
   if (selectedBlock) {
@@ -109,6 +150,7 @@ export function buildContentSelectionPayload(
     prefix: anchor.prefix,
     suffix: anchor.suffix,
     position: anchor.startOffset,
+    ...within,
     blockText,
     heading,
   };

@@ -1351,6 +1351,8 @@ const editorSlashMessages = {
   fourColumns: "4 columns",
   codeBlock: "Code Block",
   codeBlockDescription: "Code snippet",
+  interactiveHtml: "Interactive HTML",
+  interactiveHtmlDescription: "HTML that runs on the page",
   collapsibleBlockDescription: "Collapsible block",
   database: "Collection",
   databaseDescription: "Inline collection in this page",
@@ -1406,6 +1408,21 @@ const editorSlashMessages = {
   turnInto: "Turn into",
   video: "Video",
   videoDescription: "Upload or embed video",
+};
+
+const interactiveHtmlMessages = {
+  untitled: "Interactive HTML",
+  showSource: "Show source",
+  hideSource: "Hide source",
+  copyHtml: "Copy HTML",
+  copied: "HTML copied",
+  copyFailed: "Could not copy the HTML",
+  copyLink: "Copy link to this block",
+  fullScreen: "Full screen",
+  closeFullScreen: "Close full screen",
+  run: "Run",
+  runHint: "This block runs its own code in a sealed frame.",
+  runsOnPage: "Run on the page",
 };
 
 const mermaidMessages = {
@@ -1689,6 +1706,7 @@ const enUS = {
       "This suggestion changed elsewhere. Your unsaved draft is still here.",
     discardSuggestionDraft: "Discard draft",
     mermaid: mermaidMessages,
+    interactiveHtml: interactiveHtmlMessages,
     bold: "Bold",
     underline: "Underline",
     italic: "Italic",
@@ -3082,6 +3100,7 @@ function mergeMessagesForLocale(
         suggestionFormattingMessagesByLocale[locale][1]!,
       removeLink: removeLinkMessagesByLocale[locale],
       mermaid: { ...base.editor.mermaid },
+      interactiveHtml: { ...base.editor.interactiveHtml },
       media: { ...base.editor.media, ...rawLiteralOverrides.editor?.media },
       properties: base.editor.properties,
       reference: {

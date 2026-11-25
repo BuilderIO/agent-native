@@ -51,6 +51,7 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import { assertInteractiveHtmlBlocks } from "../server/lib/interactive-html-blocks.js";
 import {
   liveBodyWriterGateForRow,
   liveBodyWriterPageColumns,
@@ -1659,6 +1660,11 @@ const updateDocumentAction = defineAction({
             updates.description = args.description?.trim();
           if (lockedContentChanged) {
             assertNoNewlySharedVideoIds(
+              historyBefore.content,
+              content as string,
+            );
+            assertInteractiveHtmlBlocks(
+              ctx,
               historyBefore.content,
               content as string,
             );
