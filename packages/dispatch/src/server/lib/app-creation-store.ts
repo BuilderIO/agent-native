@@ -2621,9 +2621,22 @@ async function listWorkspaceAppsWithPrincipal(
   // The admin inventory is only complete after a verified gateway read.
   // A domainless or unreachable configured gateway cannot be replaced with
   // the local manifest without silently hiding mounted applications.
+  const gatewayUrl = getAppConfig().workspace.gatewayUrl?.trim();
+  const gatewayBase = gatewayUrl ? workspaceGatewayBaseUrl() : null;
+  const requestOrigin = getRequestContext()?.requestOrigin;
+  let sameOriginHostedGateway = false;
+  if (gatewayBase && requestOrigin && !isLocalWorkspaceGateway(gatewayBase)) {
+    try {
+      sameOriginHostedGateway =
+        new URL(requestOrigin).origin === gatewayBase.origin;
+    } catch {
+      // An invalid origin never grants permission to fall back locally.
+    }
+  }
   if (
     principal === "org-access-inventory" &&
-    getAppConfig().workspace.gatewayUrl?.trim()
+    gatewayUrl &&
+    !sameOriginHostedGateway
   ) {
     if (gatewayDenial) throw gatewayDenial;
     throw new WorkspaceAppsGatewayAuthorizationError(
@@ -2698,17 +2711,20 @@ export function listWorkspaceApps(
 }
 
 export async function listWorkspaceAppsForOrgAccessInventory(): Promise<
-  WorkspaceAppSummary[]
+  Array<Pick<WorkspaceAppSummary, "id" | "name" | "path">>
 > {
   requireWorkspaceAppOrgId();
   const role = await requestOwnerRole();
   if (role !== "owner" && role !== "admin") {
     throw new WorkspaceAppMetadataAuthorizationError();
   }
-  return listWorkspaceAppsWithPrincipal(
+  const mountedApps = await listWorkspaceAppsWithPrincipal(
     { includeAgentCards: false, includeArchived: false, audience: "all" },
     "org-access-inventory",
   );
+  // This is a mounting inventory, not a cross-organization metadata API.
+  // Never return owner, visibility, teams, creation history, or DB overrides.
+  return mountedApps.map(({ id, name, path }) => ({ id, name, path }));
 }
 
 export async function listOrganizationVisibleWorkspaceApps(): Promise<
