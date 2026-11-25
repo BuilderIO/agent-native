@@ -1135,9 +1135,6 @@ export async function inviteOne(
         { orgId: ctx.orgId, orgName: ctx.orgName, inviter: ctx.email, email },
         event,
       );
-      // Only a send the transport accepted counts: a suppressed send returns
-      // normally, and calling it "sent" tells the inviter a message went out
-      // that nobody received.
       emailSent = delivery.status === "sent";
       if (!emailSent) emailError = "The invitation email was not delivered";
     } catch (err) {
