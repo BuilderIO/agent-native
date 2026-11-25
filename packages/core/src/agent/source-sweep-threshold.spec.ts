@@ -51,7 +51,7 @@ describe("agent.sourceSweepToolCallThreshold", () => {
     const dbCalls = (count: number) =>
       Array.from({ length: count }, (_, i) => ({
         name: "db-query",
-        input: { sql: "SELECT " + i },
+        input: { attempt: i },
       }));
 
     const guardAt = (count: number) =>
