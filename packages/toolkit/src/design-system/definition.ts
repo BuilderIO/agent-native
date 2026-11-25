@@ -10,8 +10,15 @@ export interface DesignSystemDefinition {
   theme?: DesignSystemTheme;
 }
 
+type KnownKeysOnly<Definition> = {
+  readonly [Key in Exclude<
+    keyof Definition,
+    keyof DesignSystemDefinition
+  >]: never;
+};
+
 export function defineDesignSystem<
   const Definition extends DesignSystemDefinition,
->(definition: Definition): Definition {
+>(definition: Definition & KnownKeysOnly<Definition>): Definition {
   return definition;
 }
