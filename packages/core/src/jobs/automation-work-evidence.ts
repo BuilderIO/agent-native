@@ -4,6 +4,27 @@ import {
   automationNoOpReasonFromEvents,
 } from "./actions/automation-no-op.js";
 
+export function automationWorkFailureCode(
+  failedTool?: Extract<AgentChatEvent, { type: "tool_done" }>,
+): string {
+  return failedTool?.outcomeUnknown
+    ? "write_tool_outcome_unknown"
+    : (failedTool?.errorCode ?? "automation_no_confirmed_work");
+}
+
+export function findUnknownAutomationWrite(
+  events: readonly AgentChatEvent[],
+): Extract<AgentChatEvent, { type: "tool_done" }> | undefined {
+  return [...events]
+    .reverse()
+    .find(
+      (event): event is Extract<AgentChatEvent, { type: "tool_done" }> =>
+        event.type === "tool_done" &&
+        event.tool !== AUTOMATION_NO_OP_TOOL &&
+        event.outcomeUnknown === true,
+    );
+}
+
 export function inspectAutomationWork(
   events: readonly AgentChatEvent[],
   options: {
@@ -34,15 +55,15 @@ export function inspectAutomationWork(
     );
   // A rejected no-op call is a failed declaration, not failed work, so it must
   // not veto a valid skip whether it comes before or after the declaration.
-  const workFailure = failures.find(
-    (event) => event.tool !== AUTOMATION_NO_OP_TOOL,
-  );
+  const workFailure =
+    findUnknownAutomationWrite(events) ??
+    failures.find((event) => event.tool !== AUTOMATION_NO_OP_TOOL);
   const failedTool = workFailure ?? failures[0];
   const noOpReason =
     options.noOpReason ?? automationNoOpReasonFromEvents(events);
   if (noOpReason && !hasConfirmedAction && !workFailure)
     return { status: "skipped", reason: noOpReason };
-  return hasConfirmedAction
+  return hasConfirmedAction && !workFailure?.outcomeUnknown
     ? { status: "success" }
     : { status: "unconfirmed", noOpDeclared: Boolean(noOpReason), failedTool };
 }

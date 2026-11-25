@@ -19,7 +19,11 @@ import type { Resource } from "../resources/store.js";
 import { AutomationNoOpEvidenceUnreadableError } from "./actions/automation-no-op.js";
 import { withDeliveryNote } from "./automation-outcome.js";
 import { automationRunTerminalError } from "./automation-terminal-error.js";
-import { inspectAutomationWork } from "./automation-work-evidence.js";
+import {
+  automationWorkFailureCode,
+  findUnknownAutomationWrite,
+  inspectAutomationWork,
+} from "./automation-work-evidence.js";
 import {
   jobBelongsToApp,
   recoveredFactoryOwnerOrgId,
@@ -299,12 +303,27 @@ export async function inspectAutomationRecovery(
     return unavailable(error.errorCode);
   }
   const events = runEvents.map(({ event }) => event);
+  const failure = automationRunTerminalError(
+    runEvents
+      .filter((event) => event.runId === run.id)
+      .map(({ event }) => event),
+  );
+  const unknownWrite = findUnknownAutomationWrite(events);
+  if (unknownWrite && (run.status !== "completed" || failure)) {
+    const deliveryNote = deliveryNoteForEvents(events);
+    return {
+      state: "settle",
+      status: "error",
+      history,
+      error: withDeliveryNote(
+        automationOutcomeMessagesForLocale("en-US").outcomeUnknown,
+        deliveryNote,
+      ),
+      errorCode: automationWorkFailureCode(unknownWrite),
+      deliveryNote,
+    };
+  }
   if (run.status === "completed") {
-    const failure = automationRunTerminalError(
-      runEvents
-        .filter((event) => event.runId === run.id)
-        .map(({ event }) => event),
-    );
     if (failure) {
       const deliveryNote = deliveryNoteForEvents(events);
       return {
@@ -345,18 +364,18 @@ export async function inspectAutomationRecovery(
       const message = meta.deliveryDestination
         ? messages.emptyDelivery
         : messages.noWork;
-      const detail = evidence.failedTool?.result;
+      const unknown = evidence.failedTool?.outcomeUnknown;
+      const detail = unknown ? undefined : evidence.failedTool?.result;
       const deliveryNote = deliveryNoteForEvents(events);
       return {
         state: "settle",
         status: "error",
         history,
         error: withDeliveryNote(
-          `${message}${detail ? ` ${detail}` : ""}`,
+          `${unknown ? `${messages.outcomeUnknown} ` : ""}${message}${detail ? ` ${detail}` : ""}`,
           deliveryNote,
         ),
-        errorCode:
-          evidence.failedTool?.errorCode ?? "automation_no_confirmed_work",
+        errorCode: automationWorkFailureCode(evidence.failedTool),
         deliveryNote,
       };
     }
@@ -365,10 +384,13 @@ export async function inspectAutomationRecovery(
       status: "error",
       history,
       error: automationDeliveryNote(
-        automationRecoveryMessagesForLocale().deliveryUnknown,
+        `${evidence.status === "unconfirmed" && evidence.failedTool?.outcomeUnknown ? `${automationOutcomeMessagesForLocale("en-US").outcomeUnknown} ` : ""}${automationRecoveryMessagesForLocale().deliveryUnknown}`,
         events,
       ),
-      errorCode: "background_automation_delivery_unknown",
+      errorCode:
+        evidence.status === "unconfirmed" && evidence.failedTool?.outcomeUnknown
+          ? automationWorkFailureCode(evidence.failedTool)
+          : "background_automation_delivery_unknown",
       deliveryNote: deliveryNoteForEvents(events),
     };
   }

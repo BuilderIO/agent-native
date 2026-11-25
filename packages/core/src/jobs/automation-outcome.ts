@@ -244,7 +244,10 @@ export function pausedMessage(
   const next = isTransientAutomationFailureCode(code)
     ? "It retries on its own and resumes once this clears."
     : "Fix the cause, then enable the automation again.";
-  const detail = `Paused after ${count} consecutive ${code} failures: ${message} ${next}`;
+  const detail =
+    code === "write_tool_outcome_unknown"
+      ? `${message} ${next}`
+      : `Paused after ${count} consecutive ${code} failures: ${message} ${next}`;
   return deliveryNote
     ? withDeliveryNote(detail, deliveryNote)
     : truncate(detail);
@@ -269,10 +272,9 @@ export function withDeliveryNote(
 
 /**
  * The one place a failure becomes persisted state. `countTowardPause: false`
- * (a manual run) records the real cause without moving the streak, so asking
- * for a run never pauses the automation. `eventId` keys the streak on the
- * event: a queue or webhook retry of an event already counted records its
- * cause without counting again, so one bad event cannot pause by itself.
+ * (a manual run) records ordinary failures without moving the streak. An
+ * unknown write always pauses because a later scheduled run could repeat it.
+ * `eventId` keys ordinary failures on the event, so a retry cannot count twice.
  */
 export function applyAutomationFailure(
   meta: Pick<
@@ -293,7 +295,10 @@ export function applyAutomationFailure(
   );
   const retryOfCountedEvent =
     options.eventId !== undefined && options.eventId === meta.lastFailedEventId;
-  if (options.countTowardPause === false || retryOfCountedEvent) {
+  if (
+    failure.code !== "write_tool_outcome_unknown" &&
+    (options.countTowardPause === false || retryOfCountedEvent)
+  ) {
     return {
       consecutiveFailures: meta.consecutiveFailures ?? 0,
       pause: false,
@@ -309,9 +314,12 @@ export function applyAutomationFailure(
       ? 0
       : (meta.consecutiveFailures ?? 0);
   const count = prior + 1;
-  const threshold = failure.precondition
-    ? PRECONDITION_PAUSE_AFTER
-    : RUNTIME_PAUSE_AFTER;
+  const threshold =
+    failure.code === "write_tool_outcome_unknown"
+      ? 1
+      : failure.precondition
+        ? PRECONDITION_PAUSE_AFTER
+        : RUNTIME_PAUSE_AFTER;
   const pause = count >= threshold;
   return {
     consecutiveFailures: count,

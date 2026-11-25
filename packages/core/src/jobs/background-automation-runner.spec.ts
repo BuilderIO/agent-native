@@ -1245,6 +1245,291 @@ describe("runBackgroundAutomation — confirmed work", () => {
     ).rejects.toMatchObject({ errorCode: "automation_no_confirmed_work" });
   });
 
+  it.each([false, true])(
+    "does not deliver a report or report success after an uncertain write (isError: %s)",
+    async (isError) => {
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+        async (opts) => {
+          await opts.send({
+            type: "tool_done",
+            tool: "record-report",
+            result: "Recorded",
+            completedSideEffect: true,
+          });
+          await opts.send({
+            type: "tool_done",
+            tool: "send-report",
+            ...(isError ? { isError: true as const } : {}),
+            outcomeUnknown: true,
+            result: "PRIVATE_PROVIDER_RESPONSE",
+          });
+          await opts.send({ type: "text", text: "Report ready." });
+          return usage;
+        },
+      );
+      const adapters = await import("../integrations/adapters/index.js");
+      const sendMessageToTarget = vi.fn();
+      const adapter = vi.spyOn(adapters, "getDefaultAdapter").mockReturnValue({
+        formatAgentResponse: (text: string) => ({ text }),
+        sendMessageToTarget,
+      } as never);
+      try {
+        await expect(
+          runBackgroundAutomation(
+            runOptions(
+              precondition("uncertain-with-delivery", {
+                deliveryPlatform: "slack",
+                deliveryDestination: "example-channel",
+              }),
+            ),
+            standardDeps,
+          ),
+        ).rejects.toMatchObject({
+          errorCode: "write_tool_outcome_unknown",
+          message: expect.stringContaining(
+            "An action may already have applied.",
+          ),
+        });
+        expect(sendMessageToTarget).not.toHaveBeenCalled();
+      } finally {
+        adapter.mockRestore();
+      }
+    },
+  );
+
+  it("keeps the unknown action warning in persisted history without copying provider data", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    const privateValue = "PRIVATE_CUSTOMER_SENTINEL";
+    const warning =
+      "An action may already have applied. Check its current state before retrying.";
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async (opts) => {
+        await opts.send({
+          type: "tool_done",
+          tool: "send-report",
+          isError: true,
+          outcomeUnknown: true,
+          errorCode: "http_503",
+          result: `${privateValue} ${"provider response ".repeat(100)}`,
+        });
+        await opts.send({
+          type: "tool_done",
+          tool: "send-report",
+          isError: true,
+          result: "Retry refused",
+        });
+        return usage;
+      },
+    );
+    const name = "unknown-long-provider-result";
+    const run = runBackgroundAutomation(
+      runOptions(precondition(name), { manual: true }),
+      standardDeps,
+    );
+    await expect(run).rejects.toMatchObject({
+      errorCode: "write_tool_outcome_unknown",
+      message: expect.stringContaining(warning),
+    });
+    const row = (await pglite
+      .prepare("SELECT status, error FROM automation_runs WHERE automation = ?")
+      .get(name)) as { status: string; error: string };
+    expect(row.status).toBe("error");
+    expect(row.error.startsWith(warning)).toBe(true);
+    expect(row.error).not.toContain("provider response");
+    expect(row.error).not.toContain(privateValue);
+  });
+
+  it.each(["dispatched redirect", "pre-dispatch rejection"])(
+    "reports the outcome of a %s without exposing request data",
+    async (scenario) => {
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      const { runAgentLoop: actualLoop } = await vi.importActual<
+        typeof import("../agent/production-agent.js")
+      >("../agent/production-agent.js");
+      const { createFetchToolEntry } =
+        await import("../extensions/fetch-tool.js");
+      const dispatched = scenario === "dispatched redirect";
+      const diagnostic = dispatched
+        ? "Redirect URL is not in the allowlist for the referenced keys."
+        : 'URL "https://93.184.216.34/denied" is not in the allowlist for the referenced keys. Check your key settings.';
+      const warning =
+        "An action may already have applied. Check its current state before retrying.";
+      const calls = [
+        dispatched ? "https://1.1.1.1/allowed" : "https://93.184.216.34/denied",
+        ...(dispatched ? ["https://1.1.1.1/other"] : []),
+      ];
+      let turn = 0;
+      const engine: AgentEngine = {
+        ...testEngine,
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          const url = calls[turn++];
+          if (url) {
+            yield {
+              type: "assistant-content",
+              parts: [
+                {
+                  type: "tool-call",
+                  id: `post-${turn}`,
+                  name: "web-request",
+                  input: {
+                    url,
+                    method: "POST",
+                    headers: '{"Authorization":"${keys.TEST_KEY}"}',
+                    body: '{"private":"customer-fixture-value"}',
+                  },
+                },
+              ],
+            };
+            yield { type: "stop", reason: "tool_use" };
+          } else {
+            yield {
+              type: "assistant-content",
+              parts: [{ type: "text", text: "Done." }],
+            };
+            yield { type: "stop", reason: "end_turn" };
+          }
+        },
+      };
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(null, {
+          status: 302,
+          headers: { location: "https://93.184.216.34/denied" },
+        }),
+      );
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+        actualLoop,
+      );
+      const name = `web-request-${dispatched ? "unknown" : "rejected"}`;
+      try {
+        const run = runBackgroundAutomation(
+          runOptions(precondition(name), { manual: true }),
+          {
+            ...standardDeps,
+            engine,
+            getActions: () =>
+              createFetchToolEntry({
+                resolveKeys: async (text) => ({
+                  resolved: text.replace(
+                    "${keys.TEST_KEY}",
+                    "fake-secret-value",
+                  ),
+                  usedKeys: text.includes("${keys.TEST_KEY}")
+                    ? ["TEST_KEY"]
+                    : [],
+                  secretValues: ["fake-secret-value"],
+                }),
+                validateUrl: async (url) => url.startsWith("https://1.1.1.1/"),
+              }),
+          },
+        );
+        await expect(run).rejects.toMatchObject({
+          errorCode: dispatched
+            ? "write_tool_outcome_unknown"
+            : "web_request_url_blocked",
+          message: expect.stringContaining(dispatched ? warning : diagnostic),
+        });
+        await expect(run).rejects.not.toThrow(
+          dispatched ? diagnostic : warning,
+        );
+        const row = (await pglite
+          .prepare(
+            "SELECT status, error FROM automation_runs WHERE automation = ?",
+          )
+          .get(name)) as { status: string; error: string };
+        expect(row.status).toBe("error");
+        expect(row.error.startsWith(warning)).toBe(dispatched);
+        expect(row.error.includes(warning)).toBe(dispatched);
+        expect(row.error.includes(diagnostic)).toBe(!dispatched);
+        expect(row.error).not.toContain("fake-secret-value");
+        expect(row.error).not.toContain("customer-fixture-value");
+        expect(fetchSpy).toHaveBeenCalledTimes(dispatched ? 1 : 0);
+        const liveHistory = (await pglite
+          .prepare("SELECT run_id FROM automation_runs WHERE automation = ?")
+          .get(name)) as { run_id: string };
+        const runStore = await import("../agent/run-store.js");
+        const events = (
+          await runStore.getRunEventsSince(liveHistory.run_id, 0)
+        ).map(({ eventData }) => JSON.parse(eventData));
+        const blockedEvent = expect.objectContaining({
+          type: "tool_done",
+          errorCode: "web_request_url_blocked",
+          outcomeUnknown: true,
+          result: expect.stringContaining(diagnostic),
+        });
+        const guardedEvent = expect.objectContaining({
+          type: "tool_done",
+          result: expect.stringContaining(
+            "an earlier web-request call in this turn may have already applied",
+          ),
+        });
+        for (const expected of dispatched ? [blockedEvent, guardedEvent] : [])
+          expect(events).toContainEqual(expected);
+        const history = await import("./run-history.js");
+        const { inspectAutomationRecovery } =
+          await import("./automation-recovery.js");
+        const recoveryRunId = `recovery-${name}`;
+        const threadId = `thread-${recoveryRunId}`;
+        const automation = precondition(name);
+        const historyId = await history.startAutomationRun({
+          owner: automation.resource.owner,
+          automation: name,
+          path: automation.resource.path,
+          runId: recoveryRunId,
+          threadId,
+        });
+        await runStore.insertRun(recoveryRunId, threadId, recoveryRunId);
+        const toolEvents = events.filter((event) => event.type === "tool_done");
+        for (const [seq, event] of toolEvents.entries()) {
+          await runStore.insertRunEvent(
+            recoveryRunId,
+            seq,
+            JSON.stringify(event),
+          );
+        }
+        expect(
+          await runStore.updateRunStatusIfRunning(recoveryRunId, "completed"),
+        ).toBe(true);
+        const recovery = await inspectAutomationRecovery(
+          automation.resource,
+          {
+            ...automation.meta,
+            lastRun: new Date().toISOString(),
+            lastHistoryId: historyId,
+          },
+          new Date(),
+        );
+        expect(recovery).toMatchObject({
+          state: "settle",
+          status: "error",
+          errorCode: dispatched
+            ? "write_tool_outcome_unknown"
+            : "web_request_url_blocked",
+          error: expect.stringContaining(dispatched ? warning : diagnostic),
+        });
+        if (recovery?.state !== "settle")
+          throw new Error("Expected settlement");
+        expect(recovery.error?.startsWith(warning)).toBe(dispatched);
+        expect(recovery.error?.includes(warning)).toBe(dispatched);
+        expect(recovery.error?.includes(diagnostic)).toBe(!dispatched);
+        expect(recovery.error).not.toContain("fake-secret-value");
+        expect(recovery.error).not.toContain("customer-fixture-value");
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    },
+  );
+
   it.each([
     { trackProgress: false, status: 429 },
     { trackProgress: false, status: 503 },
@@ -1373,10 +1658,12 @@ describe("runBackgroundAutomation — confirmed work", () => {
           errorCode:
             tool === "provider-api-request"
               ? "provider_api_rejected"
-              : status === 200
-                ? "web_request_provider_failed"
-                : `http_${status}`,
-          message: expect.stringContaining(`HTTP ${status}`),
+              : "write_tool_outcome_unknown",
+          message: expect.stringContaining(
+            tool === "provider-api-request"
+              ? `HTTP ${status}`
+              : "An action may already have applied.",
+          ),
         });
         expect(requests).toBe(2);
         expect(assistantContent()).toContainEqual(
@@ -2554,129 +2841,156 @@ describe("runBackgroundAutomation — thread transcript", () => {
     expect(captured[0].context.aiTraceId).toMatch(/^job-cut-off-digest-/);
   });
 
-  it("persists a partial turn when the hard timeout fires", async () => {
-    const { runAgentLoopDirectWithSoftTimeout } =
-      await import("../agent/run-loop-with-resume.js");
-    let resolveTextPersisted!: () => void;
-    const textPersisted = new Promise<void>((resolve) => {
-      resolveTextPersisted = resolve;
-    });
-    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
-      async (opts) => {
-        await opts.send?.({ type: "text", text: "Still working." });
-        resolveTextPersisted();
-        await new Promise<void>((_resolve, reject) => {
-          const signal = opts.signal;
-          if (signal?.aborted) {
-            reject(new Error("aborted"));
-            return;
+  it.each([false, true])(
+    "persists a partial turn when the hard timeout fires (unknown write: %s)",
+    async (unknownWrite) => {
+      const { runAgentLoopDirectWithSoftTimeout } =
+        await import("../agent/run-loop-with-resume.js");
+      let resolveTextPersisted!: () => void;
+      const textPersisted = new Promise<void>((resolve) => {
+        resolveTextPersisted = resolve;
+      });
+      vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+        async (opts) => {
+          await opts.send({ type: "text", text: "Still working." });
+          if (unknownWrite) {
+            await opts.send({
+              type: "tool_done",
+              tool: "send-report",
+              isError: true,
+              outcomeUnknown: true,
+              result: "PRIVATE_PROVIDER_RESPONSE",
+            });
           }
-          signal?.addEventListener("abort", () => reject(new Error("aborted")));
-        });
-        return {
-          inputTokens: 0,
-          outputTokens: 0,
-          cacheReadTokens: 0,
-          cacheWriteTokens: 0,
-          model: "test-model",
-        };
-      },
-    );
-    updateThreadDataMock.mockClear();
-
-    const realSetTimeout = globalThis.setTimeout;
-    const pendingHardTimeouts: Array<() => void> = [];
-    const setTimeoutSpy = vi
-      .spyOn(globalThis, "setTimeout")
-      .mockImplementation(((
-        handler: TimerHandler,
-        delay?: number,
-        ...args: unknown[]
-      ) => {
-        if (delay === 120_000) {
-          pendingHardTimeouts.push(() => {
-            if (typeof handler === "function") handler(...args);
+          resolveTextPersisted();
+          await new Promise<void>((_resolve, reject) => {
+            const signal = opts.signal;
+            if (signal.aborted) {
+              reject(new Error("aborted"));
+              return;
+            }
+            signal.addEventListener("abort", () =>
+              reject(new Error("aborted")),
+            );
           });
-          return 0 as unknown as ReturnType<typeof setTimeout>;
-        }
-        return realSetTimeout(
-          handler as Parameters<typeof setTimeout>[0],
-          delay,
-          ...args,
-        );
-      }) as typeof setTimeout);
+          return {
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+            model: "test-model",
+          };
+        },
+      );
+      updateThreadDataMock.mockClear();
 
-    try {
-      const runPromise = runBackgroundAutomation(
-        {
-          automation: {
-            name: "hard-timeout-digest",
-            meta: {
-              schedule: "* * * * *",
-              enabled: true,
-              model: "test-model",
+      const realSetTimeout = globalThis.setTimeout;
+      const pendingHardTimeouts: Array<() => void> = [];
+      const setTimeoutSpy = vi
+        .spyOn(globalThis, "setTimeout")
+        .mockImplementation(((
+          handler: TimerHandler,
+          delay?: number,
+          ...args: unknown[]
+        ) => {
+          if (delay === 120_000) {
+            pendingHardTimeouts.push(() => {
+              if (typeof handler === "function") handler(...args);
+            });
+            return 0 as unknown as ReturnType<typeof setTimeout>;
+          }
+          return realSetTimeout(
+            handler as Parameters<typeof setTimeout>[0],
+            delay,
+            ...args,
+          );
+        }) as typeof setTimeout);
+
+      try {
+        const runPromise = runBackgroundAutomation(
+          {
+            automation: {
+              name: "hard-timeout-digest",
+              meta: {
+                schedule: "* * * * *",
+                enabled: true,
+                model: "test-model",
+              },
+              body: "Summarize the inbox.",
+              resource: {
+                owner: "alice@agent-native.test",
+                path: "jobs/hard-timeout-digest.md",
+              } as never,
             },
-            body: "Summarize the inbox.",
-            resource: {
-              owner: "alice@agent-native.test",
-              path: "jobs/hard-timeout-digest.md",
-            } as any,
+            ownerEmail: "alice@agent-native.test",
+            prompt: "Summarize the inbox.",
+            threadTitle: "Job: hard-timeout-digest — Aug 18, 2026",
+            runIdPrefix: "job-hard-timeout-digest",
+            usageLabel: "recurring-job:hard-timeout-digest",
+            hardTimeoutMs: 120_000,
           },
-          ownerEmail: "alice@agent-native.test",
-          prompt: "Summarize the inbox.",
-          threadTitle: "Job: hard-timeout-digest — Aug 18, 2026",
-          runIdPrefix: "job-hard-timeout-digest",
-          usageLabel: "recurring-job:hard-timeout-digest",
-          hardTimeoutMs: 120_000,
-        },
-        {
-          getActions: () => ({}),
-          getSystemPrompt: async () => "system",
-          engine: testEngine,
-        },
-      );
+          {
+            getActions: () => ({}),
+            getSystemPrompt: async () => "system",
+            engine: testEngine,
+          },
+        );
 
-      await vi.waitFor(() => {
-        expect(pendingHardTimeouts.length).toBe(1);
-      });
-      await textPersisted;
-      pendingHardTimeouts[0]!();
+        await vi.waitFor(() => {
+          expect(pendingHardTimeouts.length).toBe(1);
+        });
+        await textPersisted;
+        pendingHardTimeouts[0]();
 
-      await expect(runPromise).rejects.toThrow(/timed out after 2 minutes/);
-      const hardTimedOutRunId = (await pglite
-        .prepare(
-          `SELECT id FROM agent_runs WHERE id LIKE 'job-hard-timeout-digest%' ORDER BY started_at DESC LIMIT 1`,
-        )
-        .get()) as { id: string } | undefined;
-      expect(hardTimedOutRunId?.id).toBeTruthy();
-      await expect(abortReasonOf(hardTimedOutRunId!.id)).resolves.toBe(
-        "background_automation_hard_timeout",
-      );
-      expect(updateThreadDataMock).toHaveBeenCalled();
-      const [, , title] = updateThreadDataMock.mock.calls[0];
-      expect(title).toBe("Job: hard-timeout-digest — Aug 18, 2026");
-      expect(assistantMessage().status).toEqual({
-        type: "incomplete",
-        reason: "error",
-      });
-      expect(assistantMessage().metadata?.custom?.continued).toBeUndefined();
-      expect(assistantMessage().metadata?.custom?.runError).toMatchObject({
-        errorCode: "background_automation_hard_timeout",
-      });
-      expect(assistantContent()).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            type: "text",
-            text: expect.stringMatching(
-              /Still working\.[\s\S]*timed out after 2 minutes/,
-            ),
-          }),
-        ]),
-      );
-    } finally {
-      setTimeoutSpy.mockRestore();
-    }
-  });
+        await expect(runPromise).rejects.toMatchObject({
+          errorCode: unknownWrite
+            ? "write_tool_outcome_unknown"
+            : "background_automation_hard_timeout",
+          message: expect.stringContaining(
+            unknownWrite
+              ? "An action may already have applied."
+              : "timed out after 2 minutes",
+          ),
+        });
+        const hardTimedOutRunId = (await pglite
+          .prepare(
+            `SELECT id FROM agent_runs WHERE id LIKE 'job-hard-timeout-digest%' ORDER BY started_at DESC LIMIT 1`,
+          )
+          .get()) as { id: string } | undefined;
+        expect(hardTimedOutRunId?.id).toBeTruthy();
+        await expect(abortReasonOf(hardTimedOutRunId?.id ?? "")).resolves.toBe(
+          "background_automation_hard_timeout",
+        );
+        expect(updateThreadDataMock).toHaveBeenCalled();
+        const [, , title] = updateThreadDataMock.mock.calls[0];
+        expect(title).toBe("Job: hard-timeout-digest — Aug 18, 2026");
+        expect(assistantMessage().status).toEqual({
+          type: "incomplete",
+          reason: "error",
+        });
+        expect(assistantMessage().metadata?.custom?.continued).toBeUndefined();
+        expect(assistantMessage().metadata?.custom?.runError).toMatchObject({
+          errorCode: unknownWrite
+            ? "write_tool_outcome_unknown"
+            : "background_automation_hard_timeout",
+        });
+        expect(assistantContent()).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              type: "text",
+              text: expect.stringMatching(
+                unknownWrite
+                  ? /Still working\.[\s\S]*An action may already have applied/
+                  : /Still working\.[\s\S]*timed out after 2 minutes/,
+              ),
+            }),
+          ]),
+        );
+      } finally {
+        setTimeoutSpy.mockRestore();
+      }
+    },
+  );
 });
 
 // Every test above supplies `deps.engine`, which is what let the credential

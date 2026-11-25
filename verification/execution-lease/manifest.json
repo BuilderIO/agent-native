@@ -78,7 +78,7 @@
     }
   ],
   "coverage": {
-    "syncCommit": "e0992d882fd775e4c0672665611c5d6bbd756482",
+    "syncCommit": "785a07743c7325e4bbfcb8842dc32ccf6465fcee",
     "code": [
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -223,7 +223,7 @@
       {
         "file": "packages/core/src/jobs/background-automation-runner.ts",
         "name": "confirmAutomationWork",
-        "sha256": "36cf9d9ff22400f37fb938cbfa84e358bbfa59ec7cad5c6435a8fa33cf363fef"
+        "sha256": "9d81e8cc10c3191840dd1c2f4bd5303c9d95390f897a30951be7f458e5c187aa"
       },
       {
         "file": "packages/core/src/agent/production-agent.ts",
