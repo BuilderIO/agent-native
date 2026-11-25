@@ -58,6 +58,12 @@ describe("actionQueryAffectedByResources", () => {
     ).toBe(false);
     expect(
       actionQueryAffectedByResources(
+        { queryKey: ["action", "x"], meta: { actionSelfRefreshing: true } },
+        changed,
+      ),
+    ).toBe(false);
+    expect(
+      actionQueryAffectedByResources(
         {
           queryKey: ["action", "x"],
           meta: { [ACTION_SELF_REFRESHING_META_KEY]: false },
