@@ -453,6 +453,7 @@ Read by `.github/workflows/labs-qa-probe.yml`, `.github/workflows/labs-qa-identi
 | `QA_SLOT`      | Slot of the `qa-fleet-N` identity a smoke or live-verify run uses.                                             |
 | `INPUT_APPS`   | Apps input passed to the smoke matrix builder. Workflow-internal.                                              |
 | `QA_TARGET`    | Live-verify target: a preset (`forms-seeded`), an app name, or JSON with app, path, steps.                     |
+| `QA_VERIFY_AUTH` | Live-verify sign-in mode: `legacy-password` (default) or `qa-email-link` for a configured Labs QA slot. |
 | `QA_PROVIDER`  | Live-verify browser: `browserbase` (remote session with a replay) or `local` (headless).                       |
 | `QA_OUT_DIR`   | Directory the live-verify receipt and before/after screenshots are written to.                                 |
 
