@@ -456,6 +456,7 @@ const messages = {
       tryDifferentKeywords: "Try different keywords",
       nothingHere: "Nothing here yet",
       loadingMore: "Loading more...",
+      loadOlder: "Load older conversations",
       openAllMailForOlder: "Open All Mail for older messages",
     },
     toasts: {
@@ -552,6 +553,7 @@ const messages = {
       tryAgain: "Try again",
       rateLimitTitle: "Gmail rate limit hit",
       loadTitle: "Unable to load emails",
+      staleSaved: "Couldn't refresh mail. Showing saved conversations.",
       rateLimitDescription:
         "Too many recent requests to Google. Waiting a moment before retrying.",
       failedToConnect: "Failed to connect. Try again.",

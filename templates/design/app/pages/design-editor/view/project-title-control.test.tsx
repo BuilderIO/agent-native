@@ -9,6 +9,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
 } from "@/components/ui/dropdown-menu";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 import {
   BuiltFromItems,
@@ -190,7 +191,9 @@ async function renderTitleForViewer(briefs: DesignBrief[]) {
     widgetEmbed: false,
   } as unknown as Parameters<typeof renderProjectTitleControl>[0];
   await act(async () => {
-    root.render(renderProjectTitleControl(props));
+    root.render(
+      createElement(TooltipProvider, null, renderProjectTitleControl(props)),
+    );
   });
   cleanup = () => act(async () => root.unmount()).then(() => host.remove());
   return host;

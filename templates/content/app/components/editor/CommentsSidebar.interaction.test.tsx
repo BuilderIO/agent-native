@@ -97,12 +97,19 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useFormatters: () => ({
     formatDate: (date: Date | string) => new Date(date).toISOString(),
   }),
-  useT: () => (key: string, params?: { count?: number; name?: string }) =>
-    key === "comments.proposalEditCount"
-      ? `${key}:${params?.count}`
-      : key === "comments.aiAttribution"
-        ? `${key}:${params?.name}`
-        : key,
+  useT:
+    () =>
+    (
+      key: string,
+      params?: { count?: number; name?: string; old?: string; new?: string },
+    ) =>
+      key === "comments.proposalEditCount"
+        ? `${key}:${params?.count}`
+        : key === "comments.aiAttribution"
+          ? `${key}:${params?.name}`
+          : key === "comments.suggestionReplaceWith"
+            ? `${key}: “${params?.old}” → “${params?.new}”`
+            : key,
 }));
 vi.mock("@agent-native/toolkit/app/review", async (importOriginal) => ({
   ...(await importOriginal<
@@ -442,8 +449,13 @@ describe("comment review interactions", () => {
   });
   describe("review units", () => {
     const source = "Teh team will recieve the files.";
-    const piece = (id: string, reviewUnit: string, find: string) => {
-      const from = source.indexOf(find);
+    const piece = (
+      id: string,
+      reviewUnit: string,
+      find: string,
+      text = source,
+    ) => {
+      const from = text.indexOf(find);
       return {
         ...proposalSuggestion(id),
         metadata: { reviewUnit },
@@ -451,9 +463,9 @@ describe("comment review interactions", () => {
           {
             id: `operation-${id}`,
             kind: "replace_text",
-            before: { markdown: source, changedText: find },
+            before: { markdown: text, changedText: find },
             after: {
-              markdown: source.replace(find, find.toUpperCase()),
+              markdown: text.replace(find, find.toUpperCase()),
               changedText: find.toUpperCase(),
             },
             anchor: { from, to: from + find.length },
@@ -592,16 +604,19 @@ describe("comment review interactions", () => {
         onDecideSuggestionProposal: vi.fn(),
       });
       const card = container.querySelector("[data-suggestion-id='one']");
-      expect(card?.textContent).toContain("comments.suggestionWith: “TEH”");
-      expect(card?.textContent).toContain("comments.suggestionReplace: “Teh”");
+      expect(card?.textContent).toContain(
+        "comments.suggestionReplaceWith: “Teh” → “TEH”",
+      );
     });
 
     it("opens a unit's card when a later piece is commented on", () => {
+      const long =
+        "Teh team that looks after the shared drive will, once the quarterly review is finished and signed off by everyone, recieve the files.";
       render(null, [], "inline", {
         suggestions: [
-          piece("one", "k:0", "Teh"),
-          piece("two", "k:0", "recieve"),
-          piece("three", "k:1", "files"),
+          piece("one", "k:0", "Teh", long),
+          piece("two", "k:0", "recieve", long),
+          piece("three", "k:1", "files", long),
         ],
         activeSuggestionId: "one",
         alignToAnchors: false,
@@ -899,7 +914,10 @@ describe("comment review interactions", () => {
     expect(badge("one")?.textContent).toContain("Codex");
     expect(
       badge("one")?.querySelector("[aria-label]")?.getAttribute("aria-label"),
-    ).toContain("comments.aiAttribution:writer.");
+    ).toContain("comments.aiAttribution:Writer.");
+    expect(
+      container.querySelector("[data-suggestion-id='one']")?.textContent,
+    ).toContain("Writer");
     expect(badge("two")?.getAttribute("data-comment-ai-attribution")).toBe(
       "agent",
     );

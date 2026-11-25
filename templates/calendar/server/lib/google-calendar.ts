@@ -7,6 +7,12 @@ import {
   listOAuthAccountsByOwner,
 } from "@agent-native/core/oauth-tokens";
 import {
+  checkSaveRevision,
+  countSaveOutcome,
+  isSameRecord,
+  saveConflict,
+} from "@agent-native/core/save-conflict/server";
+import {
   getOAuthAccounts,
   getCredentialContext,
   getRequestOrgId,
@@ -43,6 +49,7 @@ import {
   calendarUpdateEvent,
   isGoogleEventAbsentError,
   GoogleApiError,
+  isGooglePreconditionFailedError,
   peopleGetProfile,
 } from "./google-api.js";
 import { listSyncedGoogleEvents } from "./google-event-sync.js";
@@ -1611,6 +1618,7 @@ export async function listEvents(
             allDay: !event.start?.dateTime,
             source: "google" as const,
             googleEventId: event.id || undefined,
+            revision: event.etag || undefined,
             htmlLink: event.htmlLink || undefined,
             accountEmail: email,
             calendarSourceKey: calendarSource?.sourceKey,
@@ -1983,6 +1991,7 @@ export async function getEvent(
     allDay: !event.start?.dateTime,
     source: "google",
     googleEventId: event.id || undefined,
+    revision: event.etag || undefined,
     htmlLink: event.htmlLink || undefined,
     accountEmail: account.accountEmail,
     calendarSourceKey: calendarSource?.sourceKey,
@@ -2112,12 +2121,92 @@ export async function createEvent(
   };
 }
 
+export const CALENDAR_EVENT_RECORD = "calendar_event";
+const MAX_EVENT_REPLACE_ATTEMPTS = 3;
+const TIME_WITH_OFFSET = /(?:Z|[+-]\d{2}:?\d{2})$/i;
+
+const REPEATABLE_EVENT_FIELDS = new Set<string>([
+  "title",
+  "description",
+  "location",
+  "start",
+  "end",
+  "startTimeZone",
+  "endTimeZone",
+  "allDay",
+  "transparency",
+  "visibility",
+  "status",
+  "colorId",
+  "recurrence",
+]);
+
+function sameEventTime(a: string, b: string, allDay: boolean): boolean {
+  if (allDay) return a.split("T")[0] === b.split("T")[0];
+  if (!TIME_WITH_OFFSET.test(a) || !TIME_WITH_OFFSET.test(b)) return a === b;
+  return Date.parse(a) === Date.parse(b);
+}
+
+function eventHoldsPatch(
+  current: CalendarEvent,
+  patch: Partial<CalendarEvent>,
+): boolean {
+  const allDay = patch.allDay ?? current.allDay;
+  const stored: Record<string, unknown> = { ...current };
+  const fields: Record<string, unknown> = { ...patch };
+  return Object.entries(fields).every(([key, value]) => {
+    if (key === "accountEmail" || value === undefined) return true;
+    if (!REPEATABLE_EVENT_FIELDS.has(key)) return false;
+    const storedValue = stored[key] ?? (key === "recurrence" ? [] : null);
+    if (
+      (key === "start" || key === "end") &&
+      typeof value === "string" &&
+      typeof storedValue === "string"
+    ) {
+      return sameEventTime(value, storedValue, allDay);
+    }
+    return isSameRecord(value, storedValue);
+  });
+}
+
+function eventConflict(current: CalendarEvent) {
+  return saveConflict(CALENDAR_EVENT_RECORD, current, current.revision ?? null);
+}
+
+export interface EventUpdateResult {
+  htmlLink?: string | undefined;
+  meetLink?: string | undefined;
+  conferenceData?: CalendarEvent["conferenceData"] | undefined;
+  attendees?: CalendarEvent["attendees"] | undefined;
+  revision?: string | undefined;
+}
+
+async function updateResultAfterStaleWrite(
+  googleEventId: string,
+  account: GoogleAccountSelection,
+  resend: Partial<CalendarEvent> | undefined,
+): Promise<EventUpdateResult> {
+  const current = await getEvent(googleEventId, account);
+  if (!resend || !eventHoldsPatch(current, resend)) {
+    throw eventConflict(current);
+  }
+  countSaveOutcome(CALENDAR_EVENT_RECORD, "already_applied");
+  return {
+    htmlLink: current.htmlLink,
+    meetLink: current.hangoutLink,
+    conferenceData: current.conferenceData,
+    attendees: current.attendees,
+    revision: current.revision,
+  };
+}
+
 export async function moveEvent(
   googleEventId: string,
   options: {
     sourceAccount: GoogleAccountSelection;
     destinationAccount: GoogleAccountSelection;
     sendUpdates?: "all" | "none";
+    expectedRevision?: string | undefined;
   },
 ): Promise<{
   id?: string;
@@ -2126,6 +2215,12 @@ export async function moveEvent(
   conferenceData?: CalendarEvent["conferenceData"];
 }> {
   const sourceEvent = await getEvent(googleEventId, options.sourceAccount);
+  checkSaveRevision({
+    record: CALENDAR_EVENT_RECORD,
+    expectedRevision: options.expectedRevision,
+    current: { value: sourceEvent, revision: sourceEvent.revision ?? null },
+    isSameSave: () => false,
+  });
   if (sourceEvent.status === "cancelled") {
     throw new Error("Cancelled events cannot be moved.");
   }
@@ -2172,6 +2267,7 @@ export async function moveEvent(
     await deleteEvent(googleEventId, options.sourceAccount, {
       scope: "single",
       sendUpdates: options.sendUpdates,
+      ifMatch: sourceEvent.revision,
     });
   } catch (error) {
     try {
@@ -2197,21 +2293,18 @@ export async function updateEvent(
   event: Partial<CalendarEvent>,
   options: {
     account: GoogleAccountSelection;
-    sendUpdates?: "all" | "none";
-    addGoogleMeet?: boolean;
-    removeGoogleMeet?: boolean;
-    scope?: UpdateEventScope;
+    sendUpdates?: "all" | "none" | undefined;
+    addGoogleMeet?: boolean | undefined;
+    removeGoogleMeet?: boolean | undefined;
+    scope?: UpdateEventScope | undefined;
+    expectedRevision?: string | undefined;
   },
-): Promise<{
-  htmlLink?: string;
-  meetLink?: string;
-  conferenceData?: CalendarEvent["conferenceData"];
-  attendees?: CalendarEvent["attendees"];
-}> {
+): Promise<EventUpdateResult> {
   const client = await getClientForAccount(options.account);
 
   let targetEventId = googleEventId;
   let eventPatch = event;
+  let ifMatch = options.expectedRevision;
   if (options?.scope === "all") {
     const instance = await calendarGetEvent(
       client.accessToken,
@@ -2228,6 +2321,20 @@ export async function updateEvent(
         recurringEventId,
       );
       eventPatch = alignSeriesUpdateToMaster(event, instance, master);
+    }
+    if (
+      options.expectedRevision !== undefined &&
+      recurringEventId !== googleEventId
+    ) {
+      const occurrence = await calendarGetEvent(
+        client.accessToken,
+        "primary",
+        googleEventId,
+      );
+      if (occurrence.etag !== options.expectedRevision) {
+        throw eventConflict(await getEvent(googleEventId, options.account));
+      }
+      ifMatch = master.etag;
     }
     eventPatch = alignSeriesRecurrenceToStart(eventPatch, {
       startValue: googleEventStartValue(master),
@@ -2290,42 +2397,67 @@ export async function updateEvent(
     requestBody.conferenceData = null;
   }
 
-  const response = eventPatch.workingLocationProperties
-    ? await calendarUpdateEvent(
+  const writeParams = {
+    sendUpdates: options.sendUpdates,
+    conferenceDataVersion:
+      options.addGoogleMeet || options.removeGoogleMeet ? 1 : undefined,
+    supportsAttachments:
+      eventPatch.attachments !== undefined ? true : undefined,
+  };
+  const replaceStoredEvent = async () => {
+    for (let attempt = 1; ; attempt++) {
+      const stored = await calendarGetEvent(
         client.accessToken,
         "primary",
         targetEventId,
-        {
-          ...(await calendarGetEvent(
-            client.accessToken,
-            "primary",
-            targetEventId,
-          )),
-          ...requestBody,
-        },
-        {
-          sendUpdates: options?.sendUpdates,
-          conferenceDataVersion:
-            options?.addGoogleMeet || options?.removeGoogleMeet ? 1 : undefined,
-          supportsAttachments:
-            eventPatch.attachments !== undefined ? true : undefined,
-        },
-      )
-    : await calendarPatchEvent(
-        client.accessToken,
-        "primary",
-        targetEventId,
-        requestBody,
-        {
-          sendUpdates: options?.sendUpdates,
-          conferenceDataVersion:
-            options?.addGoogleMeet || options?.removeGoogleMeet ? 1 : undefined,
-          supportsAttachments:
-            eventPatch.attachments !== undefined ? true : undefined,
-        },
       );
+      try {
+        return await calendarUpdateEvent(
+          client.accessToken,
+          "primary",
+          targetEventId,
+          { ...stored, ...requestBody },
+          { ...writeParams, ifMatch: ifMatch ?? stored.etag },
+        );
+      } catch (error) {
+        if (
+          ifMatch !== undefined ||
+          attempt >= MAX_EVENT_REPLACE_ATTEMPTS ||
+          !isGooglePreconditionFailedError(error)
+        ) {
+          throw error;
+        }
+      }
+    }
+  };
+
+  let response: Awaited<ReturnType<typeof calendarPatchEvent>>;
+  try {
+    response = eventPatch.workingLocationProperties
+      ? await replaceStoredEvent()
+      : await calendarPatchEvent(
+          client.accessToken,
+          "primary",
+          targetEventId,
+          requestBody,
+          { ...writeParams, ifMatch },
+        );
+  } catch (error) {
+    if (ifMatch === undefined || !isGooglePreconditionFailedError(error)) {
+      throw error;
+    }
+    const resend =
+      targetEventId === googleEventId &&
+      !options.addGoogleMeet &&
+      !options.removeGoogleMeet
+        ? event
+        : undefined;
+    return updateResultAfterStaleWrite(googleEventId, options.account, resend);
+  }
 
   return {
+    revision:
+      targetEventId === googleEventId ? response?.etag || undefined : undefined,
     htmlLink: response?.htmlLink || undefined,
     meetLink: response?.hangoutLink || undefined,
     conferenceData: mapConferenceData(response?.conferenceData),
@@ -2351,6 +2483,7 @@ export async function deleteEvent(
   options?: {
     scope?: "single" | "all" | "thisAndFollowing";
     sendUpdates?: "all" | "none";
+    ifMatch?: string | undefined;
   },
 ): Promise<void> {
   const client = await getClientForAccount(account);
@@ -2359,12 +2492,23 @@ export async function deleteEvent(
   const sendUpdates = options?.sendUpdates;
 
   if (scope === "single") {
-    await calendarDeleteEvent(
-      client.accessToken,
-      "primary",
-      googleEventId,
-      sendUpdates,
-    );
+    try {
+      await calendarDeleteEvent(
+        client.accessToken,
+        "primary",
+        googleEventId,
+        sendUpdates,
+        options?.ifMatch,
+      );
+    } catch (error) {
+      if (
+        options?.ifMatch === undefined ||
+        !isGooglePreconditionFailedError(error)
+      ) {
+        throw error;
+      }
+      throw eventConflict(await getEvent(googleEventId, account));
+    }
     return;
   }
 

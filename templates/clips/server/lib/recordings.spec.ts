@@ -251,6 +251,18 @@ describe("countRecordingViews", () => {
   });
 });
 
+function mockOrganizationSettings(row: Record<string, unknown> | undefined) {
+  mocks.getDb.mockReturnValue({
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          limit: async () => (row ? [row] : []),
+        }),
+      }),
+    }),
+  });
+}
+
 describe("getDefaultRecordingVisibility", () => {
   beforeEach(() => {
     mocks.getDb.mockClear();
@@ -262,6 +274,7 @@ describe("getDefaultRecordingVisibility", () => {
     mocks.getUserSetting.mockResolvedValue({
       defaultRecordingVisibility: "private",
     });
+    mockOrganizationSettings({ defaultVisibility: "org", enforced: false });
 
     await expect(getDefaultRecordingVisibility("org-1")).resolves.toBe(
       "private",
@@ -270,6 +283,16 @@ describe("getDefaultRecordingVisibility", () => {
       "owner@example.test",
       "clips-user-prefs",
     );
+  });
+
+  it("ignores the personal default while the organization enforces its own", async () => {
+    mocks.getRequestUserEmail.mockReturnValue("owner@example.test");
+    mocks.getUserSetting.mockResolvedValue({
+      defaultRecordingVisibility: "public",
+    });
+    mockOrganizationSettings({ defaultVisibility: "org", enforced: true });
+
+    await expect(getDefaultRecordingVisibility("org-1")).resolves.toBe("org");
   });
 
   it("uses explicit visibility without reading personal or organization defaults", async () => {
@@ -336,11 +359,11 @@ describe("getDefaultRecordingVisibility", () => {
     mocks.getUserSetting.mockResolvedValue({
       defaultRecordingVisibility: "public",
     });
+    mockOrganizationSettings({ defaultVisibility: "org", enforced: false });
 
     await expect(getDefaultRecordingVisibility("org-1")).resolves.toBe(
       "public",
     );
-    expect(mocks.getDb).not.toHaveBeenCalled();
   });
 
   it("accepts the authenticated action owner when request context is empty", async () => {
@@ -348,6 +371,7 @@ describe("getDefaultRecordingVisibility", () => {
     mocks.getUserSetting.mockResolvedValue({
       defaultRecordingVisibility: "private",
     });
+    mockOrganizationSettings({ defaultVisibility: "org", enforced: false });
 
     await expect(
       getDefaultRecordingVisibility("org-1", "Owner@Example.test"),

@@ -1,3 +1,6 @@
+import { once } from "node:events";
+import { createServer } from "node:http";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const OWNER = "owner@example.com";
@@ -28,6 +31,96 @@ describe("Gmail cooldown across serverless instances (PGlite)", () => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
     vi.resetModules();
+  });
+
+  it("retains cached inbox rows through repeated quota responses from a local provider", async () => {
+    vi.stubEnv("DATABASE_URL", "pglite:memory");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    let requests = 0;
+    const server = createServer((_request, response) => {
+      requests += 1;
+      response.writeHead(429, {
+        "content-type": "application/json",
+        "retry-after": "30",
+      });
+      response.end(JSON.stringify({ error: { message: "rateLimitExceeded" } }));
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string")
+        throw new Error("No local address");
+      const nativeFetch = globalThis.fetch;
+      vi.stubGlobal("fetch", (_url: string, init: RequestInit) =>
+        nativeFetch(`http://127.0.0.1:${address.port}/threads`, init),
+      );
+      const [{ default: initializeMailDb }, api, store] = await Promise.all([
+        import("../plugins/db.js"),
+        import("./google-api.js"),
+        import("./inbox-store.js"),
+      ]);
+      await initializeMailDb({});
+      await store.upsertInboxThreadRows([
+        {
+          ownerEmail: OWNER,
+          accountEmail: ACCOUNT,
+          threadId: "saved-thread",
+          inInbox: true,
+          isUnread: false,
+          isStarred: false,
+          isImportant: false,
+          isAutomated: false,
+          latestDate: Date.now(),
+          latestMessageId: "saved-message",
+          subject: "Saved",
+          snippet: "",
+          fromName: "",
+          fromEmail: "sender@example.test",
+          to: [],
+          labelIds: ["INBOX", "CATEGORY_PERSONAL"],
+          messageIds: ["saved-message"],
+          messageCount: 1,
+          unreadCount: 0,
+          hasAttachments: false,
+          syncedAt: Date.now(),
+        },
+      ]);
+      await api.registerGmailAccountToken(
+        "synthetic-local-token",
+        OWNER,
+        ACCOUNT,
+      );
+      let previousWait = 0;
+      for (let storm = 0; storm < 3; storm += 1) {
+        const failure = await api
+          .googleFetch(LIST_URL, "synthetic-local-token")
+          .catch((error: unknown) => error);
+        expect(failure).toBeInstanceOf(api.GmailQuotaCooldownError);
+        const wait = (
+          failure as InstanceType<typeof api.GmailQuotaCooldownError>
+        ).retryAfterMs;
+        expect(wait).toBeGreaterThan(previousWait);
+        previousWait = wait;
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+          await expect(
+            api.googleFetch(LIST_URL, "synthetic-local-token"),
+          ).rejects.toBeInstanceOf(api.GmailQuotaCooldownError);
+        }
+        expect(requests).toBe(storm + 1);
+        expect(
+          (
+            await store.readInboxThreads(OWNER, { accountEmails: [ACCOUNT] })
+          ).map((row) => row.threadId),
+        ).toEqual(["saved-thread"]);
+        vi.setSystemTime(Date.now() + wait + 1);
+      }
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
   });
 
   it("makes one Gmail 429 a persisted value every instance and tool call sees, with no Gmail traffic until it ends", async () => {

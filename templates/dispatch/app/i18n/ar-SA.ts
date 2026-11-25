@@ -18,6 +18,8 @@ export default {
       suggestionNullValue: "لا شيء",
       suggestionYesValue: "نعم",
       suggestionNoValue: "لا",
+      suggestionActionLabel: "الإجراء",
+      suggestionAppLabel: "التطبيق",
       openExistingApp: "فتح التطبيق",
       openInBuilder: "فتح في Builder",
       actionSuggestionAccepted: "تم قبول الاقتراح.",

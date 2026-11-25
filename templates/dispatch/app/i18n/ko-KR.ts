@@ -18,6 +18,8 @@ export default {
       suggestionNullValue: "없음",
       suggestionYesValue: "예",
       suggestionNoValue: "아니요",
+      suggestionActionLabel: "작업",
+      suggestionAppLabel: "앱",
       openExistingApp: "앱 열기",
       openInBuilder: "Builder에서 열기",
       actionSuggestionAccepted: "제안이 수락되었습니다.",

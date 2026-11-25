@@ -78,6 +78,7 @@ graph LR
   family_access --> family_api
   family_access --> family_embed
   family_access --> family_feedback
+  family_access --> family_form
   family_access --> family_knowledge
   family_access --> family_organization
   family_access --> family_portability
@@ -98,6 +99,7 @@ graph LR
   family_agent --> family_rule
   family_agent --> family_security
   family_agent --> family_view
+  family_author --> family_form
   family_author --> family_reader
   family_author --> family_review
   family_command --> family_action
@@ -309,9 +311,9 @@ graph LR
 
 ## Form
 
-| Capability                                                       | State          | User promise                                                                                                        |
-| ---------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------- |
-| [Shared Form engine](capabilities/content.form.shared-engine.md) | Approved Shape | Content Form Views and Agent-Native Forms use one schema, validation, permission, and idempotent submission engine. |
+| Capability                                                       | State          | User promise                                                                                                                                                   |
+| ---------------------------------------------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Shared Form engine](capabilities/content.form.shared-engine.md) | Approved Shape | Content's Form pages, Forms shown inside other Pages, and agents use one schema, validation, permission, and idempotent submission engine over the Collection. |
 
 ## History
 

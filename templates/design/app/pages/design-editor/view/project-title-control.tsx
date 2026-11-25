@@ -35,6 +35,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import type { EditorActiveScreenAndGeometry } from "../domains/use-editor-active-screen-and-geometry";
 import type { EditorCore } from "../domains/use-editor-core";
@@ -247,9 +252,19 @@ function ProjectTitleControl({
   if (!canEditDesign) {
     if (briefs.length === 0) {
       return (
-        <span className="-mx-1 min-w-0 flex-1 truncate rounded px-1 text-left text-[13px] font-medium text-foreground/90">
-          {design.title}
-        </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              tabIndex={0}
+              className="-mx-1 block truncate rounded px-1 text-left text-[13px] font-medium text-foreground/90"
+            >
+              {design.title}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-sm break-words">
+            <span>{design.title}</span>
+          </TooltipContent>
+        </Tooltip>
       );
     }
     // People who can only view the design get a menu with just the pages it
@@ -258,15 +273,22 @@ function ProjectTitleControl({
       <>
         <BriefTitlesPrefetch briefs={briefs} />
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="-mx-1 flex min-w-0 max-w-full cursor-pointer items-center gap-1 self-start rounded px-1 text-left text-[13px] font-medium text-foreground/90 hover:bg-accent/50"
-            >
-              <span className="truncate">{design.title}</span>
-              <IconChevronDown className="size-3 shrink-0" />
-            </button>
-          </DropdownMenuTrigger>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="-mx-1 flex min-w-0 max-w-full cursor-pointer items-center gap-1 self-start rounded px-1 text-left text-[13px] font-medium text-foreground/90 hover:bg-accent/50"
+                >
+                  <span className="truncate">{design.title}</span>
+                  <IconChevronDown className="size-3 shrink-0" />
+                </button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-sm break-words">
+              <span>{design.title}</span>
+            </TooltipContent>
+          </Tooltip>
           <DropdownMenuContent
             align="start"
             className="design-editor-app-menu-content w-[220px]"
@@ -282,15 +304,22 @@ function ProjectTitleControl({
     <>
       <BriefTitlesPrefetch briefs={briefs} />
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className="-mx-1 flex min-w-0 max-w-full cursor-pointer items-center gap-1 self-start rounded px-1 text-left text-xs leading-4 text-foreground hover:bg-accent/50"
-          >
-            <span className="truncate">{design.title}</span>
-            <IconChevronDown className="size-3 shrink-0" />
-          </button>
-        </DropdownMenuTrigger>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="-mx-1 flex min-w-0 max-w-full cursor-pointer items-center gap-1 self-start rounded px-1 text-left text-xs leading-4 text-foreground hover:bg-accent/50"
+              >
+                <span className="truncate">{design.title}</span>
+                <IconChevronDown className="size-3 shrink-0" />
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-sm break-words">
+            <span>{design.title}</span>
+          </TooltipContent>
+        </Tooltip>
         <DropdownMenuContent
           align="start"
           className="design-editor-app-menu-content w-[220px]"

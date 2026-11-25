@@ -18,6 +18,8 @@ export default {
       suggestionNullValue: "无",
       suggestionYesValue: "是",
       suggestionNoValue: "否",
+      suggestionActionLabel: "操作",
+      suggestionAppLabel: "应用",
       openExistingApp: "打开应用",
       openInBuilder: "在 Builder 中打开",
       actionSuggestionAccepted: "已接受建议。",

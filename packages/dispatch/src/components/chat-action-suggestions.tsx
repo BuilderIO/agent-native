@@ -312,7 +312,34 @@ export function ActionSuggestionChips({
             </DialogHeader>
             <div className="max-h-[50vh] overflow-auto rounded-md border border-border p-3 text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
               {review.execution.type === "action" ? (
-                <ReviewValue value={review.execution.params} />
+                <dl className="space-y-2">
+                  <div>
+                    <dt className="font-medium">
+                      {t("dispatch.pages.suggestionActionLabel", {
+                        defaultValue: "Action",
+                      })}
+                    </dt>
+                    <dd dir="auto">{argumentLabel(review.execution.action)}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium">
+                      {t("dispatch.pages.suggestionAppLabel", {
+                        defaultValue: "App",
+                      })}
+                    </dt>
+                    <dd dir="auto">{review.appId}</dd>
+                  </div>
+                  {Object.entries(review.execution.params).map(
+                    ([key, item]) => (
+                      <div key={key}>
+                        <dt className="font-medium">{argumentLabel(key)}</dt>
+                        <dd>
+                          <ReviewValue value={item} />
+                        </dd>
+                      </div>
+                    ),
+                  )}
+                </dl>
               ) : (
                 <span dir="auto">
                   {review.execution.type === "customize"

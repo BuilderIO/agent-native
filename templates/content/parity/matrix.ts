@@ -1060,6 +1060,38 @@ export const parityMatrix: ParityRow[] = [
     evalScenarioIds: ["database-source-scope"],
   },
   {
+    id: "database.fill-column-with-ai",
+    surface: "database",
+    label:
+      "Fill a collection column with AI from each row's page, stop the fill, retry a failed cell, and follow up on a cell in chat",
+    uiEntrypoints: [
+      "app/components/editor/database/column-fill.tsx",
+      "app/components/editor/database/DatabaseView.tsx",
+      "app/components/editor/DocumentProperties.tsx",
+    ],
+    durableEffect:
+      "A fill stores its column, instruction, and each row's cell status. Each row runs one quiet agent, five at a time, that reads the row's page and saves the cell through a generation-guarded property write, so an edit made during the run stays. Runs keep going with no tab open and their chats stay out of chat history.",
+    uiImplementation:
+      "The column header menu opens Fill with AI, which shows the cell count before starting. The header shows progress with Stop, cells show waiting, running, or failed, and a cell's editor holds Edit in chat, Try again, and Open chat; all of it goes through the same Actions the agent calls.",
+    status: "action-backed",
+    actions: [
+      "fill-column-cell",
+      "list-column-fills",
+      "retry-column-fill-cell",
+      "start-column-fill",
+      "stop-column-fill",
+    ],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "server/lib/column-fill.db.test.ts",
+      "app/components/editor/database/column-fill.ui.test.tsx",
+    ],
+  },
+  {
     id: "database.change-webhooks",
     surface: "database",
     label:

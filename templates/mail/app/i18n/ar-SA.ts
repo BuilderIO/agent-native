@@ -458,6 +458,7 @@ const messages = {
       tryDifferentKeywords: "جرّب كلمات مفتاحية مختلفة",
       nothingHere: "لا يوجد شيء هنا بعد",
       loadingMore: "جار تحميل المزيد...",
+      loadOlder: "تحميل محادثات أقدم",
       openAllMailForOlder: "افتح كل البريد للرسائل الأقدم",
     },
     toasts: {
@@ -552,6 +553,7 @@ const messages = {
       tryAgain: "حاول مرة أخرى",
       rateLimitTitle: "تم بلوغ حد معدل Gmail",
       loadTitle: "تعذر تحميل الرسائل",
+      staleSaved: "تعذر تحديث البريد. يتم عرض المحادثات المحفوظة.",
       rateLimitDescription:
         "طلبات كثيرة حديثة إلى Google. جار الانتظار قبل إعادة المحاولة.",
       failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",
