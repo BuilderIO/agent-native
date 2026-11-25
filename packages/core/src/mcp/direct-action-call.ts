@@ -303,10 +303,10 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           : "the provider";
       let argsHash: string | undefined;
       try {
-        argsHash = await sha256Base64Url(
-          canonicalJson((args as Record<string, unknown>) ?? {}),
-        );
+        // coercion-ok: a call that omits `arguments` passes no arguments, which is an empty object.
+        argsHash = await sha256Base64Url(canonicalJson(args ?? {}));
       } catch {
+        // coercion-ok: non-JSON arguments fail state verification below rather than throwing past the error boundary.
         argsHash = undefined;
       }
       if (
@@ -471,18 +471,19 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           connectionRequired.connectUrl,
           requestMeta,
         );
+        const firstBlock = fallback.content.at(0);
         if (
           trustedUrl &&
-          fallback.content[0]?.type === "text" &&
-          !fallback.content[0].text.includes(trustedUrl) &&
-          !fallback.content[0].text.includes(connectionRequired.connectUrl)
+          firstBlock &&
+          !firstBlock.text.includes(trustedUrl) &&
+          !firstBlock.text.includes(connectionRequired.connectUrl)
         ) {
           return {
             ...fallback,
             content: [
               {
-                ...fallback.content[0],
-                text: `${fallback.content[0].text}\nConnect ${connectionRequired.provider}: ${trustedUrl}`,
+                ...firstBlock,
+                text: `${firstBlock.text}\nConnect ${connectionRequired.provider}: ${trustedUrl}`,
               },
               ...fallback.content.slice(1),
             ],

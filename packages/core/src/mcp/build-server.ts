@@ -4217,13 +4217,6 @@ export async function createMCPServerForRequest(
     });
   }
 
-  /**
-   * Emits a native MCP URL elicitation for a typed `connection_required`
-   * action outcome when the client advertises `elicitation.url` and the
-   * supplied connect URL passes strict trusted-app-origin validation. Returns
-   * `undefined` when URL elicitation cannot be used so callers fall back
-   * cleanly to the existing text + link response.
-   */
   async function requestMcpActionConnection(
     name: string,
     args: unknown,
@@ -4248,10 +4241,10 @@ export async function createMCPServerForRequest(
     if (!trustedUrl) return undefined;
     let argumentsHash: string;
     try {
-      argumentsHash = await sha256Base64Url(
-        canonicalJson((args as Record<string, unknown>) ?? {}),
-      );
+      // coercion-ok: a call that omits `arguments` passes no arguments, which is an empty object.
+      argumentsHash = await sha256Base64Url(canonicalJson(args ?? {}));
     } catch {
+      // coercion-ok: non-JSON arguments cannot be bound into signed requestState; fall back without URL elicitation.
       return undefined;
     }
     const connectionState: McpActionConnectionState = {

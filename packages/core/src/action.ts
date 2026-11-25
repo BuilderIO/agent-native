@@ -806,7 +806,7 @@ export interface AgentConnectionRequiredOptions {
    * origin). MCP hosts that advertise `elicitation.url` can surface this as a
    * native connect button after validating its origin.
    */
-  connectUrl?: string;
+  connectUrl?: string | undefined;
   toolResult?: string;
 }
 
@@ -816,7 +816,7 @@ export class AgentConnectionRequiredError extends AgentActionStopError {
   readonly reason: NonNullable<AgentConnectionRequiredOptions["reason"]>;
   readonly appId?: string;
   readonly source?: AgentConnectionRequiredOptions["source"];
-  readonly connectUrl?: string;
+  readonly connectUrl?: string | undefined;
 
   constructor(message: string, options: AgentConnectionRequiredOptions) {
     super(message, {

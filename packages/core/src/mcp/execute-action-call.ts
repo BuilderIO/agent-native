@@ -177,7 +177,7 @@ function defaultConnectionMessage(
       return `Grant access to ${provider} to continue.`;
     case "admin_required":
       return `An administrator must connect ${provider} before this action can run.`;
-    default:
+    case "connect":
       return `Connect ${provider} to continue.`;
   }
 }
@@ -254,6 +254,7 @@ export function extractMcpConnectionRequiredFromError(
     }
     return undefined;
   } catch {
+    // coercion-ok: unreadable thrown errors fall back to normal error reporting without URL elicitation.
     return undefined;
   }
 }
@@ -293,6 +294,7 @@ export function extractMcpConnectionRequiredFromResult(
       fromError: false,
     };
   } catch {
+    // coercion-ok: unreadable action return values fall back to normal result handling without URL elicitation.
     return undefined;
   }
 }
@@ -300,12 +302,8 @@ export function extractMcpConnectionRequiredFromResult(
 function hasUnsafeConnectUrlChars(value: string): boolean {
   for (let i = 0; i < value.length; i++) {
     const code = value.charCodeAt(i);
-    if (
-      code <= 0x1f ||
-      code === 0x7f ||
-      code === 0x5c || // backslash
-      /\s/.test(value[i]!)
-    ) {
+    const ch = value.charAt(i);
+    if (code <= 0x1f || code === 0x7f || code === 0x5c || /\s/.test(ch)) {
       return true;
     }
   }
@@ -328,7 +326,6 @@ export function resolveTrustedMcpConnectUrl(
   if (!candidate || hasUnsafeConnectUrlChars(candidate)) {
     return undefined;
   }
-  // Reject protocol-relative URLs unconditionally.
   if (candidate.startsWith("//")) return undefined;
 
   const primaryOrigin = declaredLinkOrigin(requestMeta?.origin);
@@ -354,8 +351,6 @@ export function resolveTrustedMcpConnectUrl(
     parsed = new URL(candidate);
     if (!allowedOrigins.has(parsed.origin)) return undefined;
   } else {
-    // Reject bare relative paths (`evil.com/x`) and non-hierarchical schemes
-    // (`javascript:`, `data:`, `blob:`, etc.).
     return undefined;
   }
 
