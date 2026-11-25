@@ -56,8 +56,7 @@ export async function ensureSharesTableColumns(
         AND tables.table_name = columns.table_name
       WHERE columns.table_schema = 'public'
         AND tables.table_type = 'BASE TABLE'
-        AND columns.column_name IN (${SHARES_TABLE_COLUMNS.map(() => "?").join(", ")})`,
-    args: [...SHARES_TABLE_COLUMNS],
+        AND columns.column_name IN ('resource_id', 'principal_type', 'principal_id', 'role', 'created_by')`,
   });
   const columnsByTable = new Map<string, Set<string>>();
   for (const row of rows) {
