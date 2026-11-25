@@ -1,0 +1,35 @@
+name: Labs QA users
+on:
+  workflow_dispatch:
+    inputs:
+      host:
+        description: "Target host"
+        default: "labs.agent-native.com"
+      slots:
+        description: "Comma-separated QA slots (1-5)"
+        default: "1,2,3,4,5"
+      probe:
+        description: "Seed, read back and delete a qa-tmp record"
+        default: "1"
+permissions:
+  contents: read
+jobs:
+  users:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      MAILOSAUR_API_KEY: ${{ secrets.MAILOSAUR_API_KEY }}
+      MAILOSAUR_SERVER_ID: ${{ secrets.MAILOSAUR_SERVER_ID }}
+      QA_HOST: ${{ inputs.host }}
+      QA_SLOTS: ${{ inputs.slots }}
+      QA_PROBE: ${{ inputs.probe }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - name: Ensure QA users
+        shell: bash
+        run: |
+          set +x
+          node e2e/labs/labs-qa-users.ts
