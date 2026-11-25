@@ -16,7 +16,7 @@ export const T3_CODE_AGENTS_LAB = defineLab({
   keywords: "T3 Code Claude Code Codex agents comments tag MCP",
 });
 
-/** Labs that Core registers itself; Settings lists the ones a server reports. */
+/** Labs Core defines; Settings lists the ones an app's server registered. */
 export const CORE_LABS = [
   CHATGPT_SUBSCRIPTION_LAB,
   T3_CODE_AGENTS_LAB,

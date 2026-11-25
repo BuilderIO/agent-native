@@ -16,6 +16,7 @@ import { z } from "zod";
 import { addCommentWithGuard } from "../../actions/add-comment.js";
 import { getDb, schema } from "../db/index.js";
 import { readCommentAiSource } from "./comment-ai.js";
+import { firstRow } from "./first-row.js";
 
 export type T3AgentRequestRow = typeof schema.t3AgentRequests.$inferSelect;
 
@@ -125,7 +126,7 @@ async function reload(row: T3AgentRequestRow): Promise<T3AgentRequestRow> {
     .from(schema.t3AgentRequests)
     .where(eq(schema.t3AgentRequests.id, row.id))
     .limit(1);
-  return rows.at(0) ?? row;
+  return firstRow(rows) ?? row;
 }
 
 /** Claims a request to start, so two open tabs don't both start it. */

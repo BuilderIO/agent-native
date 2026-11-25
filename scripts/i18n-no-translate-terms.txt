@@ -138,6 +138,7 @@ SSE push
 startFrame / easing / animatedProps
 Streamable HTTP
 Supabase Postgres
+T3 Code
 table · text · integer · real · now
 Temporary VIEW
 threads · application_state · settings · sessions · runs

@@ -3236,7 +3236,7 @@ const messages: ToolkitAgentChatTranslation = {
     "T3 Code에서 Settings › Environments를 열고, 이 컴퓨터의 메뉴에서 Copy MCP URL을 선택하세요.",
   "settingsModel.t3CodeDialogStep2":
     "여기에 붙여 넣으세요. 이 앱이 내 컴퓨터에 닿으려면 T3 Connect가 켜져 있어야 합니다.",
-  "settingsModel.t3CodeAddressLabel": "T3 Code MCP URL",
+  "settingsModel.t3CodeAddressLabel": "T3 Code의 MCP URL",
   "settingsModel.t3CodeAccessHint":
     "다음 단계에서 T3 Code가 이 앱에 허용할 작업을 묻습니다. 에이전트가 답할 수 있도록 Supervised 이상을 선택하세요.",
   "settingsModel.t3CodeContinue": "T3 Code로 계속",

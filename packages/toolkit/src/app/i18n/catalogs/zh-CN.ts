@@ -2993,7 +2993,7 @@ const messages: ToolkitAgentChatTranslation = {
     "在 T3 Code 中打开 Settings › Environments，打开这台电脑的菜单，选择 Copy MCP URL。",
   "settingsModel.t3CodeDialogStep2":
     "粘贴到这里。必须开启 T3 Connect，此应用才能连到你的电脑。",
-  "settingsModel.t3CodeAddressLabel": "T3 Code MCP URL",
+  "settingsModel.t3CodeAddressLabel": "T3 Code 的 MCP 地址",
   "settingsModel.t3CodeAccessHint":
     "接下来 T3 Code 会询问此应用可以做什么。请选择 Supervised 或更高级别，你的智能体才能回复。",
   "settingsModel.t3CodeContinue": "继续前往 T3 Code",

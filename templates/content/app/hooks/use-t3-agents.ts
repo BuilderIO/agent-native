@@ -161,15 +161,16 @@ export function lastAnsweredThread(
   requests: readonly T3AgentRequest[],
   agent: T3AgentKind,
 ): { threadId: string; title: string | null } | null {
-  const answered = requests
-    .filter(
-      (request) =>
-        request.agent === agent &&
-        request.status === "answered" &&
-        request.t3ThreadId,
-    )
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-    .at(0);
+  const answered = requests.reduce<T3AgentRequest | null>(
+    (latest, request) =>
+      request.agent === agent &&
+      request.status === "answered" &&
+      request.t3ThreadId &&
+      (!latest || request.updatedAt.localeCompare(latest.updatedAt) > 0)
+        ? request
+        : latest,
+    null,
+  );
   return answered?.t3ThreadId
     ? { threadId: answered.t3ThreadId, title: answered.t3ThreadTitle }
     : null;
