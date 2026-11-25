@@ -3269,6 +3269,31 @@ describe("agentNative Vite plugin preset", () => {
     }
   });
 
+  it("resolves the app's aliases before its own, so one can replace an @/ module", async () => {
+    const plugins = flatPlugins(
+      agentNative({
+        aliases: { "@/design-system": "/tmp/alternate/design-system.ts" },
+      }),
+    );
+    const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
+
+    const previousCwd = process.cwd();
+    let config: { resolve: { alias: { find: unknown }[] } };
+    process.chdir(path.join(repositoryRoot(), "templates/chat"));
+    try {
+      config = await configPlugin.config(
+        {},
+        { command: "build", mode: "production" },
+      );
+    } finally {
+      process.chdir(previousCwd);
+    }
+
+    const finds = config.resolve.alias.map((alias) => alias.find);
+    expect(finds.indexOf("@/design-system")).toBeGreaterThanOrEqual(0);
+    expect(finds.indexOf("@/design-system")).toBeLessThan(finds.indexOf("@"));
+  });
+
   it("leaves build.sourcemap off and adds no Sentry plugin without upload config", async () => {
     const previous = {
       SENTRY_AUTH_TOKEN: process.env.SENTRY_AUTH_TOKEN,

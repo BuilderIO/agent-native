@@ -5495,16 +5495,16 @@ function createAgentNativeConfig(
         ...arrayFrom((userConfig.resolve as { dedupe?: any })?.dedupe),
       ],
       alias: [
+        ...Object.entries(options.aliases ?? {}).map(([find, replacement]) => ({
+          find,
+          replacement,
+        })),
         ...(isBuildCommand(command) ? [] : getReactRouterAliases(cwd)),
         ...getAssistantUiAliases(cwd),
         ...(isBuildCommand(command) ? [] : getCoreSourceAliases(cwd)),
         ...localWorkspacePackageResolveAliases,
         { find: "@", replacement: path.resolve(cwd, "./app") },
         { find: "@shared", replacement: path.resolve(cwd, "./shared") },
-        ...Object.entries(options.aliases ?? {}).map(([find, replacement]) => ({
-          find,
-          replacement,
-        })),
         ...aliasArrayFrom((userConfig.resolve as { alias?: unknown })?.alias),
       ],
     },
