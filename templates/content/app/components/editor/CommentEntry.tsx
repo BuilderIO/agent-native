@@ -160,7 +160,6 @@ export function CommentAttributionBadge({ comment }: { comment: Comment }) {
   );
 }
 
-/** Whether a comment tagged one of its author's own T3 Code agents. */
 function isT3Tagging(comment: Comment) {
   return comment.mentions.some(isT3AgentMention);
 }
@@ -259,7 +258,6 @@ export function CommentEntry({
   ) : null;
   const aiSource = getAiCommentSource(comment.submission_source);
   const personName = comment.author_name ?? comment.author_email.split("@")[0];
-  // A person's own T3 Code agent answers for them: "Claude Code, for Alice".
   const visibleAuthor =
     aiAuthored && aiSource === "t3-code"
       ? t("comments.t3AgentAuthor", {
@@ -278,7 +276,6 @@ export function CommentEntry({
         run: {
           effort: comment.author_effort ?? null,
           ranAt: comment.created_at,
-          // A T3 Code thread isn't a Content agent conversation to open.
           threadId:
             aiSource === "t3-code"
               ? null

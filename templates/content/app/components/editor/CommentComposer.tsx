@@ -144,10 +144,6 @@ interface CommentComposerProps {
   aiDraft?: CommentAiDraft | null;
   onAiDraftChange?: (draft: CommentAiDraft | null) => void;
   aiModelStorageKey?: string;
-  /**
-   * Offer the person's own T3 Code agents in the @ menu. Off where a tag
-   * starts nothing, as when editing a sent comment.
-   */
   t3Agents?: boolean;
   /**
    * The AI can reply or suggest changes but not apply them, as in a Blocks
@@ -185,7 +181,6 @@ interface CommentComposerProps {
 const AI_REFERENCE_TYPE = "content-comment-ai-recipient";
 /** An agent an existing comment mentions; unlike the recipient, it sends nothing. */
 const AGENT_REFERENCE_TYPE = "content-comment-agent";
-/** One of the author's own T3 Code agents, which the comment is handed to. */
 const T3_REFERENCE_TYPE = "content-comment-t3-agent";
 const MEMBER_REFERENCE_TYPE = "content-comment-member";
 const NO_IMAGES: readonly CommentImage[] = [];
@@ -261,7 +256,6 @@ function t3Reference(mention: CommentAgentMention) {
   };
 }
 
-/** The mention for one of the author's T3 Code agents, in `thread` if set. */
 function t3Mention(
   agent: { kind: string; name: string },
   thread: string | null | undefined,
@@ -633,7 +627,6 @@ export const CommentComposer = forwardRef<
         metadata: { email: member.email, name: label },
       };
     });
-    // The person's own agents, in their own group under Content's.
     const t3Items = t3Agents.map((agent) => {
       const last = lastAnsweredThread(t3Requests, agent.kind);
       const mention = t3Mention(agent, last?.threadId);

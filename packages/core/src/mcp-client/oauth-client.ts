@@ -384,10 +384,6 @@ function configuredPrivateOrigins(): string[] {
     .filter(Boolean);
 }
 
-/**
- * Running locally, a server on localhost may sign in as well as connect; the
- * MCP manager's fetch already lets the connection itself through.
- */
 function localServerFetchOptions(
   url: URL,
   allowedPrivateOrigins: string[],

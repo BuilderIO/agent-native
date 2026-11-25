@@ -9,11 +9,9 @@ const T3_AGENT_KINDS = new Set<string>(["claude-code", "codex"]);
 
 export interface T3AgentTag {
   agent: T3CodeAgentKind;
-  /** The T3 thread picked in the comment box; none starts a new one. */
   t3ThreadId: string | null;
 }
 
-/** The author's own T3 Code agents a comment tags, one per agent. */
 export function t3AgentTags(mentions: readonly CommentMention[]): T3AgentTag[] {
   const tags = new Map<T3CodeAgentKind, T3AgentTag>();
   for (const mention of mentions) {

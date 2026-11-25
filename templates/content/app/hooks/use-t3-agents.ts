@@ -3,7 +3,6 @@ import { useLabState } from "@agent-native/core/client/labs/use-lab";
 import { useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 
-/** The Lab that lets a person tag their own T3 Code agents in comments. */
 export const T3_CODE_AGENTS_LAB = "t3-code-agents";
 
 export type T3AgentKind = "claude-code" | "codex";
@@ -60,10 +59,6 @@ export function isT3AgentRequestActive(request: T3AgentRequest) {
   );
 }
 
-/**
- * The person's own T3 Code agents they can tag: none unless the Lab is on and
- * T3 Code is connected with leave to start threads.
- */
 export function useT3Agents(): T3Agent[] {
   const lab = useLabState(T3_CODE_AGENTS_LAB);
   const status = useActionQuery<T3CodeStatus>(
@@ -77,10 +72,8 @@ export function useT3Agents(): T3Agent[] {
 }
 
 export interface T3AgentRequestsController {
-  /** The person's own agents they can tag here. */
   agents: T3Agent[];
   requests: T3AgentRequest[];
-  /** T3 Code couldn't be reached on the last sync. */
   unreachable: boolean;
 }
 
@@ -97,11 +90,6 @@ export function useT3AgentRequestsContext() {
   return useContext(T3AgentRequestsContext);
 }
 
-/**
- * The person's own agents and their T3 agent requests on a page. While a
- * request is unfinished, the page syncs it every few seconds: that hands a new
- * tag to its thread, follows the thread, and posts the answer.
- */
 export function useT3AgentRequests(
   documentId: string,
 ): T3AgentRequestsController {
@@ -156,7 +144,6 @@ export function useT3AgentRequests(
   return lab.enabled ? { agents, requests, unreachable } : EMPTY;
 }
 
-/** The thread that last answered for `agent` on this page, if any. */
 export function lastAnsweredThread(
   requests: readonly T3AgentRequest[],
   agent: T3AgentKind,
@@ -176,7 +163,6 @@ export function lastAnsweredThread(
     : null;
 }
 
-/** An agent's T3 threads, searched by title when `query` is set. */
 export function useT3Threads(
   agent: T3AgentKind | null,
   query: string,

@@ -129,8 +129,6 @@ export function T3CodeRow() {
     setAddressError(null);
     const url = address.trim();
     if (!url) return;
-    // Open the popup inside the click so it isn't blocked; it shows a
-    // waiting page until the address is checked.
     const popup = openOAuthPopup({ features: "popup,width=520,height=720" });
     if (!popup) {
       setAddressError(t(`${K}chatgptPopupBlocked`));
@@ -175,7 +173,6 @@ export function T3CodeRow() {
       void refresh();
     };
     const stop = watchWorkspaceConnectionCompletion(popup, done);
-    // A popup closed without finishing saves nothing; just settle the row.
     const closed = window.setInterval(() => {
       if (!popup.closed) return;
       window.clearInterval(closed);

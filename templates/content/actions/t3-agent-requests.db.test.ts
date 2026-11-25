@@ -117,7 +117,6 @@ beforeEach(async () => {
   t3.calls.length = 0;
   t3.reads.length = 0;
   t3.launchHold = null;
-  // Each test syncs only the tags it makes.
   await dbModule.getDb().delete(dbModule.schema.t3AgentRequests);
 });
 
@@ -310,7 +309,6 @@ it("starts each tag once when two tabs sync at the same time", async () => {
   await vi.waitFor(() =>
     expect(t3.calls.map((call) => call.name)).toContain("t3_thread_launch"),
   );
-  // The second tab syncs while the first is still starting the thread.
   await asAlice(() => syncRequests.run({ documentId }, ctx));
   release();
   await firstTab;

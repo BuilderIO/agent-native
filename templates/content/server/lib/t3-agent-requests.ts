@@ -28,7 +28,6 @@ export type T3AgentRequestStatus =
   | "answered"
   | "failed";
 
-/** Statuses a sync can still move on. */
 export const ACTIVE_T3_AGENT_STATUSES: readonly T3AgentRequestStatus[] = [
   "sending",
   "starting",
@@ -36,13 +35,10 @@ export const ACTIVE_T3_AGENT_STATUSES: readonly T3AgentRequestStatus[] = [
   "needs-you",
 ];
 
-/** A start that never recorded its thread is retried after this long. */
 const STALE_START_MS = 90_000;
 
-/** The page text a thread gets, at most. */
 const MAX_PAGE_TEXT = 60_000;
 
-/** The answer a thread posts, at most, read in pages of this size. */
 const MAX_REPLY_TEXT = 40_000;
 const REPLY_PAGE_CHARS = 20_000;
 
@@ -50,7 +46,6 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-/** A request as its person's page sees it. */
 export const t3AgentRequestViewSchema = z.object({
   id: z.string(),
   documentId: z.string(),
@@ -78,7 +73,6 @@ export function serializeT3AgentRequest(
     threadId: row.threadId,
     commentId: row.commentId,
     agent: row.agent as T3CodeAgentKind,
-    // A claimed start reads as sending until its thread is recorded.
     status: (row.status === "starting"
       ? "sending"
       : row.status) as T3AgentRequestView["status"],
@@ -119,7 +113,6 @@ async function updateRequest(
     .where(eq(schema.t3AgentRequests.id, id));
 }
 
-/** The request as it is now, or as it was if it has since been removed. */
 async function reload(row: T3AgentRequestRow): Promise<T3AgentRequestRow> {
   const rows = await getDb()
     .select()
@@ -129,7 +122,6 @@ async function reload(row: T3AgentRequestRow): Promise<T3AgentRequestRow> {
   return firstRow(rows) ?? row;
 }
 
-/** Claims a request to start, so two open tabs don't both start it. */
 async function claimStart(row: T3AgentRequestRow): Promise<boolean> {
   const staleBefore = new Date(Date.now() - STALE_START_MS).toISOString();
   const claimed = await getDb()
@@ -158,11 +150,6 @@ function commentAuthor(comment: {
   return comment.authorName?.trim() || comment.authorEmail;
 }
 
-/**
- * What the thread gets: the tagging comment as the request, the rest of the
- * discussion as background, and the page. Other people's comments are marked
- * as background so they read as context, not instructions.
- */
 export async function buildT3AgentMessage(
   row: T3AgentRequestRow,
   requesterName: string,
@@ -256,7 +243,6 @@ function latestOrdinal(read: T3ThreadRead): number {
   );
 }
 
-/** The first run after the comment was sent, which is the comment's. */
 function ourRun(read: T3ThreadRead, base: number): T3Run | null {
   const runs = (read.recentRuns ?? [])
     .filter((run) => typeof run.ordinal === "number" && run.ordinal > base)
@@ -463,11 +449,6 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message.slice(0, 500) : String(error);
 }
 
-/**
- * Moves one request on: starts or messages its thread, then follows the
- * thread's turn and posts its answer. A T3 Code that can't be reached leaves
- * the request where it was, for the next sync.
- */
 export async function syncT3AgentRequest(
   row: T3AgentRequestRow,
   requesterName: string,
@@ -492,7 +473,6 @@ export async function syncT3AgentRequest(
   return reload(row);
 }
 
-/** Syncs the caller's unfinished requests on one page. */
 export async function syncT3AgentRequests(
   ownerEmail: string,
   documentId: string,

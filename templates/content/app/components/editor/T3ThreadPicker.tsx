@@ -32,11 +32,6 @@ export interface T3ThreadChoice {
   title: string | null;
 }
 
-/**
- * Picks the T3 thread a tagged agent answers in: the one that last answered
- * on this page first, then a new thread, then the agent's other threads,
- * searched by title.
- */
 export function T3ThreadPicker({
   mention,
   threadTitle,
@@ -44,10 +39,8 @@ export function T3ThreadPicker({
   onClose,
 }: {
   mention: CommentAgentMention;
-  /** The picked thread's title, when the picker knows it. */
   threadTitle: string | null;
   onChange: (choice: T3ThreadChoice) => void;
-  /** Called after the menu closes, to put focus back in the comment box. */
   onClose: () => void;
 }) {
   const t = useT();

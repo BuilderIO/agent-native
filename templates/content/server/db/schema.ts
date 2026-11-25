@@ -1369,29 +1369,18 @@ export const contentColumnFillCells = table(
   ],
 );
 
-/**
- * A comment that tagged one of its author's own T3 Code agents. Content hands
- * the comment to a thread on the author's computer and posts the thread's
- * answer back as that agent, for them.
- */
 export const t3AgentRequests = table(
   "t3_agent_requests",
   {
     id: text("id").primaryKey(),
-    /** The person who tagged the agent; it runs on their T3 Code. */
     ownerEmail: text("owner_email").notNull(),
     documentId: text("document_id").notNull(),
     threadId: text("thread_id").notNull(),
-    /** The comment with the tag. */
     commentId: text("comment_id").notNull(),
-    /** `claude-code` or `codex`. */
     agent: text("agent").notNull(),
-    /** The T3 thread the comment went to, once it has one. */
     t3ThreadId: text("t3_thread_id"),
     t3ThreadTitle: text("t3_thread_title"),
-    /** The link that opens the thread in T3 Code. */
     t3ThreadLink: text("t3_thread_link"),
-    /** The thread's latest run before the comment, so a newer run is ours. */
     baseRunOrdinal: integer("base_run_ordinal"),
     status: text("status").notNull().default("sending"),
     model: text("model"),

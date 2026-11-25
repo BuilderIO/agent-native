@@ -50,7 +50,6 @@ export default defineAction({
       });
       return listed.threads ?? [];
     });
-    // Search results don't say which agent ran a thread, so they stay in.
     const threads = list
       .map((item) => toT3CodeThread(item))
       .filter(

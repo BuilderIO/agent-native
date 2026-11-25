@@ -1,10 +1,12 @@
 // @vitest-environment happy-dom
 
 import { requestAgentChatThreadOpen } from "@agent-native/core/client/agent-chat";
+import { T3_CODE_MENTION_ENGINE } from "@shared/comment-mentions";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { agentMentionMedia } from "./CommentIdentity";
 import { CommentRow } from "./CommentRow";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -140,5 +142,15 @@ describe("comment identity card", () => {
     act(() => vi.runOnlyPendingTimers());
     expect(card()).toBeNull();
     expect(document.activeElement).toBe(authorName());
+  });
+});
+
+describe("T3 Code agent logos", () => {
+  it("shows the provider's logo for each agent, not an initial", () => {
+    for (const model of ["claude-code", "codex"]) {
+      expect(
+        agentMentionMedia(model, T3_CODE_MENTION_ENGINE, "T3 Code"),
+      ).toEqual({ type: "image", src: expect.any(String) });
+    }
   });
 });

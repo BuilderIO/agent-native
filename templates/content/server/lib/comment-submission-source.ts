@@ -1,4 +1,3 @@
-/** A reply a person's own T3 Code agent wrote, posted for them. */
 export const T3_CODE_SUBMISSION_SOURCE = "t3-code";
 
 /** The attribution source a comment write records for the caller making it. */

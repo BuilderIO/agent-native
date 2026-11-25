@@ -301,8 +301,6 @@ async function handleMcpOAuthStart(
       );
     }
   }
-  // A T3 Code sign-in always belongs to one person and is never a reconnect
-  // of a listed MCP server.
   const reconnectServerId = t3Code ? undefined : text(query.serverId);
   const reconnectScope: RemoteMcpScope =
     !t3Code && query.scope === "org" ? "org" : "user";

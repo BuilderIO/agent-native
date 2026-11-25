@@ -19,17 +19,9 @@ export interface CommentAgentMention {
   engine?: string;
   provider?: string;
   name: string;
-  /**
-   * For one of the author's T3 Code agents, the T3 thread the comment goes
-   * to. Left out, the comment starts a new thread.
-   */
   thread?: string;
 }
 
-/**
- * The engine of a mention that tags one of the author's own T3 Code agents.
- * Its `model` is the agent, `claude-code` or `codex`.
- */
 export const T3_CODE_MENTION_ENGINE = "t3-code";
 
 export function isT3AgentMention(

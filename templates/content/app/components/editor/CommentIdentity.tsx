@@ -85,10 +85,9 @@ export function personMentionMedia(
       };
 }
 
-/** The provider behind each T3 Code agent, whose logo it shows. */
 const T3_AGENT_LOGO_ENGINES: Record<string, string> = {
   "claude-code": "anthropic",
-  codex: "openai",
+  codex: "ai-sdk:openai",
 };
 
 /** The provider logo an agent shows in the composer's mention menu and chips. */

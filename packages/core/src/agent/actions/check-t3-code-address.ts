@@ -39,7 +39,6 @@ export default defineAction({
       return { ok: false as const, reason: "not-mcp" as const };
     }
     try {
-      // Without a sign-in T3 answers 401; any answer means it can be reached.
       const response = await fetchMcpOriginBound(
         checked.url,
         {

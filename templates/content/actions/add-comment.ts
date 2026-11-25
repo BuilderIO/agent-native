@@ -310,16 +310,9 @@ async function replyBlocksField(
   return inherited;
 }
 
-/**
- * A reply a person's own T3 Code agent wrote: posted as that agent, for the
- * person who tagged it.
- */
 export interface T3AgentCommentAuthor {
-  /** The model the T3 thread ran, such as `claude-opus-5-5`. */
   model: string;
-  /** `claude-code` or `codex`. */
   client: string;
-  /** The T3 thread that wrote it. */
   threadId: string;
 }
 
@@ -394,7 +387,6 @@ export async function addCommentWithGuard(
       : null;
   const authorEffort =
     authorModel && !t3Author ? (runContext?.reasoningEffort ?? null) : null;
-  // A T3 agent posts for the person who tagged it, under their name.
   const requestName =
     actorKind === "agent" && !t3Author
       ? undefined
@@ -410,8 +402,6 @@ export async function addCommentWithGuard(
   const mentions = submittedCommentMentions(args.mentions ?? []);
   assertMentionsInText(content, mentions);
   const mentionsJson = serializeStoredCommentMentions(mentions);
-  // A person's tag of their own T3 Code agents hands the comment to them. An
-  // agent's comment, including a T3 agent's reply, never starts one.
   const t3Tags = actorKind === "human" ? t3AgentTags(mentions) : [];
   if (
     t3Tags.length &&

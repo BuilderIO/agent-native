@@ -62,8 +62,6 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 vi.mock("@/hooks/use-mention-members", () => ({
   useMentionMembers: () => ({ data: [] }),
 }));
-// The T3 Code agents Lab reads the session; these tests count only the
-// comment's own requests.
 vi.mock("@/hooks/use-t3-agents", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/hooks/use-t3-agents")>()),
   useT3AgentRequests: () => ({ agents: [], requests: [], unreachable: false }),

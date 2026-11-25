@@ -13,11 +13,6 @@ import {
   type T3AgentRequest,
 } from "@/hooks/use-t3-agents";
 
-/**
- * The line under a comment that tagged one of its author's T3 Code agents:
- * working, waiting on them in T3, or why it couldn't answer. Only the person
- * who tagged sees it; everyone sees the answer when it posts.
- */
 export function T3AgentRequestLine({ commentId }: { commentId: string }) {
   const t = useT();
   const { requests, unreachable } = useT3AgentRequestsContext();

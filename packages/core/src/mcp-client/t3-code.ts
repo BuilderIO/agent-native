@@ -1,10 +1,3 @@
-/**
- * T3 Code as a personal provider: one person's sign-in to the MCP server of
- * their own T3 Code environment, so they can tag their Claude Code and Codex
- * threads from an app. It reuses the MCP OAuth sign-in and its encrypted
- * credentials, but lives in its own user setting rather than
- * `mcp-servers-remote`, so the in-app agent never gets T3's tools.
- */
 import {
   deleteUserSetting,
   getUserSetting,
@@ -171,8 +164,6 @@ export async function disconnectT3Code(
   const owner = normalizeEmail(email);
   const connection = await getT3CodeConnection(owner);
   if (!connection) return { disconnected: false };
-  // Forget the sign-in here first, so the agents leave the @ menu at once
-  // even when T3 can't be reached to revoke it.
   await deleteUserSetting(owner, T3_CODE_SETTING_KEY);
   await revokeMcpOAuthCredentials(credentialIdentity(owner, connection)).catch(
     () =>

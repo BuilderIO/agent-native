@@ -1288,10 +1288,6 @@ export function commentAiModelStorageKey(
   );
 }
 
-/**
- * The page's comments, with the person's T3 Code agent requests on it, which
- * keep syncing while one is unfinished.
- */
 export function CommentsSidebar(props: CommentsSidebarProps) {
   const t3Requests = useT3AgentRequests(props.documentId);
   return (
