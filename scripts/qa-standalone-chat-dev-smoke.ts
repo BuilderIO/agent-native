@@ -2611,6 +2611,7 @@ async function screenshotActionContext(
 
 async function assertAgentKitChatAcceptance(
   page: Page,
+  baseUrl: string,
   provider: LoopbackProviderState,
   network: BrowserNetworkState,
 ): Promise<void> {
@@ -3055,6 +3056,22 @@ async function assertAgentKitChatAcceptance(
   await assertViewportContract(page, "narrow dark conversation", {
     dark: true,
   });
+
+  const approvalSettingUrl = `${baseUrl}/_agent-native/settings/no-approvals`;
+  const request = page.context().request;
+  const saved = await request.put(approvalSettingUrl, {
+    data: { enabled: false },
+  });
+  assert.ok(
+    apiResponseOk(saved),
+    "could not enable approvals for the smoke user",
+  );
+  const approvalSetting = await request.get(approvalSettingUrl);
+  assert.ok(
+    apiResponseOk(approvalSetting),
+    "could not read the smoke user's approval setting",
+  );
+  assert.deepEqual(await approvalSetting.json(), { enabled: false });
 
   await fillAndSubmitComposer(page, approvalPrompt);
   const approval = page.locator(".agentkit-approval");
@@ -3629,7 +3646,7 @@ async function runBrowserSmoke(
   );
 
   log("acceptance: real AgentKit chat and action widget lifecycle");
-  await assertAgentKitChatAcceptance(page, provider, network);
+  await assertAgentKitChatAcceptance(page, baseUrl, provider, network);
   log("acceptance pass: real AgentKit chat and action widget lifecycle");
   assert.ok(
     provider.requests.length >= 10,
