@@ -640,14 +640,14 @@ function validateCatalog(
         `catalog: expected 6 Chapters, found ${catalog.chapters.length}`,
       );
     }
-    if (catalog.features.length !== 33) {
+    if (catalog.features.length !== 34) {
       errors.push(
-        `catalog: expected 33 Features, found ${catalog.features.length}`,
+        `catalog: expected 34 Features, found ${catalog.features.length}`,
       );
     }
-    if (catalog.capabilities.length !== 126) {
+    if (catalog.capabilities.length !== 127) {
       errors.push(
-        `catalog: expected 126 Capabilities, found ${catalog.capabilities.length}`,
+        `catalog: expected 127 Capabilities, found ${catalog.capabilities.length}`,
       );
     }
     const incrementCount = catalog.features.reduce(

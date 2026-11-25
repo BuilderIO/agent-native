@@ -7,6 +7,7 @@ promise: "Chapter 4 turns flexible Pages and Collections into working systems a 
 features:
   [
     "content.feature.data-that-keeps-itself-right",
+    "content.feature.writing-that-keeps-itself-right",
     "content.feature.share-how-your-organization-works",
     "content.feature.put-your-organizations-know-how-to-work",
     "content.feature.evolve-systems-safely",

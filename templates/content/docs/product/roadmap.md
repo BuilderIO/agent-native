@@ -384,6 +384,28 @@ Use typed defaults, formulas, validation, and rendering so ordinary data stays c
 
 **Enhancing capability records:** [View-derived creation defaults](capabilities/content.view.dynamic-create.md), [Actor properties](capabilities/content.property.actor.md), [Cached expression results](capabilities/content.expression.cached-result.md)
 
+### Feature 34: Writing that keeps itself right
+
+Put checks on a page so its writing keeps pointing at what doesn't pass, without anything changing the text.
+
+**Status:** Partially implemented
+
+**Example workflow:** An editor adds "Under 120 words" to a post's intro, sees "183 words, 63 over" before saving the check, cuts the intro, and watches the dot beside it disappear a few seconds after they stop typing.
+
+**What works today:** Count checks on the page, the intro, a section or each paragraph, with dots beside the text, a Checks list in Info, a header count, Check now, a recheck after typing stops, Skip here and Comment.
+
+**What remains:** Yes/no questions answered by a model with How sure and limits, checks on each section with Only where, and checks on Collection rows.
+
+**What this Feature includes:**
+
+- **Checks:** A sentence on a page, like "Under 120 words", that marks every place in its scope that doesn't pass.
+- **Answers:** Each place is fine, not fine, skipped, changed since the last check, or couldn't check with its reason, and no two look alike.
+- **Running:** Check now, and a recheck a few seconds after typing stops; opening or reading a page runs nothing.
+- **Acting:** Comment opens the ordinary comment box with the reason filled in; Skip here hides one place until its text changes.
+- **Access:** Editors add, change and run checks; commenters read them; viewers and public readers get nothing.
+
+**Required capability records:** [Checks](capabilities/content.check.page.md)
+
 ### Feature 14: Share how your organization works
 
 Govern reusable Templates, Properties, Expressions, and Custom Blocks without taking ownership away from adopters.
