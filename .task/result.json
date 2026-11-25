@@ -1,0 +1,1 @@
+{"status":"checker-error","command":"agent retrieval after Settings Memory deletion","error":"The local Settings pending-save, fresh-page persistence, confirmed deletion and fresh resource listing checks passed; an end-to-end agent retrieval exclusion check was not established. The save/tree and shared-memory/MCP read test suites passed (89 tests)."}
