@@ -4457,7 +4457,7 @@ export async function createMCPServerForRequest(
               name,
               description:
                 hasLink && !directoryCatalog
-                  ? `${baseDescription} After calling, surface the returned "Open in … →" link to the user.`
+                  ? `${baseDescription} Returns an "Open in … →" link to the app.`
                   : baseDescription,
               inputSchema,
               ...(outputSchema ? { outputSchema } : {}),
@@ -4499,11 +4499,10 @@ export async function createMCPServerForRequest(
         tools.push({
           name: "ask-agent",
           description:
-            "Send a natural-language message to the app's AI agent and get a response. " +
-            "Use this for complex, multi-step tasks that require the agent's reasoning " +
-            "and full context about the app. On hosted MCP, the server waits briefly " +
-            "for fast completions and returns a taskId plus ask_app_status polling " +
-            "instructions when the agent needs longer.",
+            "Send a natural-language message to the app's AI agent and return its response. " +
+            "Runs the app agent with its full context and reasoning for multi-step tasks. " +
+            "On hosted MCP, fast completions return inline and longer tasks return a taskId " +
+            "that can be polled with ask_app_status.",
           inputSchema: {
             type: "object" as const,
             properties: {
