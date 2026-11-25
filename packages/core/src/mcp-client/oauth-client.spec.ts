@@ -332,6 +332,48 @@ describe("MCP OAuth client", () => {
     });
   });
 
+  it("lets a local app sign in to an MCP server on this computer", async () => {
+    const metadata = {
+      issuer: "http://localhost:3773",
+      authorization_endpoint: "http://localhost:3773/oauth/mcp/authorize",
+      token_endpoint: "http://localhost:3773/oauth/mcp/token",
+      registration_endpoint: "http://localhost:3773/oauth/mcp/register",
+    };
+    getAppConfigMock.mockReturnValue({ app: {}, workspace: {} });
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "local");
+    try {
+      ssrfSafeFetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify(metadata), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+      await expect(
+        resolveMcpOAuthAuthorizationServerUrl(
+          "http://localhost:3773/.well-known/oauth-authorization-server",
+        ),
+      ).resolves.toBe("http://localhost:3773/");
+      expect(ssrfSafeFetchMock).toHaveBeenCalledWith(
+        "http://localhost:3773/.well-known/oauth-authorization-server",
+        expect.any(Object),
+        expect.objectContaining({
+          allowedLocalhostOrigin: "http://localhost:3773",
+        }),
+      );
+
+      ssrfSafeFetchMock.mockClear();
+      vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "production");
+      await expect(
+        resolveMcpOAuthAuthorizationServerUrl(
+          "http://localhost:3773/.well-known/oauth-authorization-server",
+        ),
+      ).rejects.toThrow();
+      expect(ssrfSafeFetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("bounds OAuth metadata before buffering the response", async () => {
     ssrfSafeFetchMock.mockResolvedValueOnce(
       new Response("{" + "x".repeat(256 * 1024) + "}", {
