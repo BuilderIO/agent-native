@@ -132,8 +132,6 @@ export const CHAT_THREAD_SCHEMA_MIGRATIONS: MigrationEntry[] = [
   },
 ];
 
-// Runs once per database as a store data migration; tolerates a database that
-// has no automation_runs table yet.
 // guard:allow-unscoped — one-time backfill of automation threads from their own run history rows
 export const AUTOMATION_THREAD_SOURCE_BACKFILL_SQL = `
       DO $$

@@ -116,6 +116,7 @@ export function withThreadDataLock<T>(
   return next as Promise<T>;
 }
 
+// raw-sql-ok: the data migration's SQL is a static constant with no interpolated values
 export const chatThreadsStore = defineStore({
   id: "chat_threads",
   migrations: [
