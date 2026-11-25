@@ -1763,8 +1763,6 @@ export default {
       redoSkippedConcurrentEdit: "Skipped a redo — someone else moved that",
       saveConflict:
         "This page changed elsewhere. Your last edit was not saved.",
-      versionHistoryUnavailable:
-        "Version history is unavailable for this design. Your edit was still saved.",
       removeAutoLayoutFailed: "Couldn't remove auto layout",
       autoLayoutScreensUnsupported: "Add auto layout doesn't apply to pages",
       booleanSubtractUnsupported:

@@ -1827,8 +1827,6 @@ export default {
       undoSkippedConcurrentEdit: "تم تخطي التراجع — قام شخص آخر بنقله",
       redoSkippedConcurrentEdit: "تم تخطي الإعادة — قام شخص آخر بنقله",
       saveConflict: "تغيّرت هذه الصفحة في مكان آخر. لم يُحفظ آخر تعديل لك.",
-      versionHistoryUnavailable:
-        "سجل الإصدارات غير متاح لهذا التصميم. تم حفظ تعديلك رغم ذلك.",
       removeAutoLayoutFailed: "تعذّرت إزالة التخطيط التلقائي",
       autoLayoutScreensUnsupported:
         "لا تنطبق إضافة التخطيط التلقائي على الصفحات",

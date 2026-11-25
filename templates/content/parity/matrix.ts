@@ -730,6 +730,25 @@ export const parityMatrix: ParityRow[] = [
     evalScenarioIds: ["local-file-source-truth"],
   },
   {
+    id: "sharing.titles-in-other-apps",
+    surface: "sharing",
+    label: "Show a page's title where another app links to it",
+    uiEntrypoints: ["app/routes/_app.page.$id.tsx"],
+    durableEffect:
+      "None. Content answers each request with the title the caller may see, and the asking app stores nothing.",
+    uiImplementation:
+      "Design's Built from line asks read-link-summary for the titles of the pages a design was built from, over A2A as the signed-in reader, and links each one to its page here.",
+    status: "action-backed",
+    actions: ["read-link-summary"],
+    exception:
+      "read-link-summary is for other apps only (agentTool: false, mcpTool: \"search\"), under the caller's own access. Content's own UI has no entry point for it, and its agent reads pages with get-document.",
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/read-link-summary.db.test.ts"],
+  },
+  {
     id: "sharing.agent-text-lock",
     surface: "sharing",
     label: "Set what agents can do on a page",
@@ -1039,6 +1058,38 @@ export const parityMatrix: ParityRow[] = [
       "actions/resync-content-database-source.db.test.ts",
     ],
     evalScenarioIds: ["database-source-scope"],
+  },
+  {
+    id: "database.fill-column-with-ai",
+    surface: "database",
+    label:
+      "Fill a collection column with AI from each row's page, stop the fill, retry a failed cell, and follow up on a cell in chat",
+    uiEntrypoints: [
+      "app/components/editor/database/column-fill.tsx",
+      "app/components/editor/database/DatabaseView.tsx",
+      "app/components/editor/DocumentProperties.tsx",
+    ],
+    durableEffect:
+      "A fill stores its column, instruction, and each row's cell status. Each row runs one quiet agent, five at a time, that reads the row's page and saves the cell through a generation-guarded property write, so an edit made during the run stays. Runs keep going with no tab open and their chats stay out of chat history.",
+    uiImplementation:
+      "The column header menu opens Fill with AI, which shows the cell count before starting. The header shows progress with Stop, cells show waiting, running, or failed, and a cell's editor holds Edit in chat, Try again, and Open chat; all of it goes through the same Actions the agent calls.",
+    status: "action-backed",
+    actions: [
+      "fill-column-cell",
+      "list-column-fills",
+      "retry-column-fill-cell",
+      "start-column-fill",
+      "stop-column-fill",
+    ],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "server/lib/column-fill.db.test.ts",
+      "app/components/editor/database/column-fill.ui.test.tsx",
+    ],
   },
   {
     id: "database.change-webhooks",

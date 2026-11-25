@@ -6,6 +6,7 @@ const mockGetUserSetting = vi.fn();
 const mockTrackDomainJoined = vi.hoisted(() => vi.fn(async () => {}));
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: mockExecute }),
   isLocalDatabase: () => true,
 }));

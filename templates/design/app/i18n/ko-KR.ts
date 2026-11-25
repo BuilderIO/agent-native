@@ -1833,8 +1833,6 @@ export default {
         "다시 실행을 건너뛰었습니다 — 다른 사용자가 이동했습니다",
       saveConflict:
         "이 페이지가 다른 곳에서 변경되었습니다. 마지막 편집은 저장되지 않았습니다.",
-      versionHistoryUnavailable:
-        "이 디자인에는 버전 기록을 사용할 수 없습니다. 편집 내용은 저장되었습니다.",
       removeAutoLayoutFailed: "오토 레이아웃을 제거할 수 없습니다",
       autoLayoutScreensUnsupported:
         "자동 레이아웃 추가는 페이지에 적용되지 않습니다",

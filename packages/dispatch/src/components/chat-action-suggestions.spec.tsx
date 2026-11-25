@@ -54,7 +54,7 @@ const automation = {
   execution: {
     type: "action",
     action: "create-reminder",
-    params: { cadence: "daily" },
+    params: { cadence: "daily", assignee: null, enabled: false },
   },
 } satisfies ActionSuggestion;
 
@@ -246,8 +246,8 @@ it("surfaces an actionable approval review instead of a success receipt", async 
 });
 
 it.each([
-  [automation, JSON.stringify(automation.execution.params, null, 2)],
-  [build, build.execution.domainSpec],
+  [automation, "daily", "Cadence"],
+  [build, build.execution.domainSpec, "Create app in this workspace"],
   [
     {
       ...build,
@@ -260,10 +260,11 @@ it.each([
       },
     } satisfies ActionSuggestion,
     "Set the default inbox column.",
+    "Customize",
   ],
 ])(
   "shows the concrete payload and waits for confirmation for $id",
-  async (suggestion, payload) => {
+  async (suggestion, payload, label) => {
     const thread = doneThread();
     thread.tools.turn = {
       id: "turn",
@@ -282,7 +283,10 @@ it.each([
     await act(async () => chip(suggestion.label)?.click());
     expect(mocks.mutate).not.toHaveBeenCalled();
     const dialog = document.querySelector('[role="dialog"]');
-    expect(dialog?.querySelector("pre")?.textContent).toBe(payload);
+    expect(dialog?.textContent).toContain(payload);
+    expect(dialog?.querySelector("pre")).toBeNull();
+    expect(dialog?.textContent).toContain(label);
+    expect(dialog?.textContent).not.toContain("{\n");
     const run = [...(dialog?.querySelectorAll("button") ?? [])].find(
       (button) => button.textContent === "Run action",
     );
@@ -290,3 +294,69 @@ it.each([
     expect(mocks.mutate).toHaveBeenCalledExactlyOnceWith({ suggestion });
   },
 );
+
+it("offers the existing app after confirmation", async () => {
+  const thread = doneThread();
+  thread.tools.turn = {
+    id: "turn",
+    name: "propose-action-suggestions",
+    runId: "run",
+    status: "completed",
+    output: { suggestions: [build] },
+  };
+  mocks.useThread.mockReturnValue(thread);
+  mocks.mutate.mockResolvedValue({
+    suggestionId: build.id,
+    status: "accepted",
+    outcome: "action-completed",
+    url: "https://equipment.example.test/",
+  });
+  await render();
+  await act(async () => chip(build.label)?.click());
+  const run = [...document.querySelectorAll('[role="dialog"] button')].find(
+    (button) => button.textContent === "Run action",
+  );
+  await act(async () =>
+    run?.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+  );
+  expect(mocks.mutate).toHaveBeenCalledExactlyOnceWith({ suggestion: build });
+  expect(
+    container.querySelector('[role="status"] a')?.getAttribute("href"),
+  ).toBe("https://equipment.example.test/");
+});
+
+it("shows explicit null and boolean values in the review", async () => {
+  const thread = doneThread();
+  thread.tools.turn = {
+    id: "turn",
+    name: "propose-action-suggestions",
+    runId: "run",
+    status: "completed",
+    output: { suggestions: [automation] },
+  };
+  mocks.useThread.mockReturnValue(thread);
+  await render();
+  await act(async () => chip(automation.label)?.click());
+  const dialog = document.querySelector('[role="dialog"]');
+  expect(dialog?.textContent).toContain("AssigneeNone");
+  expect(dialog?.textContent).toContain("EnabledNo");
+});
+
+it("summarizes the action and its arguments as labeled text", async () => {
+  const thread = doneThread();
+  thread.tools.turn = {
+    id: "turn",
+    name: "propose-action-suggestions",
+    runId: "run",
+    status: "completed",
+    output: { suggestions: [automation] },
+  };
+  mocks.useThread.mockReturnValue(thread);
+  await render();
+  await act(async () => chip(automation.label)?.click());
+  const text = document.querySelector('[role="dialog"]')?.textContent ?? "";
+  expect(text).toContain("ActionCreate reminder");
+  expect(text).toContain("Appworkspace/mail");
+  expect(text).toContain("Cadencedaily");
+  expect(text).not.toMatch(/[{}"]/);
+});

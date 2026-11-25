@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getSettings: vi.fn(),
   isLocal: vi.fn(),
   startCreation: vi.fn(),
+  listWorkspaceApps: vi.fn(),
   resolveApp: vi.fn(),
   listActions: vi.fn(),
   callAction: vi.fn(),
@@ -23,6 +24,7 @@ vi.mock("../server/lib/app-creation-store.js", () => ({
   getAppCreationSettings: mocks.getSettings,
   isLocalAppCreationRuntime: mocks.isLocal,
   startWorkspaceAppCreation: mocks.startCreation,
+  listWorkspaceApps: mocks.listWorkspaceApps,
 }));
 vi.mock("../server/lib/mcp-gateway.js", () => ({
   resolveGrantedDispatchMcpApp: mocks.resolveApp,
@@ -241,5 +243,100 @@ it("requires a safe nested selection in a mixed schema", async () => {
     execute.run({ suggestion: safe }, browser),
   ).resolves.toMatchObject({
     status: "accepted",
+  });
+});
+
+it("returns an accessible existing app when creation reports its id is registered", async () => {
+  mocks.startCreation.mockResolvedValue({
+    mode: "app-id-taken",
+    appId: "equipment",
+    conflict: "registered",
+  });
+  mocks.listWorkspaceApps.mockResolvedValue([
+    {
+      id: "equipment",
+      url: "https://equipment.example.test/",
+      status: "ready",
+    },
+  ]);
+  expect(await execute.run({ suggestion: build }, browser)).toEqual({
+    suggestionId: build.id,
+    status: "accepted",
+    outcome: "action-completed",
+    url: "https://equipment.example.test/",
+  });
+});
+
+it("does not expose a conflicting app outside the visible workspace", async () => {
+  mocks.startCreation.mockResolvedValue({
+    mode: "app-id-taken",
+    appId: "equipment",
+    conflict: "registered",
+  });
+  mocks.listWorkspaceApps.mockResolvedValue([]);
+  await expect(
+    execute.run({ suggestion: build }, browser),
+  ).rejects.toMatchObject({ errorCode: "action_suggestion_unavailable" });
+});
+
+it("treats an action whose target already exists as completed", async () => {
+  mocks.callAction.mockResolvedValue({
+    isError: true,
+    content: [
+      {
+        type: "text",
+        text: "Split already exists (errorCode: already_exists)",
+      },
+    ],
+  });
+  expect(await execute.run({ suggestion: filter }, browser)).toEqual({
+    suggestionId: filter.id,
+    status: "accepted",
+    outcome: "action-completed",
+  });
+});
+
+it("still fails an action that errors for another reason", async () => {
+  mocks.callAction.mockResolvedValue({
+    isError: true,
+    content: [{ type: "text", text: "Boom (errorCode: app_failed)" }],
+  });
+  await expect(
+    execute.run({ suggestion: filter }, browser),
+  ).rejects.toMatchObject({ errorCode: "app_failed" });
+});
+
+it.each([
+  ["Split already exists", "app_failed"],
+  ["Boom", "duplicate_input"],
+  ["Parent folder does not exist", "folder_not_exists"],
+])("does not report %s (%s) as completed", async (text, code) => {
+  mocks.callAction.mockResolvedValue({
+    isError: true,
+    content: [{ type: "text", text: `${text} (errorCode: ${code})` }],
+  });
+  await expect(
+    execute.run({ suggestion: filter }, browser),
+  ).rejects.toMatchObject({ errorCode: code });
+});
+
+it("opens the pending Builder branch when the app is already being created", async () => {
+  mocks.startCreation.mockResolvedValue({
+    mode: "app-id-taken",
+    appId: "equipment",
+    conflict: "pending",
+  });
+  mocks.listWorkspaceApps.mockResolvedValue([
+    {
+      id: "equipment",
+      url: "https://builder.example.test/branches/equipment",
+      status: "pending",
+    },
+  ]);
+  expect(await execute.run({ suggestion: build }, browser)).toEqual({
+    suggestionId: build.id,
+    status: "accepted",
+    outcome: "app-creation-started",
+    url: "https://builder.example.test/branches/equipment",
   });
 });

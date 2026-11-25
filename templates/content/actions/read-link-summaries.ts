@@ -5,18 +5,21 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import {
-  LINK_SUMMARY_APPS,
   LINK_SUMMARY_MAX_LINKS,
   LINK_SUMMARY_URL_CHARS,
   UNAVAILABLE_LINK_SUMMARY,
   linkSummaryItemFromUrl,
   linkSummarySchema,
   type LinkSummary,
-  type LinkSummaryApp,
 } from "@agent-native/core/shared";
 import { z } from "zod";
 
 import { peerAppTarget, peerLinkOrigins } from "../server/lib/app-peer.js";
+import {
+  LINK_CARD_APPS,
+  isLinkCardApp,
+  type LinkCardApp,
+} from "../shared/link-card-block.js";
 
 const MAX_LINKS = 60;
 
@@ -41,15 +44,15 @@ export default defineAction({
   run: async ({ links }) => {
     const reader = getRequestUserEmail() ?? null;
     const appUrls = Object.fromEntries(
-      LINK_SUMMARY_APPS.map((app) => [app, peerLinkOrigins(app)]),
+      LINK_CARD_APPS.map((app) => [app, peerLinkOrigins(app)]),
     );
     const byApp = new Map<
-      LinkSummaryApp,
+      LinkCardApp,
       Array<{ index: number; link: string }>
     >();
     links.forEach((link, index) => {
       const item = linkSummaryItemFromUrl(link, appUrls);
-      if (!item) return;
+      if (!item || !isLinkCardApp(item.app)) return;
       byApp.set(item.app, [...(byApp.get(item.app) ?? []), { index, link }]);
     });
     const summaries: LinkSummary[] = links.map(() => UNAVAILABLE_LINK_SUMMARY);

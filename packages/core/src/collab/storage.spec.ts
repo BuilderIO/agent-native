@@ -27,6 +27,7 @@ vi.mock("../db/client.js", async () => {
   const { storeLedgerResult } =
     await import("../db/store-ledger.test-helpers.js");
   return {
+    getEnclosingTransactionDbExec: () => undefined,
     getDbExec: vi.fn(() => ({
       execute: async (query: string | { sql: string; args?: unknown[] }) => {
         const sql = typeof query === "string" ? query : query.sql;

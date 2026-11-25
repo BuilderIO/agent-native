@@ -355,6 +355,7 @@ mockTxDb.execute = mockDb.execute;
 const mockCaptureError = vi.fn();
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => mockDb,
   getScopedDbExec: () => undefined,
   getScopedTransactionDbExec: () => undefined,

@@ -4,7 +4,7 @@ on:
   # No `branches` filter: a stacked PR targets its parent PR's branch, and the
   # required checks must report on it too.
   pull_request:
-    types: [opened, edited, synchronize, reopened]
+    types: [opened, synchronize, reopened]
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -166,6 +166,9 @@ jobs:
     if: ${{ !cancelled() && (needs.change-scope.result != 'success' || needs.change-scope.outputs.lint == 'true' || needs.change-scope.outputs.has_reports == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
     steps:
       - name: Require a successful change scope
         env:
@@ -237,6 +240,34 @@ jobs:
       - name: Enforce package bump policy
         if: ${{ !cancelled() && needs.change-scope.result == 'success' && steps.setup.outcome == 'success' && needs.change-scope.outputs.changeset == 'true' && github.event.pull_request.head.ref != 'changeset-release/main' }}
         run: node scripts/guard-no-major-changeset.mjs
+
+      - name: Start PostgreSQL for navigation proof
+        if: needs.change-scope.outputs.has_reports == 'true' && contains(github.event.pull_request.body, 'query-content-database-items.navigation.postgres.integration.test.ts')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          export DOCKER_CONFIG="$(mktemp -d "$RUNNER_TEMP/feedback-proof-docker.XXXXXX")"
+          trap 'rm -rf "$DOCKER_CONFIG"' EXIT
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker pull ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
+          docker logout ghcr.io
+          rm -rf "$DOCKER_CONFIG"
+          trap - EXIT
+          unset DOCKER_CONFIG GH_TOKEN
+          docker run --pull=never -d --name feedback-proof-postgres \
+            -e POSTGRES_DB=content_navigation_test -e POSTGRES_HOST_AUTH_METHOD=trust \
+            -p 127.0.0.1:5432:5432 ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
+          for attempt in {1..30}; do
+            if docker exec feedback-proof-postgres pg_isready -h 127.0.0.1 -U postgres -d content_navigation_test; then
+              echo 'CONTENT_NAVIGATION_POSTGRES_URL=postgres://postgres@127.0.0.1:5432/content_navigation_test' >> "$GITHUB_ENV"
+              echo 'CONTENT_NAVIGATION_POSTGRES_REQUIRED=1' >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs feedback-proof-postgres
+          exit 1
 
       - name: Re-run feedback fix proofs
         if: needs.change-scope.outputs.has_reports == 'true'
@@ -1213,6 +1244,7 @@ jobs:
         run: |
           psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d content_migration_test -c "CREATE DATABASE content_row_mutation_test"
           psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d content_migration_test -c "CREATE DATABASE content_block_action_test"
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d content_migration_test -c "CREATE DATABASE content_navigation_test"
 
       - name: Run Content DB tests
         run: pnpm test:content-db
@@ -1241,11 +1273,14 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           pnpm test:content-db-postgres
+          pnpm --filter content exec vitest run actions/query-content-database-items.navigation.postgres.integration.test.ts
           pnpm --filter content exec vitest --run actions/upsert-database-item-by-key.db.test.ts --config vitest.config.ts
           pnpm --filter content exec vitest --run actions/patch-database-items.db.test.ts --config vitest.config.ts
           pnpm test:content-db-two-connections
         env:
           CONTENT_MIGRATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_migration_test
+          CONTENT_NAVIGATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_navigation_test
+          CONTENT_NAVIGATION_POSTGRES_REQUIRED: "1"
           CONTENT_ROW_MUTATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_row_mutation_test
           CONTENT_BLOCK_ACTION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_block_action_test
 

@@ -17,7 +17,6 @@ import {
   selectTurnActionSuggestions,
   suggestedActionOperations,
   requiresSuggestionReview,
-  suggestionReviewPayload,
 } from "../lib/action-suggestions.js";
 import { Button } from "./ui/button.js";
 import {
@@ -95,6 +94,59 @@ function SuggestionOperation({ suggestion }: { suggestion: ActionSuggestion }) {
   );
 }
 
+function argumentLabel(key: string): string {
+  const label = key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ");
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function ReviewValue({ value }: { value: unknown }) {
+  const t = useT();
+  if (value === null)
+    return (
+      <>{t("dispatch.pages.suggestionNullValue", { defaultValue: "None" })}</>
+    );
+  if (value === undefined) return null;
+  if (Array.isArray(value))
+    return (
+      <ul className="list-inside list-disc">
+        {value.map((item, index) => (
+          <li key={index}>
+            <ReviewValue value={item} />
+          </li>
+        ))}
+      </ul>
+    );
+  if (typeof value === "object")
+    return (
+      <dl className="space-y-2">
+        {Object.entries(value).map(([key, item]) => (
+          <div key={key}>
+            <dt className="font-medium">{argumentLabel(key)}</dt>
+            <dd>
+              <ReviewValue value={item} />
+            </dd>
+          </div>
+        ))}
+      </dl>
+    );
+  if (typeof value === "boolean")
+    return (
+      <>
+        {t(
+          value
+            ? "dispatch.pages.suggestionYesValue"
+            : "dispatch.pages.suggestionNoValue",
+          {
+            defaultValue: value ? "Yes" : "No",
+          },
+        )}
+      </>
+    );
+  return <span dir="auto">{String(value)}</span>;
+}
+
 export function ChatActionSuggestions({ threadId }: { threadId: string }) {
   const thread = useAgentThread(threadId);
   const turn = useMemo(() => selectTurnActionSuggestions(thread), [thread]);
@@ -168,9 +220,19 @@ export function ActionSuggestionChips({
     (suggestion) => !handled.has(suggestion.id),
   );
   if (!visible.length && !receipt && !failure) return null;
+  const candidateUrl = receipt && "url" in receipt ? receipt.url : undefined;
+  const parsedUrl =
+    candidateUrl && URL.canParse(candidateUrl)
+      ? new URL(candidateUrl)
+      : undefined;
   const receiptUrl =
-    receipt && "url" in receipt && receipt.url?.startsWith("https://")
-      ? receipt.url
+    parsedUrl &&
+    !parsedUrl.username &&
+    !parsedUrl.password &&
+    (parsedUrl.protocol === "https:" ||
+      (parsedUrl.protocol === "http:" &&
+        ["localhost", "127.0.0.1", "[::1]"].includes(parsedUrl.hostname)))
+      ? parsedUrl.href
       : undefined;
 
   return (
@@ -248,12 +310,44 @@ export function ActionSuggestionChips({
                 <SuggestionOperation suggestion={review} />
               </DialogDescription>
             </DialogHeader>
-            <pre
-              tabIndex={0}
-              className="max-h-[50vh] overflow-auto rounded-md border border-border p-3 text-sm whitespace-pre-wrap [overflow-wrap:anywhere]"
-            >
-              {suggestionReviewPayload(review)}
-            </pre>
+            <div className="max-h-[50vh] overflow-auto rounded-md border border-border p-3 text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
+              {review.execution.type === "action" ? (
+                <dl className="space-y-2">
+                  <div>
+                    <dt className="font-medium">
+                      {t("dispatch.pages.suggestionActionLabel", {
+                        defaultValue: "Action",
+                      })}
+                    </dt>
+                    <dd dir="auto">{argumentLabel(review.execution.action)}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium">
+                      {t("dispatch.pages.suggestionAppLabel", {
+                        defaultValue: "App",
+                      })}
+                    </dt>
+                    <dd dir="auto">{review.appId}</dd>
+                  </div>
+                  {Object.entries(review.execution.params).map(
+                    ([key, item]) => (
+                      <div key={key}>
+                        <dt className="font-medium">{argumentLabel(key)}</dt>
+                        <dd>
+                          <ReviewValue value={item} />
+                        </dd>
+                      </div>
+                    ),
+                  )}
+                </dl>
+              ) : (
+                <span dir="auto">
+                  {review.execution.type === "customize"
+                    ? review.execution.editSpec
+                    : review.execution.domainSpec}
+                </span>
+              )}
+            </div>
             <DialogFooter>
               <Button
                 type="button"
@@ -289,9 +383,13 @@ export function ActionSuggestionChips({
               target="_blank"
               rel="noreferrer"
             >
-              {t("dispatch.pages.openInBuilder", {
-                defaultValue: "Open in Builder",
-              })}
+              {receipt.outcome === "action-completed"
+                ? t("dispatch.pages.openExistingApp", {
+                    defaultValue: "Open app",
+                  })
+                : t("dispatch.pages.openInBuilder", {
+                    defaultValue: "Open in Builder",
+                  })}
             </a>
           ) : receipt.status === "accepted" ? (
             t("dispatch.pages.actionSuggestionAccepted", {

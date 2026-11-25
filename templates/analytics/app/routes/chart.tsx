@@ -28,6 +28,7 @@ const VALID_SOURCES = new Set([
   "first-party",
   "demo",
   "prometheus",
+  "postgres",
 ]);
 
 function decodePanel(raw: string): SqlPanel | { error: string } {
@@ -46,7 +47,7 @@ function decodePanel(raw: string): SqlPanel | { error: string } {
     if (typeof p.source !== "string" || !VALID_SOURCES.has(p.source)) {
       return {
         error:
-          "Panel source must be bigquery, ga4, amplitude, first-party, demo, or prometheus.",
+          "Panel source must be bigquery, ga4, amplitude, first-party, demo, prometheus, or postgres.",
       };
     }
     if (

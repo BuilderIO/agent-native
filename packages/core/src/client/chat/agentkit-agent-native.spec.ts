@@ -13293,3 +13293,201 @@ describe("withQueuedMessageHistory inline attachments", () => {
     expect(message.parts.filter((part) => part.type === "file")).toEqual([]);
   });
 });
+
+describe("a finished run whose events stop short of its terminal event", () => {
+  type Stored = {
+    role: string;
+    text?: string;
+    runId?: string;
+    status?: unknown;
+    custom?: Record<string, unknown>;
+    content?: unknown[];
+  };
+
+  const reply = (overrides: Partial<Stored> = {}): Stored => ({
+    role: "assistant",
+    text: "Hello world",
+    runId: "run-1",
+    status: { type: "complete" },
+    ...overrides,
+  });
+
+  async function followCutRun(
+    saved: readonly Stored[] | null,
+    adapter: { textFormat?: "plain" | "markdown" } = {},
+  ) {
+    const threadReads: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "http://localhost");
+      if (url.pathname.endsWith("/runs/latest")) {
+        return json({
+          runId: "run-1",
+          turnId: "turn-1",
+          startedAt: Date.now(),
+          status: "completed",
+          terminalReason: "done",
+        });
+      }
+      if (url.pathname.endsWith("/runs/run-1/events")) {
+        const after = Number(url.searchParams.get("after") ?? 0);
+        return new Response(
+          after > 0
+            ? ""
+            : `data: ${JSON.stringify({ type: "text", text: "Hello ", seq: 0 })}\n\n`,
+          {
+            headers: {
+              "Content-Type": "text/event-stream",
+              "X-Run-Id": "run-1",
+            },
+          },
+        );
+      }
+      if (url.pathname.endsWith("/threads/thread-1")) {
+        threadReads.push(url.pathname);
+        if (saved === null) return json({ error: "Not found" }, 404);
+        return json({
+          id: "thread-1",
+          threadData: JSON.stringify({
+            messages: saved.map((message, index) => ({
+              message: {
+                id: `saved-${index}`,
+                role: message.role,
+                content: message.content ?? [
+                  { type: "text", text: message.text },
+                ],
+                ...(message.status === undefined
+                  ? {}
+                  : { status: message.status }),
+                metadata: {
+                  ...(message.runId === undefined
+                    ? {}
+                    : { runId: message.runId }),
+                  ...(message.custom ? { custom: message.custom } : {}),
+                },
+              },
+            })),
+          }),
+        });
+      }
+      return json({ error: "Not found" }, 404);
+    }) as typeof fetch;
+    resetAgentEngineReadinessForTests();
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetchMock,
+      ...(adapter.textFormat ? { adapter } : {}),
+    });
+    vi.useFakeTimers();
+    try {
+      const result = (async () => {
+        const events: AgentEvent[] = [];
+        for await (const event of transport.subscribeToRun({
+          threadId: "thread-1",
+          runId: "run-1",
+        })) {
+          events.push(event);
+        }
+        return events;
+      })();
+      await vi.advanceTimersByTimeAsync(120_000);
+      const events = await result;
+      await transport.dispose();
+      const terminal = events.filter(
+        (event) =>
+          event.type === "run.completed" ||
+          event.type === "run.failed" ||
+          event.type === "run.cancelled",
+      );
+      const deltas = events
+        .filter((event) => event.type === "message.delta")
+        .map((event) => event.text);
+      return { terminal, deltas, threadReads };
+    } finally {
+      vi.useRealTimers();
+    }
+  }
+
+  it("completes the reply from the assistant reply saved for the run", async () => {
+    const { terminal, deltas, threadReads } = await followCutRun([
+      { role: "user", text: "Say hello", runId: "run-1" },
+      reply(),
+    ]);
+
+    expect(threadReads).toEqual(["/_agent-native/agent-chat/threads/thread-1"]);
+    expect(deltas).toEqual(["Hello ", "world"]);
+    expect(terminal).toMatchObject([{ type: "run.completed" }]);
+  });
+
+  it("uses the run's latest saved reply and only its text parts", async () => {
+    const { terminal, deltas } = await followCutRun(
+      [
+        reply({ text: "Goodbye" }),
+        reply({ text: "Hello there" }),
+        reply({
+          content: [
+            { type: "text", text: "Hello " },
+            { type: "reasoning", text: "greeting" },
+            { type: "text", text: "world" },
+          ],
+        }),
+      ],
+      { textFormat: "markdown" },
+    );
+
+    expect(deltas).toEqual(["Hello ", "world"]);
+    expect(terminal).toMatchObject([{ type: "run.completed" }]);
+  });
+
+  it("accepts a saved reply that records no status or stop", async () => {
+    const { terminal, deltas } = await followCutRun([
+      reply({ status: undefined, custom: { userStopped: false } }),
+    ]);
+
+    expect(deltas).toEqual(["Hello ", "world"]);
+    expect(terminal).toMatchObject([{ type: "run.completed" }]);
+  });
+
+  it.each<{ label: string; saved: readonly Stored[] | null }>([
+    { label: "the thread is gone", saved: null },
+    { label: "the thread saved no messages", saved: [] },
+    {
+      label: "only a user message carries the run",
+      saved: [{ role: "user", text: "Hello world", runId: "run-1" }],
+    },
+    {
+      label: "the saved reply belongs to another run",
+      saved: [reply({ runId: "run-0" })],
+    },
+    {
+      label: "the saved reply has no run",
+      saved: [reply({ runId: undefined })],
+    },
+    {
+      label: "the saved reply is incomplete",
+      saved: [reply({ status: { type: "incomplete" } })],
+    },
+    {
+      label: "the saved reply is still streaming",
+      saved: [reply({ status: { type: "running" } })],
+    },
+    {
+      label: "the user stopped the saved reply",
+      saved: [reply({ custom: { userStopped: true } })],
+    },
+    {
+      label: "the saved reply recorded a run error",
+      saved: [
+        reply({
+          custom: { runError: { code: "stale_run", message: "Stopped" } },
+        }),
+      ],
+    },
+  ])("ends unverified, not complete, when $label", async ({ saved }) => {
+    const { terminal, deltas } = await followCutRun(saved);
+
+    expect(deltas).toEqual(["Hello "]);
+    expect(terminal).toMatchObject([
+      { type: "run.failed", error: { code: "run_events_incomplete" } },
+    ]);
+  });
+});
