@@ -1079,3 +1079,8 @@ export {
   isProviderPauseOperator,
   type ProviderPauseCaller,
 } from "./provider-pause-operator.js";
+export type {
+  AgentChatRunCompleteOutcome,
+  AgentChatRunNotStartedDetails,
+  AgentChatRunProjectionOutcome,
+} from "./agent-chat/plugin-options.js";

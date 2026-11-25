@@ -100,6 +100,7 @@ const exec = async (input: string | { sql: string; args?: unknown[] }) => {
 };
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: exec }),
   isConnectionError: () => false,
   isProductionServerlessFunctionRuntime: () => false,

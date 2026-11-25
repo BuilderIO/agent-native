@@ -373,6 +373,7 @@ const queueDb = {
   }),
 };
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => queueDb,
   withDbExec: (_exec: unknown, fn: () => unknown) => fn(),
   describeDbError: (error: unknown) =>

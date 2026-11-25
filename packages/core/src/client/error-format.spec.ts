@@ -29,6 +29,8 @@ function interpolate(
   options: Record<string, unknown> = {},
 ): string {
   const messages: Record<string, string> = {
+    "agentChat.errorMessages.writeOutcomeUnknown":
+      "Ich habe die Aktion angehalten. Prüfe vor einem erneuten Versuch, welche Änderungen gespeichert wurden.",
     "agentChat.errorMessages.builderAuthentication":
       "Builder hat die verbundenen Anmeldedaten abgelehnt.",
     "agentChat.errorMessages.providerAuthentication":
@@ -49,6 +51,26 @@ function interpolate(
 }
 
 describe("formatChatErrorText", () => {
+  it.each(["call_app_action", "save-deck", "update-record"])(
+    "keeps uncertain-write warnings readable for %s without losing diagnostics",
+    (tool) => {
+      const raw = `I stopped before running ${tool} again. An earlier attempt may have already saved changes and I could not confirm the result. Check what was saved, then reply "continue" and I will verify it before doing anything else.`;
+      const message =
+        "I stopped before running a write action again because an earlier attempt may have already saved changes and I could not confirm the result. Check what was saved before retrying.";
+      expect(normalizeChatError(raw, "write_tool_outcome_unknown")).toEqual({
+        message,
+        details: raw,
+      });
+      expect(
+        formatChatErrorText(raw, undefined, "write_tool_outcome_unknown"),
+      ).toBe(`Error: ${message}`);
+      expect(normalizeChatError(raw, "unrecognized_error").message).toBe(raw);
+      expect(localizeKnownChatErrorText(`Error: ${message}`, interpolate)).toBe(
+        "Fehler: Ich habe die Aktion angehalten. Prüfe vor einem erneuten Versuch, welche Änderungen gespeichert wurden.",
+      );
+    },
+  );
+
   const agentNativeUpgradeUrl =
     "https://builder.io/account/subscription?signupSource=agent-native&agentNativeConnectSource=gateway_quota_upgrade&agentNativeFlow=connect_llm&framework=agent-native&utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=gateway_quota_upgrade";
 

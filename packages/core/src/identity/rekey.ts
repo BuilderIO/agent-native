@@ -384,6 +384,56 @@ function appIdentityRegistry(): Map<string, AppIdentityColumn> {
   return (appIdentityGlobal[APP_IDENTITY_COLUMNS_KEY] ??= new Map());
 }
 
+const FIRST_PARTY_APP_IDENTITY_COLUMNS: readonly AppIdentityColumn[] = [
+  {
+    table: "dispatch_identity_links",
+    column: "owner_email",
+    emailChange: "rekey",
+    offboard: "delete",
+    reason:
+      "A linked chat identity acts as its owner; transferring it would let the departed member act as the successor.",
+  },
+  {
+    table: "dispatch_link_tokens",
+    column: "owner_email",
+    emailChange: "rekey",
+    offboard: "delete",
+    reason:
+      "An unclaimed link token binds a chat identity to its owner; the successor mints their own.",
+  },
+  {
+    table: "identity_sso_authorization_code",
+    column: "email",
+    emailChange: "delete",
+    offboard: "delete",
+    reason:
+      "Unconsumed single-use code that asserts this address to an app; the member signs in again.",
+  },
+  {
+    table: "identity_sso_bootstrap",
+    column: "email",
+    emailChange: "delete",
+    offboard: "delete",
+    reason:
+      "Unconsumed single-use sign-in bootstrap for this address; the member signs in again.",
+  },
+  ...[
+    "dispatch_destinations",
+    "dispatch_dreams",
+    "dispatch_link_tokens",
+    "vault_secrets",
+    "workspace_resources",
+  ].map(
+    (table): AppIdentityColumn => ({
+      table,
+      column: "created_by",
+      emailChange: "retain",
+      offboard: "retain",
+      reason: "Creator attribution; ownership is owner_email.",
+    }),
+  ),
+];
+
 const samePolicy = (a: AppIdentityColumn, b: AppIdentityColumn) =>
   JSON.stringify({ ...a, reason: "" }) === JSON.stringify({ ...b, reason: "" });
 
@@ -400,9 +450,17 @@ export function registerIdentityColumns(
     ...IDENTITY_REKEY_COLUMNS.map(({ table, column }) => `${table}.${column}`),
     ...IDENTITY_REKEY_IGNORED_COLUMNS,
   ]);
+  const firstParty = new Map(
+    FIRST_PARTY_APP_IDENTITY_COLUMNS.map((entry) => [
+      `${entry.table}.${entry.column}`,
+      entry,
+    ]),
+  );
   const registry = appIdentityRegistry();
   for (const entry of columns) {
     const key = `${entry.table}.${entry.column}`;
+    const builtIn = firstParty.get(key);
+    if (builtIn && samePolicy(builtIn, entry)) continue;
     const identifiers = [entry.table, entry.column];
     if (entry.orgScope) {
       identifiers.push(entry.orgScope.column);
@@ -429,7 +487,7 @@ export function registerIdentityColumns(
       throw new Error(
         `Identity column ${key} is secret-scoped; it can only be rekeyed or retained on email change and deleted or retained on offboard.`,
       );
-    if (core.has(key))
+    if (core.has(key) || builtIn)
       throw new Error(
         `Identity column ${key} is owned by the framework registry and cannot be redeclared by an app.`,
       );
@@ -473,7 +531,10 @@ export function resolveIdentityColumns(
 ): IdentityColumn[] {
   const entries: IdentityColumn[] = [
     ...IDENTITY_REKEY_COLUMNS,
-    ...[...appIdentityRegistry().values()].map(
+    ...[
+      ...FIRST_PARTY_APP_IDENTITY_COLUMNS,
+      ...appIdentityRegistry().values(),
+    ].map(
       ({ reason: _reason, mode, ...entry }): IdentityColumn =>
         mode === "secret-scope" ? { ...entry, mode } : entry,
     ),

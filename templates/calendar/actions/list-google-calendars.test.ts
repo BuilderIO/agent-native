@@ -36,6 +36,51 @@ describe("list-google-calendars action", () => {
     expect(listGoogleCalendarsMock).toHaveBeenCalledWith("owner@example.com");
   });
 
+  it("reports a throttled source discovery to the calendar instead of returning incomplete sources", async () => {
+    listGoogleCalendarsMock.mockResolvedValue({
+      calendars: [],
+      errors: [
+        {
+          email: "owner@example.com",
+          error: "Throttled",
+          code: "RATE_LIMITED",
+        },
+      ],
+    });
+    await expect(action.run({ strict: true })).rejects.toMatchObject({
+      errorCode: "calendar_rate_limited",
+      statusCode: 429,
+    });
+  });
+
+  it("includes successfully discovered calendars with a typed partial failure", async () => {
+    const calendar = {
+      sourceKey: "healthy",
+      calendarId: "healthy@example.test",
+      accountEmail: "healthy@example.test",
+      canonicalKey: "healthy",
+      name: "Healthy",
+      primary: true,
+      selected: true,
+      accessRole: "owner",
+      readOnly: false,
+    };
+    listGoogleCalendarsMock.mockResolvedValue({
+      calendars: [calendar],
+      errors: [
+        {
+          email: "other@example.test",
+          error: "Throttled",
+          code: "RATE_LIMITED",
+        },
+      ],
+    });
+    await expect(action.run({ strict: true })).rejects.toMatchObject({
+      errorCode: "calendar_rate_limited",
+      details: { calendars: [calendar] },
+    });
+  });
+
   it("says what each calendar's account is for", async () => {
     const calendar = {
       sourceKey: "s1",

@@ -80,6 +80,19 @@ DATABASE_URL=pglite:./data/pglite
 
 [PGlite](https://pglite.dev/) 在进程内运行一个基于 WASM 的 Postgres 数据库。它能让你在部署之前发现仅存在于 Postgres 的 schema 问题，同时保持和 PGlite 默认方案一样简单的搭建流程。与 PGlite 一样，它只是本地存储，不要用于生产或共享环境。
 
+#### PGlite 扩展 {#pglite-extensions}
+
+PGlite 只在创建客户端时加载扩展。请在首次访问数据库之前，于所有入口都会导入的模块（例如 `server/db/index.ts`）中使用 `configurePgliteExtensions` 注册扩展，然后在注册之后运行的迁移中用 `CREATE EXTENSION` 启用：
+
+```ts
+import { configurePgliteExtensions } from "@agent-native/core/db";
+import { pg_textsearch } from "@electric-sql/pglite-pg_textsearch";
+
+configurePgliteExtensions({ pg_textsearch });
+```
+
+在 PGlite 客户端已存在后再注册会抛出错误。托管的 PostgreSQL 会忽略该注册，因此请在该服务器上单独安装扩展。
+
 ### 生产数据库 {#production}
 
 在 `.env` 文件或部署提供商的环境变量中设置 `DATABASE_URL`，以连接一个托管 PostgreSQL 数据库。常见的托管选项包括 [Neon](/docs/neon)、[Supabase](/docs/supabase)、[Amazon RDS for PostgreSQL](/docs/aws-rds)、[Cloud SQL for PostgreSQL](/docs/cloud-sql) 和 [Azure Database for PostgreSQL](/docs/azure-postgresql)。其他托管服务和自托管 PostgreSQL 服务器请参阅 [Plain Postgres](/docs/postgres) 指南：
