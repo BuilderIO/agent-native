@@ -684,6 +684,8 @@ const messages: ToolkitAgentChatTranslation = {
     "此應用程式目前無法安全地重試已儲存的提示。請先更新應用程式，再試一次。",
   "errorMessages.runInterrupted": "代理在完成前停止了。",
   "errorMessages.runFailed": "代理執行失敗。",
+  "errorMessages.writeOutcomeUnknown":
+    "由於先前的嘗試可能已經儲存了變更，而我無法確認結果，因此我在再次執行寫入操作前停止了。請先檢查已儲存的內容，再重試。",
   "errorMessages.runUnverified":
     "此對話已無法追蹤代理，它可能仍在執行。請重新載入以查看進度。",
   "errorMessages.runSignedOut":
@@ -3236,6 +3238,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpApps.openInNewTab": "在新分頁中開啟",
   "mcpApps.initFailed": "無法初始化 MCP 應用。",
   "mcpApps.readOnly": "此已儲存的 MCP 應用為唯讀。",
+  "markdown.opensInNewTab": "(在新分頁中開啟)",
   "iframeEmbed.blocked": "內嵌已遭封鎖",
   "iframeEmbed.missingSrc": "缺少來源",
   "iframeEmbed.crossOrigin": "不允許跨來源 URL",

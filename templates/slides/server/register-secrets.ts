@@ -90,6 +90,24 @@ registerRequiredSecret({
 });
 
 registerRequiredSecret({
+  key: "GOOGLE_SEARCH_URL",
+  label: "Google Search URL",
+  description:
+    "Optional. Overrides the Custom Search endpoint used for image search.",
+  docsUrl: "https://developers.google.com/custom-search/v1/overview",
+  scope: "user",
+  kind: "api-key",
+  usedFor: [
+    {
+      appId: "slides",
+      feature: "Image search",
+      effectWhenRemoved: "Image search uses the default Google endpoint.",
+    },
+  ],
+  required: false,
+});
+
+registerRequiredSecret({
   key: "LOGO_DEV_SECRET_KEY",
   label: "Logo.dev Search Key",
   description: "Optional server-side key for company and domain logo search.",

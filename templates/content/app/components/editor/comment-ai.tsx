@@ -1093,7 +1093,7 @@ export function useCommentAiRequests(
             (priorConversation
               ? `\n\nProtected conversation context:\n\n${priorConversation}`
               : ""),
-          ...(request.model ? { model: request.model } : {}),
+          ...continuationModel(request),
           usageLabel:
             mode === "resume"
               ? "content:comment-ai-resume"
@@ -1326,6 +1326,14 @@ function workingLabel(
   });
 }
 
+function continuationModel(request: CommentAiRequest) {
+  const model = request.model ?? request.submittedModel;
+  return {
+    ...(model ? { model } : {}),
+    ...(request.submittedEngine ? { engine: request.submittedEngine } : {}),
+  };
+}
+
 function requestStatusLabel(
   request: CommentAiRequest,
   t: ReturnType<typeof useT>,
@@ -1390,8 +1398,7 @@ export function CommentAiRequestStatus({
     continuation?.status === "unavailable";
   const continuationLabel = continuation
     ? continuation.status === "queued" || continuation.status === "running"
-      ? // A follow-up runs on request.model alone (see dispatchContinuation).
-        workingLabel(request.model, t)
+      ? workingLabel(continuationModel(request).model, t)
       : continuation.status === "aborted"
         ? t("comments.aiCancelled")
         : continuation.status === "completed"

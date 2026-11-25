@@ -2086,6 +2086,7 @@ async function enqueueBuilderBodyHydrations(
 async function reenqueueRetryableBuilderBodyHydration(args: {
   sourceId: string;
   documentId?: string | null;
+  includeTerminal?: boolean;
   now: string;
 }) {
   const rows = await getDb()
@@ -2128,8 +2129,15 @@ async function reenqueueRetryableBuilderBodyHydration(args: {
         args.documentId
           ? eq(schema.contentDatabaseSourceRows.documentId, args.documentId)
           : undefined,
-        eq(schema.contentDatabaseItems.bodyHydrationStatus, "error"),
-        eq(schema.contentDatabaseItems.bodyHydrationRetryable, 1),
+        args.includeTerminal
+          ? inArray(schema.contentDatabaseItems.bodyHydrationStatus, [
+              "error",
+              "unavailable",
+            ])
+          : and(
+              eq(schema.contentDatabaseItems.bodyHydrationStatus, "error"),
+              eq(schema.contentDatabaseItems.bodyHydrationRetryable, 1),
+            ),
         isNull(schema.contentDatabaseBodyHydrationQueue.id),
       ),
     );
@@ -3732,6 +3740,7 @@ export async function processBuilderBodyHydrationQueue(args: {
   preloadedJobs?: ContentDatabaseBodyHydrationQueueRowDb[];
   preloadBodies?: boolean;
   retryFailed?: boolean;
+  retryTerminal?: boolean;
   runBudgetMs?: number;
 }) {
   const runDeadline =
@@ -3750,6 +3759,7 @@ export async function processBuilderBodyHydrationQueue(args: {
     await reenqueueRetryableBuilderBodyHydration({
       sourceId: args.sourceId,
       documentId: args.documentId,
+      includeTerminal: args.retryTerminal,
       now,
     });
   }
@@ -4401,6 +4411,10 @@ export async function builderBodyChangeForLocalContent(args: {
     return null;
   }
   const currentBodyExcerpt = liveBaseline ? null : bodyExcerpt(currentContent);
+  const emptyBaseline: Pick<ContentDatabaseSourceBodyChange, "currentEmpty"> =
+    !liveBaseline && !currentHash && builderCmsBodyKnownEmpty(sourceValues)
+      ? { currentEmpty: true }
+      : {};
 
   if (args.comparison === "text") {
     args.onNeedsBlocks?.();
@@ -4425,6 +4439,7 @@ export async function builderBodyChangeForLocalContent(args: {
       sidecarsJson,
       warnings: [],
       textOnly: true,
+      ...emptyBaseline,
     };
   }
 
@@ -4494,6 +4509,7 @@ export async function builderBodyChangeForLocalContent(args: {
       proposedBlocksJson: proposed.blocksJson,
       sidecarsJson,
       warnings: proposed.warnings,
+      ...emptyBaseline,
     };
   } catch (error) {
     const message =
@@ -4589,6 +4605,26 @@ export async function builderBodyChangeForUnsourcedLocalCreate(args: {
   }
 }
 
+function builderBodyDiffersFromStored(
+  row: { sourceValuesJson: string },
+  localContent: string | null | undefined,
+) {
+  const sourceValues =
+    parseObject<Record<string, DocumentPropertyValue>>(row.sourceValuesJson) ??
+    {};
+  const local = normalizeBuilderBodyBaselineContent(localContent);
+  const lossless = normalizeBuilderBodyBaselineContent(
+    stringSourceValue(sourceValues, BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY),
+  );
+  return (
+    local !==
+      normalizeBuilderBodyBaselineContent(
+        stringSourceValue(sourceValues, BUILDER_CMS_BODY_CONTENT_KEY),
+      ) &&
+    (!lossless || local !== lossless)
+  );
+}
+
 export async function builderBodyChangeForSourceSnapshotDocument(args: {
   row?: {
     documentId: string;
@@ -4604,6 +4640,7 @@ export async function builderBodyChangeForSourceSnapshotDocument(args: {
   liveBaseline?: { blocksHash: string | null; bodyEmpty: boolean } | null;
   comparison?: "text" | "blocks";
   onNeedsBlocks?: () => void;
+  onBodyUnread?: () => void;
 }): Promise<ContentDatabaseSourceBodyChange | null> {
   if (args.row) {
     const identity = builderCmsSourceRowIdentityState({ row: args.row });
@@ -4614,7 +4651,12 @@ export async function builderBodyChangeForSourceSnapshotDocument(args: {
         onNeedsBlocks: args.onNeedsBlocks,
       });
     }
-    if (!args.isHydrated) return null;
+    if (!args.isHydrated) {
+      if (builderBodyDiffersFromStored(args.row, args.localContent)) {
+        args.onBodyUnread?.();
+      }
+      return null;
+    }
     return builderBodyChangeForLocalContent({
       row: args.row,
       localContent: args.localContent,
@@ -5114,7 +5156,13 @@ export async function getContentDatabaseSourceSnapshotById(
 export type BuilderReviewBodyComparisonOptions = {
   builderBodyComparison?: "text" | "blocks";
   blocksCheckDocumentIds?: Set<string>;
+  unreadBodies?: Map<string, BuilderUnreadBody>;
 };
+
+export interface BuilderUnreadBody {
+  failed: boolean;
+  error: string | null;
+}
 
 export async function getContentDatabaseSourceSnapshotForWrite(
   database: ContentDatabaseRow | ContentDatabase,
@@ -5503,6 +5551,7 @@ async function readSourceSnapshotRowsOnce(args: {
           id: schema.contentDatabaseItems.id,
           documentId: schema.contentDatabaseItems.documentId,
           bodyHydrationStatus: schema.contentDatabaseItems.bodyHydrationStatus,
+          bodyHydrationError: schema.contentDatabaseItems.bodyHydrationError,
           bodyHydrationVersion:
             schema.contentDatabaseItems.bodyHydrationVersion,
         })
@@ -6056,6 +6105,17 @@ async function loadSourceSnapshot(
         item.bodyHydrationVersion,
       ]),
     );
+    const unreadBodyByDocumentId = new Map(
+      databaseItemRows.map((item) => [
+        item.documentId,
+        {
+          failed:
+            item.bodyHydrationStatus === "error" ||
+            item.bodyHydrationStatus === "unavailable",
+          error: item.bodyHydrationError,
+        },
+      ]),
+    );
     await Promise.all(
       allDocumentIds.map(async (documentId) => {
         const row = sourceRowByDocumentId.get(documentId);
@@ -6081,6 +6141,14 @@ async function loadSourceSnapshot(
               : null,
           comparison: options.builderBodyComparison,
           onNeedsBlocks: () => options.blocksCheckDocumentIds?.add(documentId),
+          onBodyUnread: () =>
+            options.unreadBodies?.set(
+              documentId,
+              unreadBodyByDocumentId.get(documentId) ?? {
+                failed: false,
+                error: null,
+              },
+            ),
         });
         if (bodyChange) bodyChangeByDocumentId.set(documentId, bodyChange);
       }),
@@ -7521,6 +7589,13 @@ function builderSourceValuesWithPreservedBodyBaseline(args: {
       next[BUILDER_CMS_BODY_LAST_UPDATED_KEY] =
         args.existingLastSourceUpdatedAt;
     }
+  }
+  if (
+    builderCmsBodyKnownEmpty(existing) &&
+    !incomingHash &&
+    !(BUILDER_CMS_BODY_BLOCK_COUNT_KEY in next)
+  ) {
+    next[BUILDER_CMS_BODY_BLOCK_COUNT_KEY] = 0;
   }
   const referenceIdPrefix = "__agent_native_builder_reference_id:";
   for (const [key, value] of Object.entries(existing)) {

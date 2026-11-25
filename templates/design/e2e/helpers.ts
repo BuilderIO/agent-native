@@ -460,7 +460,11 @@ export async function expandAllLayers(page: Page): Promise<void> {
   for (let depth = 0; depth < 128; depth += 1) {
     const expand = page.getByRole("button", { name: "Expand layer" }).first();
     if ((await expand.count()) === 0) return;
-    await expand.click({ timeout: 5_000 });
+    try {
+      await expand.click({ timeout: 5_000 });
+    } catch (error) {
+      if ((await expand.count()) > 0) throw error;
+    }
     await page.waitForTimeout(100);
   }
   const remaining = await page

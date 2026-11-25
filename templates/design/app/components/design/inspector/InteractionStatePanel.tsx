@@ -125,7 +125,7 @@ export function InteractionStatePanel({
   };
 
   return (
-    <div className="px-2 py-1.5">
+    <div className="px-[var(--design-inspector-section-padding-inline)] py-1.5">
       <DropdownMenu open={open} onOpenChange={handleOpenChange}>
         <DropdownMenuTrigger asChild>
           <button

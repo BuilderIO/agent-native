@@ -306,6 +306,41 @@ describe("vector stroke gradient inspector", () => {
     host.remove();
   });
 
+  it("names the border stroke's position select", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(
+        createElement(StrokeProperties, {
+          element: {
+            tagName: "div",
+            classes: [],
+            computedStyles: {
+              borderWidth: "2px",
+              borderStyle: "solid",
+              borderColor: "rgb(17, 24, 39)",
+            },
+            boundingRect: { x: 0, y: 0, width: 80, height: 60 },
+            isFlexChild: false,
+            isFlexContainer: false,
+          } as ElementInfo,
+          onStyleChange: vi.fn(),
+          onStylesChange: vi.fn(),
+        }),
+      );
+    });
+
+    expect(
+      host.querySelectorAll(
+        '[role="combobox"][aria-label="editPanel.labels.position"]',
+      ),
+    ).toHaveLength(1);
+
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
   it("offers linear paints for an inline square HTML rectangle border", () => {
     const markup = renderToStaticMarkup(
       createElement(StrokeProperties, {

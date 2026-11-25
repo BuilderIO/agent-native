@@ -210,6 +210,17 @@ describe("line-height field values", () => {
     });
   });
 
+  it("shows an em line height as the percentage it equals, so a bare number still means px", () => {
+    const field = resolveLineHeightFieldValue("1.25em", "20px", "16px");
+    expect(field).toEqual({ text: "125%", value: 125, unit: "%" });
+    expect(parseLineHeightInput("130%", field)).toMatchObject({
+      cssValue: "130%",
+    });
+    expect(parseLineHeightInput("30", field)).toMatchObject({
+      cssValue: "30px",
+    });
+  });
+
   it("uses computed pixels for Auto scrub steps and accepts pixel or percent input", () => {
     const auto = resolveLineHeightFieldValue("normal", "19.2px", "16px");
     expect(auto).toEqual({ text: "Auto", value: 19.2, unit: "px" });

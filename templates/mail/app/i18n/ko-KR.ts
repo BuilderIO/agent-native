@@ -195,6 +195,7 @@ const messages = {
       moveToTrash: "휴지통으로 이동",
       star: "별표 표시",
       unstar: "별표 제거",
+      copyLink: "링크 복사",
     },
     labels: {
       labelAsPlaceholder: "라벨 지정…",
@@ -461,6 +462,8 @@ const messages = {
     },
     toasts: {
       noEmailSelected: "선택한 이메일이 없습니다.",
+      linkCopied: "링크가 복사되었습니다.",
+      linkCopyFailed: "링크를 복사할 수 없습니다.",
       reportedSpam: "스팸으로 신고했습니다.",
       reportedSpamBlocked: "Reported as spam & blocked {{email}}.",
       noThreadSelected: "선택한 스레드가 없습니다.",
@@ -556,6 +559,10 @@ const messages = {
       staleSaved: "메일을 새로고침하지 못했습니다. 저장된 대화를 표시합니다.",
       rateLimitDescription:
         "최근 Google 요청이 너무 많습니다. 잠시 후 다시 시도합니다.",
+      limitedListFrom:
+        "마지막 업데이트: {{time}}. 일부 메일이 빠져 있을 수 있습니다. Google이 Mail의 요청을 제한하고 있습니다.",
+      limitedList:
+        "일부 메일이 빠져 있을 수 있습니다. Google이 Mail의 요청을 제한하고 있습니다.",
       failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",
       failedToParseJson: "No se pudo analizar JSON",
       missingGoogleCredentials:

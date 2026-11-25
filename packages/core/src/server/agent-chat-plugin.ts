@@ -608,6 +608,9 @@ import { resolveAgentChatMcpOptions } from "./agent-chat/mcp-options.js";
 import {
   resolveA2AAgentDelegationEnabled,
   type AgentChatPluginOptions,
+  type AgentChatRunCompleteOutcome,
+  type AgentChatRunNotStartedDetails,
+  type AgentChatRunProjectionOutcome,
   type NitroPluginDef,
 } from "./agent-chat/plugin-options.js";
 import { finalizeClaimedAgentChatProcessRunFailure } from "./agent-chat/process-run-failure.js";
@@ -726,7 +729,7 @@ export async function runPostAgentRunComplete(
   callback: AgentChatPluginOptions["onAgentRunComplete"] | undefined,
   scope: AgentChatScope | null | undefined,
   run: ActiveRun,
-  outcome: { turnContinues: boolean } = { turnContinues: false },
+  outcome: AgentChatRunCompleteOutcome = { turnContinues: false },
 ): Promise<void> {
   if (!callback) return;
   try {
@@ -745,6 +748,24 @@ export async function runPostAgentRunComplete(
       },
     });
     console.error("[agent-chat] post-agent-run observer failed:", error);
+  }
+}
+
+export async function notifyRunNotStarted(
+  callback: AgentChatPluginOptions["onAgentRunNotStarted"] | undefined,
+  details: AgentChatRunNotStartedDetails,
+): Promise<void> {
+  if (!callback) return;
+  try {
+    await callback(details);
+  } catch (error) {
+    captureError(error, {
+      route: "agent-chat",
+      aiTraceId: details.runId,
+      tags: { source: "agent-chat", failureClass: "run-not-started-observer" },
+      extra: { runId: details.runId, threadId: details.threadId },
+    });
+    console.error("[agent-chat] run-not-started observer failed:", error);
   }
 }
 
@@ -792,7 +813,9 @@ export function assertAgentChatRunProjectionUpdated(
 
 export async function runAgentChatRunCompletionHooksAfterProjection(
   persistProjection: () => Promise<void>,
-  runCompletionHooks: () => Promise<void>,
+  runCompletionHooks: (
+    projection: AgentChatRunProjectionOutcome,
+  ) => Promise<void>,
 ): Promise<void> {
   let projectionFailed = false;
   let projectionError: unknown;
@@ -804,7 +827,11 @@ export async function runAgentChatRunCompletionHooksAfterProjection(
   }
 
   try {
-    await runCompletionHooks();
+    await runCompletionHooks(
+      projectionFailed
+        ? { status: "failed", error: projectionError }
+        : { status: "updated" },
+    );
   } catch (error) {
     if (projectionFailed) {
       throw new AggregateError(
@@ -3781,6 +3808,7 @@ export function createAgentChatPlugin(
             : {}),
           ...(mcpOptions.readOnlyResources ? { readOnlyResources: true } : {}),
           ...(mcpOptions.servesAnSkill ? { servesAnSkill: true } : {}),
+          ...(mcpOptions.skills?.length ? { skills: mcpOptions.skills } : {}),
           ...(mcpOptions.connectorCatalog
             ? { connectorCatalog: mcpOptions.connectorCatalog }
             : {}),
@@ -4360,7 +4388,7 @@ export function createAgentChatPlugin(
                 run.runId,
               );
             }),
-          async () => {
+          async (projection) => {
             // Checkpoint creation is part of durable turn completion. The helper
             // catches and reports its own failures, so a broken app checkpoint does
             // not strand the run while a successful checkpoint cannot be lost when
@@ -4374,7 +4402,7 @@ export function createAgentChatPlugin(
               options?.onAgentRunComplete,
               chatScope,
               run,
-              { turnContinues: endsAtContinuationBoundary(run) },
+              { turnContinues: endsAtContinuationBoundary(run), projection },
             );
           },
         );
@@ -4862,6 +4890,12 @@ export function createAgentChatPlugin(
           { failure_code: details.failure.code, stage: "not_started" },
           options?.appId,
         );
+        await notifyRunNotStarted(options?.onAgentRunNotStarted, {
+          runId: details.runId,
+          turnId: details.turnId,
+          threadId: details.threadId,
+          failure: details.failure,
+        });
         try {
           await persistSubmittedUserMessage(details);
         } catch (error) {
@@ -10702,6 +10736,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             runtimeGlobals.__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__ = true;
           }
           let stopBackgroundSetupHeartbeat = true;
+          let workerHandlerInvoked = false;
           const reportFailureFinalizationError = (error: unknown) => {
             console.error(
               "[agent-chat] _process-run failure finalization failed:",
@@ -10840,6 +10875,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               if (turnGrant)
                 event.context[VERIFIED_TURN_GRANT_CONTEXT_KEY] = turnGrant;
             }
+            workerHandlerInvoked = true;
             const result = await invokeAgentChatHandler(event);
             const responseStatus = getResponseStatus(event);
             if (responseStatus >= 400) {
@@ -10877,14 +10913,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 runId: prepared.runId,
               },
             });
-            try {
-              await finalizeClaimedAgentChatProcessRunFailure(
-                prepared.runId,
-                err,
-              );
-            } catch (finalizationError) {
-              stopBackgroundSetupHeartbeat = false;
-              reportFailureFinalizationError(finalizationError);
+            if (workerHandlerInvoked) {
+              try {
+                await finalizeClaimedAgentChatProcessRunFailure(
+                  prepared.runId,
+                  err,
+                );
+              } catch (finalizationError) {
+                stopBackgroundSetupHeartbeat = false;
+                reportFailureFinalizationError(finalizationError);
+              }
             }
             setResponseStatus(event, 500);
             return { error: "process-run failed" };
@@ -11020,6 +11058,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               : []),
             ...(job?.meta.mcpTools ?? []),
           ],
+          ...(options?.resolveActionSurface
+            ? { resolveActionSurface: options.resolveActionSurface }
+            : {}),
           apiKey: options?.apiKey,
           model: resolveConfiguredAgentModel(options),
           appId: options?.appId,
@@ -11697,6 +11738,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         await import("../triggers/dispatcher.js");
       await initTriggerDispatcher({
         getActions: getBackgroundActionEntries,
+        ...(options?.resolveActionSurface
+          ? { resolveActionSurface: options.resolveActionSurface }
+          : {}),
         getWorkspaceAppContext: getBackgroundWorkspaceAppContext,
         getSystemPrompt: async (owner: string) => {
           const resources = await loadResourcesForPrompt(

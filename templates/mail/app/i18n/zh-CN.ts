@@ -187,6 +187,7 @@ const messages = {
       moveToTrash: "移到垃圾箱",
       star: "加星标",
       unstar: "取消星标",
+      copyLink: "复制链接",
     },
     labels: {
       labelAsPlaceholder: "添加标签…",
@@ -451,6 +452,8 @@ const messages = {
     },
     toasts: {
       noEmailSelected: "未选择邮件。",
+      linkCopied: "链接已复制。",
+      linkCopyFailed: "无法复制链接。",
       reportedSpam: "已举报为垃圾邮件。",
       reportedSpamBlocked: "已举报为垃圾邮件并屏蔽 {{email}}。",
       noThreadSelected: "未选择会话。",
@@ -540,6 +543,9 @@ const messages = {
       loadTitle: "无法加载邮件",
       staleSaved: "无法刷新邮件。正在显示已保存的会话。",
       rateLimitDescription: "最近对 Google 的请求过多。稍等片刻后会重试。",
+      limitedListFrom:
+        "上次更新：{{time}}。部分邮件可能未显示。Google 正在限制 Mail 的请求。",
+      limitedList: "部分邮件可能未显示。Google 正在限制 Mail 的请求。",
       failedToConnect: "连接失败。请重试。",
       failedToParseJson: "解析 JSON 失败",
       missingGoogleCredentials: "在 JSON 中找不到 client_id 和 client_secret",

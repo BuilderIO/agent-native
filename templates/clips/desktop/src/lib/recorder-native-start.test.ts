@@ -691,6 +691,17 @@ describe("native recording startup", () => {
     await handle.cancel();
   });
 
+  it("skips the countdown overlay when the countdown is turned off", async () => {
+    localStorageValues.set("clips:recording-countdown", "0");
+
+    const handle = await startRecording(params);
+
+    expect(calls("show_countdown")).toHaveLength(0);
+    expect(calls("native_fullscreen_recording_warm")).toHaveLength(1);
+
+    await handle.cancel();
+  });
+
   it("starts the full countdown only after a slow overlay has presented", async () => {
     const overlay = deferred<number>();
     nativeCommands.set("show_countdown", async (args) => {

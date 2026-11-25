@@ -400,7 +400,7 @@ describe("feedback-fix-proof", () => {
 
     assert.match(
       workflow,
-      /pull_request:\s*\n\s+types:\s*\[[^\]]*edited[^\]]*\]/,
+      /pull_request:\s*\n\s+types:\s*\[[^\]]*synchronize[^\]]*\]/,
     );
     assert.equal(
       [...workflow.matchAll(/uses: actions\/checkout@[^\n]+/g)].length,
@@ -412,6 +412,11 @@ describe("feedback-fix-proof", () => {
     );
     const lintJob = /^  lint:\n([\s\S]*?)(?=^  [\w-]+:\n)/m.exec(workflow)?.[1];
     assert.ok(lintJob, "the required Lint & format job exists");
+    assert.match(
+      lintJob,
+      /if: needs\.change-scope\.outputs\.has_reports == 'true' && contains\(github\.event\.pull_request\.body, 'query-content-database-items\.navigation\.postgres\.integration\.test\.ts'\)[\s\S]*?trap 'rm -rf "\$DOCKER_CONFIG"' EXIT[\s\S]*?docker pull ghcr\.io\/builderio\/agent-native-ci-postgres-fallback:17-alpine[\s\S]*?docker logout ghcr\.io[\s\S]*?unset DOCKER_CONFIG GH_TOKEN[\s\S]*?docker run --pull=never/,
+    );
+    assert.match(lintJob, /pg_isready -h 127\.0\.0\.1 -U postgres/);
     assert.match(
       lintJob,
       /if: \$\{\{ !cancelled\(\) && \(needs\.change-scope\.result != 'success' \|\| needs\.change-scope\.outputs\.lint == 'true' \|\| needs\.change-scope\.outputs\.has_reports == 'true'\) \}\}/,
@@ -464,7 +469,35 @@ describe("feedback-fix-proof", () => {
       workflow,
       /if: steps\.find\.outputs\.has_reports == 'true'[\s\S]*?feedback-fix-proof\.ts/,
     );
-    assert.doesNotMatch(workflow, /pull_request_target|secrets\.|GITHUB_TOKEN/);
+    const provision =
+      /      - name: Start PostgreSQL for navigation proof\n[\s\S]*?(?=\n      - name: Re-run each report's proof)/.exec(
+        workflow,
+      )?.[0];
+    assert.ok(provision, "the conditional PostgreSQL provision step exists");
+    assert.match(provision, /pg_isready -h 127\.0\.0\.1 -U postgres/);
+    const proofPath =
+      "actions/./query-content-database-items.navigation.postgres.integration.test.ts";
+    assert.ok(
+      proofPath.includes(
+        "query-content-database-items.navigation.postgres.integration.test.ts",
+      ),
+    );
+    assert.notEqual(
+      parseProofCommand(`pnpm --filter content exec vitest run ${proofPath}`),
+      null,
+    );
+    assert.match(
+      provision,
+      /if: steps\.find\.outputs\.has_reports == 'true' && contains\(github\.event\.pull_request\.body, 'query-content-database-items\.navigation\.postgres\.integration\.test\.ts'\)/,
+    );
+    assert.match(
+      provision,
+      /trap 'rm -rf "\$DOCKER_CONFIG"' EXIT[\s\S]*?docker pull ghcr\.io\/builderio\/agent-native-ci-postgres-fallback:17-alpine[\s\S]*?docker logout ghcr\.io[\s\S]*?rm -rf "\$DOCKER_CONFIG"[\s\S]*?unset DOCKER_CONFIG GH_TOKEN[\s\S]*?docker run --pull=never/,
+    );
+    assert.doesNotMatch(
+      workflow.replace(provision, ""),
+      /pull_request_target|secrets\.|GITHUB_TOKEN|GH_TOKEN/,
+    );
   });
 
   it("passes when every report's proof holds on re-run", () => {

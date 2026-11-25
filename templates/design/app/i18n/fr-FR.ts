@@ -367,6 +367,8 @@ export default {
       blur: "Flou",
       spread: "Diffusion",
       rotation3d: "Rotation 3D",
+      constraints: "Contraintes",
+      absolutePosition: "Position absolue",
       rotationX: "Rotation X",
       rotationY: "Rotation Y",
       perspective: "Perspective",
@@ -1161,6 +1163,12 @@ export default {
         opacity: "Opacité",
       },
       editColor: "Modifier la couleur de {{name}}",
+      field: {
+        open: "Jetons",
+        detach: "Détacher le jeton",
+        primitives: "Primitives {{group}}",
+        loading: "Chargement des jetons…",
+      },
     },
     import: {
       description:

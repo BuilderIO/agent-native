@@ -2,6 +2,7 @@ import { COLOR_SCALES, COLORS } from "./catalog/props.js";
 import { APPEARANCES } from "./themes/appearances.js";
 import { SHADCN_SLOTS } from "./themes/shadcn.js";
 import type { ThemeDefinition } from "./themes/types.js";
+import { switchColorLiterals } from "./tokens/component-inputs.js";
 import {
   createPalette,
   DEFAULT_PALETTE_INPUT,
@@ -100,7 +101,11 @@ export function tokensCss(
   const sections: string[] = [GENERATED_HEADER];
 
   sections.push(
-    block(":root", { "--radius-factor": "1", ...staticPrimitives() }),
+    block(":root", {
+      "--radius-factor": "1",
+      ...staticPrimitives(),
+      ...switchColorLiterals,
+    }),
   );
 
   sections.push(

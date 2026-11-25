@@ -65,6 +65,7 @@ import { registerShareableResource } from "../sharing/registry.js";
 import { roleSatisfies, type ShareRole } from "../sharing/schema.js";
 import { emitChatThreadChange } from "./emitter.js";
 import {
+  AUTOMATION_THREAD_SOURCE_BACKFILL_SQL,
   CHAT_THREAD_SCHEMA_MIGRATIONS,
   CHAT_THREAD_SCHEMA_MIGRATIONS_TABLE,
 } from "./schema-migrations.js";
@@ -115,6 +116,7 @@ export function withThreadDataLock<T>(
   return next as Promise<T>;
 }
 
+// raw-sql-ok: the data migration's SQL is a static constant with no interpolated values
 export const chatThreadsStore = defineStore({
   id: "chat_threads",
   migrations: [
@@ -329,6 +331,11 @@ export const chatThreadsStore = defineStore({
         `ALTER TABLE chat_threads ADD COLUMN IF NOT EXISTS edit_root_id TEXT`,
         `ALTER TABLE chat_threads ADD COLUMN IF NOT EXISTS edit_prefix_count BIGINT`,
       ],
+    },
+    {
+      name: "automation-thread-source-app-backfill",
+      kind: "data",
+      sql: AUTOMATION_THREAD_SOURCE_BACKFILL_SQL,
     },
   ],
 });

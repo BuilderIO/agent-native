@@ -210,6 +210,7 @@ const messages = {
       moveToTrash: "Déplacer vers la corbeille",
       star: "Ajouter une étoile",
       unstar: "Retirer l’étoile",
+      copyLink: "Copier le lien",
     },
     labels: {
       labelAsPlaceholder: "Ajouter le libellé…",
@@ -478,6 +479,8 @@ const messages = {
     },
     toasts: {
       noEmailSelected: "Aucun email sélectionné.",
+      linkCopied: "Lien copié.",
+      linkCopyFailed: "Impossible de copier le lien.",
       reportedSpam: "Signalé comme spam.",
       reportedSpamBlocked: "Reported as spam & blocked {{email}}.",
       noThreadSelected: "Aucune conversation sélectionnée.",
@@ -577,6 +580,10 @@ const messages = {
         "Impossible d’actualiser les messages. Les conversations enregistrées sont affichées.",
       rateLimitDescription:
         "Trop de requêtes récentes vers Google. Attente avant nouvelle tentative.",
+      limitedListFrom:
+        "Dernière mise à jour : {{time}}. Des e-mails peuvent manquer. Google limite les requêtes de Mail.",
+      limitedList:
+        "Des e-mails peuvent manquer. Google limite les requêtes de Mail.",
       failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",
       failedToParseJson: "No se pudo analizar JSON",
       missingGoogleCredentials:

@@ -3,6 +3,7 @@ import type {
   McpDirectoryWidgetTarget,
 } from "../../mcp/build-server.js";
 import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
+import type { McpSkillConfig } from "../../mcp/skills-extension.js";
 import type { McpDirectoryWidgetReadArgument } from "../../shared/embed-auth.js";
 
 export interface AgentChatMcpIcon {
@@ -20,6 +21,8 @@ export interface AgentChatMcpOptions {
   readOnlyResources?: boolean;
   /** Serve the `an` skill over MCP (Skills extension). Dispatch only. */
   servesAnSkill?: boolean;
+  /** Serve reviewed, exported app skills over MCP (SEP-2640 Skills extension). */
+  skills?: readonly McpSkillConfig[];
   directoryProfile?: {
     connectorCatalog: string[];
     directoryRoute?: false;
@@ -104,6 +107,7 @@ export interface ResolvedAgentChatMcp {
   taskCandidates: MCPConfig["taskCandidates"];
   readOnlyResources: boolean | undefined;
   servesAnSkill: boolean | undefined;
+  skills: readonly McpSkillConfig[] | undefined;
   directoryProfile: AgentChatMcpOptions["directoryProfile"] | undefined;
   externalAgents: ExternalAgentPolicy | undefined;
   builtinCrossAppTools: boolean | undefined;
@@ -214,6 +218,7 @@ export function resolveAgentChatMcpOptions(
     taskCandidates: mcp.taskCandidates,
     readOnlyResources: mcp.readOnlyResources,
     servesAnSkill: mcp.servesAnSkill,
+    skills: mcp.skills,
     directoryProfile: mcp.directoryProfile,
     externalAgents,
     builtinCrossAppTools: mcp.builtinCrossAppTools,

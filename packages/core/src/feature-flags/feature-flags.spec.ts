@@ -51,6 +51,7 @@ vi.mock("../settings/store.js", async (importOriginal) => ({
     mutate(globalSettings)(key, updater),
 }));
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: executeMock }),
 }));
 vi.mock("../settings/org-settings.js", () => ({

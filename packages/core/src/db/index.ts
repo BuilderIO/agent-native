@@ -14,6 +14,7 @@ export {
   type MigrationSource,
   type MigrationSql,
 } from "./migrations.js";
+export { configurePgliteExtensions } from "./client.js";
 export {
   getDbExec,
   withDbExec,

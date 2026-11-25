@@ -42,12 +42,12 @@ the CSS reads. Reserved class names come from it.
 ```
 
 - Plain CSS in `@layer components`; no Tailwind, no `@apply`.
-- Flat rules on roles and scale tokens, like hand-written component CSS. A
-  part has no `--<part>-*` inputs: themes reach it through roles, density,
-  radius and corners alone. A variant or state selector sets the property
-  itself, not a private variable.
-- A private `--_*` value only where flattening would repeat a computation
-  many times. Never `--_x: var(--y, var(--_x))`.
+- Parts normally read roles and scale steps in flat variant and state rules.
+  Switch pilots cataloged `--switch-*` inputs. Its rules resolve each input
+  into a private value with the local role, scale step or dimension as the
+  fallback. This preserves inherited theme overrides and local prop choices.
+- Private `--_*` values can share computations and resolved inputs. Never
+  `--_x: var(--y, var(--_x))`.
 - A colored variant reads only `--accent-*`, which `[data-color]` binds to a
   scale, so no rule names a color. Solid fills are `--accent-solid` (hover
   `--accent-solid-hover`) under `--accent-contrast`; text on a tint is

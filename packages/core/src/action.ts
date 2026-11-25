@@ -800,6 +800,13 @@ export interface AgentConnectionRequiredOptions {
   reason?: "connect" | "grant" | "reauthorize" | "admin_required";
   appId?: string;
   source?: { id: string; kind?: string; label?: string };
+  /**
+   * Optional app-origin OAuth or connection-setup URL (relative path such as
+   * `/_agent-native/google/auth-url?...` or an absolute URL on a trusted app
+   * origin). MCP hosts that advertise `elicitation.url` can surface this as a
+   * native connect button after validating its origin.
+   */
+  connectUrl?: string | undefined;
   toolResult?: string;
 }
 
@@ -809,6 +816,7 @@ export class AgentConnectionRequiredError extends AgentActionStopError {
   readonly reason: NonNullable<AgentConnectionRequiredOptions["reason"]>;
   readonly appId?: string;
   readonly source?: AgentConnectionRequiredOptions["source"];
+  readonly connectUrl?: string | undefined;
 
   constructor(message: string, options: AgentConnectionRequiredOptions) {
     super(message, {
@@ -820,6 +828,7 @@ export class AgentConnectionRequiredError extends AgentActionStopError {
     this.reason = options.reason ?? "connect";
     this.appId = options.appId;
     this.source = options.source;
+    this.connectUrl = options.connectUrl;
   }
 }
 
