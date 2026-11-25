@@ -71,6 +71,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: "search",
   run: async ({ compact, includeFolders }) => {
     const db = getDb();
     const rows = await db

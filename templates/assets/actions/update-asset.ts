@@ -39,6 +39,7 @@ export default defineAction({
       .optional()
       .describe("Marks this reference as a stable brand/style anchor."),
   }),
+  mcpTool: "search",
   run: async ({ id, category, isStyleAnchor, ...args }) => {
     const asset = await getAssetOrThrow(id);
     await assertCanApprove(asset.libraryId, "Updating an asset");

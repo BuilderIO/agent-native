@@ -19,6 +19,7 @@ export default defineAction({
     folderId: z.string().min(1).nullable().optional(),
     threadId: z.string().nullable().optional(),
   }),
+  mcpTool: "search",
   run: async (
     { assetId, slotId, folderId, threadId },
     context?: ActionRunContext,

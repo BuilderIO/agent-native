@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { inArray } from "drizzle-orm";
 import { z } from "zod";
 
@@ -11,6 +11,8 @@ export default defineAction({
   schema: z.object({
     ids: z.array(z.string().min(1)).min(1).describe("Asset IDs to delete."),
   }),
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async ({ ids }) => {
     const uniqueIds = Array.from(new Set(ids));
     const db = getDb();

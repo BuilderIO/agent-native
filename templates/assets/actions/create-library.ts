@@ -31,6 +31,7 @@ export default defineAction({
       .optional()
       .describe("Optional brand palette as hex colors"),
   }),
+  mcpTool: "search",
   run: async (
     { title, description, customInstructions, styleDescription, palette },
     ctx,

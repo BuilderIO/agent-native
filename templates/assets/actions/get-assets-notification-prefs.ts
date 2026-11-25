@@ -22,6 +22,7 @@ export default defineAction({
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: false,
   run: async (): Promise<AssetsNotificationPreferences> => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("Sign in required");

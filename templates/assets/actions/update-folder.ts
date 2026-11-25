@@ -43,6 +43,7 @@ export default defineAction({
     parentId: z.string().nullable().optional(),
     sortOrder: z.coerce.number().int().optional(),
   }),
+  mcpTool: "search",
   run: async ({ id, ...args }) => {
     const db = getDb();
     const [folder] = await db

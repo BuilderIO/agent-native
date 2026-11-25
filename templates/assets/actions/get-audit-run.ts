@@ -27,6 +27,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: false,
   run: async ({ runId }) => {
     const scope = await assertOrgAdmin();
     const db = getDb();

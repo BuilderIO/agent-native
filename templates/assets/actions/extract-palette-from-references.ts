@@ -16,6 +16,7 @@ export default defineAction({
   schema: z.object({
     libraryId: z.string(),
   }),
+  mcpTool: "search",
   run: async ({ libraryId }) => {
     await assertCanApprove(libraryId, "Saving a palette");
     const db = getDb();

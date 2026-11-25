@@ -18,6 +18,7 @@ export default defineAction({
     id: z.string(),
     overwrite: z.coerce.boolean().default(false),
   }),
+  mcpTool: "search",
   run: async ({ id, overwrite }) => {
     const asset = await getAssetOrThrow(id);
     await assertCanApprove(asset.libraryId, "Saving a description on an asset");

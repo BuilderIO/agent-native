@@ -45,6 +45,7 @@ export default defineAction({
     coverAssetId: z.string().nullable().optional(),
     canonicalLogoAssetId: z.string().nullable().optional(),
   }),
+  mcpTool: "search",
   run: async ({
     id,
     title,

@@ -23,6 +23,7 @@ export default defineAction({
     title: z.string().min(1).optional(),
     dropPins: z.boolean().optional(),
   }),
+  mcpTool: "search",
   run: async ({ id, libraryId, title, dropPins }) => {
     const source = (await resolveTemplateAccess(id, "viewer")).resource;
     const ownerEmail = getRequestUserEmail();

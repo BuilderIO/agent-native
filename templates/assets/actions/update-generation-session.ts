@@ -38,6 +38,7 @@ export default defineAction({
     runIds: z.array(z.string()).optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
   }),
+  mcpTool: "search",
   run: async ({ id, assetIds, runIds, feedback, metadata, ...args }) => {
     const db = getDb();
     const [session] = await db

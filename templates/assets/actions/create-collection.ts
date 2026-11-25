@@ -19,6 +19,7 @@ export default defineAction({
     defaultImageSize: z.enum(IMAGE_SIZES).default("2K"),
     styleBrief: z.record(z.string(), z.unknown()).optional(),
   }),
+  mcpTool: "search",
   run: async (args) => {
     await assertCanApprove(args.libraryId, "Creating a collection");
     const now = nowIso();

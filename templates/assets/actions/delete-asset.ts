@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -13,6 +13,8 @@ export default defineAction({
   description:
     "Delete an asset row. Requires editor access to its library, except for an unsaved draft candidate, which its author can always discard.",
   schema: z.object({ id: z.string() }),
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async ({ id }) => {
     const asset = await getAssetOrThrow(id);
     const access = await assertCanDeleteAsset(asset);

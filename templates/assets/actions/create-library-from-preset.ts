@@ -99,6 +99,7 @@ export default defineAction({
       .optional()
       .describe("Optional custom description for the new library"),
   }),
+  mcpTool: "search",
   run: async ({ presetId, title, description }) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");

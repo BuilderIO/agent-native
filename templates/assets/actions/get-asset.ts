@@ -68,6 +68,7 @@ export default defineAction({
   schema: z.object({ id: z.string() }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: "search",
   run: async ({ id }) => {
     const starter = starterAsset(id);
     if (starter) return starter;

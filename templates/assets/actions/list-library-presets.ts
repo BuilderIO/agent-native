@@ -12,6 +12,7 @@ export default defineAction({
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: "search",
   run: async () => ({
     count: DEFAULT_LIBRARY_PRESETS.length,
     version: DEFAULT_LIBRARY_PRESET_VERSION,

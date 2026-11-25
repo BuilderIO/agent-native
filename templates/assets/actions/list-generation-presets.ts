@@ -12,6 +12,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: "search",
   run: async ({ libraryId, collectionId }) => {
     const result = await listTemplates.run({
       libraryId,

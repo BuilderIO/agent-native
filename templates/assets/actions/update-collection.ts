@@ -19,6 +19,7 @@ export default defineAction({
     defaultImageSize: z.enum(IMAGE_SIZES).optional(),
     styleBrief: z.record(z.string(), z.unknown()).optional(),
   }),
+  mcpTool: "search",
   run: async ({ id, libraryId, ...args }) => {
     await assertCanApprove(libraryId, "Updating a collection");
     const updates: Record<string, unknown> = { updatedAt: nowIso() };

@@ -10,6 +10,7 @@ export default defineAction({
   schema: z.object({ id: z.string() }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: "search",
   run: async ({ id }) => {
     const access = await resolveTemplateAccess(id, "viewer");
     const template = access.resource;

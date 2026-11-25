@@ -18,6 +18,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: "search",
   run: async ({ libraryId, sessionId, presetId }) => {
     await requireLibrary(libraryId);
     const scope = await resolveDraftReadScope([libraryId]);

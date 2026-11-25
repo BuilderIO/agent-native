@@ -42,6 +42,7 @@ export default defineAction({
       ),
   }),
   parallelSafe: true,
+  mcpTool: "search",
   run: async (
     { runId, slotId, sessionId, source, callerAppId },
     context?: ActionRunContext,

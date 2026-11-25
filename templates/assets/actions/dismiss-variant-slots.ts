@@ -44,6 +44,7 @@ export default defineAction({
     .refine((v) => Boolean(v.slotId) !== Boolean(v.scope), {
       message: "Provide exactly one of `slotId` or `scope`.",
     }),
+  mcpTool: false,
   run: async ({ slotId, scope, threadId }, context?: ActionRunContext) => {
     const effectiveThreadId = threadId ?? context?.threadId ?? null;
     const state = await readVariantState(effectiveThreadId);

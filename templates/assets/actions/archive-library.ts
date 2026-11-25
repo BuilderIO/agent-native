@@ -11,6 +11,7 @@ export default defineAction({
   description:
     "Archive an asset library so it is hidden from the main library list. Requires admin access.",
   schema: z.object({ id: z.string() }),
+  mcpTool: "search",
   run: async ({ id }) => {
     await assertAccess("asset-library", id, "admin");
     const db = getDb();

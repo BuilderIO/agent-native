@@ -107,6 +107,7 @@ export default defineAction({
       view: "library",
     };
   },
+  mcpTool: "search",
   run: async ({ id, title }) => {
     await assertAccess("asset-library", id, "viewer");
 

@@ -35,6 +35,7 @@ export default defineAction({
     contextModeOverride: z.literal("off").optional(),
   }),
   parallelSafe: true,
+  mcpTool: "search",
   run: async (args, context?: ActionRunContext) => {
     const asset = await getAssetOrThrow(args.assetId);
     const continuation = await resolveLiveBatchContinuation({

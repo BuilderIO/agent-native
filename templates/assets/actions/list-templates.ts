@@ -18,6 +18,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: "search",
   run: async ({ libraryId, collectionId, scope, query }) => {
     const filters = [await accessibleTemplateFilter()];
     if (scope === "global") {

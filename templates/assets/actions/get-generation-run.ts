@@ -20,6 +20,7 @@ export default defineAction({
   schema: z.object({ runId: z.string() }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: "search",
   run: async ({ runId }) => {
     const db = getDb();
     const [run] = await db
