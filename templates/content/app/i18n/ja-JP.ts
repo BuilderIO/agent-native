@@ -2204,6 +2204,8 @@ const overrides = {
       "AI はこのスレッドの新しいメッセージにすでに回答しています。",
     aiRetryRefusedStarted: "この AI リクエストはすでに再開されています。",
     aiRetryRefusedResolved: "再試行するにはスレッドを再度開いてください。",
+    aiRetryRefusedEditApplied:
+      "AI はこのメッセージのためにすでにページを編集しました。再試行する代わりに変更を確認してください。",
     aiRetryRefusedViewOnly:
       "エージェントはこのページを表示することしかできないため、AI はここでコメントに回答できません。",
     aiFollowUpYou: "あなた",

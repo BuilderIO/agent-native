@@ -487,6 +487,7 @@ describe("comment AI controls", () => {
 
     expect(api.callAction).toHaveBeenCalledWith("retry-comment-ai-request", {
       requestId: "request-1",
+      expectedUpdatedAt: stopped.updatedAt,
     });
     expect(api.loadCommentAiConversation).not.toHaveBeenCalled();
     expect(api.startBackgroundAgentSession).toHaveBeenCalledOnce();

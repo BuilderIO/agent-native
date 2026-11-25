@@ -2265,6 +2265,8 @@ const overrides = {
     aiRetryRefusedStarted: "Diese KI-Anfrage wurde bereits neu gestartet.",
     aiRetryRefusedResolved:
       "Öffne den Thread wieder, um es erneut zu versuchen.",
+    aiRetryRefusedEditApplied:
+      "Die KI hat die Seite für diese Nachricht bereits geändert. Prüfe die Änderung, statt es erneut zu versuchen.",
     aiRetryRefusedViewOnly:
       "Agenten können diese Seite nur ansehen, daher kann die KI hier nicht auf Kommentare antworten.",
     aiFollowUpYou: "Du",

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { fail } from "@agent-native/core/action";
+import { isUniqueViolation } from "@agent-native/core/db";
 import { writeAppState } from "@agent-native/core/application-state";
 import {
   getRequestRunContext,
@@ -961,8 +962,15 @@ export async function startCommentAiRequest(
 
 export async function restartCommentAiRequest(args: {
   requestId: string;
+  expectedUpdatedAt: string;
 }): Promise<StartCommentAiResult> {
   const request = await loadCommentAiRequest(args.requestId);
+  if (request.updatedAt !== args.expectedUpdatedAt) {
+    fail("This AI request changed while Retry started it. Try again.", {
+      statusCode: 409,
+      errorCode: "comment_ai_operation_conflict",
+    });
+  }
   const restartable = [
     ...RESTARTABLE,
     "classifying",
@@ -973,6 +981,12 @@ export async function restartCommentAiRequest(args: {
     fail("AI is still working on this comment", {
       statusCode: 409,
       errorCode: "comment_ai_operation_conflict",
+    });
+  }
+  if (serializeCommentAiRequest(request).result?.editApplied) {
+    fail("AI already changed the page for this comment", {
+      statusCode: 409,
+      errorCode: "comment_ai_edit_applied",
     });
   }
   const intent =
@@ -1019,37 +1033,58 @@ export async function restartCommentAiRequest(args: {
   const classificationThreadId = intent
     ? null
     : `comment-ai-classifier-${crypto.randomUUID()}`;
+  const now = new Date().toISOString();
   const updated = await getDb()
-    .update(schema.commentAiRequests)
-    .set({
-      status: intent ? "queued" : "classifying",
-      agentThreadId,
-      agentTurnId: intent
-        ? backgroundAgentTurnIdForReceipt(agentThreadId, request.id)
-        : null,
-      ...(classificationThreadId && {
-        classificationThreadId,
-        classificationTurnId: backgroundAgentTurnIdForReceipt(
+    .transaction(async (tx) => {
+    const rows = await tx
+      .update(schema.commentAiRequests)
+      .set({
+        status: intent ? "queued" : "classifying",
+        agentThreadId,
+        agentTurnId: intent
+          ? backgroundAgentTurnIdForReceipt(agentThreadId, request.id)
+          : null,
+        ...(classificationThreadId && {
           classificationThreadId,
-          `${request.id}:classification`,
+          classificationTurnId: backgroundAgentTurnIdForReceipt(
+            classificationThreadId,
+            `${request.id}:classification`,
+          ),
+        }),
+        activeAttemptId: null,
+        submittedThreadDigest: digest,
+        submittedSnapshotJson: snapshot,
+        threadDigest: digest,
+        snapshotJson: snapshot,
+        errorCode: null,
+        error: null,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(schema.commentAiRequests.id, request.id),
+          eq(schema.commentAiRequests.status, request.status),
+          eq(schema.commentAiRequests.updatedAt, request.updatedAt),
         ),
-      }),
-      submittedThreadDigest: digest,
-      submittedSnapshotJson: snapshot,
-      threadDigest: digest,
-      snapshotJson: snapshot,
-      errorCode: null,
-      error: null,
-      updatedAt: new Date().toISOString(),
+      )
+      .returning();
+    if (rows.length > 0 && request.activeAttemptId) {
+      await tx
+        .update(schema.commentAiAttempts)
+        .set({ status: "superseded", updatedAt: now })
+        .where(eq(schema.commentAiAttempts.id, request.activeAttemptId));
+    }
+    return rows;
     })
-    .where(
-      and(
-        eq(schema.commentAiRequests.id, request.id),
-        eq(schema.commentAiRequests.status, request.status),
-        eq(schema.commentAiRequests.updatedAt, request.updatedAt),
-      ),
-    )
-    .returning();
+    .catch((error: unknown) => {
+      if (isUniqueViolation(error)) {
+        fail("AI is already working on a newer message in this comment", {
+          statusCode: 409,
+          errorCode: "comment_ai_already_active",
+        });
+      }
+      throw error;
+    });
   const restarted = updated[0] as (typeof updated)[number] | undefined;
   if (!restarted) {
     fail("This AI request changed while Retry started it. Try again.", {
@@ -1318,7 +1353,8 @@ export async function submitCommentAiClassification(intent: CommentAiIntent) {
   if (!run) throw new Error("This classification requires a scoped agent run");
   const scope = commentAiClassifierActionScopeSchema.parse(run.actionScope);
   let request = await loadCommentAiRequest(scope.requestId);
-  if (run.threadId !== request.classificationThreadId) {
+  const classifierThreadId = request.classificationThreadId;
+  if (!classifierThreadId || run.threadId !== classifierThreadId) {
     throw new Error("This classifier thread is not bound to the operation");
   }
   const classified = commentAiIntentSchema.parse(intent);
@@ -1366,6 +1402,7 @@ export async function submitCommentAiClassification(intent: CommentAiIntent) {
       and(
         eq(schema.commentAiRequests.id, request.id),
         eq(schema.commentAiRequests.status, "classifying"),
+        eq(schema.commentAiRequests.classificationThreadId, classifierThreadId),
       ),
     )
     .returning();
@@ -1417,7 +1454,14 @@ export async function requireCommentAiRequest(intent?: CommentAiIntent) {
       engine: run.engine?.name ?? request.engine,
       updatedAt: now,
     })
-    .where(eq(schema.commentAiRequests.id, request.id))
+    .where(
+      and(
+        eq(schema.commentAiRequests.id, request.id),
+        request.agentThreadId
+          ? eq(schema.commentAiRequests.agentThreadId, request.agentThreadId)
+          : undefined,
+      ),
+    )
     .returning();
   return updated ?? request;
 }
@@ -1532,6 +1576,12 @@ export async function beginCommentAiAttempt(request: RequestRow) {
       .where(eq(schema.commentAiRequests.id, request.id))
       .for("update");
     if (!locked) throw new Error("Comment AI operation not found");
+    if (locked.agentThreadId !== request.agentThreadId) {
+      fail("This agent thread is not bound to the selected comment operation", {
+        statusCode: 409,
+        errorCode: "comment_ai_thread_conflict",
+      });
+    }
     if (terminalSuccess(locked.status)) {
       return { request: locked, attempt: null, source };
     }
@@ -1818,6 +1868,9 @@ export async function updateCommentAiRequest(
     .where(
       and(
         eq(schema.commentAiRequests.id, request.id),
+        request.agentThreadId
+          ? eq(schema.commentAiRequests.agentThreadId, request.agentThreadId)
+          : undefined,
         notInArray(schema.commentAiRequests.status, [
           "replied",
           "suggested",

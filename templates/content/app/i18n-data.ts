@@ -2183,6 +2183,8 @@ const enUS = {
       "AI is already answering a newer message in this thread.",
     aiRetryRefusedStarted: "This AI request has already started again.",
     aiRetryRefusedResolved: "Reopen the thread to retry.",
+    aiRetryRefusedEditApplied:
+      "AI already edited the page for this message. Check the edit instead of retrying.",
     aiRetryRefusedViewOnly:
       "Agents can only view this page, so AI can't answer comments on it.",
     aiFollowUpYou: "You",

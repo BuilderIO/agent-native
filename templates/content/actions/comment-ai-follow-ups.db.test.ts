@@ -175,6 +175,21 @@ describe("comment AI follow-ups and Retry", () => {
     );
   }
 
+  async function retry(requestId: string, expectedUpdatedAt?: string) {
+    const rows = await getDb()
+      .select({ updatedAt: schema.commentAiRequests.updatedAt })
+      .from(schema.commentAiRequests)
+      .where(eq(schema.commentAiRequests.id, requestId));
+    const row = rows[0] as (typeof rows)[number] | undefined;
+    if (!row) throw new Error("The request to retry is missing");
+    return asUser(() =>
+      commentAi.restartCommentAiRequest({
+        requestId,
+        expectedUpdatedAt: expectedUpdatedAt ?? row.updatedAt,
+      }),
+    );
+  }
+
   async function humanReply(id: string) {
     const now = new Date().toISOString();
     await getDb().insert(schema.documentComments).values({
@@ -236,9 +251,7 @@ describe("comment AI follow-ups and Retry", () => {
       }),
     ).rejects.toMatchObject({ code: "discussion_changed" });
 
-    const restarted = await asUser(() =>
-      commentAi.restartCommentAiRequest({ requestId: OP_A }),
-    );
+    const restarted = await retry(OP_A);
     expect(restarted).toMatchObject({
       operationId: OP_A,
       status: "queued",
@@ -291,9 +304,7 @@ describe("comment AI follow-ups and Retry", () => {
       }),
     ).rejects.toThrow("Thread not found");
 
-    const restarted = await asUser(() =>
-      commentAi.restartCommentAiRequest({ requestId: OP_B }),
-    );
+    const restarted = await retry(OP_B);
     expect(restarted.agentThreadId).not.toBe(borrowedThreadId);
     expect(
       await answer(restarted.backgroundSession, "Second answer"),
@@ -321,9 +332,7 @@ describe("comment AI follow-ups and Retry", () => {
       }),
     );
 
-    const restarted = await asUser(() =>
-      commentAi.restartCommentAiRequest({ requestId: OP_A }),
-    );
+    const restarted = await retry(OP_A);
     expect(restarted).toMatchObject({
       status: "classifying",
       pendingSession: { phase: "classification" },
@@ -359,7 +368,7 @@ describe("comment AI follow-ups and Retry", () => {
       .set({ status: "running" })
       .where(eq(schema.commentAiRequests.id, OP_A));
     await expect(
-      asUser(() => commentAi.restartCommentAiRequest({ requestId: OP_A })),
+      retry(OP_A),
     ).rejects.toMatchObject({ errorCode: "comment_ai_operation_conflict" });
 
     await getDb()
@@ -368,7 +377,7 @@ describe("comment AI follow-ups and Retry", () => {
       .where(eq(schema.commentAiRequests.id, OP_A));
     await followUp(OP_B, OP_A);
     await expect(
-      asUser(() => commentAi.restartCommentAiRequest({ requestId: OP_A })),
+      retry(OP_A),
     ).rejects.toMatchObject({ errorCode: "comment_ai_already_active" });
 
     await getDb()
@@ -380,7 +389,97 @@ describe("comment AI follow-ups and Retry", () => {
       .set({ resolved: 1 })
       .where(eq(schema.documentComments.id, ROOT_A));
     await expect(
-      asUser(() => commentAi.restartCommentAiRequest({ requestId: OP_A })),
+      retry(OP_A),
     ).rejects.toMatchObject({ errorCode: "comment_ai_thread_resolved" });
+  });
+
+  it("refuses Retry after the AI changed the page, and from a tab that saw an older version", async () => {
+    await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A)),
+    );
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({ status: "needs-review", updatedAt: "2026-11-25T12:00:00.000Z" })
+      .where(eq(schema.commentAiRequests.id, OP_A));
+    await expect(
+      retry(OP_A, "2026-11-25T11:00:00.000Z"),
+    ).rejects.toMatchObject({ errorCode: "comment_ai_operation_conflict" });
+
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({ resultJson: JSON.stringify({ editApplied: true }) })
+      .where(eq(schema.commentAiRequests.id, OP_A));
+    await expect(retry(OP_A)).rejects.toMatchObject({
+      errorCode: "comment_ai_edit_applied",
+    });
+  });
+
+  it("keeps the old chat from writing to a request Retry started over", async () => {
+    const started = await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A)),
+    );
+    const oldThreadId = started.backgroundSession.threadId;
+    await openChat(started.backgroundSession);
+    const stale = await runOperation(OP_A, oldThreadId, () =>
+      commentAi.requireCommentAiRequest("reply"),
+    );
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({ status: "needs-review" })
+      .where(eq(schema.commentAiRequests.id, OP_A));
+    const restarted = await retry(OP_A);
+
+    await expect(
+      runOperation(OP_A, oldThreadId, () =>
+        commentAi.beginCommentAiAttempt(stale),
+      ),
+    ).rejects.toMatchObject({ errorCode: "comment_ai_thread_conflict" });
+    expect(
+      await asUser(() =>
+        commentAi.updateCommentAiRequest(stale, { status: "replied" }),
+      ),
+    ).toMatchObject({ status: "queued", agentThreadId: restarted.agentThreadId });
+    expect(
+      await answer(restarted.backgroundSession, "Answer from the new chat"),
+    ).toMatchObject({ status: "replied" });
+  });
+
+  it("keeps the old classifier from classifying a request Retry started over", async () => {
+    const started = await asUser(() =>
+      commentAi.startCommentAiRequest({
+        requestId: OP_A,
+        documentId: DOCUMENT_ID,
+        threadId: ROOT_A,
+        rootCommentId: ROOT_A,
+        submittedMode: "auto",
+        instructions: "What do you think?",
+      }),
+    );
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({ status: "needs-review" })
+      .where(eq(schema.commentAiRequests.id, OP_A));
+    const restarted = await retry(OP_A);
+    const classify = (threadId: string) =>
+      runWithRequestContext(
+        {
+          userEmail: OWNER,
+          run: {
+            threadId,
+            actionScope: {
+              kind: "content-comment-ai-classifier",
+              requestId: OP_A,
+            },
+          },
+        },
+        () => commentAi.submitCommentAiClassification("reply"),
+      );
+
+    await expect(classify(started.backgroundSession.threadId)).rejects.toThrow(
+      "not bound",
+    );
+    expect(
+      (await classify(restarted.backgroundSession.threadId)).request,
+    ).toMatchObject({ status: "classified" });
   });
 });

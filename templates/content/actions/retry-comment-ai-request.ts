@@ -13,6 +13,7 @@ export default defineAction({
   toolCallable: false,
   schema: z.object({
     requestId: z.string().uuid(),
+    expectedUpdatedAt: z.string(),
   }),
   outputSchema: startCommentAiResultSchema,
   run: restartCommentAiRequest,

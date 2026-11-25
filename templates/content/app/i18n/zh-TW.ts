@@ -1380,6 +1380,8 @@ const overrides = {
     aiRetryRefusedNewer: "AI 已在回覆此討論中較新的一則訊息。",
     aiRetryRefusedStarted: "此 AI 請求已重新開始。",
     aiRetryRefusedResolved: "重新開啟此討論後再重試。",
+    aiRetryRefusedEditApplied:
+      "AI 已為此訊息編輯了頁面。請檢查此修改，而不是重試。",
     aiRetryRefusedViewOnly: "代理只能檢視此頁面，因此 AI 無法在此回覆留言。",
     aiFollowUpYou: "你",
     aiFollowUpIncomplete: "此回覆尚未完成。",

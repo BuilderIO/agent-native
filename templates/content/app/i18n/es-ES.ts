@@ -2500,6 +2500,8 @@ const overrides = {
       "La IA ya está respondiendo a un mensaje más reciente de este hilo.",
     aiRetryRefusedStarted: "Esta solicitud de IA ya se ha vuelto a iniciar.",
     aiRetryRefusedResolved: "Vuelve a abrir el hilo para reintentarlo.",
+    aiRetryRefusedEditApplied:
+      "La IA ya editó la página para este mensaje. Revisa el cambio en lugar de reintentarlo.",
     aiRetryRefusedViewOnly:
       "Los agentes solo pueden ver esta página, así que la IA no puede responder a comentarios en ella.",
     aiFollowUpYou: "Tú",
