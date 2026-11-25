@@ -36,7 +36,14 @@ import {
   type QueryClient,
 } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+  type ReactNode,
+} from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
@@ -115,6 +122,7 @@ import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 import { cn, formatShortcut } from "@/lib/utils";
 
 import { EmailListItem } from "./EmailListItem";
+import { EmailListSectionHeading } from "./EmailListSectionHeading";
 import { GmailCooldownNotice } from "./GmailCooldownNotice";
 import {
   observeNextPage,
@@ -213,8 +221,18 @@ export function rememberPriorityScore(
   }
 }
 
+export interface EmailListSection {
+  id: string;
+  title: string;
+  emails: EmailMessage[];
+  soonestFirst?: boolean;
+}
+
 interface EmailListProps {
   emails?: EmailMessage[];
+  sections?: EmailListSection[];
+  topSection?: ReactNode;
+  headerActions?: ReactNode;
   isLoading?: boolean;
   isFetching?: boolean;
   emailsError?: Error | null;
@@ -591,6 +609,9 @@ function AccountErrorsNotice({ errors }: { errors: AccountError[] }) {
 
 export function EmailList({
   emails: emailsProp,
+  sections,
+  topSection,
+  headerActions: viewHeaderActions,
   isLoading: isLoadingProp,
   isFetching: isFetchingProp,
   emailsError: emailsErrorProp,
@@ -728,9 +749,27 @@ export function EmailList({
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollParentRef = useRef<HTMLDivElement>(null);
 
+  const sectionedThreads = useMemo(() => {
+    if (!sections) return null;
+    const ordered: ThreadSummary[] = [];
+    const headings = new Map<number, { title: string; count: number }>();
+    for (const section of sections) {
+      const grouped = groupIntoThreads(section.emails);
+      if (grouped.length === 0) continue;
+      headings.set(ordered.length, {
+        title: section.title,
+        count: grouped.length,
+      });
+      ordered.push(...(section.soonestFirst ? grouped.reverse() : grouped));
+    }
+    return { threads: ordered, headings };
+  }, [sections]);
+  const showSectionHeadings =
+    !!sectionedThreads &&
+    sectionedThreads.headings.size + (topSection ? 1 : 0) > 1;
   const chronologicalThreads = useMemo(
-    () => groupIntoThreads(emails),
-    [emails],
+    () => sectionedThreads?.threads ?? groupIntoThreads(emails),
+    [emails, sectionedThreads],
   );
   const priorityEmails = useMemo(
     () =>
@@ -2325,7 +2364,8 @@ export function EmailList({
 
   const getScheduledJobId = useCallback(
     (email: EmailMessage): string | null =>
-      view === "scheduled" && email.id.startsWith("scheduled-")
+      (view === "scheduled" || view === "drafts") &&
+      email.id.startsWith("scheduled-")
         ? email.id.slice("scheduled-".length)
         : null,
     [view],
@@ -2798,14 +2838,22 @@ export function EmailList({
 
   const headerActions = useMemo(
     () =>
-      sortHeaderAction || bulkHeaderActions || jevConnectionDialog ? (
+      sortHeaderAction ||
+      bulkHeaderActions ||
+      jevConnectionDialog ||
+      viewHeaderActions ? (
         <>
           {sortHeaderAction}
-          {bulkHeaderActions}
+          {bulkHeaderActions ?? viewHeaderActions}
           {jevConnectionDialog}
         </>
       ) : null,
-    [bulkHeaderActions, jevConnectionDialog, sortHeaderAction],
+    [
+      bulkHeaderActions,
+      jevConnectionDialog,
+      sortHeaderAction,
+      viewHeaderActions,
+    ],
   );
   useSetHeaderActions(headerActions);
 
@@ -2962,6 +3010,7 @@ export function EmailList({
         {!!accountErrors?.length && (
           <AccountErrorsNotice errors={accountErrors} />
         )}
+        {topSection}
         <div className="flex flex-1 flex-col items-center justify-center">
           <div className="text-center px-8">
             <p className="text-sm font-medium text-foreground/80">
@@ -2995,6 +3044,7 @@ export function EmailList({
   return (
     <div className="flex h-full flex-col" ref={containerRef}>
       {cooldownNotice}
+      {topSection}
       <div className="flex-1 overflow-y-auto" ref={scrollParentRef}>
         <AiFilterDialog
           open={!!aiFilterDialog}
@@ -3019,6 +3069,9 @@ export function EmailList({
           {virtualItems.map((virtualRow) => {
             const thread = threads[virtualRow.index];
             if (!thread) return null;
+            const sectionHeading = showSectionHeadings
+              ? sectionedThreads.headings.get(virtualRow.index)
+              : undefined;
             return (
               <div
                 key={virtualRow.key}
@@ -3032,6 +3085,12 @@ export function EmailList({
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
               >
+                {sectionHeading && (
+                  <EmailListSectionHeading
+                    title={sectionHeading.title}
+                    count={sectionHeading.count}
+                  />
+                )}
                 <EmailListItem
                   email={thread.latestMessage}
                   importanceScore={

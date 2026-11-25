@@ -67,7 +67,7 @@ at any point before `sent`. Rules enforced in `server/lib/queued-drafts.ts`:
 | `update-queued-draft`         | Edit queued draft fields or set status                                  |
 | `open-queued-draft`           | Open a queued draft as `compose-{id}`                                   |
 | `send-queued-drafts`          | Send one queued draft or all active drafts assigned to the current user |
-| `navigate --view=draft-queue` | Open the queue UI                                                       |
+| `navigate --view=draft-queue` | Open Drafts, whose Requested section lists drafts awaiting review       |
 
 ## Typical Flow
 

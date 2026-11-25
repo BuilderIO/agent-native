@@ -2185,7 +2185,7 @@ function StandardLayout({ children }: AppLayoutProps) {
     if (location.pathname === "/agent") return t("settings.agentTitle");
     if (location.pathname === "/team") return t("mail.pages.team");
     if (location.pathname.startsWith("/draft-queue"))
-      return t("mail.views.draftQueue");
+      return t("mail.draftQueue.title");
     if (location.pathname.startsWith("/extensions"))
       return t("mail.views.extensions");
     return t("mail.appName");
