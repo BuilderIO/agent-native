@@ -368,9 +368,9 @@ export interface AgentChatRequest {
   approvedToolCalls?: string[];
   approvedToolCallAskIds?: string[];
   /**
-   * True when the client's approval continuation carries a prompt the
-   * approver wrote; the server keeps that prompt beside its own note that
-   * the approved action already ran instead of replacing it.
+   * True when a current client sent an approver-written continuation prompt.
+   * Older clients omit this flag and still put that prompt in `message`; the
+   * server keeps a non-canned prompt in either case beside its outcome note.
    */
   approvedContinuationPrompt?: boolean;
   skipPendingSelectionContext?: boolean;

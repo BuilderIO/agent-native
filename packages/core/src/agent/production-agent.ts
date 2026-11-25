@@ -14830,22 +14830,18 @@ export function resolveAgentModelSelection(options: {
 function boundedPromptSpanIndex(region: string, prompt: string): number {
   if (!prompt) return -1;
   if (region === prompt) return 0;
-  const suffixAt = region.length - prompt.length;
-  if (
-    suffixAt > 0 &&
-    region.endsWith(prompt) &&
-    (region.endsWith(`\n\n${prompt}`) || /\s/.test(region.charAt(suffixAt - 1)))
-  ) {
-    return suffixAt;
+  let from = 0;
+  while (from <= region.length - prompt.length) {
+    const at = region.indexOf(prompt, from);
+    if (at < 0) return -1;
+    const beforeOk = at === 0 || /\s/.test(region.charAt(at - 1));
+    const afterOk =
+      at + prompt.length === region.length ||
+      /\s/.test(region.charAt(at + prompt.length));
+    if (beforeOk && afterOk) return at;
+    from = at + 1;
   }
-  if (
-    region.startsWith(prompt) &&
-    (region.startsWith(`${prompt}\n\n`) ||
-      /\s/.test(region.charAt(prompt.length)))
-  ) {
-    return 0;
-  }
-  return region.lastIndexOf(prompt);
+  return -1;
 }
 
 function replaceUserPromptInMessages(
@@ -14871,12 +14867,19 @@ function replaceUserPromptInMessages(
     textPart.text.length - requestContextText.length,
   );
   const promptAt = boundedPromptSpanIndex(messageRegion, prompt);
-  if (promptAt < 0) return;
+  const requestContext = textPart.text.slice(
+    textPart.text.length - requestContextText.length,
+  );
+  if (promptAt < 0) {
+    if (messageRegion.includes(replacement)) return;
+    textPart.text = `${messageRegion}\n\n${replacement}${requestContext}`;
+    return;
+  }
   textPart.text =
     messageRegion.slice(0, promptAt) +
     replacement +
     messageRegion.slice(promptAt + prompt.length) +
-    textPart.text.slice(textPart.text.length - requestContextText.length);
+    requestContext;
 }
 
 export function createProductionAgentHandler(
@@ -14976,7 +14979,6 @@ export function createProductionAgentHandler(
       scope,
       harness: submittedHarness,
       trackInRunsTray,
-      approvedContinuationPrompt: submittedApprovedContinuationPrompt,
       skipPendingSelectionContext,
     } = body;
     let requestHistory = submittedHistory;
@@ -16137,10 +16139,7 @@ export function createProductionAgentHandler(
         ]
       : requestedApprovedToolCalls;
     const approvedContinuationCallerPrompt =
-      approvedToolCallsForExecution?.length &&
-      submittedApprovedContinuationPrompt === true
-        ? requestMessage
-        : undefined;
+      approvedToolCallsForExecution?.length ? requestMessage : undefined;
     const approvedContinuationOriginalPrompt =
       approvedToolCallsForExecution?.length ? requestMessage : undefined;
     const resolvedApprovalTurnId =

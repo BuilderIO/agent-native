@@ -43,18 +43,30 @@ export const APPROVED_TOOL_CALL_FAILED_PROMPT =
 export const APPROVED_TOOL_CALL_NOT_EXECUTED_PROMPT =
   "The approved action did not execute. Do not report that it ran; respond to the tool's error result instead.";
 
+const LEGACY_APPROVED_TOOL_CALL_RUN_PROMPT =
+  "Approved. Go ahead and run the requested action.";
+
+const FRAMEWORK_APPROVAL_CONTINUATION_NOTES = [
+  APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT,
+  APPROVED_TOOL_CALL_DID_NOT_RUN_PROMPT,
+  APPROVED_TOOL_CALL_FAILED_PROMPT,
+  APPROVED_TOOL_CALL_NOT_EXECUTED_PROMPT,
+  LEGACY_APPROVED_TOOL_CALL_RUN_PROMPT,
+] as const;
+
 function callerApprovalContinuationPrompt(
   callerPrompt: string | undefined,
 ): string | undefined {
   const prompt = callerPrompt?.trim();
-  if (!prompt || prompt === APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT) {
-    return undefined;
+  if (!prompt) return undefined;
+  for (const canned of FRAMEWORK_APPROVAL_CONTINUATION_NOTES) {
+    if (prompt === canned) return undefined;
+    const suffix = `\n\n${canned}`;
+    if (prompt.endsWith(suffix)) {
+      return callerApprovalContinuationPrompt(prompt.slice(0, -suffix.length));
+    }
   }
-  return prompt.endsWith(`\n\n${APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT}`)
-    ? prompt
-        .slice(0, -`\n\n${APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT}`.length)
-        .trim() || undefined
-    : prompt;
+  return prompt;
 }
 
 /**

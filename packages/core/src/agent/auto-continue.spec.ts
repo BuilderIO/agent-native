@@ -184,6 +184,14 @@ describe("approved tool call continuation wording", () => {
     expect(approvedToolCallContinuationMessage(undefined)).toBe(
       APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT,
     );
+    expect(
+      approvedToolCallContinuationMessage(
+        "Approved. Go ahead and run the requested action.",
+      ),
+    ).toBe(APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT);
+    expect(
+      approvedToolCallContinuationMessage(APPROVED_TOOL_CALL_FAILED_PROMPT),
+    ).toBe(APPROVED_TOOL_CALL_ALREADY_RAN_PROMPT);
   });
 
   it("does not tell the model the action ran when it re-pauses", () => {
