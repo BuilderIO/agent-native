@@ -1,8 +1,13 @@
-import type { ScreenModel } from "@agent-native/design-system/model";
+import {
+  captureRowStyles,
+  compareRowStyles,
+  type ScreenModel,
+} from "@agent-native/design-system/model";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { IconBell, IconBook, IconLogout, IconUser } from "@tabler/icons-react";
 import type * as React from "react";
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
+import { expect } from "storybook/test";
 
 import { brandLogoUrl } from "../../../src/app/settings/infra/logos.js";
 import { SettingsSurfaceProvider } from "../../../src/app/settings/SettingsSection.js";
@@ -11,13 +16,32 @@ import type {
   SettingsPageDefinition,
 } from "../../../src/app/settings/shell/registry.js";
 import { buildSettingsNavModel } from "../../../src/app/settings/shell/settings-nav-model.js";
+import { Glyph } from "../../../src/design-system/agent-native-parts/glyph.js";
 import { SettingsNavPartsProvider } from "../../../src/design-system/agent-native-parts/settings-nav.js";
-import { ModelSurface } from "../../../src/design-system/parts.js";
+import { InSettingsGroupContext } from "../../../src/design-system/agent-native-parts/settings-rows.js";
+import { DesignSystemContext } from "../../../src/design-system/context.js";
+import {
+  AGENT_NATIVE_PART_SET,
+  definePartSet,
+  ModelSurface,
+  type PartProps,
+  type PartSet,
+  rowAttributes,
+  useRowEffect,
+  useRowRegions,
+  useRowSlot,
+} from "../../../src/design-system/parts.js";
 import { AppShell, AppShellCanvas } from "../../../src/ui/base-ui/app-shell.js";
+import { Badge } from "../../../src/ui/base-ui/badge.js";
 import {
   Item,
+  ItemActions,
   ItemContent,
   ItemDescription,
+  ItemFooter,
+  ItemGroup,
+  ItemGroupLabel,
+  ItemMedia,
   ItemTitle,
 } from "../../../src/ui/base-ui/item.js";
 import {
@@ -25,6 +49,7 @@ import {
   PageHeaderTitle,
 } from "../../../src/ui/base-ui/page-header.js";
 import { Sidebar } from "../../../src/ui/base-ui/sidebar.js";
+import { Switch } from "../../../src/ui/base-ui/switch.js";
 
 const LOGO = brandLogoUrl("builder-cms");
 
@@ -427,6 +452,128 @@ function SidebarSections() {
   );
 }
 
+function ComposedGroup({ row, children }: PartProps) {
+  const slot = useRowSlot(row);
+  const labelId = useId();
+  return (
+    <div {...rowAttributes(row)} role="group" aria-labelledby={labelId}>
+      <ItemGroupLabel id={labelId} visuallyHidden={row.labelHidden === true}>
+        {row.label}
+      </ItemGroupLabel>
+      {row.description && !row.labelHidden ? (
+        <ItemDescription>{row.description}</ItemDescription>
+      ) : null}
+      <ItemGroup variant="outline">
+        <InSettingsGroupContext.Provider value={true}>
+          {slot}
+          {children}
+        </InSettingsGroupContext.Provider>
+      </ItemGroup>
+    </div>
+  );
+}
+
+function composedRow(soft: string | null) {
+  return function ComposedRow({ row, children }: PartProps) {
+    const run = useRowEffect(row);
+    const slot = useRowSlot(row);
+    const regions = useRowRegions(row, [
+      "label",
+      "description",
+      "status",
+      "detail",
+    ]);
+    const description = regions.description ?? row.description;
+    const badge = row.state?.badge;
+    return (
+      <Item
+        {...rowAttributes(row)}
+        render={<article />}
+        variant={row.id === soft ? "soft" : undefined}
+      >
+        {row.icon ? (
+          <ItemMedia framed>
+            <Glyph icon={row.icon} />
+          </ItemMedia>
+        ) : null}
+        <ItemContent>
+          <ItemTitle>
+            <span data-rid-label="">{regions.label ?? row.label}</span>
+            {badge && badge.kind !== "dot" ? (
+              <Badge variant="outline" color="gray">
+                {badge.value}
+              </Badge>
+            ) : null}
+            {regions.status}
+          </ItemTitle>
+          {description ? (
+            <ItemDescription>{description}</ItemDescription>
+          ) : null}
+        </ItemContent>
+        {row.kind === "toggle" || slot || children ? (
+          <ItemActions>
+            {row.kind === "toggle" ? (
+              <Switch
+                aria-label={row.label}
+                checked={row.state?.checked === true}
+                onCheckedChange={() => run?.()}
+              />
+            ) : null}
+            {slot}
+            {children}
+          </ItemActions>
+        ) : null}
+        {regions.detail ? <ItemFooter>{regions.detail}</ItemFooter> : null}
+      </Item>
+    );
+  };
+}
+
+const composedParts = (soft: string | null): PartSet =>
+  definePartSet({
+    name: soft ? "composed-soft" : "composed",
+    parts: {
+      ...AGENT_NATIVE_PART_SET.parts,
+      "settings.group": ComposedGroup,
+      "settings.row": composedRow(soft),
+    },
+  });
+
+const SOFT_ROW = "gallery.settings.info";
+
+const STYLE_SURFACES: ReadonlyArray<readonly [string, PartSet]> = [
+  ["agent-native", AGENT_NATIVE_PART_SET],
+  ["composed", composedParts(null)],
+  ["composed-soft", composedParts(SOFT_ROW)],
+];
+
+function StyleSurfaces() {
+  return (
+    <SettingsSurfaceProvider surface="page">
+      <div className="flex flex-col gap-8 p-6">
+        {STYLE_SURFACES.map(([name, parts]) => (
+          <div key={name} data-part-set={name} className="w-160">
+            <DesignSystemContext.Provider value={{ definition: { parts } }}>
+              <ModelSurface
+                model={rowsModel}
+                navigate={noop}
+                actions={{ toggle: noop, noop }}
+                slots={SLOTS}
+              />
+            </DesignSystemContext.Provider>
+          </div>
+        ))}
+      </div>
+    </SettingsSurfaceProvider>
+  );
+}
+
+function surface(root: HTMLElement, name: string): HTMLElement {
+  const element = root.querySelector<HTMLElement>(`[data-part-set="${name}"]`);
+  if (!element) throw new Error(`No ${name} surface rendered`);
+  return element;
+}
+
 const meta = {
   title: "Patterns/Settings",
   parameters: { layout: "fullscreen" },
@@ -443,4 +590,38 @@ export const Page: StoryObj = {
 /** Sections as they collapse in a narrow sidebar surface. */
 export const SidebarSurface: StoryObj = {
   render: () => <SidebarSections />,
+};
+
+/**
+ * The same rows drawn by toolkit's parts and by a part set composed from the
+ * same components with its own markup: the row style check finds them painted
+ * alike, and catches the row a third set draws soft.
+ */
+export const RowStyleCheck: StoryObj = {
+  render: () => <StyleSurfaces />,
+  play: async ({ canvasElement }) => {
+    const source = captureRowStyles(surface(canvasElement, "agent-native"));
+    const rows = Object.keys(source);
+    await expect(rows.length).toBeGreaterThan(10);
+
+    const composed = compareRowStyles(
+      source,
+      captureRowStyles(surface(canvasElement, "composed")),
+    );
+    await expect(composed.missing).toEqual([]);
+    await expect(composed.compared).toBe(rows.length);
+    await expect(composed.differences).toEqual([]);
+
+    const soft = compareRowStyles(
+      source,
+      captureRowStyles(surface(canvasElement, "composed-soft")),
+    );
+    await expect(soft.missing).toEqual([]);
+    await expect([
+      ...new Set(soft.differences.map((difference) => difference.rowId)),
+    ]).toEqual([SOFT_ROW]);
+    await expect(
+      soft.differences.map((difference) => difference.property),
+    ).toContain("background-color");
+  },
 };
