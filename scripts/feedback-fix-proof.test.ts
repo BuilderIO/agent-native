@@ -400,7 +400,7 @@ describe("feedback-fix-proof", () => {
 
     assert.match(
       workflow,
-      /pull_request:\s*\n\s+types:\s*\[[^\]]*edited[^\]]*\]/,
+      /pull_request:\s*\n\s+types:\s*\[[^\]]*synchronize[^\]]*\]/,
     );
     assert.equal(
       [...workflow.matchAll(/uses: actions\/checkout@[^\n]+/g)].length,

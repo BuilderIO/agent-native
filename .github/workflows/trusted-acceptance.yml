@@ -83,7 +83,6 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: playwright-${{ runner.os }}-
-          cache: pnpm
 
       - name: Install trusted controller dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
@@ -536,7 +535,6 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
           restore-keys: playwright-${{ runner.os }}-
-          cache: pnpm
 
       - name: Install trusted receipt dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
