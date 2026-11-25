@@ -7,7 +7,7 @@ import { askGrantedDispatchMcpApp } from "../server/lib/mcp-gateway.js";
 
 export default defineAction({
   description:
-    "Route a natural-language request to any app granted through this existing Dispatch MCP connection; do not require a separate app MCP connection. Call list_apps first to see which apps are granted.",
+    "Send a natural-language request to an app accessible through this Dispatch connection. Accepts a granted `app` id (such as those returned by `list_apps`) and routes the message to that app's agent.",
   schema: z.object({
     app: z.string().describe("Granted app id, e.g. mail or calendar."),
     message: z.string().describe("The request to send to that app's agent."),
@@ -15,7 +15,7 @@ export default defineAction({
       .enum(["foreground", "background"])
       .optional()
       .describe(
-        'Set to "background" for secondary lookups so the child app cannot hijack the visible foreground pane.',
+        'Viewport targeting mode; "background" keeps the current foreground pane unchanged.',
       ),
     async: z
       .boolean()

@@ -243,7 +243,7 @@ export const dispatchDirectAppActions: Record<string, ActionEntry> = {
 };
 
 const ASK_APP_DIRECT_ACTIONS_HINT =
-  " For a known step prefer list_app_actions and call_app_action, which skip the app's agent and return in about a second.";
+  " Runs the target app's agent (slower than invoking a single action directly via list_app_actions and call_app_action).";
 
 /**
  * The actions Dispatch serves to its own agent and MCP callers. Direct app
