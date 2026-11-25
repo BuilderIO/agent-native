@@ -27,7 +27,8 @@ import {
   findFilterRule,
   isDefaultFilterState,
   isFilterRuleComplete,
-  pruneFilterState,
+  incompleteFilterRuleIds,
+  pruneFilterGroup,
   removeFilterItem,
   setFilterMode,
   setPinnedFilter,
@@ -74,7 +75,7 @@ function PinnedChip({
   });
   return (
     <span className={CHIP_CLASS}>
-      <Popover>
+      <Popover modal>
         <PopoverTrigger asChild>
           <button
             type="button"
@@ -131,6 +132,7 @@ function RuleChip({
   return (
     <span className={cn(CHIP_CLASS, !complete && "border-dashed")}>
       <Popover
+        modal
         open={open}
         onOpenChange={(next) => {
           setOpen(next);
@@ -191,12 +193,37 @@ function RuleChip({
   );
 }
 
+function groupLabel(
+  group: FilterGroup,
+  fields: readonly FilterField<never>[],
+  text: FilterText,
+): string {
+  const labels = group.rules.flatMap((member): string[] => {
+    if (member.kind === "group") {
+      return completeFilterRules(member, fields).length > 0
+        ? [groupLabel(member, fields, text)]
+        : [];
+    }
+    const field = findFilterField(fields, member.field);
+    return field && isFilterRuleComplete(member, field)
+      ? [text.ruleLabel(field, member)]
+      : [];
+  });
+  return text.t("agentChat.filters.groupChip", {
+    rules: text.formatList(labels, {
+      type: group.mode === "or" ? "disjunction" : "conjunction",
+    }),
+  });
+}
+
 function GroupChip({
   group,
   fields,
   state,
   onChange,
   counts,
+  nestedGroups,
+  groupMode,
   text,
   onOpenChange,
 }: FilterControlProps & {
@@ -206,21 +233,29 @@ function GroupChip({
 }) {
   const stateRef = useRef(state);
   stateRef.current = state;
-  const labels = completeFilterRules(group, fields).flatMap((rule) => {
-    const field = findFilterField(fields, rule.field);
-    return field ? [text.ruleLabel(field, rule)] : [];
-  });
-  const label = text.t("agentChat.filters.groupChip", {
-    rules: text.formatList(labels, {
-      type: group.mode === "or" ? "disjunction" : "conjunction",
-    }),
-  });
+  const unfinishedAtOpen = useRef<ReadonlySet<string>>(new Set());
+  const label = groupLabel(group, fields, text);
   return (
     <span className={CHIP_CLASS}>
       <Popover
+        modal
         onOpenChange={(next) => {
           onOpenChange(next);
-          if (!next) onChange(pruneFilterState(stateRef.current, fields));
+          if (next) {
+            unfinishedAtOpen.current = incompleteFilterRuleIds(
+              stateRef.current,
+              fields,
+            );
+            return;
+          }
+          onChange(
+            pruneFilterGroup(
+              stateRef.current,
+              group.id,
+              fields,
+              unfinishedAtOpen.current,
+            ),
+          );
         }}
       >
         <PopoverTrigger asChild>
@@ -246,6 +281,8 @@ function GroupChip({
               onChange(next);
             }}
             counts={counts}
+            nestedGroups={nestedGroups}
+            groupMode={groupMode}
             text={text}
           />
         </PopoverContent>
@@ -301,7 +338,8 @@ function CopyLinkButton({
 
 export interface FilterBarProps extends FilterControlProps {
   onClear?: () => void;
-  clearable?: boolean;
+  /** Whether the bar offers Clear; by default, whenever a filter is set. */
+  clearable?: boolean | undefined;
   copyLink?: boolean | (() => string);
   className?: string;
   children?: ReactNode;
@@ -312,6 +350,8 @@ export function FilterBar({
   state,
   onChange,
   counts,
+  nestedGroups,
+  groupMode,
   onClear,
   clearable,
   copyLink,
@@ -321,7 +361,7 @@ export function FilterBar({
   const text = useFilterText();
   const shownCounts = useHeldWhilePressed(counts);
   const pinnedFields = fields.filter((field) => field.pinned);
-  const canClear = clearable === true || !isDefaultFilterState(state, fields);
+  const canClear = clearable ?? !isDefaultFilterState(state, fields);
   const [openGroupId, setOpenGroupId] = useState<string | null>(null);
   const items = state.items.filter((item) =>
     item.kind === "group"
@@ -361,6 +401,8 @@ export function FilterBar({
               state={state}
               onChange={onChange}
               counts={shownCounts}
+              nestedGroups={nestedGroups}
+              groupMode={groupMode}
               text={text}
               onOpenChange={(open) => setOpenGroupId(open ? item.id : null)}
             />
@@ -381,6 +423,7 @@ export function FilterBar({
         counts={shownCounts}
         text={text}
         onAdd={(rule) => onChange(addFilterRule(state, rule))}
+        modal
       >
         <Button
           type="button"

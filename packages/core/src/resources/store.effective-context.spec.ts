@@ -8,6 +8,7 @@ import { createTestPglite } from "../a2a/test-pglite.js";
 import { runWithRequestContext } from "../server/request-context.js";
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => sharedClient,
   isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),

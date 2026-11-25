@@ -18,6 +18,7 @@ import {
 } from "../../../src/ui/base-ui/alert-dialog.js";
 import { Button } from "../../../src/ui/base-ui/button.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./alert-dialog.docs.md?raw";
 
 type AlertDialogProps = AlertDialogPopupOwnProps;
 
@@ -33,13 +34,13 @@ function AlertDialogSection(props: AlertDialogProps) {
       {box ? (
         <AlertDialog open>
           <AlertDialogPopup {...props} container={box} initialFocus={false}>
-            <AlertDialogHeader>
+            <AlertDialogHeader render={<header />}>
               <AlertDialogTitle>Delete this project?</AlertDialogTitle>
               <AlertDialogDescription>
                 This removes the project and everything in it.
               </AlertDialogDescription>
             </AlertDialogHeader>
-            <AlertDialogFooter>
+            <AlertDialogFooter render={<footer />}>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
               <AlertDialogAction color="danger">Delete</AlertDialogAction>
             </AlertDialogFooter>
@@ -52,7 +53,11 @@ function AlertDialogSection(props: AlertDialogProps) {
 
 const meta = {
   title: "Components/Alert Dialog",
-  parameters: { layout: "fullscreen" },
+  component: AlertDialogPopup,
+  parameters: {
+    docs: { description: { component: guide } },
+    layout: "fullscreen",
+  },
   args: controls.args,
   argTypes: controls.argTypes,
 } satisfies Meta<AlertDialogProps>;

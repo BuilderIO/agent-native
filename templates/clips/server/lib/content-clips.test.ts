@@ -8,6 +8,7 @@ import { mockEvent, type H3Event } from "h3";
 import {
   afterAll,
   afterEach,
+  beforeAll,
   beforeEach,
   describe,
   expect,
@@ -516,13 +517,9 @@ function afterGrantExpires(issuedAt: number) {
   });
 }
 
-beforeEach(async () => {
+beforeAll(async () => {
   client = await PGlite.create("memory://");
   state.db = drizzle(client);
-  state.blobs.clear();
-  state.notified = [];
-  state.notification = null;
-  __resetContentClipRateLimitsForTests();
   for (const table of [
     schema.recordings,
     schema.recordingShares,
@@ -543,15 +540,25 @@ beforeEach(async () => {
   `);
   await closeDbExec();
   await withDbExec(coreDb(), () => ensureReviewTables());
+});
+
+beforeEach(async () => {
+  const { rows } = await client.query(
+    "SELECT tablename FROM pg_tables WHERE schemaname = 'public'",
+  );
+  await client.exec(
+    `TRUNCATE ${rows.map((row: { tablename: string }) => `"${row.tablename}"`).join(", ")} CASCADE`,
+  );
+  state.blobs.clear();
+  state.notified = [];
+  state.notification = null;
+  __resetContentClipRateLimitsForTests();
   await insertRecording("rec-upload");
   await insertBinding("binding-doc-1");
 });
 
-afterEach(async () => {
+afterAll(async () => {
   await client.close();
-});
-
-afterAll(() => {
   vi.unstubAllEnvs();
 });
 

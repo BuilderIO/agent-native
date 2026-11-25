@@ -33,6 +33,12 @@ const openAppSchema = z.object({
     .describe(
       "What the user wants to see, in their words (for example: my unread email from Dana). Used to pick the app when app is not given; app wins when both are set.",
     ),
+  screen: z
+    .string()
+    .optional()
+    .describe(
+      "Declared manifest screen id to resolve with params, e.g. deck or thread.",
+    ),
   view: z.string().optional().describe("Target view in the app, e.g. inbox."),
   path: z
     .string()
@@ -44,6 +50,12 @@ const openAppSchema = z.object({
     .record(z.string(), deepLinkParam)
     .optional()
     .describe("Optional record-focus or filter params."),
+  focus: z
+    .boolean()
+    .optional()
+    .describe(
+      "Explicitly transfer foreground pane focus when another app was already committed during this turn.",
+    ),
   embed: z
     .boolean()
     .optional()
@@ -155,7 +167,7 @@ async function pickAppForIntent(
 
 export default defineAction({
   description:
-    "Show a found or created mail, event, document, or record when viewing it is the useful result. Pass app (or just intent, in the user's words, to let Dispatch pick the app). Returns a registered app route for the chat client to open beside the conversation.",
+    "Show the result in the app when the ask is to show, open, draft, chart, or review something: a mail or draft, a calendar day, a chart or dashboard, a document, or a record. Call it after reading or saving the data instead of answering with text alone. Pass app, or just intent in the user's words to let Dispatch pick the app. Returns a registered app route for the chat client to open beside the conversation.",
   schema: openAppSchema,
   http: { method: "GET" },
   readOnly: true,
@@ -174,13 +186,14 @@ export default defineAction({
       app = await pickAppForIntent(intent, ctx);
     }
     const normalized = { ...normalizedArgs, app };
-    // An MCP host shows the app from the session the target app mints, so
-    // ask for one unless the caller opted out.
-    const result = await openGrantedDispatchMcpApp(
-      normalized.embed == null && ctx?.caller === "mcp"
-        ? { ...normalized, embed: true }
-        : normalized,
-    );
+    const result =
+      ctx?.caller === "tool"
+        ? await openGrantedDispatchMcpApp(normalized, { prefetchEmbed: true })
+        : await openGrantedDispatchMcpApp(
+            normalized.embed == null && ctx?.caller === "mcp"
+              ? { ...normalized, embed: true }
+              : normalized,
+          );
     const targetApp = normalizeTrackingDimension(result.app) ?? result.app;
     if (targetApp !== "dispatch") {
       track(

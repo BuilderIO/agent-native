@@ -44,6 +44,23 @@ describe("propAttributes", () => {
     });
   });
 
+  it("reads only enumerable, own styling props", () => {
+    const props = Object.create({ size: "sm" });
+    Object.defineProperties(props, {
+      highContrast: { value: true },
+      children: {
+        enumerable: true,
+        get() {
+          throw new Error("Unrelated prop was read");
+        },
+      },
+    });
+    expect(propAttributes(defs, props)).toEqual({
+      "data-size": "md",
+      "data-variant": "solid",
+    });
+  });
+
   it("throws on a value the definition doesn't allow", () => {
     expect(() => propAttributes(defs, { variant: "outline" })).toThrow(
       'variant="outline" is not one of solid, soft',

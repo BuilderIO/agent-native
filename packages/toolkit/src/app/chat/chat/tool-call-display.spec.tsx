@@ -875,6 +875,42 @@ describe("ToolCallDisplay native renderers", () => {
     ).toBeNull();
   });
 
+  it("renders nothing for a call to a tool that does not exist", () => {
+    act(() => {
+      root.render(
+        <>
+          <ToolCallFallback
+            toolName="tool-search_tool_bm25"
+            toolCallId="bad-call"
+            args={{}}
+            argsText="{}"
+            result='Error: Unknown tool "tool-search_tool_bm25"'
+            isError
+            errorCode="unknown_tool"
+          />
+          <ReconnectStreamMessage
+            content={[
+              {
+                type: "tool-call",
+                toolCallId: "bad-call",
+                toolName: "tool-search_tool_bm25",
+                argsText: "{}",
+                args: {},
+                result: 'Error: Unknown tool "tool-search_tool_bm25"',
+                isError: true,
+                errorCode: "unknown_tool",
+              },
+            ]}
+          />
+        </>,
+      );
+    });
+
+    expect(container.textContent).not.toContain("tool-search_tool_bm25");
+    expect(container.textContent).not.toContain("Unknown tool");
+    expect(container.querySelector(".agent-tool-call")).toBeNull();
+  });
+
   it("reports an interrupted tool as unknown rather than failed", () => {
     act(() => {
       root.render(

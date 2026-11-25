@@ -57,7 +57,11 @@ import searchEverythingAction from "../../actions/search-everything.js";
 import searchKnowledgeAction from "../../actions/search-knowledge.js";
 import writeKnowledgeAction from "../../actions/write-knowledge.js";
 import { schema } from "../db/index.js";
-import { knowledgeRevision, writeKnowledgeRecord } from "./brain.js";
+import {
+  knowledgeRevision,
+  validateEvidence,
+  writeKnowledgeRecord,
+} from "./brain.js";
 
 const qaEmail = "qa-fleet@builder.io";
 const client = new PGlite();
@@ -227,6 +231,72 @@ describe("redacted evidence-backed knowledge stays retrievable", () => {
 });
 
 describe("redaction covers every displayed field", () => {
+  it("does not save or return a meeting time covered by an explicit redaction", async () => {
+    await database
+      .update(schema.brainRawCaptures)
+      .set({
+        externalId: "markdown:meeting.md",
+        metadataJson: JSON.stringify({ capturedAtSource: "manual-markdown" }),
+      })
+      .where(eq(schema.brainRawCaptures.id, "capture"));
+    const saved = await asQa(() =>
+      writeKnowledgeRecord({
+        title: "Atlas launch",
+        body: "The launch is planned.",
+        evidence: [{ captureId: "capture", quote: "Morgan will ship Atlas" }],
+        redactions: ["2026-11"],
+        publishTier: "company",
+      }),
+    );
+    const row = await storedRow(saved.knowledge.id);
+    expect(row.status).toBe("redacted");
+    expect(row.evidenceJson).not.toContain("2026-11");
+    const fetched = await asQa(() =>
+      getKnowledgeAction.run({ id: saved.knowledge.id }),
+    );
+    expect(JSON.stringify(fetched)).not.toContain("2026-11-18T12:00:00.000Z");
+    expect(fetched.knowledge?.evidence[0]).not.toHaveProperty("capturedAt");
+  });
+
+  it.each(["2026-11", "Nov 18", "November 18", "18 novembre"])(
+    "does not bring a redacted meeting time back after an edit for %s",
+    async (redaction) => {
+      await database
+        .update(schema.brainRawCaptures)
+        .set({
+          externalId: "markdown:meeting.md",
+          metadataJson: JSON.stringify({ capturedAtSource: "manual-markdown" }),
+        })
+        .where(eq(schema.brainRawCaptures.id, "capture"));
+      const saved = await asQa(() =>
+        writeKnowledgeRecord({
+          title: "Atlas launch",
+          body: "The launch is planned.",
+          evidence: [{ captureId: "capture", quote: "Morgan will ship Atlas" }],
+          redactions: [redaction],
+          publishTier: "company",
+        }),
+      );
+      expect(saved.knowledge.status).toBe("redacted");
+      expect(saved.knowledge.evidence[0]).not.toHaveProperty("capturedAt");
+      const id = saved.knowledge.id;
+      const expectedRevision = knowledgeRevision(await storedRow(id));
+      await asQa(() =>
+        writeKnowledgeRecord({
+          knowledgeId: id,
+          expectedRevision,
+          title: "Atlas launch plan",
+          body: "The launch is planned.",
+        }),
+      );
+      const row = await storedRow(id);
+      expect(row.title).toBe("Atlas launch plan");
+      expect(row.evidenceJson).not.toContain("2026-11");
+      const fetched = await asQa(() => getKnowledgeAction.run({ id }));
+      expect(JSON.stringify(fetched)).not.toContain("2026-11-18T12:00:00.000Z");
+      expect(fetched.knowledge?.evidence[0]).not.toHaveProperty("capturedAt");
+    },
+  );
   const safeUrl = "https://example.test/notes/atlas";
   const encodedDestination = (times: number) => {
     let at = "@";
@@ -290,6 +360,25 @@ describe("redaction covers every displayed field", () => {
       expect(seen.output).not.toContain(contact);
     },
   );
+
+  it("returns no source URL for a receipt-free transcript that has an omission marker", async () => {
+    await database
+      .update(schema.brainRawCaptures)
+      .set({
+        kind: "transcript",
+        content: `${captureContent}\n[…]\nThe rest of the call.`,
+        metadataJson: JSON.stringify({
+          sourceUrl: "https://example.test/full-recording",
+        }),
+      })
+      .where(eq(schema.brainRawCaptures.id, "capture"));
+    const [item] = await asQa(() =>
+      validateEvidence([
+        { captureId: "capture", quote: "Morgan will ship Atlas" },
+      ]),
+    );
+    expect(item).not.toHaveProperty("sourceUrl");
+  });
 
   it("keeps an ordinary safe citation URL on a redacted row", async () => {
     const saved = await asQa(() =>

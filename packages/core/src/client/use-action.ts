@@ -338,6 +338,7 @@ type InternalActionFetchOptions = ActionFetchOptions & {
   uiCapabilityRetry?: boolean;
   /** A GET that may share one request with the other GETs in its tick. */
   batch?: boolean;
+  batchGroup?: string;
   /** Internal: never retain a private request body beyond transport handoff. */
   privateInput?: boolean;
   /** Internal: this read was already re-sent with the method the action declared. */
@@ -354,16 +355,6 @@ const UI_CAPABILITY_MINT_TIMEOUT_MS = 10_000;
 let uiCapabilityRequest: Promise<void> | undefined;
 let uiCapabilityRequestIdentity: string | null | undefined;
 let abortUiCapabilityRequest: (() => void) | undefined;
-
-/** A caller asked to share a mint another identity's session is waiting on. */
-class UiCapabilityIdentityError extends Error {
-  constructor() {
-    super(
-      "A UI capability for a different user is still being established; retry once it settles.",
-    );
-    this.name = "UiCapabilityIdentityError";
-  }
-}
 
 // The capability is the Set-Cookie header, so the mint is answered by its
 // status. Its body must still be read, or the request stays open and the page
@@ -470,6 +461,34 @@ function abandonUiCapabilityMint(): void {
   uiCapabilityRequest = undefined;
 }
 
+class UiCapabilityIdentityError extends Error {
+  constructor() {
+    super("The signed-in session changed while waiting for the UI capability.");
+    this.name = "UiCapabilityIdentityError";
+  }
+}
+
+function waitForUiCapabilityMint(
+  request: Promise<void>,
+  signal?: AbortSignal,
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      signal?.removeEventListener("abort", onAbort);
+      reject(signal?.reason);
+    };
+    if (signal?.aborted) return reject(signal.reason);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    void request
+      .then(
+        () => undefined,
+        () => undefined,
+      )
+      .then(resolve)
+      .finally(() => signal?.removeEventListener("abort", onAbort));
+  });
+}
+
 // The mint is shared by concurrent callers, so one caller's abort rejects only
 // its own wait and never cancels the request the others are waiting on.
 function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
@@ -478,7 +497,13 @@ function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
   // A pending mint was sent with the cookies of the session that started it.
   // Another identity waiting on it would act under that session's capability.
   if (uiCapabilityRequest && uiCapabilityRequestIdentity !== identity) {
-    return Promise.reject(new UiCapabilityIdentityError());
+    const scope = currentSessionScope();
+    return waitForUiCapabilityMint(uiCapabilityRequest, signal).then(() => {
+      if (currentSessionScope() !== scope) {
+        throw new UiCapabilityIdentityError();
+      }
+      return ensureUiActionCapability(signal);
+    });
   }
   if (!uiCapabilityRequest) {
     uiCapabilityRequestIdentity = identity;
@@ -603,6 +628,7 @@ function presentUiCapability(
   signal: AbortSignal | undefined,
 ): Promise<void> | undefined {
   const identity = currentSessionIdentity();
+  const scope = currentSessionScope();
   const headers = new Headers(options?.headers);
   const interactiveRead =
     method === "GET" && headers.get("x-agent-native-interactive") === "1";
@@ -623,14 +649,16 @@ function presentUiCapability(
     return undefined;
   } else {
     pending = ensureUiActionCapability(signal).catch((error) => {
-      if (signal?.aborted || error instanceof UiCapabilityIdentityError)
-        throw error;
+      if (signal?.aborted) throw error;
     });
   }
   // The request leaves only after the mint, using the browser’s current
   // cookies. Never send it under an identity that changed while waiting.
   return pending.then(() => {
-    if (currentSessionIdentity() !== identity) {
+    if (
+      currentSessionIdentity() !== identity ||
+      currentSessionScope() !== scope
+    ) {
       throw new Error(
         "The signed-in user changed before this action was sent.",
       );
@@ -667,12 +695,20 @@ function utf8ByteLength(value: string): number {
  * refused where its GETs would pass, so an embed keeps one request per call.
  */
 function canBatchActionGet(options?: InternalActionFetchOptions): boolean {
-  return (
-    options?.batch === true &&
-    options.responseType !== "blob" &&
-    options.headers === undefined &&
-    !isEmbedAuthActive()
-  );
+  if (options?.batch !== true) return false;
+  if (options.responseType === "blob") {
+    console.debug(
+      "[agent-native] Skipping action-GET batching: responseType is blob",
+    );
+    return false;
+  }
+  if (isEmbedAuthActive()) {
+    console.debug(
+      "[agent-native] Skipping action-GET batching: embed auth is active",
+    );
+    return false;
+  }
+  return true;
 }
 
 function waitForActionSend(
@@ -823,6 +859,9 @@ async function performActionFetch<T>(
               init,
               headers,
               batchUrl: `${actionPrefix()}/${ACTION_BATCH_ACTION_NAME}`,
+              ...(options?.batchGroup
+                ? { batchGroup: options.batchGroup }
+                : {}),
             })
           : (() => {
               try {
@@ -1880,6 +1919,7 @@ export function useActionQuery<
      * than waiting on the other reads in their batch.
      */
     batchRefetches?: boolean;
+    batchInitial?: boolean;
     /** Captures a local projection fence before the authorized read starts. */
     onRequestStart?: () => unknown;
     /** Receives canonical responses only, never optimistic query-cache writes. */
@@ -1900,6 +1940,7 @@ export function useActionQuery<
     queryKeyScope,
     resources,
     batchRefetches,
+    batchInitial,
     onRequestStart,
     onServerResult,
     onServerError,
@@ -1959,6 +2000,8 @@ export function useActionQuery<
     queryFn: async ({ signal, client }) => {
       const key = circuitKey();
       const query = client.getQueryCache().find({ queryKey, exact: true });
+      const initialBatch =
+        batchInitial === true && query?.state.data === undefined;
       if (!restOptions.refetchIntervalInBackground && isSurfaceHidden())
         throw new CancelledError({ revert: true });
       const foreground =
@@ -1989,7 +2032,10 @@ export function useActionQuery<
               visibleOnly: !restOptions.refetchIntervalInBackground,
               uiOnly: uiOnly || interactive,
               ...(retryUiCapability === undefined ? {} : { retryUiCapability }),
-              batch: method === "GET" && canBatchActionQueryFetch(query),
+              batch:
+                method === "GET" &&
+                (initialBatch || canBatchActionQueryFetch(query)),
+              ...(initialBatch ? { batchGroup: "initial" } : {}),
               onResponse: (response) => {
                 lastResponse = response;
                 onResponse(response);

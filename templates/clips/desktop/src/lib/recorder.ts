@@ -15,6 +15,7 @@ import {
   subscribeCameraCutoutPreference,
 } from "./camera-cutout-preference";
 import { setTakeClipLimitMs } from "./clip-duration-limit";
+import { loadCountdownPreference } from "./countdown-preference";
 import { finalizeAfterDurableBackup } from "./finalization-guard";
 import {
   createLocalRecordingFolderName,
@@ -249,6 +250,7 @@ export interface StartParams {
   mode: CaptureMode;
   source?: CaptureSource;
   cameraId?: string;
+  cameraLabel?: string;
   micId?: string;
   micLabel?: string;
   authToken?: string;
@@ -2905,6 +2907,14 @@ async function runRecordingCountdown(
   callbacks?: { onPresented?: () => void; onShown?: () => void },
   attemptId: string = crypto.randomUUID(),
 ) {
+  if (!loadCountdownPreference()) {
+    throwIfRecordingStartAborted(signal);
+    await showRegionGuidesForRecording(wantsScreen);
+    callbacks?.onShown?.();
+    await invoke("toolbar_set_visible", { visible: true }).catch(() => {});
+    callbacks?.onPresented?.();
+    return;
+  }
   const countdown = await prepareCountdownEventWaiter(signal, attemptId);
   throwIfRecordingStartAborted(signal);
   await showRegionGuidesForRecording(wantsScreen);
@@ -3989,6 +3999,11 @@ async function startNativeFullscreenRecording(
       localOnly,
       hasCamera: wantsCamera,
       richTracks: params.richTracks === true,
+      cameraLabel:
+        params.richTracks === true && wantsCamera
+          ? params.preAcquiredCameraStream?.getVideoTracks()[0]?.label ||
+            params.cameraLabel
+          : undefined,
     });
     await guardRecordingStart(beginPromise, { signal: params.signal });
     assertStartupActive();

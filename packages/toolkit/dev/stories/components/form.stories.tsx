@@ -16,11 +16,12 @@ import {
   NumberFieldDecrement,
   NumberFieldIncrement,
 } from "../../../src/ui/base-ui/number-field.js";
+import guide from "./form.docs.md?raw";
 
 const meta = {
   title: "Components/Form",
   component: Form,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   decorators: [
     (Story) => (
       <div className="w-80">

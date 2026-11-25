@@ -83,6 +83,7 @@ import {
   listAccessibleAudienceIds,
 } from "./audiences.js";
 import {
+  publicCaptureTitle,
   sanitizeCaptureForStorage,
   type CaptureSanitizationResult,
 } from "./capture-sanitization.js";
@@ -97,6 +98,11 @@ import {
 } from "./knowledge-provenance.js";
 import {
   BRAIN_SENSITIVITY_POLICY_VERSION,
+  parseCaptureMetadata,
+  publicCaptureExternalId,
+  publicCaptureMetadata,
+  withOmissionReceipt,
+  readWithheldPassages,
   type BrainAudienceAssignment,
   type BrainSensitivityDecision,
 } from "./search-index-contracts.js";
@@ -202,7 +208,7 @@ export function sourceUrlFromMetadataRecord(
   metadata: Record<string, unknown>,
 ): string | null {
   for (const key of SOURCE_URL_METADATA_KEYS) {
-    const value = safeCitationUrl(metadata[key]);
+    const value = safeCitationUrl(publicCaptureMetadata(metadata)[key]);
     if (value) return value;
   }
   return null;
@@ -225,6 +231,7 @@ export function sanitizeEvidenceCitationUrls(
 ): BrainEvidence[] {
   return evidence.map((item) => {
     const next: BrainEvidence = { ...item };
+    if (next.capturedAtSource !== "manual-markdown") delete next.capturedAt;
     const sourceUrl = safeCitationUrl(next.sourceUrl);
     const url = safeCitationUrl(next.url);
     if (sourceUrl) next.sourceUrl = sourceUrl;
@@ -498,15 +505,20 @@ export function serializeSource(row: typeof schema.brainSources.$inferSelect) {
 export function serializeCapture(
   row: typeof schema.brainRawCaptures.$inferSelect,
 ) {
+  const metadata = parseCaptureMetadata(
+    withOmissionReceipt(row.metadataJson, row.content, row.kind),
+  );
+  const partial =
+    metadata !== null && readWithheldPassages(metadata) !== undefined;
   return {
     id: row.id,
     sourceId: row.sourceId,
-    externalId: row.externalId,
-    title: row.title,
+    externalId: publicCaptureExternalId(row.externalId, metadata, row.kind),
+    title: publicCaptureTitle(row.title, partial),
     kind: row.kind as BrainCaptureKind,
     content: row.content,
     contentHash: row.contentHash,
-    metadata: parseJson(row.metadataJson, {}),
+    metadata: publicCaptureMetadata(metadata),
     capturedAt: row.capturedAt,
     importedBy: row.importedBy,
     status: row.status,
@@ -928,6 +940,7 @@ function captureMetadataFingerprint(metadata: Record<string, unknown>) {
   delete comparable.captureSanitization;
   // Connectors stamp every re-pull with a fresh run id; it must not re-queue unchanged captures.
   delete comparable.syncRunId;
+  delete comparable.capturedAtExplicit;
   return stableJson(comparable);
 }
 
@@ -936,10 +949,11 @@ export type CaptureInput = {
   sourceId: string;
   externalId?: string | null | undefined;
   title: string;
-  kind: BrainCaptureKind;
+  kind?: BrainCaptureKind | undefined;
   content: string;
   metadata?: Record<string, unknown> | undefined;
   capturedAt?: string | undefined;
+  capturedAtSource?: "manual-markdown" | undefined;
   status?: "queued" | "distilling" | "distilled" | "ignored";
   audience?: {
     kind: BrainAudienceAssignment["kind"];
@@ -955,7 +969,8 @@ export interface PreparedCapture {
   readonly [preparedCaptureBrand]: true;
 }
 interface PreparedCaptureData {
-  values: CaptureInput;
+  values: CaptureInput & { kind: BrainCaptureKind };
+  preserveExistingKind: boolean;
   actor: string;
   sourceRevision: string;
   settingsRevision: string;
@@ -990,6 +1005,26 @@ export async function prepareCapture(
     : null;
   if (upstreamDeletionReceipt)
     throw new BrainCaptureBlockedError(upstreamDeletionReceipt);
+  const preserveExistingKind = values.kind === undefined;
+  const existing =
+    preserveExistingKind && values.externalId
+      ? firstRow(
+          await getDb()
+            .select({ kind: schema.brainRawCaptures.kind })
+            .from(schema.brainRawCaptures)
+            .where(
+              and(
+                eq(schema.brainRawCaptures.sourceId, values.sourceId),
+                eq(schema.brainRawCaptures.externalId, values.externalId),
+              ),
+            )
+            .limit(1),
+        )
+      : undefined;
+  const resolvedValues: CaptureInput & { kind: BrainCaptureKind } = {
+    ...values,
+    kind: values.kind ?? existing?.kind ?? "document",
+  };
   const settings = await readBrainSettings();
   const actor = requireUserEmail().trim().toLowerCase();
   const sourceRevision = captureScreeningSourceRevision(source);
@@ -999,7 +1034,7 @@ export async function prepareCapture(
     values.metadata,
   );
   const sanitized = await sanitizeCaptureForStorage({
-    kind: values.kind,
+    kind: resolvedValues.kind,
     title: values.title,
     content: values.content,
     metadata,
@@ -1011,7 +1046,9 @@ export async function prepareCapture(
       ownerEmail: source.ownerEmail,
       orgId: source.orgId,
     },
-    sourceConfig: parseJson<Record<string, unknown>>(source.configJson, {}),
+    sourceConfig: parseCaptureMetadata(source.configJson) ?? {
+      unreadableSourceConfig: true,
+    },
     settings: values.privacyClassifier
       ? { ...settings, privacyClassifier: values.privacyClassifier }
       : settings,
@@ -1020,7 +1057,8 @@ export async function prepareCapture(
     [preparedCaptureBrand]: true as const,
   });
   preparedCaptures.set(token, {
-    values,
+    values: resolvedValues,
+    preserveExistingKind,
     actor,
     sourceRevision,
     settingsRevision,
@@ -1079,11 +1117,21 @@ export async function commitPreparedCaptureWithWarnings(
           .limit(1)
       : [],
   );
+  const existingRevision = existing ? stableJson(existing) : null;
   const upstreamDeletionReceipt = values.externalId
     ? await findUpstreamDeletionReceipt(values.sourceId, values.externalId)
     : null;
   if (upstreamDeletionReceipt)
     throw new BrainCaptureBlockedError(upstreamDeletionReceipt);
+  if (
+    prepared.preserveExistingKind &&
+    existing &&
+    existing.kind !== values.kind
+  ) {
+    throw new Error(
+      "Capture kind changed during screening. Screen the capture again before storing it.",
+    );
+  }
 
   if (!sanitized.decision || sanitized.decision.disposition !== "allowed") {
     const receipt = await recordBlockedCapture({
@@ -1106,18 +1154,51 @@ export async function commitPreparedCaptureWithWarnings(
     throw new BrainCaptureBlockedError(receipt);
   }
   const nextContentHash = await contentHash(sanitized.content);
-  const nextMetadataJson = stableJson(sanitized.metadata);
-  const nextCapturedAt = values.capturedAt ?? existing?.capturedAt ?? now;
+  const previousMetadata = existing
+    ? parseJson<Record<string, unknown>>(existing.metadataJson, {})
+    : {};
+  const nextMetadata = { ...sanitized.metadata };
+  if (
+    source.provider === "manual" &&
+    values.externalId?.startsWith("markdown:") &&
+    nextMetadata.participantsCount === undefined &&
+    typeof previousMetadata.participantsCount === "number" &&
+    Number.isInteger(previousMetadata.participantsCount) &&
+    previousMetadata.participantsCount >= 0 &&
+    previousMetadata.participantsCount <= 100
+  ) {
+    nextMetadata.participantsCount = previousMetadata.participantsCount;
+  }
+  delete nextMetadata.capturedAtExplicit;
+  delete nextMetadata.capturedAtSource;
+  if (
+    source.provider === "manual" &&
+    values.externalId?.startsWith("markdown:") &&
+    ((values.capturedAt && values.capturedAtSource === "manual-markdown") ||
+      (!values.capturedAt &&
+        previousMetadata.capturedAtSource === "manual-markdown"))
+  ) {
+    nextMetadata.capturedAtSource = "manual-markdown";
+  }
+  const nextMetadataJson = stableJson(nextMetadata);
+  const requestedCapturedAt = values.capturedAt ?? existing?.capturedAt ?? now;
+  const nextCapturedAt =
+    existing &&
+    Number.isFinite(Date.parse(existing.capturedAt)) &&
+    Date.parse(existing.capturedAt) === Date.parse(requestedCapturedAt)
+      ? existing.capturedAt
+      : requestedCapturedAt;
   const contentChanged = existing?.contentHash !== nextContentHash;
   const metadataChanged = Boolean(
     existing &&
     captureMetadataFingerprint(
       parseJson<Record<string, unknown>>(existing.metadataJson, {}),
-    ) !== captureMetadataFingerprint(sanitized.metadata),
+    ) !== captureMetadataFingerprint(nextMetadata),
   );
   const indexedMetadataChanged = Boolean(
     existing &&
     (existing.title !== sanitized.title ||
+      existing.kind !== values.kind ||
       existing.capturedAt !== nextCapturedAt),
   );
   const derivedInputChanged =
@@ -1132,6 +1213,7 @@ export async function commitPreparedCaptureWithWarnings(
         ? null
         : (existing?.distilledAt ?? null);
   const captureId = existing?.id ?? id;
+  let guardedRevision = existingRevision;
   try {
     if (!existing) {
       await db.insert(schema.brainRawCaptures).values({
@@ -1153,6 +1235,15 @@ export async function commitPreparedCaptureWithWarnings(
         createdAt: now,
         updatedAt: now,
       });
+      const inserted = firstRow(
+        await db
+          .select()
+          .from(schema.brainRawCaptures)
+          .where(eq(schema.brainRawCaptures.id, captureId))
+          .limit(1),
+      );
+      if (!inserted) throw new BrainCaptureConcurrentError();
+      guardedRevision = stableJson(inserted);
     }
   } catch (err) {
     if (!existing) {
@@ -1173,7 +1264,7 @@ export async function commitPreparedCaptureWithWarnings(
           )
           .limit(1),
       );
-      if (raced) return { capture: raced };
+      if (raced) throw new BrainCaptureConcurrentError();
     }
     throw err;
   }
@@ -1217,7 +1308,7 @@ export async function commitPreparedCaptureWithWarnings(
   const audienceInvalidations: Array<() => Promise<AudienceInvalidationFlush>> =
     [];
   const {
-    value: { result: finalized, audience },
+    value: { result: finalized, audience, saved },
     effects,
   } = await transactWithResourceStore(
     db,
@@ -1244,6 +1335,28 @@ export async function commitPreparedCaptureWithWarnings(
         ],
         scoped,
       );
+      if (guardedRevision !== null || prepared.preserveExistingKind) {
+        const current = firstRow(
+          await scoped
+            .select()
+            .from(schema.brainRawCaptures)
+            .where(eq(schema.brainRawCaptures.id, captureId))
+            .limit(1),
+        );
+        if (
+          guardedRevision !== null &&
+          (!current || stableJson(current) !== guardedRevision)
+        )
+          throw new BrainCaptureConcurrentError();
+        if (
+          prepared.preserveExistingKind &&
+          (!current || current.kind !== values.kind)
+        ) {
+          throw new Error(
+            "Capture kind changed during screening. Screen the capture again before storing it.",
+          );
+        }
+      }
       const audience = await ensureCaptureAudience(audienceInput);
       const result = (await scoped
         .update(schema.brainRawCaptures)
@@ -1267,7 +1380,14 @@ export async function commitPreparedCaptureWithWarnings(
         !(result.rowsAffected === 0 && values.externalId)
       )
         await invalidateDerivedForLockedCapture(captureId, scoped, effects);
-      return { result, audience };
+      const saved = firstRow(
+        await scoped
+          .select()
+          .from(schema.brainRawCaptures)
+          .where(eq(schema.brainRawCaptures.id, captureId))
+          .limit(1),
+      );
+      return { result, audience, saved };
     },
   );
   const committedEffects = await runAfterCommitEffects(effects);
@@ -1301,11 +1421,8 @@ export async function commitPreparedCaptureWithWarnings(
     if (receipt) throw new BrainCaptureBlockedError(receipt);
     throw new Error("Capture finalization was blocked");
   }
-  const [capture] = await db
-    .select()
-    .from(schema.brainRawCaptures)
-    .where(eq(schema.brainRawCaptures.id, captureId))
-    .limit(1);
+  const capture = saved;
+  if (!capture) throw new BrainCaptureConcurrentError();
   const invalidationReason = derivedInputChanged
     ? "content-changed"
     : existing.audienceAclHash !== audience.aclHash
@@ -1313,7 +1430,9 @@ export async function commitPreparedCaptureWithWarnings(
       : existing.sensitivityPolicyVersion !== sanitized.decision.policyVersion
         ? "sensitivity-changed"
         : null;
-  if (!invalidationReason) return { capture, ...warningsNow() };
+  if (!invalidationReason) {
+    return { capture, ...warningsNow() };
+  }
   try {
     await enqueueCaptureInvalidation({
       captureId,
@@ -1360,6 +1479,13 @@ export interface BrainSensitivityReceipt {
   confidenceBand: BrainSensitivityDecision["confidenceBand"];
   policyVersion: string;
   expiresAt: string | null;
+}
+
+export class BrainCaptureConcurrentError extends Error {
+  constructor() {
+    super("Capture changed concurrently. Retry the import.");
+    this.name = "BrainCaptureConcurrentError";
+  }
 }
 
 export class BrainCaptureBlockedError extends Error {
@@ -1766,6 +1892,33 @@ async function invalidateDerivedForLockedCapture(
   }
 }
 
+async function discardUnreferencedQuarantineBlob(
+  db: DbHandle,
+  eventLocator: ReturnType<typeof and>,
+  handle: string | null,
+) {
+  if (!handle) return;
+  try {
+    const event = firstRow(
+      await db
+        .select({
+          quarantineBlobHandle:
+            schema.brainSensitivityEvents.quarantineBlobHandle,
+        })
+        .from(schema.brainSensitivityEvents)
+        .where(eventLocator)
+        .limit(1),
+    );
+    if (event?.quarantineBlobHandle === handle) return;
+  } catch (error) {
+    console.warn(
+      "[brain] Checking whether the quarantine blob is referenced failed; deleting it:",
+      error instanceof Error ? error.message : "unknown error",
+    );
+  }
+  await deleteQuarantineHandle(handle);
+}
+
 export async function recordBlockedCapture(input: {
   id: string;
   existing: typeof schema.brainRawCaptures.$inferSelect | null;
@@ -1780,23 +1933,25 @@ export async function recordBlockedCapture(input: {
   const locatorHmac = await sha256Hex(
     `${input.source.id}\0${input.values.externalId ?? (await contentHash(input.values.content))}`,
   );
-  const [prior] = await db
-    .select({
-      id: schema.brainSensitivityEvents.id,
-      quarantineBlobHandle: schema.brainSensitivityEvents.quarantineBlobHandle,
-    })
-    .from(schema.brainSensitivityEvents)
-    .where(
-      and(
-        eq(schema.brainSensitivityEvents.locatorHmac, locatorHmac),
-        eq(
-          schema.brainSensitivityEvents.policyVersion,
-          input.decision.policyVersion,
+  const prior = firstRow(
+    await db
+      .select({
+        id: schema.brainSensitivityEvents.id,
+        quarantineBlobHandle:
+          schema.brainSensitivityEvents.quarantineBlobHandle,
+      })
+      .from(schema.brainSensitivityEvents)
+      .where(
+        and(
+          eq(schema.brainSensitivityEvents.locatorHmac, locatorHmac),
+          eq(
+            schema.brainSensitivityEvents.policyVersion,
+            input.decision.policyVersion,
+          ),
         ),
-      ),
-    )
-    .limit(1);
-  await deleteQuarantineHandle(prior?.quarantineBlobHandle);
+      )
+      .limit(1),
+  );
   let disposition: "suppressed" | "quarantined" =
     input.decision.disposition === "suppressed" ? "suppressed" : "quarantined";
   let quarantineBlobHandle: string | null = null;
@@ -1823,73 +1978,145 @@ export async function recordBlockedCapture(input: {
     }
   }
   const eventId = prior?.id ?? `sensitivity_${nanoid(18)}`;
-  await db
-    .insert(schema.brainSensitivityEvents)
-    .values({
-      id: eventId,
-      sourceId: input.source.id,
-      captureId: input.existing?.id ?? null,
-      locatorHmac,
-      disposition,
-      categoriesJson: stableJson(input.decision.categories),
-      decisionScoresJson: input.decision.categoryScores
-        ? stableJson(input.decision.categoryScores)
-        : null,
-      classifierFailureReason: input.classifierFailureReason ?? null,
-      confidenceBand: input.decision.confidenceBand,
-      policyVersion: input.decision.policyVersion,
-      upstreamProvider: input.source.provider,
-      quarantineBlobHandle,
-      expiresAt,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .onConflictDoUpdate({
-      target: [
-        schema.brainSensitivityEvents.locatorHmac,
-        schema.brainSensitivityEvents.policyVersion,
-      ],
-      set: {
-        captureId: input.existing?.id ?? null,
-        disposition,
-        categoriesJson: stableJson(input.decision.categories),
-        decisionScoresJson: input.decision.categoryScores
-          ? stableJson(input.decision.categoryScores)
-          : null,
-        classifierFailureReason: input.classifierFailureReason ?? null,
-        confidenceBand: input.decision.confidenceBand,
-        quarantineBlobHandle,
-        expiresAt,
-        reviewedBy: null,
-        reviewedAt: null,
-        updatedAt: now,
-      },
-    });
-  if (input.existing) {
-    const existingId = input.existing.id;
-    const blockedContentHash = await contentHash("");
-    const { effects } = await transactWithResourceStore(
-      db,
-      await capturePublishesResources(existingId, db),
-      async (scoped, effects) => {
-        await lockCaptureRows([existingId], scoped);
-        await invalidateDerivedForLockedCapture(existingId, scoped, effects);
-        await scoped
-          .update(schema.brainRawCaptures)
-          .set({
-            title: "Privacy-blocked capture",
-            content: "",
-            contentHash: blockedContentHash,
-            metadataJson: "{}",
-            status: "ignored",
-            sensitivityDisposition: "pending",
-            sensitivityPolicyVersion: input.decision.policyVersion,
-            audienceAclHash: null,
-            updatedAt: now,
-          })
-          .where(eq(schema.brainRawCaptures.id, existingId));
-      },
+  const eventLocator = and(
+    eq(schema.brainSensitivityEvents.locatorHmac, locatorHmac),
+    eq(
+      schema.brainSensitivityEvents.policyVersion,
+      input.decision.policyVersion,
+    ),
+  );
+  const eventValues = {
+    captureId: input.existing?.id ?? null,
+    disposition,
+    categoriesJson: stableJson(input.decision.categories),
+    decisionScoresJson: input.decision.categoryScores
+      ? stableJson(input.decision.categoryScores)
+      : null,
+    classifierFailureReason: input.classifierFailureReason ?? null,
+    confidenceBand: input.decision.confidenceBand,
+    quarantineBlobHandle,
+    expiresAt,
+    updatedAt: now,
+  };
+  const readEventHandle = async (scoped: DbHandle) =>
+    firstRow(
+      await scoped
+        .select({
+          id: schema.brainSensitivityEvents.id,
+          quarantineBlobHandle:
+            schema.brainSensitivityEvents.quarantineBlobHandle,
+        })
+        .from(schema.brainSensitivityEvents)
+        .where(eventLocator)
+        .limit(1),
     );
+  const writeSensitivityEvent = async (
+    scoped: DbHandle,
+  ): Promise<{ id: string; displacedHandle: string | null }> => {
+    const insertEvent = () =>
+      scoped
+        .insert(schema.brainSensitivityEvents)
+        .values({
+          id: eventId,
+          sourceId: input.source.id,
+          locatorHmac,
+          policyVersion: input.decision.policyVersion,
+          upstreamProvider: input.source.provider,
+          createdAt: now,
+          ...eventValues,
+        })
+        .onConflictDoNothing({
+          target: [
+            schema.brainSensitivityEvents.locatorHmac,
+            schema.brainSensitivityEvents.policyVersion,
+          ],
+        })
+        .returning({ id: schema.brainSensitivityEvents.id });
+    const overwrite = (where: ReturnType<typeof and>) =>
+      scoped
+        .update(schema.brainSensitivityEvents)
+        .set({ ...eventValues, reviewedBy: null, reviewedAt: null })
+        .where(where)
+        .returning({ id: schema.brainSensitivityEvents.id });
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const inserted = await insertEvent();
+      if (inserted.length) return { id: eventId, displacedHandle: null };
+      const current = await readEventHandle(scoped);
+      if (!current) continue;
+      const applied = await overwrite(
+        and(
+          eventLocator,
+          current.quarantineBlobHandle === null
+            ? isNull(schema.brainSensitivityEvents.quarantineBlobHandle)
+            : eq(
+                schema.brainSensitivityEvents.quarantineBlobHandle,
+                current.quarantineBlobHandle,
+              ),
+        ),
+      );
+      if (applied.length)
+        return {
+          id: current.id,
+          displacedHandle: current.quarantineBlobHandle,
+        };
+    }
+    throw new BrainCaptureConcurrentError();
+  };
+  let effects: AfterCommitEffects | undefined;
+  let written: { id: string; displacedHandle: string | null };
+  try {
+    if (input.existing) {
+      const existingId = input.existing.id;
+      const existingRevision = stableJson(input.existing);
+      const blockedContentHash = await contentHash("");
+      let result: { id: string; displacedHandle: string | null } | undefined;
+      ({ effects } = await transactWithResourceStore(
+        db,
+        await capturePublishesResources(existingId, db),
+        async (scoped, effects) => {
+          await lockCaptureRows([existingId], scoped);
+          const current = firstRow(
+            await scoped
+              .select()
+              .from(schema.brainRawCaptures)
+              .where(eq(schema.brainRawCaptures.id, existingId))
+              .limit(1),
+          );
+          if (!current || stableJson(current) !== existingRevision)
+            throw new BrainCaptureConcurrentError();
+          result = await writeSensitivityEvent(scoped);
+          await invalidateDerivedForLockedCapture(existingId, scoped, effects);
+          await scoped
+            .update(schema.brainRawCaptures)
+            .set({
+              title: "Privacy-blocked capture",
+              content: "",
+              contentHash: blockedContentHash,
+              metadataJson: "{}",
+              status: "ignored",
+              sensitivityDisposition: "pending",
+              sensitivityPolicyVersion: input.decision.policyVersion,
+              audienceAclHash: null,
+              updatedAt: now,
+            })
+            .where(eq(schema.brainRawCaptures.id, existingId));
+        },
+      ));
+      if (!result) throw new BrainCaptureConcurrentError();
+      written = result;
+    } else {
+      written = await writeSensitivityEvent(db);
+    }
+  } catch (error) {
+    await discardUnreferencedQuarantineBlob(
+      db,
+      eventLocator,
+      quarantineBlobHandle,
+    );
+    throw error;
+  }
+  await deleteQuarantineHandle(written.displacedHandle);
+  if (input.existing && effects) {
     await runAfterCommitEffects(effects);
     await enqueueBrainOperation({
       operation: "search-unindex",
@@ -1900,7 +2127,7 @@ export async function recordBlockedCapture(input: {
     });
   }
   return {
-    id: eventId,
+    id: written.id,
     sourceId: input.source.id,
     disposition,
     categories: input.decision.categories,
@@ -1927,8 +2154,9 @@ export async function expireSensitivityQuarantines(at = nowIso()) {
   for (const row of rows) {
     await deleteQuarantineHandle(row.quarantineBlobHandle);
   }
-  if (rows.length) {
-    await db
+  let expired = 0;
+  for (const row of rows) {
+    const cleared = await db
       .update(schema.brainSensitivityEvents)
       .set({
         disposition: "expired",
@@ -1937,13 +2165,21 @@ export async function expireSensitivityQuarantines(at = nowIso()) {
         updatedAt: at,
       })
       .where(
-        inArray(
-          schema.brainSensitivityEvents.id,
-          rows.map((row) => row.id),
+        and(
+          eq(schema.brainSensitivityEvents.id, row.id),
+          eq(schema.brainSensitivityEvents.disposition, "quarantined"),
+          row.quarantineBlobHandle === null
+            ? isNull(schema.brainSensitivityEvents.quarantineBlobHandle)
+            : eq(
+                schema.brainSensitivityEvents.quarantineBlobHandle,
+                row.quarantineBlobHandle,
+              ),
         ),
-      );
+      )
+      .returning({ id: schema.brainSensitivityEvents.id });
+    if (cleared.length) expired += 1;
   }
-  return rows.length;
+  return expired;
 }
 
 export class EvidenceInputError extends Error {}
@@ -1957,6 +2193,7 @@ export class EvidenceQuoteMismatchError extends EvidenceInputError {
 
 export async function validateEvidenceWithContent(
   evidence: BrainEvidenceInput[],
+  options: { reusingStoredEvidence?: boolean } = {},
 ): Promise<{ evidence: BrainEvidence[]; content: Map<string, string> }> {
   const validated: BrainEvidence[] = [];
   const content = new Map<string, string>();
@@ -1971,17 +2208,35 @@ export async function validateEvidenceWithContent(
     }
     content.set(item.captureId, access.capture.content);
     const metadata = parseJson<Record<string, unknown>>(
-      access.capture.metadataJson,
+      withOmissionReceipt(
+        access.capture.metadataJson,
+        access.capture.content,
+        access.capture.kind,
+      ),
       {},
     );
-    const sourceUrl = safeCitationUrl(
-      item.sourceUrl ?? item.url ?? metadata.sourceUrl,
-    );
+    const sourceUrl =
+      readWithheldPassages(metadata) === undefined
+        ? safeCitationUrl(item.sourceUrl ?? item.url ?? metadata.sourceUrl)
+        : null;
+    const storedDateKept =
+      !options.reusingStoredEvidence ||
+      typeof (item as { capturedAt?: unknown }).capturedAt === "string";
     const result: BrainEvidence = {
       captureId: item.captureId,
       sourceId: access.capture.sourceId,
       captureTitle: access.capture.title,
       quote,
+      ...(storedDateKept &&
+      access.source.provider === "manual" &&
+      access.capture.externalId?.startsWith("markdown:") &&
+      metadata.capturedAtSource === "manual-markdown" &&
+      !Number.isNaN(Date.parse(access.capture.capturedAt))
+        ? {
+            capturedAt: access.capture.capturedAt,
+            capturedAtSource: "manual-markdown" as const,
+          }
+        : {}),
       note: item.note,
       timestampMs: item.timestampMs,
     };
@@ -2099,6 +2354,11 @@ export function applyRedactions(values: {
       })),
     ).map((item) => {
       const next = { ...item };
+      if (next.capturedAt && explicit.length > 0) {
+        changed = true;
+        delete next.capturedAt;
+        delete next.capturedAtSource;
+      }
       for (const key of ["sourceUrl", "url"] as const) {
         const destination = next[key];
         if (destination && destinationRevealsRedaction(destination, redact)) {
@@ -2382,6 +2642,13 @@ function canonicalEvidenceFromUnknown(value: unknown): BrainEvidence[] {
             : captureId,
         quote,
       };
+      if (
+        evidence.capturedAtSource === "manual-markdown" &&
+        typeof evidence.capturedAt === "string"
+      ) {
+        result.capturedAt = evidence.capturedAt;
+        result.capturedAtSource = "manual-markdown";
+      }
       if (typeof evidence.note === "string") result.note = evidence.note;
       const sourceUrl = safeCitationUrl(evidence.sourceUrl ?? evidence.url);
       if (sourceUrl) result.sourceUrl = sourceUrl;
@@ -2907,7 +3174,9 @@ async function planKnowledgeWrite(
   }
   let validated: Awaited<ReturnType<typeof validateEvidenceWithContent>>;
   try {
-    validated = await validateEvidenceWithContent(evidenceInput);
+    validated = await validateEvidenceWithContent(evidenceInput, {
+      reusingStoredEvidence: reusesStoredEvidence,
+    });
   } catch (error) {
     if (reusesStoredEvidence && error instanceof EvidenceQuoteMismatchError)
       fail(

@@ -9,6 +9,7 @@ import {
   getQuery,
   getHeader,
   readBody as readH3Body,
+  type H3Event,
 } from "h3";
 
 import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
@@ -20,6 +21,7 @@ import {
 import {
   actionCallIntent,
   ActionContractError,
+  assertNoNulByteActionArgs,
   isActionContractError,
   isActionExposedToExternalAgents,
   isAgentActionStopError,
@@ -296,6 +298,21 @@ function isFrontendActionRequest(event: any): boolean {
   }
 }
 
+function isAppPageRequest(
+  event: H3Event,
+  caller: ActionCaller,
+  userEmail: string | undefined,
+  embedded: boolean,
+): boolean {
+  return (
+    caller === "frontend" &&
+    !!userEmail &&
+    !embedded &&
+    !getHeader(event, "authorization") &&
+    hasSameOriginBrowserEvidence(event)
+  );
+}
+
 /**
  * The frontend header is only the client's claim. A request proves it came
  * from this app's signed-in UI with a browser-cookie identity, a same-origin
@@ -546,6 +563,21 @@ const LLM_CREDENTIAL_TERM_RE =
  * absent: the agent engine's broader `isLlmCredentialError` also matches "LLM
  * response missing required field", a real bug that must stay a captured 500.
  */
+function isPgInvalidNulByteError(error: unknown): boolean {
+  if (
+    isActionContractError(error) ||
+    isAgentActionStopError(error) ||
+    isMarkedExpectedError(error)
+  ) {
+    return false;
+  }
+  const codes = [
+    (error as { code?: unknown } | null | undefined)?.code,
+    (error as { cause?: { code?: unknown } } | null | undefined)?.cause?.code,
+  ];
+  return codes.some((code) => code === "22021" || code === "22P05");
+}
+
 function isLlmProviderMissingError(error: unknown): boolean {
   if (
     isActionContractError(error) ||
@@ -1423,6 +1455,9 @@ function mountActionRoutesInternal(
             ...(requestId ? { requestId } : {}),
             userEmail,
             provenUiRequest,
+            appPageRequest:
+              provenUiRequest ||
+              isAppPageRequest(event, requestCaller, userEmail, embedded),
             ...(verifiedServiceIdentity &&
             verifiedServiceIdentity.userEmail.trim().toLowerCase() ===
               userEmail?.trim().toLowerCase() &&
@@ -1557,6 +1592,9 @@ function mountActionRoutesInternal(
                   errorCode: "invalid_action_request_body",
                   statusCode: 400,
                 });
+              }
+              if (!entry.schema) {
+                assertNoNulByteActionArgs(params);
               }
               if (directoryWidgetReadAllowed) {
                 const normalizedArgs =
@@ -1826,9 +1864,9 @@ function mountActionRoutesInternal(
                 );
               }
               const msg = err?.message ?? String(err);
-              const isValidationError = msg.startsWith(
-                "Invalid action parameters",
-              );
+              const pgNulByteError = isPgInvalidNulByteError(err);
+              const isValidationError =
+                msg.startsWith("Invalid action parameters") || pgNulByteError;
               const explicitStatus =
                 typeof err?.statusCode === "number"
                   ? err.statusCode
@@ -1939,7 +1977,7 @@ function mountActionRoutesInternal(
                     : undefined;
                 return {
                   error:
-                    privateAction && isValidationError
+                    pgNulByteError || (privateAction && isValidationError)
                       ? "Invalid action parameters"
                       : msg,
                   ...(errorCode === undefined ? {} : { errorCode }),

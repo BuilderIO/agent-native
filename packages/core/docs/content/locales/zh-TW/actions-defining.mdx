@@ -126,6 +126,13 @@ description: "defineAction() 的結構：架構、run，以及 HTTP 設定，還
             "為 true（或謂詞回傳 true）時，在該 action 自身寫入之後的失敗是模型可以修正並重試的已知失敗，而不會在目前回合剩餘時間裡封鎖該工具。僅當 action 在任意錯誤後都可安全重跑時再設定。在任何寫入之前的拒絕不需要這個選項。請見下方的可安全重試的寫入。",
         },
         {
+          name: "automatic",
+          type: "boolean | ((input) => boolean)",
+          optional: true,
+          description:
+            '標記應用程式在沒有使用者操作時自行進行的寫入：載入時、掛載時、計時器觸發，或實驗與用量記錄。它的 action_started、action_completed 和 action_failed 事件中 action_kind 為 "automatic" 而不是 "write"，因此產品使用統計會將其排除。傳入謂詞時，只標記它回傳 true 的呼叫。它只影響分析：不要為了讓寫入不被統計而設定 readOnly。',
+        },
+        {
           name: "agentTool",
           type: "boolean",
           optional: true,

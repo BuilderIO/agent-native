@@ -20,6 +20,7 @@ const sharedClient = {
 };
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => sharedClient,
 }));
 
@@ -75,7 +76,7 @@ async function loadOps(): Promise<{ ops: Ops; dbUrl: string }> {
 }
 
 beforeEach(async () => {
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
 });
 
 afterEach(async () => {

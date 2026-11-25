@@ -1198,6 +1198,7 @@ const messages = {
     visibilityDescription:
       "Gilt für Aufnahmen, die du erstellst. Du kannst sie bei jeder Aufnahme ändern.",
     useOrgDefault: "Standard von {{org}} verwenden ({{visibility}})",
+    enforceOrgDefault: "Mitglieder können keinen eigenen Standard festlegen",
     useDefault: "Standard verwenden ({{visibility}})",
     transcriptExport: "Transkript-Export",
     logoDescription:

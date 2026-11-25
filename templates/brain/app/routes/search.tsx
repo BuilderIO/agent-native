@@ -1,5 +1,9 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+import {
+  DEFAULT_LOCALE,
+  useOptionalLocale,
+  useT,
+} from "@agent-native/core/client/i18n";
 import {
   IconAlertTriangle,
   IconBook2,
@@ -81,6 +85,15 @@ const groupOrder = ["knowledge", "capture", "source"];
 
 export default function SearchRoute() {
   const t = useT();
+  const locale = useOptionalLocale()?.locale ?? DEFAULT_LOCALE;
+  const citationDateFormatter = useMemo(
+    () =>
+      new Intl.DateTimeFormat(locale, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }),
+    [locale],
+  );
   const [params, setParams] = useSearchParams();
   const query = params.get("q") ?? "";
   const captureId = params.get("captureId");
@@ -314,6 +327,7 @@ export default function SearchRoute() {
                       key={`${result.type}-${result.id}`}
                       result={result}
                       query={query}
+                      citationDateFormatter={citationDateFormatter}
                     />
                   ))}
                 </div>
@@ -422,9 +436,11 @@ function CaptureDetails({
 function SearchResultRow({
   result,
   query,
+  citationDateFormatter,
 }: {
   result: SearchEverythingResult;
   query: string;
+  citationDateFormatter: Intl.DateTimeFormat;
 }) {
   const t = useT();
   const [params] = useSearchParams();
@@ -499,6 +515,15 @@ function SearchResultRow({
           <span className="truncate">
             {t("searchPage.citation")}: {sourceLabel}
           </span>
+          {result.type === "capture" &&
+          result.citation?.capturedAt &&
+          !Number.isNaN(Date.parse(result.citation.capturedAt)) ? (
+            <time dateTime={result.citation.capturedAt}>
+              {citationDateFormatter.format(
+                new Date(result.citation.capturedAt),
+              )}
+            </time>
+          ) : null}
           {result.updatedAt ? (
             <span>
               {t("searchPage.updated")} {result.updatedAt}
@@ -507,7 +532,11 @@ function SearchResultRow({
         </div>
         <div className="flex flex-wrap gap-2">
           {result.type !== "capture" ? (
-            <SearchResultDetails result={result} query={query} />
+            <SearchResultDetails
+              result={result}
+              query={query}
+              citationDateFormatter={citationDateFormatter}
+            />
           ) : null}
           {internalHref ? (
             <Button asChild variant="ghost" size="sm">
@@ -531,9 +560,11 @@ function SearchResultRow({
 function SearchResultDetails({
   result,
   query,
+  citationDateFormatter,
 }: {
   result: SearchEverythingResult;
   query: string;
+  citationDateFormatter: Intl.DateTimeFormat;
 }) {
   const t = useT();
   const body = result.snippet ?? result.summary ?? t("searchPage.noExcerpt");
@@ -607,6 +638,17 @@ function SearchResultDetails({
               <IconQuote className="size-4" />
               {t("searchPage.citationQuote")}
             </h3>
+            {result.citation?.capturedAt &&
+            !Number.isNaN(Date.parse(result.citation.capturedAt)) ? (
+              <time
+                className="text-xs text-muted-foreground"
+                dateTime={result.citation.capturedAt}
+              >
+                {citationDateFormatter.format(
+                  new Date(result.citation.capturedAt),
+                )}
+              </time>
+            ) : null}
             {quote ? (
               <blockquote className="rounded-md border border-border bg-muted/30 p-3 text-sm leading-6 text-muted-foreground">
                 {quote}

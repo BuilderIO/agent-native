@@ -375,4 +375,10 @@ describe("recording search with PostgreSQL queries", () => {
       expect(result.results.map((row) => row.id)).toEqual(["fake-recording"]);
     },
   );
+
+  it("tells agents to use navigate to show filtered results in the Library UI", () => {
+    expect(action.description).toMatch(/navigate/i);
+    expect(action.description).toMatch(/library/i);
+    expect(action.description).toMatch(/search/i);
+  });
 });

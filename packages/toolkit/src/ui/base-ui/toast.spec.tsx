@@ -506,6 +506,48 @@ describe("Toaster placement", () => {
     canvas.remove();
   });
 
+  it("commits new bounds only when scrolling changes the visible canvas", async () => {
+    const canvas = document.createElement("div");
+    document.body.append(canvas);
+    const commits = vi.fn();
+    let top = 20;
+    const measure = vi
+      .spyOn(canvas, "getBoundingClientRect")
+      .mockImplementation(() => new DOMRect(10, top, 200, 100));
+    const scroll = async () => {
+      await act(async () => {
+        window.dispatchEvent(new Event("scroll"));
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() => resolve()),
+        );
+      });
+    };
+    try {
+      render(
+        <React.Profiler id="notifications" onRender={commits}>
+          <Toaster
+            container={canvas}
+            closeLabel="Dismiss"
+            regionLabel="Notifications"
+          />
+        </React.Profiler>,
+      );
+      const portal = canvas.querySelector<HTMLElement>(".toast-portal");
+      expect(portal?.style.top).toBe("20px");
+      commits.mockClear();
+      measure.mockClear();
+      await scroll();
+      expect(measure).toHaveBeenCalled();
+      expect(commits).not.toHaveBeenCalled();
+      top = -20;
+      await scroll();
+      expect(portal?.style.top).toBe("0px");
+      expect(portal?.style.height).toBe("80px");
+    } finally {
+      canvas.remove();
+    }
+  });
+
   it("renders inside a container ref", () => {
     function Editor() {
       const canvas = React.useRef<HTMLDivElement>(null);
@@ -527,6 +569,36 @@ describe("Toaster placement", () => {
     expect(screen.getByTestId("canvas").contains(toastElement("By ref"))).toBe(
       true,
     );
+  });
+
+  it("resolves an enclosing canvas ref after the canvas mounts", () => {
+    const canvas = React.createRef<HTMLDivElement>();
+    render(
+      <div ref={canvas}>
+        <Toaster
+          closeLabel="Dismiss"
+          regionLabel="Notifications"
+          container={canvas}
+        />
+      </div>,
+    );
+    expect(
+      canvas.current?.querySelector(".toast-portal[data-anchored]"),
+    ).toBeTruthy();
+  });
+
+  it("anchors in a canvas owned by another document", () => {
+    const frame = document.createElement("iframe");
+    document.body.append(frame);
+    try {
+      const canvas = frame.contentDocument?.body;
+      if (!canvas) throw new Error("Missing frame document");
+      const view = mount({ container: canvas });
+      expect(canvas.querySelector(".toast-portal[data-anchored]")).toBeTruthy();
+      view.unmount();
+    } finally {
+      frame.remove();
+    }
   });
 
   it("sits in the App Shell canvas with no container given", () => {

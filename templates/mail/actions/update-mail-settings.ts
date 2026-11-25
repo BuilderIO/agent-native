@@ -50,6 +50,7 @@ export default defineAction({
   description:
     "Update the user's persistent mail settings: signature, writing style, autocomplete, Send + Mark Done, the reading pane, and split inbox tabs. Use this for durable preferences, not email draft content. Read the current settings first and preserve fields the user did not ask to change.",
   schema: settingsSchema,
+  mcpTool: false,
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");

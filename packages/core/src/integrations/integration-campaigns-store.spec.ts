@@ -9,6 +9,7 @@ const ensureTableExistsMock = vi.hoisted(() => vi.fn());
 const ensureIndexExistsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: getDbExecMock,
 }));
 

@@ -12,13 +12,14 @@ import {
   type SegmentedControlProps,
 } from "../../../src/ui/base-ui/segmented-control.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./segmented-control.docs.md?raw";
 
 const controls = propControls(segmentedControlProps);
 
 const meta = {
   title: "Components/Segmented Control",
   component: SegmentedControl,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: { ...controls.args, disabled: false },
   argTypes: controls.argTypes,
 } satisfies Meta<typeof SegmentedControl>;

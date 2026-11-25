@@ -17,6 +17,7 @@ import {
   lte,
   not,
   notInArray,
+  sql,
 } from "drizzle-orm";
 import { z } from "zod";
 
@@ -58,6 +59,7 @@ import {
 } from "../shared/embed-provider.js";
 import { readLibraryFilter } from "../shared/library-filters.js";
 import { buildTranscriptPreview } from "./lib/transcript-preview.js";
+import { buildCaseInsensitiveSearchPattern } from "./search-recordings-utils.js";
 
 interface NavigationState {
   view?: string;
@@ -212,12 +214,14 @@ async function fetchBugReportSummary(recordingId: string) {
 
 async function fetchLibrary({
   folderId,
+  search,
   shared = false,
   fromContent = false,
   organizationId,
   filters,
 }: {
   folderId?: string;
+  search?: string;
   shared?: boolean;
   /** The caller's uploads from Content pages, which Library leaves out. */
   fromContent?: boolean;
@@ -266,6 +270,17 @@ async function fetchLibrary({
   conditions.push(notInArray(schema.recordings.id, meetingRecordingIds));
   if (folderId) {
     conditions.push(eq(schema.recordings.folderId, folderId));
+  }
+  const searchTerm = search?.trim();
+  if (searchTerm) {
+    const pattern = buildCaseInsensitiveSearchPattern(searchTerm);
+    const transcriptMatch = sql`EXISTS (SELECT 1 FROM ${schema.recordingTranscripts} rt WHERE rt.recording_id = ${schema.recordings.id} AND lower(rt.full_text) LIKE ${pattern} ESCAPE '\\')`;
+    const transcriptCondition = shared
+      ? sql`((${schema.recordings.visibility} <> 'public' OR ${schema.recordings.password} IS NULL OR ${schema.recordings.password} = '') AND ${transcriptMatch})`
+      : transcriptMatch;
+    conditions.push(
+      sql`(lower(${schema.recordings.title}) LIKE ${pattern} ESCAPE '\\' OR lower(${schema.recordings.description}) LIKE ${pattern} ESCAPE '\\' OR ${transcriptCondition})`,
+    );
   }
   if (libraryFilter && libraryFilter.items.length > 0) {
     const { ids } = await filterLibraryRecordings({
@@ -637,6 +652,7 @@ export default defineAction({
         const [recordings, folders] = await Promise.all([
           fetchLibrary({
             folderId: nav.folderId,
+            search: nav.search,
             organizationId,
             filters: nav.filters,
           }),
@@ -655,9 +671,11 @@ export default defineAction({
       case "shared": {
         const recordings = await fetchLibrary({
           shared: true,
+          search: nav.search,
           organizationId,
         });
         screen.shared = {
+          search: nav.search ?? null,
           count: recordings.length,
           recordings,
         };
@@ -666,10 +684,12 @@ export default defineAction({
       case "from-content": {
         const recordings = await fetchLibrary({
           fromContent: true,
+          search: nav.search,
           organizationId,
         });
         const pages = await contentPageUrls(recordings.map((r) => r.id));
         screen.fromContent = {
+          search: nav.search ?? null,
           count: recordings.length,
           recordings: recordings.map((recording) => ({
             ...recording,
@@ -689,7 +709,7 @@ export default defineAction({
             fetchSpaces(organizationId),
           ]);
           const space = spaces.find((s) => s.id === nav.spaceId) ?? null;
-          screen.space = { space, folders };
+          screen.space = { space, folders, search: nav.search ?? null };
         }
         break;
       }

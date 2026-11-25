@@ -20,7 +20,10 @@ import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { SandboxCodeEvaluator } from "../coding-tools/run-code.js";
 import type { SandboxExecutionRow } from "../coding-tools/sandbox/index.js";
-import { CredentialUseLedger } from "../credentials/use-ledger.js";
+import {
+  CredentialUseLedger,
+  type CredentialUse,
+} from "../credentials/use-ledger.js";
 import { resolveAccess, type AccessContext } from "../sharing/access.js";
 import {
   buildDataProgramPrelude,
@@ -42,10 +45,12 @@ import {
   getLatestRun,
   getLatestSharedRunRefusal,
   getLatestSuccessfulRun,
+  listScheduledDataPrograms,
   recordDataProgramRun,
   updateDataProgramRun,
   MAX_PROGRAM_ROWS,
   MAX_PROGRAM_RESULT_BYTES,
+  MIN_SCHEDULED_REFRESH_MS,
   SHARED_RUN_FAILED,
   SHARED_RUN_NOT_SHAREABLE,
   type DataProgramRow,
@@ -89,6 +94,7 @@ export interface DataProgramSuccess {
   schema: DataProgramColumn[];
   truncated: boolean;
   stale: boolean;
+  refreshPending?: boolean;
   cacheHit: boolean;
   asOfMs: number;
   runId: string;
@@ -670,14 +676,28 @@ async function shouldRunShared(
   });
 }
 
-async function runSharedProgram(
+type SharedRunOutcome =
+  | {
+      kind: "saved";
+      runId: string;
+      rows: Record<string, unknown>[];
+      schema: DataProgramColumn[];
+      truncated: boolean;
+      finishedAt: number;
+      uses: CredentialUse[];
+    }
+  | { kind: "not_shareable" | "failed" | "timed_out" | "no_time" };
+
+async function executeSharedRun(
   program: DataProgramRow,
   args: RunDataProgramArgs,
   sharing: OrgSharing,
   deadline: number,
-): Promise<DataProgramSuccess | null> {
-  if (deadline - Date.now() - VIEWER_CHECK_RESERVE_MS < MIN_RUN_TIMEOUT_MS) {
-    return null;
+  callerReserveMs: number,
+  scheduled?: { programReadAt: number },
+): Promise<SharedRunOutcome> {
+  if (deadline - Date.now() - callerReserveMs < MIN_RUN_TIMEOUT_MS) {
+    return { kind: "no_time" };
   }
   const running = await recordDataProgramRun({
     programId: program.id,
@@ -685,8 +705,9 @@ async function runSharedProgram(
     paramsJson: JSON.stringify(args.params ?? {}),
     status: "running",
     triggeredBy: args.triggeredBy,
+    ...(scheduled ? { startedAt: scheduled.programReadAt } : {}),
   });
-  const runTimeoutMs = deadline - Date.now() - VIEWER_CHECK_RESERVE_MS;
+  const runTimeoutMs = deadline - Date.now() - callerReserveMs;
   if (runTimeoutMs < MIN_RUN_TIMEOUT_MS) {
     await updateDataProgramRun(running.id, {
       status: "timed_out",
@@ -695,7 +716,7 @@ async function runSharedProgram(
       finishedAt: Date.now(),
       durationMs: 0,
     });
-    return null;
+    return { kind: "no_time" };
   }
 
   const ledger = new CredentialUseLedger({
@@ -720,14 +741,15 @@ async function runSharedProgram(
   });
 
   if (!outcome.ok && shareable) {
+    const sweepTimedOut = scheduled !== undefined && outcome.code === "timeout";
     await updateDataProgramRun(running.id, {
       status: outcome.code === "timeout" ? "timed_out" : "failed",
-      errorCode: SHARED_RUN_FAILED,
+      errorCode: sweepTimedOut ? SCHEDULE_TIMED_OUT : SHARED_RUN_FAILED,
       errorMessage: outcome.code,
       finishedAt,
       durationMs: finishedAt - startedAt,
     });
-    return null;
+    return { kind: sweepTimedOut ? "timed_out" : "failed" };
   }
 
   if (!outcome.ok || !shareable) {
@@ -739,7 +761,7 @@ async function runSharedProgram(
       finishedAt,
       durationMs: finishedAt - startedAt,
     });
-    return null;
+    return { kind: "not_shareable" };
   }
 
   const rowsJson = JSON.stringify(outcome.rows);
@@ -755,9 +777,34 @@ async function runSharedProgram(
     durationMs: finishedAt - startedAt,
     credentialUsesJson: JSON.stringify(uses),
   });
+  return {
+    kind: "saved",
+    runId: running.id,
+    rows: outcome.rows,
+    schema: outcome.schema,
+    truncated: outcome.truncated,
+    finishedAt,
+    uses,
+  };
+}
+
+async function runSharedProgram(
+  program: DataProgramRow,
+  args: RunDataProgramArgs,
+  sharing: OrgSharing,
+  deadline: number,
+): Promise<DataProgramSuccess | null> {
+  const run = await executeSharedRun(
+    program,
+    args,
+    sharing,
+    deadline,
+    VIEWER_CHECK_RESERVE_MS,
+  );
+  if (run.kind !== "saved") return null;
 
   const sameCredentials = await viewerReadsSameCredentials({
-    uses,
+    uses: run.uses,
     viewer: sharing.viewer,
     appId: args.appId ?? program.appId,
     signal: signalAt(deadline),
@@ -765,14 +812,241 @@ async function runSharedProgram(
   if (!sameCredentials) return null;
   return {
     ok: true,
-    rows: outcome.rows,
-    schema: outcome.schema,
-    truncated: outcome.truncated,
+    rows: run.rows,
+    schema: run.schema,
+    truncated: run.truncated,
     stale: false,
     cacheHit: false,
-    asOfMs: finishedAt,
-    runId: running.id,
+    asOfMs: run.finishedAt,
+    runId: run.runId,
   };
+}
+
+/**
+ * What one sweep did with a program that has a scheduled refresh:
+ * `refreshed` saved a new run for the org; `fresh` found one young enough;
+ * `running` found one still going; `not_shareable` and `failed` come from this
+ * run or from one whose retry wait isn't over; `timed_out` that a run used up
+ * the sweep's time, recorded as `schedule_timed_out` and tried again after
+ * `refreshTtlMs`; `owner_invalid` means the owner left the org or no longer
+ * exists, which is checked again after `refreshTtlMs`, and `owner_unverified`
+ * that checking them failed, recorded as `schedule_owner_unverified` and
+ * checked again after five minutes; `no_time` that the sweep had too little
+ * time left to start a run; `skipped`
+ * that the program can't have a scheduled refresh, or was saved, archived or
+ * switched off while this sweep checked it.
+ */
+export type ScheduledRefreshOutcome =
+  | "refreshed"
+  | "fresh"
+  | "running"
+  | "not_shareable"
+  | "failed"
+  | "timed_out"
+  | "owner_invalid"
+  | "owner_unverified"
+  | "no_time"
+  | "skipped";
+
+export const SCHEDULE_OWNER_INVALID = "schedule_owner_invalid";
+export const SCHEDULE_OWNER_UNVERIFIED = "schedule_owner_unverified";
+export const SCHEDULE_TIMED_OUT = "schedule_timed_out";
+
+const SCHEDULED_REFRESH_LEAD_MS = DEFAULT_TIMEOUT_MS + 60_000;
+const SCHEDULED_FAILURE_RETRY_MS = 5 * 60_000;
+const MIN_SCHEDULED_RUN_MS = PANEL_VIEW_TIMEOUT_MS;
+
+/**
+ * Refreshes the org's shared run of a program with a scheduled refresh, with
+ * its default params, as its owner but with org credentials only. Nobody is
+ * waiting for the rows, so a run that isn't shareable is never followed by a
+ * run with someone's own credentials. A run is due a few minutes before the
+ * last one goes stale, so viewers keep reading the shared run; a failed one is
+ * retried after five minutes. A run starts only with at least a panel view's
+ * time limit left, so one the sweep cuts short doesn't count against the
+ * program. A run gets only what's left of the sweep, less than a viewer's
+ * run gets, so one that runs out of time is recorded as `schedule_timed_out`:
+ * that doesn't stop viewers' shared runs, and the schedule tries it again only
+ * after `refreshTtlMs`. Only an owner confirmed gone pauses the schedule for
+ * `refreshTtlMs`; an owner check that fails any other way is recorded and
+ * checked again after five minutes, so an idle app isn't woken every minute
+ * for it. The program is read again after the owner check, and one saved,
+ * archived or switched off meanwhile is left to the next pass. The run is
+ * recorded as starting just before that read, so a save the read misses still
+ * makes the run older than the save, and its rows are never served as the
+ * saved version's. Only the server's sweep calls this.
+ */
+export async function runScheduledDataProgram(
+  program: DataProgramRow,
+  options: {
+    deadline: number;
+    signal?: AbortSignal;
+    evaluator?: SandboxCodeEvaluator;
+  },
+): Promise<ScheduledRefreshOutcome> {
+  const target = scheduledRefreshTarget(program);
+  if (!target) return "skipped";
+  const { params, sharing } = target;
+  const wait = await scheduledRefreshWait(
+    program,
+    sharing.paramsHash,
+    Date.now(),
+  );
+  if (wait) return wait.outcome;
+
+  const outOfTime = () =>
+    Boolean(options.signal?.aborted) ||
+    options.deadline - Date.now() < MIN_SCHEDULED_RUN_MS;
+  if (outOfTime()) return "no_time";
+  const [{ validateAutomationRunIdentity }, { OWNER_MISSING_ERROR_CODE }] =
+    await Promise.all([
+      import("../jobs/background-automation-runner.js"),
+      import("../jobs/automation-outcome.js"),
+    ]);
+  const owner = await validateAutomationRunIdentity(
+    program.ownerEmail,
+    sharing.viewer.orgId,
+  );
+  const programReadAt = Date.now();
+  const current = (
+    await listScheduledDataPrograms(program.appId, program.id)
+  ).find((p) => p.id === program.id);
+  if (outOfTime()) return "no_time";
+  if (current?.updatedAt !== program.updatedAt) return "skipped";
+  if (!owner.ok) {
+    const missing = owner.code === OWNER_MISSING_ERROR_CODE;
+    const refused = await recordDataProgramRun({
+      programId: program.id,
+      paramsHash: sharing.paramsHash,
+      paramsJson: JSON.stringify(params),
+      status: "running",
+      triggeredBy: "schedule",
+    });
+    await updateDataProgramRun(refused.id, {
+      status: "failed",
+      errorCode: missing ? SCHEDULE_OWNER_INVALID : SCHEDULE_OWNER_UNVERIFIED,
+      errorMessage: missing
+        ? "The program's owner is no longer in the organization, so its scheduled refresh didn't run."
+        : "The program's owner couldn't be checked, so its scheduled refresh didn't run. It's tried again in five minutes.",
+      finishedAt: Date.now(),
+      durationMs: 0,
+    });
+    return missing ? "owner_invalid" : "owner_unverified";
+  }
+
+  const run = await executeSharedRun(
+    program,
+    {
+      programId: program.id,
+      appId: program.appId,
+      params,
+      ctx: { userEmail: program.ownerEmail, orgId: sharing.viewer.orgId },
+      triggeredBy: "schedule",
+      ...(options.evaluator ? { evaluator: options.evaluator } : {}),
+    },
+    sharing,
+    Math.min(options.deadline, Date.now() + DEFAULT_TIMEOUT_MS),
+    0,
+    { programReadAt },
+  );
+  return run.kind === "saved" ? "refreshed" : run.kind;
+}
+
+/**
+ * When a program with a scheduled refresh is next due, by the rules
+ * `runScheduledDataProgram` follows, as epoch ms: `now` when it's due already,
+ * or `null` when it can't have a scheduled refresh.
+ */
+export async function scheduledDataProgramDueAt(
+  program: DataProgramRow,
+  now: number = Date.now(),
+): Promise<number | null> {
+  const target = scheduledRefreshTarget(program);
+  if (!target) return null;
+  const wait = await scheduledRefreshWait(
+    program,
+    target.sharing.paramsHash,
+    now,
+  );
+  return wait?.until ?? now;
+}
+
+function scheduledRefreshTarget(
+  program: DataProgramRow,
+): { params: Record<string, unknown>; sharing: OrgSharing } | null {
+  const orgId = program.orgId;
+  if (
+    !program.scheduledRefresh ||
+    program.archivedAt ||
+    program.background ||
+    !orgId ||
+    program.refreshMode !== "ttl" ||
+    program.refreshTtlMs < MIN_SCHEDULED_REFRESH_MS
+  ) {
+    return null;
+  }
+  const params = program.defaultParams
+    ? (JSON.parse(program.defaultParams) as Record<string, unknown>)
+    : {};
+  return {
+    params,
+    sharing: {
+      viewer: { userEmail: program.ownerEmail, orgId },
+      paramsHash: hashOrgSharedDataProgramParams(params, orgId),
+    },
+  };
+}
+
+interface ScheduledRefreshWait {
+  outcome:
+    | "running"
+    | "fresh"
+    | "not_shareable"
+    | "owner_invalid"
+    | "owner_unverified"
+    | "timed_out"
+    | "failed";
+  until: number;
+}
+
+async function scheduledRefreshWait(
+  program: DataProgramRow,
+  paramsHash: string,
+  now: number,
+): Promise<ScheduledRefreshWait | null> {
+  const savedAt = Date.parse(program.updatedAt);
+  const active = await getActiveRun(program.id, paramsHash);
+  if (
+    active &&
+    active.startedAt >= savedAt &&
+    now - active.startedAt < DEFAULT_TIMEOUT_MS
+  ) {
+    return { outcome: "running", until: active.startedAt + DEFAULT_TIMEOUT_MS };
+  }
+  const latest = await getLatestFinishedRunOutcome(program.id, paramsHash);
+  if (!latest || latest.startedAt < savedAt) return null;
+  const endedAt = latest.finishedAt ?? latest.startedAt;
+  const waitFor = (
+    outcome: ScheduledRefreshWait["outcome"],
+    ms: number,
+  ): ScheduledRefreshWait | null =>
+    endedAt + ms > now ? { outcome, until: endedAt + ms } : null;
+  if (latest.status === "succeeded") {
+    return waitFor("fresh", program.refreshTtlMs - SCHEDULED_REFRESH_LEAD_MS);
+  }
+  if (latest.errorCode === SHARED_RUN_NOT_SHAREABLE) {
+    return waitFor("not_shareable", NOT_SHAREABLE_RETRY_MS);
+  }
+  if (latest.errorCode === SCHEDULE_OWNER_INVALID) {
+    return waitFor("owner_invalid", program.refreshTtlMs);
+  }
+  if (latest.errorCode === SCHEDULE_OWNER_UNVERIFIED) {
+    return waitFor("owner_unverified", SCHEDULED_FAILURE_RETRY_MS);
+  }
+  if (latest.errorCode === SCHEDULE_TIMED_OUT) {
+    return waitFor("timed_out", program.refreshTtlMs);
+  }
+  return waitFor("failed", SCHEDULED_FAILURE_RETRY_MS);
 }
 
 async function resolveCacheHit(
@@ -915,6 +1189,7 @@ async function runBackgroundProgram(
   let statusUnknown = false;
   let finishedFailure: BackgroundRunFailure | null = null;
   let finishedElsewhere = false;
+  let stillRunning = false;
   if (active?.executionId && args.ctx.userEmail) {
     // A failed check leaves the run for the next read to finish, rather than
     // failing a read the cache can still answer.
@@ -933,6 +1208,10 @@ async function runBackgroundProgram(
     }
     // An execution this viewer can't find won't report back either.
     statusUnknown = execution === null;
+    stillRunning =
+      execution !== null &&
+      (execution.status === "queued" || execution.status === "running") &&
+      Date.now() - active.startedAt < backgroundTimeout;
     if (
       execution &&
       execution.status !== "queued" &&
@@ -980,7 +1259,11 @@ async function runBackgroundProgram(
       );
     }
     const cached = await resolveCacheHit(program, paramsHash);
-    if (cached) return cached;
+    if (cached) {
+      return stillRunning
+        ? { ...cached, stale: true, refreshPending: true }
+        : cached;
+    }
   }
 
   const stillActive = await getActiveRun(program.id, paramsHash);
@@ -988,6 +1271,7 @@ async function runBackgroundProgram(
   const shouldEnqueue =
     !stillActive || Date.now() - stillActive.startedAt >= staleWindowMs;
 
+  let enqueued = false;
   if (shouldEnqueue && args.ctx.userEmail) {
     const prelude = buildDataProgramPrelude(args.params);
     const paramsJson = JSON.stringify(args.params ?? {});
@@ -1010,6 +1294,7 @@ async function runBackgroundProgram(
         executionId: execution.id,
         triggeredBy: args.triggeredBy,
       });
+      enqueued = true;
     } catch (err) {
       console.error(
         `[data-programs] failed to enqueue background run for ${program.id}:`,
@@ -1018,8 +1303,14 @@ async function runBackgroundProgram(
     }
   }
 
+  const activeUnseen = statusUnknown && stillActive?.id === active?.id;
+  const pending =
+    enqueued || (!shouldEnqueue && !activeUnseen)
+      ? { refreshPending: true }
+      : {};
+
   const cached = await resolveCacheHit(program, paramsHash);
-  if (cached) return { ...cached, stale: true };
+  if (cached) return { ...cached, stale: true, ...pending };
 
   const latestSuccess = await getLatestSuccessfulRun(program.id, paramsHash);
   if (latestSuccess?.rowsJson) {
@@ -1031,6 +1322,7 @@ async function runBackgroundProgram(
         schema: stale.schema,
         truncated: stale.truncated,
         stale: true,
+        ...pending,
         cacheHit: true,
         asOfMs: stale.asOfMs,
         runId: latestSuccess.id,

@@ -8,6 +8,7 @@ import type {
   ResourceSuggestion,
   SuggestionDecision,
 } from "@agent-native/core/review";
+import { isEmailDerivedName } from "@agent-native/core/user-profile/shared";
 import type { TiptapComposerHandle } from "@agent-native/toolkit/composer";
 import {
   IconArrowBackUp,
@@ -32,6 +33,7 @@ import { toast } from "sonner";
 export { suggestionTextForDisplay } from "@shared/suggestion-text";
 
 import type { DocumentProperty } from "@shared/api";
+import { displayNameFromEmail } from "@shared/author-name";
 import { suggestionBlocksFieldId } from "@shared/blocks-field-suggestions";
 import type { CommentAiRequest } from "@shared/comment-ai";
 import type { CommentAnchorBlockType } from "@shared/comment-block-anchor";
@@ -41,16 +43,7 @@ import {
   findCommentMentions,
 } from "@shared/comment-mentions";
 import type { CommentPropertyTarget } from "@shared/comment-property-target";
-import {
-  findReplaceSuggestionSummary,
-  suggestionDiffParts,
-} from "@shared/suggestion-diff";
-import { WORD_CHARACTER } from "@shared/suggestion-placement";
-import {
-  suggestionAnchorText,
-  suggestionTextForDisplay,
-  type SuggestionPresentationContext,
-} from "@shared/suggestion-text";
+import { findReplaceSuggestionSummary } from "@shared/suggestion-diff";
 
 import {
   Tooltip,
@@ -184,13 +177,12 @@ import {
   ReviewCommentMenu,
   ReviewReactionList,
 } from "./ReviewDiscussionTools";
+import { SuggestionChange, suggestionChangeHasMore } from "./SuggestionChange";
 import { ProposalGroup, SuggestionDecisionButtons } from "./SuggestionControls";
 import type { DraftSuggestion } from "./suggestions/draft-session";
-import { SuggestionText } from "./SuggestionText";
 import {
   proposalGroups,
   receiptSuggestion,
-  reviewUnitDiffParts,
   piecesOfStaleUnits,
   reviewUnitLabel,
   reviewUnitOperations,
@@ -219,13 +211,6 @@ interface ThreadEntrySlots {
 
 /** Replies shown under the first comment before "Show earlier replies". */
 const PANEL_VISIBLE_REPLIES = 2;
-
-function renderSuggestionText(
-  content: string,
-  context?: SuggestionPresentationContext,
-) {
-  return <SuggestionText content={content} context={context} />;
-}
 
 /**
  * Who a comment mentions, in the text order of its chips, for storage. An
@@ -286,6 +271,17 @@ function uncertainAfterFailure(
   submission: UncertainSubmission,
 ): UncertainSubmission | null {
   return retried || isAmbiguousCommentCreateError(error) ? submission : null;
+}
+
+function signedName(
+  name: string | null,
+  email: string | null | undefined,
+  actorKind: string,
+) {
+  if (!email) return name ?? actorKind;
+  return !name || (actorKind === "agent" && isEmailDerivedName(name, email))
+    ? displayNameFromEmail(email) || name
+    : name;
 }
 
 /** The session's name for the signed-in person's own entries, if it has one. */
@@ -542,6 +538,9 @@ export const PENDING_COMMENT_LAYOUT_ID = "pending-comment";
 const PENDING_COMMENT_CARD_ESTIMATE = 112;
 /** How much of a new entry must show in a capped card to count as in view. */
 const NEW_ENTRY_MIN_VISIBLE = 64;
+const CAPPED_THREAD_BODY_HEIGHT = 384;
+const THREAD_CARD_VIEWPORT_MARGIN = 16;
+const THREAD_BODY_ROOM_SETTLE_MS = 120;
 /** An open stack's Collapse row, laid out like a card above its threads. */
 const STACK_HEADER_LAYOUT_ID = "comment-stack-header";
 const STACK_HEADER_HEIGHT = 28;
@@ -913,6 +912,21 @@ export function useCommentReplyDrafts(
     end?: number;
     direction?: "forward" | "backward" | "none";
   } | null>(null);
+  useEffect(() => {
+    const saved = focus.current;
+    if (
+      saved &&
+      saved.documentId !== documentId &&
+      !draftStore.drafts
+        .get(`reply:${saved.documentId}:${saved.threadId}`)
+        ?.text.trim()
+    )
+      focus.current = null;
+  }, [documentId]);
+  const linkedThread = useRef<string | null>(null);
+  const markLinkedThread = useCallback((threadId: string) => {
+    linkedThread.current = threadId;
+  }, []);
   const setOpenReply = useCallback(
     (
       threadId: string | null,
@@ -958,6 +972,8 @@ export function useCommentReplyDrafts(
     openReply: openReplies[documentId],
     setOpenReply,
     focus,
+    linkedThread,
+    markLinkedThread,
     get: (threadId: string) =>
       draftStore.drafts.get(`reply:${documentId}:${threadId}`) ?? {
         text: "",
@@ -1220,6 +1236,7 @@ interface CommentsSidebarOptions {
     /** Decide just these, as one review unit, not all that's pending by then. */
     exactMembers?: boolean,
   ) => void | Promise<void>;
+  onStepThreadSuggestion?: (threadId: string, suggestionId: string) => void;
   visibleThreadId?: string | null;
   presentation?: "inline" | "history";
   /** Card treatment: margin rail, anchored popover, or the comments panel. */
@@ -1316,6 +1333,7 @@ export function CommentsSidebar({
   decidingSuggestion = () => false,
   onDecideSuggestion,
   onDecideSuggestionProposal,
+  onStepThreadSuggestion,
   visibleThreadId,
   presentation = "inline",
   surface: surfaceProp,
@@ -1522,9 +1540,6 @@ export function CommentsSidebar({
       ),
     [threadSuggestions],
   );
-  // A suggestion whose text is gone has nothing to point at in the margin; it
-  // stays reviewable in the comments panel. Under a Property, only its own
-  // threads show: a suggested edit to the Page's text isn't about it.
   const inlineSuggestions = useMemo(
     () =>
       underSubject
@@ -1533,17 +1548,13 @@ export function CommentsSidebar({
             (suggestion) =>
               suggestion.status === "pending" &&
               !embeddedSuggestionIds.has(suggestion.id) &&
-              (alignToAnchors || suggestion.id === activeSuggestionId) &&
-              (suggestion.id === activeSuggestionId ||
-                !anchoredSuggestionIds ||
-                anchoredSuggestionIds.includes(suggestion.id)),
+              (alignToAnchors || suggestion.id === activeSuggestionId),
           ),
     [
       suggestions,
       underSubject,
       alignToAnchors,
       activeSuggestionId,
-      anchoredSuggestionIds,
       embeddedSuggestionIds,
     ],
   );
@@ -1637,13 +1648,24 @@ export function CommentsSidebar({
     openThreads.some((thread) => thread.threadId === selectedThreadId);
 
   useLayoutEffect(() => {
+    const linked = replyDrafts.linkedThread.current;
+    if (linked && linked !== selectedThreadId)
+      replyDrafts.linkedThread.current = null;
     if (
       presentation === "inline" &&
       canComment &&
+      selectedThreadId &&
       selectedThreadIsOpen &&
       selectedThreadId !== replyingThreadId
-    )
-      setReplyingThreadId(selectedThreadId);
+    ) {
+      if (linked === selectedThreadId) replyDrafts.linkedThread.current = null;
+      setReplyingThreadId(
+        selectedThreadId,
+        null,
+        linked !== selectedThreadId ||
+          !!replyDrafts.get(selectedThreadId).text.trim(),
+      );
+    }
   }, [canComment, presentation, selectedThreadId, selectedThreadIsOpen]);
 
   // In the margin, a block with two or more open threads folds into one
@@ -2921,69 +2943,6 @@ export function CommentsSidebar({
     );
   };
 
-  // Accept and resolve resolves only once its accepts land: a thread resolved
-  // first would send its still-pending edits out to cards of their own. While
-  // a decision is in flight its edits already show the status it asked for,
-  // so only a finished decision tells whether the accept landed.
-  const [resolveOnAccept, setResolveOnAccept] = useState<
-    ReadonlyMap<string, readonly string[]>
-  >(() => new Map());
-  const settledResolveOnAccept = [...resolveOnAccept]
-    .filter(([, requested]) =>
-      suggestions.every(
-        (suggestion) =>
-          !requested.includes(suggestion.id) || !suggestionBusy(suggestion),
-      ),
-    )
-    .map(([threadId]) => threadId)
-    .join(" ");
-  // No hook may follow the empty-sidebar return, and the resolve handler is
-  // defined below it, so it reaches this effect through a ref.
-  const resolveAcceptedRef = useRef<((thread: CommentThread) => void) | null>(
-    null,
-  );
-  useEffect(() => {
-    if (!settledResolveOnAccept) return;
-    const settled = settledResolveOnAccept.split(" ");
-    setResolveOnAccept((current) => {
-      const next = new Map(current);
-      for (const threadId of settled) next.delete(threadId);
-      return next;
-    });
-    for (const threadId of settled) {
-      const thread = threads.find((item) => item.threadId === threadId);
-      const requested = resolveOnAccept.get(threadId) ?? [];
-      // A failed or refused accept leaves an edit pending, and an edit can
-      // also end rejected or withdrawn; the thread then stays open. So does
-      // an edit its AI made while the accept was in flight, loaded or still
-      // loading.
-      const undecided =
-        (threadSuggestions.get(threadId) ?? []).some(
-          (suggestion) => suggestion.status === "pending",
-        ) ||
-        Boolean(
-          commentAi &&
-          loadingThreadSuggestionIds(
-            commentAi.requests,
-            threadId,
-            awaitedSuggestionIds,
-          ).length > 0,
-        );
-      if (
-        thread &&
-        !thread.resolved &&
-        requested.every((id) =>
-          suggestions.some(
-            (suggestion) =>
-              suggestion.id === id && suggestion.status === "accepted",
-          ),
-        ) &&
-        !undecided
-      )
-        resolveAcceptedRef.current?.(thread);
-    }
-  }, [settledResolveOnAccept]);
-
   const hasContent =
     presentation === "history"
       ? threads.length > 0 ||
@@ -3219,7 +3178,6 @@ export function CommentsSidebar({
   const handleResolve = (thread: CommentThread) => {
     void changeResolution(thread, true);
   };
-  resolveAcceptedRef.current = handleResolve;
 
   const handleReopen = (thread: CommentThread) => {
     void changeResolution(thread, false);
@@ -3303,16 +3261,15 @@ export function CommentsSidebar({
           awaitedSuggestionIds,
         )
       : [];
+    const decidedGroups = [...receipts.values(), ...receiptless].filter(
+      (members) =>
+        members.some(
+          ({ status }) => status === "accepted" || status === "rejected",
+        ),
+    );
+    const resolvingGroup = decidedGroups[decidedGroups.length - 1];
     const suggestionProps = (members: ResourceSuggestion[]) => {
       const proposalId = members.length > 1 ? members[0]?.proposalId : null;
-      const pendingMembers = suggestions.filter(
-        (suggestion) =>
-          members.some((member) => member.id === suggestion.id) &&
-          suggestion.status === "pending",
-      );
-      // Resolving takes the thread's other pending edits out of it, so only
-      // the last group with any left offers to resolve, and none while an
-      // edit is still loading.
       const pendingElsewhere =
         loadingSuggestionIds.length > 0 ||
         embedded.some(
@@ -3349,30 +3306,23 @@ export function CommentsSidebar({
                   ),
                 )
             : undefined,
-        onAcceptAndResolve:
-          !thread.resolved && threadCanResolve(thread) && !pendingElsewhere
-            ? () => {
-                const requested =
-                  proposalId && onDecideSuggestionProposal
-                    ? suggestions.filter(
-                        (suggestion) =>
-                          suggestion.proposalId === proposalId &&
-                          suggestion.status === "pending",
-                      )
-                    : pendingMembers;
-                setResolveOnAccept((current) =>
-                  new Map(current).set(
-                    thread.threadId,
-                    requested.map(({ id }) => id),
-                  ),
-                );
-                if (proposalId && onDecideSuggestionProposal)
-                  onDecideSuggestionProposal(proposalId, "accepted", requested);
-                else
-                  for (const member of requested)
-                    onDecideSuggestion?.(member, "accepted");
-              }
+        onResolve:
+          members === resolvingGroup &&
+          !thread.resolved &&
+          threadCanResolve(thread) &&
+          !pendingElsewhere &&
+          !members.some(suggestionBusy)
+            ? () => handleResolve(thread)
             : undefined,
+        onStep: (suggestion: ResourceSuggestion) => {
+          if (selectedThreadId !== thread.threadId) {
+            onActivateThread?.(thread.threadId);
+            if (presentation === "inline" && threadCanComment(thread))
+              setReplyingThreadId(thread.threadId, null, false);
+          }
+          onStepThreadSuggestion?.(thread.threadId, suggestion.id);
+        },
+        stickyDecision: surface !== "panel",
       };
     };
     const showsRequestSuggestion =
@@ -3513,6 +3463,12 @@ export function CommentsSidebar({
         thread={thread}
         marginTop={marginTop}
         isActive={isActive}
+        pendingSuggestionGroups={[...receipts.values(), ...receiptless]
+          .filter((members) =>
+            members.some((suggestion) => suggestion.status === "pending"),
+          )
+          .map((members) => members[0]?.id)
+          .join(" ")}
         canExpand={threadCanComment(thread) || !!thread.clip}
         isExpanded={replyingThreadId === thread.threadId}
         isSubmitting={
@@ -4595,208 +4551,6 @@ export function agentSuggestionReason(
   return reason;
 }
 
-/**
- * A change that adds or removes a line break, or swaps one run of whitespace
- * for another, doesn't say which lines it joins or splits, and a break alone
- * reads as a lone "↵", so what it replaces is shown too.
- */
-function changesLayout(removed: string, inserted: string) {
-  const before = suggestionAnchorText(removed);
-  const after = suggestionAnchorText(inserted);
-  return (
-    /\n/.test(before + after) || (/^\s+$/.test(before) && /^\s+$/.test(after))
-  );
-}
-
-/**
- * A replacement's change letter by letter, or null when that wouldn't read as
- * an edit. Changing whole words reads fine, as does a word keeping most of its
- * letters ("workflow" → "workflows"). Marking part of a word otherwise picks
- * out letters a different word happens to share: "brown" → "red" would mark
- * the "ed" after a kept "r", and a rewritten sentence a letter here and there.
- */
-function letterDiff(removed: string, inserted: string) {
-  const parts = suggestionDiffParts(removed, inserted);
-  if (!parts) return null;
-  const splitsWord = (["delete", "insert"] as const).some((side) => {
-    let previous: (typeof parts)[number] | undefined;
-    for (const part of parts) {
-      if (part.type !== "equal" && part.type !== side) continue;
-      if (
-        previous &&
-        (previous.type === "equal") !== (part.type === "equal") &&
-        WORD_CHARACTER.test(previous.text.slice(-1)) &&
-        WORD_CHARACTER.test(part.text.charAt(0))
-      )
-        return true;
-      previous = part;
-    }
-    return false;
-  });
-  if (!splitsWord) return parts;
-  if (/\s/.test(removed.trim() + inserted.trim())) return null;
-  const kept = parts
-    .filter((part) => part.type === "equal")
-    .reduce((length, part) => length + part.text.length, 0);
-  return kept * 2 > Math.max(removed.length, inserted.length) ? parts : null;
-}
-
-function SuggestionOperationSummary({
-  operations,
-  expanded,
-  wordLevel = false,
-  t,
-}: {
-  operations: ResourceSuggestion["operations"];
-  expanded: boolean;
-  wordLevel?: boolean;
-  t: ReturnType<typeof useT>;
-}) {
-  return operations.map((operation, index) => {
-    const before = operation.before as
-      | { markdown?: string; changedText?: string }
-      | undefined;
-    const after = operation.after as
-      | { markdown?: string; changedText?: string }
-      | undefined;
-    const previousText = before?.changedText;
-    const nextText =
-      operation.kind === "delete_text" &&
-      after?.changedText === "<empty-block/>"
-        ? ""
-        : after?.changedText;
-    const key = operation.id ?? index;
-    const anchor = operation.anchor as
-      | { from?: unknown; to?: unknown }
-      | undefined;
-    const previousPresentation =
-      previousText !== undefined &&
-      before?.markdown !== undefined &&
-      typeof anchor?.from === "number" &&
-      typeof anchor.to === "number"
-        ? {
-            source: before.markdown,
-            from: anchor.from,
-            to: anchor.to,
-          }
-        : undefined;
-    const nextPresentation =
-      nextText !== undefined &&
-      after?.markdown !== undefined &&
-      typeof anchor?.from === "number"
-        ? {
-            source: after.markdown,
-            from: anchor.from,
-            to: anchor.from + nextText.length,
-          }
-        : undefined;
-
-    if (previousText && nextText) {
-      const richText = /[<>*_`\[\]]/.test(previousText + nextText);
-      const diff =
-        operation.kind !== "replace_text"
-          ? null
-          : (!wordLevel && letterDiff(previousText, nextText)) ||
-            // Formatted text can only be read as a whole against its source.
-            (richText ? null : reviewUnitDiffParts(previousText, nextText));
-      const hasSharedContext = diff?.some((part) => part.type === "equal");
-      const changed = (type: "delete" | "insert", whole: string) =>
-        diff && hasSharedContext
-          ? diff
-              .flatMap((part) => (part.type === type ? [part.text] : []))
-              .join("")
-          : whole;
-      const showReplaced =
-        expanded ||
-        changesLayout(
-          changed("delete", previousText),
-          changed("insert", nextText),
-        );
-      const renderDiff = (side: "before" | "after") => {
-        let offset = 0;
-        const presentation =
-          side === "before" ? previousPresentation : nextPresentation;
-        return diff?.map((part, partIndex) => {
-          if (part.type === (side === "before" ? "insert" : "delete"))
-            return null;
-          const from = (presentation?.from ?? 0) + offset;
-          offset += part.text.length;
-          return (
-            <span
-              key={partIndex}
-              className={cn(
-                side === "after" &&
-                  part.type === "insert" &&
-                  "text-[hsl(var(--suggestion))] underline decoration-[hsl(var(--suggestion))]",
-                side === "before" && part.type === "delete" && "line-through",
-              )}
-            >
-              {richText
-                ? renderSuggestionText(
-                    part.text,
-                    presentation && {
-                      source: presentation.source,
-                      from,
-                      to: from + part.text.length,
-                    },
-                  )
-                : part.type !== "equal" && /^\s+$/.test(part.text)
-                  ? suggestionTextForDisplay(part.text)
-                  : part.text}
-            </span>
-          );
-        });
-      };
-      return (
-        <div key={key} className="break-words">
-          <div
-            className={cn(
-              !(diff && hasSharedContext) && "text-[hsl(var(--suggestion))]",
-            )}
-          >
-            {t("comments.suggestionWith")}: {"“"}
-            {diff && hasSharedContext
-              ? renderDiff("after")
-              : renderSuggestionText(nextText, nextPresentation)}
-            {"”"}
-          </div>
-          {showReplaced ? (
-            <div className="text-muted-foreground">
-              {t("comments.suggestionReplace")}: {"“"}
-              {diff && hasSharedContext
-                ? renderDiff("before")
-                : renderSuggestionText(previousText, previousPresentation)}
-              {"”"}
-            </div>
-          ) : null}
-        </div>
-      );
-    }
-
-    if (previousText) {
-      return (
-        <div key={key} className="break-words text-muted-foreground">
-          {t("comments.suggestionDelete")}: {"“"}
-          {renderSuggestionText(previousText, previousPresentation)}
-          {"”"}
-        </div>
-      );
-    }
-
-    if (nextText) {
-      return (
-        <div key={key} className="break-words text-[hsl(var(--suggestion))]">
-          {t("comments.suggestionAdd")}: {"“"}
-          {renderSuggestionText(nextText, nextPresentation)}
-          {"”"}
-        </div>
-      );
-    }
-
-    return null;
-  });
-}
-
 function DraftSuggestionThreadView({
   marginTop = 0,
   onHeightChange,
@@ -4859,10 +4613,14 @@ function DraftSuggestionThreadView({
       {
         id: suggestion.id,
         author_email: suggestion.authorEmail ?? "",
-        author_name: ownAuthorName(
+        author_name: signedName(
+          ownAuthorName(
+            suggestion.authorEmail,
+            currentUserEmail,
+            currentUserName,
+          ),
           suggestion.authorEmail,
-          currentUserEmail,
-          currentUserName,
+          "human",
         ),
         created_at: suggestion.createdAt,
         content: "",
@@ -4903,15 +4661,7 @@ function DraftSuggestionThreadView({
         canComment={false}
         canResolve={false}
         t={t}
-        firstEntryBody={
-          <>
-            <SuggestionOperationSummary
-              operations={suggestion.operations}
-              expanded={false}
-              t={t}
-            />
-          </>
-        }
+        firstEntryBody={<SuggestionChange operations={suggestion.operations} />}
         threadActions={
           canDecide ? (
             <SuggestionDecisionButtons
@@ -4976,7 +4726,6 @@ function SuggestionThreadView({
   suggestion: ResourceSuggestion;
   /** What the card decides, read as one edit even when it takes several pieces. */
   operations: ResourceSuggestion["operations"];
-  /** Spells out what the edit replaces without being opened first. */
   isReviewUnit: boolean;
   /** Why the agent suggested this edit, shown above it in full. */
   reason: string | null;
@@ -5029,12 +4778,7 @@ function SuggestionThreadView({
   const canReply =
     canComment && suggestion.status === "pending" && root?.status === "open";
   const canExpand =
-    canReply ||
-    operations.some((operation) => {
-      const before = operation.before as { changedText?: string } | undefined;
-      const after = operation.after as { changedText?: string } | undefined;
-      return !!before?.changedText && !!after?.changedText;
-    });
+    canReply || suggestionChangeHasMore(operations, isReviewUnit);
   const entries = (comments.data?.comments ?? [])
     .filter((comment) => comment.id !== root?.id)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -5044,14 +4788,16 @@ function SuggestionThreadView({
       {
         id: root?.id ?? suggestion.id,
         author_email: suggestion.authorEmail ?? "",
-        author_name:
+        author_name: signedName(
           root?.authorName ??
-          ownAuthorName(
-            suggestion.authorEmail,
-            currentUserEmail,
-            currentUserName,
-          ) ??
-          (suggestion.authorEmail ? null : suggestion.actorKind),
+            ownAuthorName(
+              suggestion.authorEmail,
+              currentUserEmail,
+              currentUserName,
+            ),
+          suggestion.authorEmail,
+          suggestion.actorKind,
+        ),
         created_at: suggestion.createdAt,
         content: "",
         mentions: [],
@@ -5059,14 +4805,16 @@ function SuggestionThreadView({
       ...entries.map((comment) => ({
         id: comment.id,
         author_email: comment.authorEmail ?? "",
-        author_name:
+        author_name: signedName(
           comment.authorName ??
-          ownAuthorName(
-            comment.authorEmail,
-            currentUserEmail,
-            currentUserName,
-          ) ??
-          (comment.authorEmail ? null : comment.createdBy),
+            ownAuthorName(
+              comment.authorEmail,
+              currentUserEmail,
+              currentUserName,
+            ),
+          comment.authorEmail,
+          comment.createdBy,
+        ),
         created_at: comment.createdAt,
         content: comment.body,
         mentions: comment.mentions.flatMap((mention) =>
@@ -5110,6 +4858,7 @@ function SuggestionThreadView({
         replyText={draft}
         replyMentions={mentions}
         onHoverChange={() => {}}
+        onSelect={suggestion.status === "pending" ? onActivate : undefined}
         onExpand={() => {
           if (!canExpand) return;
           if (!expanded) {
@@ -5261,11 +5010,10 @@ function SuggestionThreadView({
                 {reason}
               </p>
             ) : null}
-            <SuggestionOperationSummary
+            <SuggestionChange
               operations={operations}
-              expanded={expanded || isReviewUnit}
+              whole={expanded}
               wordLevel={isReviewUnit}
-              t={t}
             />
             {anchorUnavailable || sourceUrl ? (
               <span className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -5310,6 +5058,177 @@ function SuggestionThreadView({
   );
 }
 
+function useThreadBodyRoomInViewport(
+  enabled: boolean,
+  cardRef: RefObject<HTMLDivElement | null>,
+  bodyRef: RefObject<HTMLDivElement | null>,
+) {
+  const [room, setRoom] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const card = cardRef.current;
+    const body = bodyRef.current;
+    if (!enabled || !card || !body) {
+      setRoom(null);
+      return;
+    }
+    const measure = () => {
+      const bodyBox = body.getBoundingClientRect();
+      const cardBelowBody =
+        card.getBoundingClientRect().bottom - bodyBox.bottom;
+      const viewportBottom = document.documentElement.clientHeight;
+      setRoom(
+        Math.max(
+          CAPPED_THREAD_BODY_HEIGHT,
+          Math.floor(
+            viewportBottom -
+              bodyBox.top -
+              cardBelowBody -
+              THREAD_CARD_VIEWPORT_MARGIN,
+          ),
+        ),
+      );
+    };
+    measure();
+    let settleTimer = 0;
+    const measureOnceSettled = (event: Event) => {
+      if (event.target instanceof Node && card.contains(event.target)) return;
+      window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(measure, THREAD_BODY_ROOM_SETTLE_MS);
+    };
+    window.addEventListener("resize", measureOnceSettled);
+    window.addEventListener("scroll", measureOnceSettled, {
+      capture: true,
+      passive: true,
+    });
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(measure);
+    observer?.observe(card);
+    return () => {
+      window.clearTimeout(settleTimer);
+      window.removeEventListener("resize", measureOnceSettled);
+      window.removeEventListener("scroll", measureOnceSettled, {
+        capture: true,
+      });
+      observer?.disconnect();
+    };
+  }, [enabled]);
+  return room;
+}
+
+const READER_SCROLL_INTENT_EVENTS = [
+  "wheel",
+  "touchstart",
+  "pointerdown",
+  "keydown",
+] as const;
+
+function bringEntryStartIntoView(
+  body: HTMLElement,
+  entryId: string,
+  behavior: "smooth" | "instant",
+) {
+  if (body.scrollHeight <= body.clientHeight) return;
+  const entry = body.querySelector<HTMLElement>(
+    `[data-comment-entry="${cssEscape(entryId)}"]`,
+  );
+  if (!entry) return;
+  const entryTop =
+    entry.getBoundingClientRect().top - body.getBoundingClientRect().top;
+  if (entryTop >= 0 && entryTop <= body.clientHeight - NEW_ENTRY_MIN_VISIBLE)
+    return;
+  const padding = Number.parseFloat(getComputedStyle(body).paddingTop) || 0;
+  const top = body.scrollTop + entryTop - padding;
+  if (behavior === "instant") body.scrollTop = top;
+  else body.scrollTo({ top, behavior });
+}
+
+function revealLastPendingSuggestionGroup(body: HTMLElement) {
+  const decision = [
+    ...body.querySelectorAll("[data-suggestion-group-decision]"),
+  ].pop();
+  const group = decision?.previousElementSibling;
+  if (!decision || !group) return;
+  const groupBox = group.getBoundingClientRect();
+  const hiddenUnderDecision =
+    groupBox.bottom - decision.getBoundingClientRect().top;
+  const scrollableAboveGroup = groupBox.top - body.getBoundingClientRect().top;
+  body.scrollTop += Math.max(
+    0,
+    Math.min(hiddenUnderDecision, scrollableAboveGroup),
+  );
+}
+
+function useRevealThreadArrivals({
+  bodyRef,
+  open,
+  revealsPendingGroup,
+  room,
+  entryCount,
+  latestEntryId,
+  pendingSuggestionGroups,
+}: {
+  bodyRef: RefObject<HTMLDivElement | null>;
+  open: boolean;
+  revealsPendingGroup: boolean;
+  room: number | null;
+  entryCount: number;
+  latestEntryId: string | undefined;
+  pendingSuggestionGroups: string;
+}) {
+  const readerTookOver = useRef(false);
+  const seen = useRef({ entryCount, open });
+  const arrivedEntryId = useRef<string | null>(null);
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    const stopRevealing = () => {
+      readerTookOver.current = true;
+    };
+    for (const type of READER_SCROLL_INTENT_EVENTS) {
+      body.addEventListener(type, stopRevealing, { passive: true });
+    }
+    return () => {
+      for (const type of READER_SCROLL_INTENT_EVENTS) {
+        body.removeEventListener(type, stopRevealing);
+      }
+    };
+  }, [bodyRef]);
+  useLayoutEffect(() => {
+    const entryArrived = entryCount > seen.current.entryCount;
+    const opened = open && !seen.current.open;
+    seen.current = { entryCount, open };
+    if (entryArrived || opened) {
+      readerTookOver.current = false;
+      arrivedEntryId.current = entryArrived ? (latestEntryId ?? null) : null;
+    }
+    const body = bodyRef.current;
+    if (!body || readerTookOver.current) {
+      arrivedEntryId.current = null;
+      return;
+    }
+    if (revealsPendingGroup && room === null) return;
+    const entryId = arrivedEntryId.current;
+    arrivedEntryId.current = null;
+    if (entryId)
+      bringEntryStartIntoView(
+        body,
+        entryId,
+        revealsPendingGroup ? "instant" : "smooth",
+      );
+    if (revealsPendingGroup) revealLastPendingSuggestionGroup(body);
+  }, [
+    bodyRef,
+    entryCount,
+    latestEntryId,
+    open,
+    revealsPendingGroup,
+    room,
+    pendingSuggestionGroups,
+  ]);
+}
+
 function ThreadView({
   renderEntry,
   surface = "rail",
@@ -5328,6 +5247,7 @@ function ThreadView({
   thread,
   marginTop,
   isActive,
+  pendingSuggestionGroups = "",
   canExpand,
   isExpanded,
   isSubmitting,
@@ -5339,6 +5259,7 @@ function ThreadView({
   onReplyImagesChange,
   aiDraft,
   onHoverChange,
+  onSelect,
   onExpand,
   onCollapse,
   collapsesWhenLeftAlone = false,
@@ -5395,6 +5316,7 @@ function ThreadView({
   };
   marginTop: number;
   isActive: boolean;
+  pendingSuggestionGroups?: string;
   canExpand: boolean;
   isExpanded: boolean;
   isSubmitting: boolean;
@@ -5406,6 +5328,7 @@ function ThreadView({
   onReplyImagesChange?: (images: CommentImage[]) => void;
   aiDraft?: CommentAiDraft | null;
   onHoverChange: (hovered: boolean) => void;
+  onSelect?: () => void;
   onExpand: () => void;
   onCollapse: () => void;
   /** Collapse once neither the pointer nor keyboard focus has been on the card for a while. */
@@ -5437,40 +5360,12 @@ function ThreadView({
   const cardRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const replyBoxRef = useRef<HTMLDivElement>(null);
-  const seenEntryCount = useRef(thread.comments.length);
   const leftAlone = useLeftAloneCountdown({
     ref: cardRef,
     enabled: collapsesWhenLeftAlone,
     holdMs: AI_RESULT_LEFT_ALONE_MS,
     onGone: onCollapse,
   });
-
-  // A capped card hides what arrives below the fold, such as the AI's revised
-  // suggestion after a follow-up, so bring a new entry into view from its
-  // start: a long suggestion opens on its reason, not its last edit.
-  useEffect(() => {
-    const added = thread.comments.length > seenEntryCount.current;
-    seenEntryCount.current = thread.comments.length;
-    const body = bodyRef.current;
-    const latest = thread.comments.slice(-1).pop();
-    if (!added || !body || !latest || body.scrollHeight <= body.clientHeight)
-      return;
-    const entry = body.querySelector<HTMLElement>(
-      `[data-comment-entry="${cssEscape(latest.id)}"]`,
-    );
-    if (!entry) return;
-    const entryTop =
-      entry.getBoundingClientRect().top - body.getBoundingClientRect().top;
-    // Its start already shows, under the comment that asked for it: leave
-    // the reader where they are.
-    if (entryTop >= 0 && entryTop <= body.clientHeight - NEW_ENTRY_MIN_VISIBLE)
-      return;
-    const padding = Number.parseFloat(getComputedStyle(body).paddingTop) || 0;
-    body.scrollTo({
-      top: body.scrollTop + entryTop - padding,
-      behavior: "smooth",
-    });
-  }, [thread.comments.length]);
 
   useEffect(() => {
     if (isExpanded && canComment && replyDrafts) {
@@ -5509,6 +5404,23 @@ function ThreadView({
   const timestamp = useCommentTimestamp();
   const isRail = surface === "rail";
   const isPanel = surface === "panel";
+  const bodyFitsSuggestionReview =
+    !isPanel && !!pendingSuggestionGroups && (isExpanded || isActive);
+  const railBodyFitsSuggestionReview = bodyFitsSuggestionReview && isRail;
+  const railBodyRoom = useThreadBodyRoomInViewport(
+    railBodyFitsSuggestionReview,
+    cardRef,
+    bodyRef,
+  );
+  useRevealThreadArrivals({
+    bodyRef,
+    open: isExpanded || isActive,
+    revealsPendingGroup: railBodyFitsSuggestionReview,
+    room: railBodyRoom,
+    entryCount: thread.comments.length,
+    latestEntryId: thread.comments[thread.comments.length - 1]?.id,
+    pendingSuggestionGroups,
+  });
 
   // A reply box opening low in Discussion comes fully into view, its Send
   // included; one already in view stays where it is.
@@ -5652,12 +5564,13 @@ function ThreadView({
       onKeyDown={(event) => {
         if (
           !isSubmitting &&
-          canExpand &&
+          (canExpand || onSelect) &&
           event.target === event.currentTarget &&
           (event.key === "Enter" || event.key === " ")
         ) {
           event.preventDefault();
-          onExpand();
+          if (canExpand) onExpand();
+          else onSelect?.();
         }
       }}
       data-thread-card={thread.threadId}
@@ -5677,7 +5590,7 @@ function ThreadView({
                 ? "max-h-[var(--comment-popover-max-height)] shadow-comment-raised"
                 : "shadow-comment-card",
             ),
-        canExpand && !isExpanded && "cursor-pointer",
+        (canExpand || onSelect) && !isExpanded && "cursor-pointer",
         isRail &&
           "mx-2 mr-4 transition-[box-shadow,translate] duration-[260ms] ease-[var(--ease-drawer)] motion-reduce:transform-none motion-reduce:transition-none motion-reduce:hover:translate-x-0 motion-reduce:focus-within:translate-x-0",
         isRail &&
@@ -5696,7 +5609,7 @@ function ThreadView({
         if (!isSubmitting && canExpand) {
           if (isExpanded && !canComment) onCollapse();
           else onExpand();
-        }
+        } else if (!isSubmitting) onSelect?.();
       }}
       onMouseEnter={() => onHoverChange(true)}
       onMouseLeave={() => onHoverChange(false)}
@@ -5711,8 +5624,10 @@ function ThreadView({
             ? "px-4 py-3.5"
             : // Scrolling past either end of a long thread stays in the card
               // instead of moving the page behind it.
-              "max-h-96 min-h-0 overflow-y-auto overscroll-y-contain px-4 pb-3.5 pt-3.5",
+              "min-h-0 overflow-y-auto overscroll-y-contain px-4 pb-3.5 pt-3.5",
+          !isPanel && (isRail || !bodyFitsSuggestionReview) && "max-h-96",
         )}
+        style={railBodyRoom === null ? undefined : { maxHeight: railBodyRoom }}
         data-comment-thread-body
       >
         {subject}

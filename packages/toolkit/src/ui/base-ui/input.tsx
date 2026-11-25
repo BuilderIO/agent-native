@@ -6,6 +6,7 @@ import * as React from "react";
 
 import { cn } from "../../utils.js";
 import { splitProps } from "./props.js";
+import { surfaceTarget } from "./surface-target.js";
 
 export interface InputProps
   extends
@@ -40,14 +41,17 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>((props, ref) => {
       className={cn("input", className)}
       style={style}
       onPointerDown={(event) => {
-        const target = event.target;
-        if (!(target instanceof Element)) return;
-        if (target.closest("input, button, a, [role=button]")) return;
+        if (event.defaultPrevented || event.button !== 0) return;
+        const target = surfaceTarget(event.currentTarget, event.target);
+        if (!target) return;
+        const view = target.ownerDocument.defaultView;
+        if (!view) return;
         const input = event.currentTarget.querySelector("input");
         if (input === null) return;
         const caret =
           target.closest(TRAILING_SLOT) === null ? 0 : input.value.length;
-        requestAnimationFrame(() => {
+        view.requestAnimationFrame(() => {
+          if (event.nativeEvent.defaultPrevented || !input.isConnected) return;
           if (CARET_TYPES.has(input.type)) {
             input.setSelectionRange(caret, caret);
           }

@@ -38,7 +38,7 @@ const {
   cleanupOldRuns,
 } = await import("./run-store.js");
 beforeAll(async () => {
-  db = await createTestPglite();
+  db = await createTestPglite({ reuseEmptyBootstrap: true });
   await ensureRunTables();
 });
 afterAll(async () => {

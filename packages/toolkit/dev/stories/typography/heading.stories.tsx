@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { Heading } from "../../../src/ui/base-ui/heading.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./heading.docs.md?raw";
 
 const controls = propControls(headingProps);
 
@@ -11,7 +12,7 @@ const SAMPLE = "Quarterly review";
 const meta = {
   title: "Typography/Heading",
   component: Heading,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: { ...controls.args, children: SAMPLE },
   argTypes: controls.argTypes,
 } satisfies Meta<typeof Heading>;

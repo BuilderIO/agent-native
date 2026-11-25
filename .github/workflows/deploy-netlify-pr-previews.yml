@@ -372,12 +372,102 @@ jobs:
               });
             }
 
-  cleanup:
-    name: Remove closed PR preview for ${{ matrix.site }}
+  cleanup-preflight:
+    name: Check whether closed PR ever created a preview
     if: >-
       github.event_name == 'pull_request_target' &&
       github.event.action == 'closed' &&
       github.event.pull_request.head.repo.full_name == github.repository
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      deployments: read
+      issues: read
+    outputs:
+      has_preview: ${{ steps.check.outputs.has_preview }}
+    steps:
+      - name: Check for PR preview deployments, comments, or active runs
+        id: check
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PULL_REQUEST_NUMBER: ${{ github.event.pull_request.number }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const pullRequestNumber = Number(process.env.PULL_REQUEST_NUMBER);
+            if (!Number.isSafeInteger(pullRequestNumber) || pullRequestNumber < 1) {
+              core.setOutput('has_preview', 'true');
+              return;
+            }
+            const eligibleSites = ["analytics","assets","calendar","clips","content","design","dispatch","forms","mail","plan","slides","starter","fw"];
+            const { owner, repo } = context.repo;
+
+            const deploymentChecks = await Promise.all(
+              eligibleSites.map(async (site) => {
+                const { data } = await github.rest.repos.listDeployments({
+                  owner,
+                  repo,
+                  environment: `pr-${pullRequestNumber}-${site}`,
+                  per_page: 1,
+                });
+                return data.length > 0 ? site : null;
+              }),
+            );
+            const deployedSite = deploymentChecks.find(Boolean);
+            if (deployedSite) {
+              core.notice(`Found GitHub deployment for pr-${pullRequestNumber}-${deployedSite}; running preview cleanup.`);
+              core.setOutput('has_preview', 'true');
+              return;
+            }
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number: pullRequestNumber,
+              per_page: 100,
+            });
+            if (comments.some((comment) => /^\/preview\s+\S/i.test(comment.body ?? ''))) {
+              core.notice(`Found /preview command comment on PR #${pullRequestNumber}; running preview cleanup.`);
+              core.setOutput('has_preview', 'true');
+              return;
+            }
+
+            const activeStatuses = ['in_progress', 'queued', 'waiting'];
+            const recentSince = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString().slice(0, 19) + 'Z';
+            const activeRuns = await Promise.all(
+              activeStatuses.map(async (status) => {
+                const { data } = await github.rest.actions.listWorkflowRuns({
+                  owner,
+                  repo,
+                  workflow_id: 'deploy-netlify-pr-previews.yml',
+                  event: 'issue_comment',
+                  status,
+                  created: `>=${recentSince}`,
+                  per_page: 1,
+                });
+                return data.total_count ?? data.workflow_runs.length;
+              }),
+            );
+            if (activeRuns.some((count) => count > 0)) {
+              core.notice(`Found active /preview workflow run; running preview cleanup for PR #${pullRequestNumber}.`);
+              core.setOutput('has_preview', 'true');
+              return;
+            }
+
+            core.notice(`PR #${pullRequestNumber} has no preview deployments, /preview comments, or active preview runs; skipping 13-site cleanup.`);
+            core.setOutput('has_preview', 'false');
+
+  cleanup:
+    name: Remove closed PR preview for ${{ matrix.site }}
+    needs: [cleanup-preflight]
+    if: >-
+      !cancelled() &&
+      github.event_name == 'pull_request_target' &&
+      github.event.action == 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.cleanup-preflight.result != 'cancelled' &&
+      (needs.cleanup-preflight.result != 'success' || needs.cleanup-preflight.outputs.has_preview == 'true')
     timeout-minutes: 15
     strategy:
       fail-fast: false

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -12,6 +12,7 @@ import {
   type DesignE2ERegressionPin,
   type DesignE2ERegressionPinException,
 } from "./design-e2e-regression-pins.ts";
+import { readProvidedRoots } from "./guard-no-untracked-imports.mjs";
 import {
   GUARD_EXIT_COULD_NOT_RUN,
   resolveDiffBase,
@@ -242,8 +243,31 @@ export async function checkDesignE2ERegressionPins(
   return violations;
 }
 
+export function isDesignOverlaidFromPublicPin(cwd: string): boolean {
+  if (!existsSync(path.join(cwd, "PUBLIC_PIN"))) return false;
+  try {
+    const providedRoots = readProvidedRoots(cwd);
+    return providedRoots.some(
+      (root) =>
+        root === "templates/design/" || "templates/design/".startsWith(root),
+    );
+  } catch (error) {
+    const unavailable = new Error(
+      error instanceof Error ? error.message : String(error),
+    );
+    Object.assign(unavailable, { exitCode: GUARD_EXIT_COULD_NOT_RUN });
+    throw unavailable;
+  }
+}
+
 async function main(): Promise<void> {
   try {
+    if (isDesignOverlaidFromPublicPin(REPO_ROOT)) {
+      console.log(
+        "guard:design-e2e-regression-pins: templates/design/ is overlaid from PUBLIC_PIN; gated upstream.",
+      );
+      return;
+    }
     const violations = await checkDesignE2ERegressionPins();
     if (violations.length > 0) {
       console.error("guard:design-e2e-regression-pins failed:");

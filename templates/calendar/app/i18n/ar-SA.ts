@@ -2,6 +2,8 @@ import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js"
 
 export default {
   common: {
+    calendarRateLimited:
+      "تم تقييد طلبات تقويم Google. قد تكون الأحداث المحفوظة غير محدثة.",
     connect: "اتصال",
     connected: "متصل",
     connecting: "جارٍ الاتصال...",
@@ -567,11 +569,24 @@ export default {
     connectZoom: "قم بتوصيل Zoom",
     copyBookingLink: "انسخ رابط الحجز",
     copyLink: "انسخ الرابط",
+    copySingleUseLink: "نسخ رابط للاستخدام مرة واحدة",
+    singleUseLinkCopied: "تم نسخ الرابط. يصلح لحجز واحد فقط.",
+    singleUseLinkReady: "الرابط للاستخدام مرة واحدة جاهز",
+    singleUseLinkCreateFailed: "تعذّر إنشاء رابط للاستخدام مرة واحدة",
+    singleUseLinkUsed: "تم استخدام هذا الرابط بالفعل",
+    singleUseLinkInvalid: "لم يعد هذا الرابط يعمل",
+    singleUseLinkAskForNew:
+      "أُنشئ هذا الرابط لحجز واحد فقط. اطلب رابطًا جديدًا من الشخص الذي أرسله.",
     createFirstLink: "قم بإنشاء الرابط الأول الخاص بك",
     createLink: "إنشاء رابط",
     custom: "مخصص",
     customLink: "رابط مخصص",
     customLinkDescription: "لصق أي اجتماع URL",
+    reminderEmail: "رسالة تذكير",
+    reminderEmailDescription: "تُرسل إلى الشخص الذي حجز وإلى أي ضيوف أضافهم.",
+    reminderOff: "بدون تذكير",
+    reminderOneHour: "قبل ساعة واحدة",
+    reminderOneDay: "قبل يوم واحد",
     date: "التاريخ",
     dateAndTime: "التاريخ والوقت",
     dateSelection: "اختيار التاريخ",

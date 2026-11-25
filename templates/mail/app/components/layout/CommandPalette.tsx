@@ -18,6 +18,7 @@ import {
   IconShieldExclamation,
   IconBan,
   IconBellOff,
+  IconLink,
   IconPhotoOff,
   IconPhoto,
   IconEye,
@@ -43,6 +44,7 @@ interface CommandPaletteProps {
   onSpam?: () => void;
   onBlockSender?: () => void;
   onMuteThread?: () => void;
+  onCopyLink?: (() => void) | undefined;
   onSend?: () => void;
   onSendLater?: () => void;
   onSendAndMarkDone?: () => void;
@@ -112,6 +114,7 @@ export function CommandPalette({
   onSpam,
   onBlockSender,
   onMuteThread,
+  onCopyLink,
   onSend,
   onSendLater,
   onSendAndMarkDone,
@@ -183,6 +186,8 @@ export function CommandPalette({
         [t("mail.actions.moveToTrash"), "# / D"],
         [t("commandPalette.toggleReadState"), "U"],
         [t("mail.mobileActions.star"), "S"],
+        [t("mail.actions.labelAs"), "L"],
+        [t("mail.actions.moveTo"), "V"],
         [t("commandPalette.reply"), "R"],
         [t("mail.compose.forward"), "F"],
         [t("mail.mobileActions.replyAll"), "A"],
@@ -199,6 +204,8 @@ export function CommandPalette({
         [t("mail.actions.moveToTrash"), "# / D"],
         [t("commandPalette.toggleReadState"), "U"],
         [t("mail.mobileActions.star"), "S"],
+        [t("mail.actions.labelAs"), "L"],
+        [t("mail.actions.moveTo"), "V"],
         [t("commandPalette.reply"), "R"],
         [t("mail.mobileActions.replyAll"), "Enter / A"],
         [t("mail.compose.forward"), "F"],
@@ -418,6 +425,15 @@ export function CommandPalette({
             >
               <IconBellOff className="h-4 w-4" />
               {t("commandPalette.muteThread")}
+            </CommandMenu.Item>
+          )}
+          {!isComposeContext && onCopyLink && (
+            <CommandMenu.Item
+              onSelect={onCopyLink}
+              keywords={["copy", "link", "permalink", "url", "share"]}
+            >
+              <IconLink className="h-4 w-4" />
+              {t("mail.actions.copyLink")}
             </CommandMenu.Item>
           )}
         </CommandMenu.Group>

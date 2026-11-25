@@ -44,6 +44,7 @@ import type {
   DocumentProperty,
   DocumentSyncStatus,
 } from "@shared/api";
+import type { EditorBlockIds } from "@shared/block-identity-ids";
 import { suggestionBlocksFieldId } from "@shared/blocks-field-suggestions";
 import type { CommentAiRequest } from "@shared/comment-ai";
 import { commentPropertyTarget } from "@shared/comment-property-target";
@@ -57,6 +58,7 @@ import {
   LIVE_BODY_BACKFILL_FLAG,
   LIVE_BODY_SHADOW_FLAG,
 } from "@shared/feature-flags";
+import { isLocalSourceDirectoryId } from "@shared/local-source-directory";
 import { canonicalizeNfm, docToNfm } from "@shared/nfm";
 import {
   joinRewrittenParagraphs,
@@ -177,7 +179,10 @@ import { documentContentHash } from "@/lib/document-content-hash";
 import { registerDocumentHistoryRestoreController } from "@/lib/document-history-restore-controller";
 import { documentReadFailure } from "@/lib/document-read-failures";
 import { rememberLandingTitleHint } from "@/lib/document-title-hint";
-import { cachedFilesRootDocumentIds } from "@/lib/files-navigation";
+import {
+  cachedFilesRootDocumentIds,
+  cachedFilesSiblingDocumentIds,
+} from "@/lib/files-navigation";
 import { filesRootHintScope } from "@/lib/files-root-hint";
 import { rememberLastLocationHint } from "@/lib/last-location-hint";
 import {
@@ -393,6 +398,7 @@ import {
   useSuggestionDecisionView,
   type QueuedSuggestionDecision,
 } from "./suggestion-decision-queue";
+import { scrollSuggestionIntoPageView } from "./suggestion-page-view";
 import {
   createSuggestionAutosave,
   markSuggestionAutosaveSaved,
@@ -443,6 +449,7 @@ import {
   type SuggestionPresentationTransition,
   type SuggestionPresentationTransitions,
 } from "./suggestions/presentation-rebase";
+import { SyncedPageBanner } from "./SyncedPageBanner";
 import {
   refreshedProposalMembers,
   reviewedAsOne,
@@ -3052,20 +3059,29 @@ export function documentEditorBreadcrumbItems(
   documents: Pick<Document, "id" | "parentId" | "title" | "icon">[], // i18n-ignore type expression
 ) {
   const byId = new Map(documents.map((doc) => [doc.id, doc]));
-  const parents: { id: string; title: string; icon: Document["icon"] }[] = [];
+  const parents: ToolbarBreadcrumbItem[] = [];
   const seen = new Set<string>([document.id]);
-  let parentId = document.parentId;
+  const pathParentId = byId.get(document.id)?.parentId;
+  let parentId =
+    document.parentId ??
+    (pathParentId && isLocalSourceDirectoryId(pathParentId)
+      ? pathParentId
+      : null);
 
   while (parentId) {
     if (seen.has(parentId)) break;
     seen.add(parentId);
     const parent = byId.get(parentId);
     if (!parent) break;
-    parents.unshift({
-      id: parent.id,
-      title: parent.title,
-      icon: parent.icon,
-    });
+    parents.unshift(
+      isLocalSourceDirectoryId(parent.id)
+        ? { title: parent.title, icon: null, iconKind: "folder" }
+        : {
+            id: parent.id,
+            title: parent.title,
+            icon: parent.icon,
+          },
+    );
     parentId = parent.parentId;
   }
 
@@ -3320,6 +3336,10 @@ function PageEditorSessionBody({
   );
   const navigate = useNavigate();
   const location = useLocation();
+  const linkedBlockId = useMemo(
+    () => new URLSearchParams(location.search).get("block"),
+    [location.search],
+  );
   const mcpDirectoryWidgetReadOnly =
     document.mcpDirectoryWidgetReadOnly === true;
   const widgetEditability = directoryWidgetEditability(document);
@@ -3465,6 +3485,11 @@ function PageEditorSessionBody({
   const [selectedSuggestionId, setSelectedSuggestionId] = useState<
     string | null
   >(null);
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const [steppedSuggestion, setSteppedSuggestion] = useState<{
+    threadId: string;
+    suggestionId: string;
+  } | null>(null);
   const [unplaceableSuggestionRevisions, setUnplaceableSuggestionRevisions] =
     useState<ReadonlyMap<string, number>>(() => new Map());
   const [hoveredSuggestionId, setHoveredSuggestionId] = useState<string | null>(
@@ -3750,6 +3775,11 @@ function PageEditorSessionBody({
         ? null
         : remainingPageAfterDelete(documentId, {
             activePath: navigationPath,
+            siblingDocumentIds: cachedFilesSiblingDocumentIds(
+              queryClient,
+              documentId,
+              navigationPath,
+            ),
             filesRootDocumentIds: cachedFilesRootDocumentIds(
               queryClient,
               documentId,
@@ -3876,6 +3906,16 @@ function PageEditorSessionBody({
     updatedAt: null,
     revision: undefined,
   });
+  const editorBlockIdsRef = useRef<{
+    markdown: string;
+    ids: EditorBlockIds;
+  } | null>(null);
+  const handleBlockIdentityIds = useCallback(
+    (markdown: string, ids: EditorBlockIds) => {
+      editorBlockIdsRef.current = { markdown, ids };
+    },
+    [],
+  );
   const isInitializedRef = useRef(false);
   const prevDocIdRef = useRef<string | null>(null);
   const localSnapshotEpochRef = useRef(0);
@@ -4742,6 +4782,10 @@ function PageEditorSessionBody({
                     )
                   : undefined,
               ...updates,
+              ...(updates.content !== undefined &&
+              editorBlockIdsRef.current?.markdown === updates.content
+                ? { editorBlockIds: editorBlockIdsRef.current.ids }
+                : {}),
               historySessionId:
                 options.historySessionId ??
                 historySessionRef.current.activity(documentId),
@@ -6994,7 +7038,13 @@ function PageEditorSessionBody({
     [documentId, savedSuggestions],
   );
   const activeSuggestionOnPage =
-    hoveredSuggestionId ?? editingSuggestionId ?? selectedSuggestionId;
+    hoveredSuggestionId ??
+    editingSuggestionId ??
+    selectedSuggestionId ??
+    (steppedSuggestion &&
+    (!selectedThreadId || selectedThreadId === steppedSuggestion.threadId)
+      ? steppedSuggestion.suggestionId
+      : null);
   // Whichever word of a unit is active, all of its words light up.
   const activeUnitIds = useMemo(
     () =>
@@ -9126,7 +9176,6 @@ function PageEditorSessionBody({
       !!pendingComment.text.trim() ||
       pendingComment.mentions.length > 0 ||
       !!pendingComment.aiDraft);
-  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
   // The Property whose threads, or new Comment, Info shows under its row.
   const [infoPropertyId, setInfoPropertyId] = useState<string | null>(null);
@@ -9458,14 +9507,9 @@ function PageEditorSessionBody({
       (thread) => !thread.resolved && !isPageCommentThread(thread),
     ) ??
       false);
-  // A suggestion whose text is gone lives in the comments panel only, so it
-  // must not hold open an otherwise empty margin.
   const hasOpenSuggestions =
     presentedSuggestions.some(
-      (suggestion) =>
-        suggestion.status === "pending" &&
-        (!anchoredSuggestionIds ||
-          anchoredSuggestionIds.includes(suggestion.id)),
+      (suggestion) => suggestion.status === "pending",
     ) ||
     draftSuggestions.length > 0 ||
     fieldSuggestions.hasOpen;
@@ -9683,7 +9727,6 @@ function PageEditorSessionBody({
     threads,
     suggestions: reviewSuggestions,
     draftSuggestions: reviewDraftSuggestions,
-    anchoredSuggestionIds: reviewAnchoredSuggestionIds,
     selectedThreadId,
     selectedSuggestionId,
     focusSuggestionId,
@@ -9914,6 +9957,7 @@ function PageEditorSessionBody({
     setHoveredThreadId(null);
     setSelectedSuggestionId(null);
     setHoveredSuggestionId(null);
+    setSteppedSuggestion(null);
   }, []);
 
   const dismissCommentFocus = useCallback(() => {
@@ -9934,6 +9978,12 @@ function PageEditorSessionBody({
     showCommentsHistoryDrawer,
   ]);
 
+  const revealSuggestionOnPage = useCallback((suggestionId: string) => {
+    requestAnimationFrame(() =>
+      scrollSuggestionIntoPageView(suggestionId, scrollContainerRef.current),
+    );
+  }, []);
+
   const holdsPropertyComment = !!heldPropertyCommentId;
   const activateSuggestion = useCallback(
     (suggestionId: string) => {
@@ -9945,26 +9995,18 @@ function PageEditorSessionBody({
       setCommentsBrowseOpen(false);
       setDiscussionPeekThreadId(null);
       setUtilityPanel("comments");
-      requestAnimationFrame(() => {
-        const targets = globalThis.document.querySelectorAll<HTMLElement>(
-          `[data-suggestion-id="${CSS.escape(suggestionId)}"]`,
-        );
-        const pageTarget = Array.from(targets).find((target) =>
-          target.closest(".content-editor"),
-        );
-        if (pageTarget) {
-          const rect = pageTarget.getBoundingClientRect();
-          const viewport = scrollContainerRef.current?.getBoundingClientRect();
-          if (
-            viewport &&
-            (rect.top < viewport.top || rect.bottom > viewport.bottom)
-          ) {
-            pageTarget.scrollIntoView({ behavior: "smooth", block: "nearest" });
-          }
-        }
-      });
+      revealSuggestionOnPage(suggestionId);
     },
-    [holdsPropertyComment, setPendingComment],
+    [holdsPropertyComment, revealSuggestionOnPage, setPendingComment],
+  );
+
+  const stepThreadSuggestion = useCallback(
+    (threadId: string, suggestionId: string) => {
+      setSteppedSuggestion({ threadId, suggestionId });
+      setSelectedSuggestionId((current) => (current ? suggestionId : current));
+      revealSuggestionOnPage(suggestionId);
+    },
+    [revealSuggestionOnPage],
   );
 
   // An AI suggestion asked for from a comment is reviewed inside that thread.
@@ -10443,6 +10485,7 @@ function PageEditorSessionBody({
     }
     const sourceThreadId = suggestionThreadOnPage(suggestion.id);
     if (sourceThreadId) {
+      replyDrafts.markLinkedThread(sourceThreadId);
       activateCommentThread(sourceThreadId);
       return;
     }
@@ -10463,6 +10506,7 @@ function PageEditorSessionBody({
     clearCommentFocus,
     holdsPropertyComment,
     replyDrafts.setOpenReply,
+    replyDrafts.markLinkedThread,
     activateCommentThread,
     suggestionThreadOnPage,
     commentsLoading,
@@ -10483,8 +10527,15 @@ function PageEditorSessionBody({
       return;
     }
     handledCommentDeepLinkRef.current = deepLinkKey;
+    replyDrafts.markLinkedThread(threadId);
     activateCommentThread(threadId, true);
-  }, [activateCommentThread, documentId, location.search, threads]);
+  }, [
+    activateCommentThread,
+    documentId,
+    location.search,
+    replyDrafts.markLinkedThread,
+    threads,
+  ]);
 
   // A Collection that opens rows as full pages links here to start a comment
   // on one Property, as the row's peek does on a touch screen.
@@ -11429,6 +11480,7 @@ function PageEditorSessionBody({
             decideSuggestionProposal.isPending ||
             queuedDecisions.length > 0)
       }
+      onStepThreadSuggestion={stepThreadSuggestion}
       onDecideSuggestionProposal={async (
         proposalId,
         decision,
@@ -12030,28 +12082,7 @@ function PageEditorSessionBody({
             </div>
           ) : null}
 
-          {isGitHubSourceDocument ? (
-            <div
-              className="border-b bg-muted/20 px-4 py-1.5 text-xs text-muted-foreground"
-              role="status"
-              data-github-source-read-only
-            >
-              {t("editor.githubSourceReadOnly")}
-              {document.source?.url ? (
-                <>
-                  {" "}
-                  <a
-                    href={document.source.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline underline-offset-2 hover:text-foreground"
-                  >
-                    {t("editor.githubSourceOpenFile")}
-                  </a>
-                </>
-              ) : null}
-            </div>
-          ) : null}
+          <SyncedPageBanner document={document} />
 
           {/* isolate makes the scroller its own stacking context. Safari
               misorders the layers inside a scroller that isn't one, so the
@@ -12533,6 +12564,7 @@ function PageEditorSessionBody({
                                     : document.collabContentRevision
                                 }
                                 requestCollabSync={requestCollabSync}
+                                flushCollabUpdates={flushCollabUpdates}
                                 onChange={
                                   isSuggesting
                                     ? handleSuggestionDraftChange
@@ -12637,6 +12669,16 @@ function PageEditorSessionBody({
                                 }
                                 onSuggestionPlacementsChange={
                                   handleSuggestionPlacementsChange
+                                }
+                                blockLinks={
+                                  !isLocalFileDocument &&
+                                  !mcpDirectoryWidgetReadOnly
+                                }
+                                linkedBlockId={linkedBlockId}
+                                onBlockIdentityIds={
+                                  isSuggesting
+                                    ? undefined
+                                    : handleBlockIdentityIds
                                 }
                               />
                             </WidgetVisualEditorBoundary>

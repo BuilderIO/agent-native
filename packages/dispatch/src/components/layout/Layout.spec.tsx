@@ -61,7 +61,7 @@ const clientState = vi.hoisted(() => ({
       _name: string,
       _params?: unknown,
       _options?: unknown,
-    ): Promise<unknown> => ({ status: "ok", app: "none" }),
+    ): Promise<unknown> => ({ status: "ok", app: "none", confidence: 1 }),
   ),
 }));
 const workspaceAppNavigation = vi.hoisted(() => ({
@@ -548,6 +548,77 @@ describe("Dispatch NavContent", () => {
     }
   });
 
+  it("takes the sidebar toggle from the active kept-alive app, not an earlier retained one", async () => {
+    const install = (app: string) => ({
+      id: app,
+      name: app,
+      path: `/${app}`,
+      url: `https://${app}.example.test/${app}`,
+      status: "ready",
+    });
+    clientState.workspaceApps = [install("mail"), install("calendar")];
+    for (const app of ["calendar", "mail"]) {
+      clientState.createEmbedSessionMutateAsync.mockResolvedValueOnce({
+        startUrl: `https://${app}.example.test/${app}/initial`,
+        childBrowserTabId:
+          app === "mail"
+            ? "d178e672-918b-4c93-bd78-f627f7f00001"
+            : "d178e672-918b-4c93-bd78-f627f7f00002",
+      });
+    }
+    const toggles = vi.fn();
+    window.addEventListener("agent-panel:toggle", toggles);
+    try {
+      await act(async () => {
+        root.render(
+          <MemoryRouter initialEntries={["/apps/calendar"]}>
+            <Layout>
+              <div />
+            </Layout>
+          </MemoryRouter>,
+        );
+      });
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            'button[data-chat-first-app][data-app-id="mail"]',
+          )
+          ?.click();
+      });
+
+      const frameOf = (app: string) => {
+        const frame = container.querySelector<HTMLIFrameElement>(
+          `[data-dispatch-workspace-app-cache-entry="${app}"] iframe`,
+        );
+        if (!frame?.contentWindow) throw new Error(`Missing ${app} iframe`);
+        return frame;
+      };
+      const retained = frameOf("calendar");
+      const active = frameOf("mail");
+      expect(
+        retained
+          .closest("[data-dispatch-workspace-app-cache-entry]")
+          ?.getAttribute("aria-hidden"),
+      ).toBe("true");
+      const post = async (frame: HTMLIFrameElement) =>
+        act(async () => {
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              data: { type: "agentNative.toggleSidebar", data: {} },
+              source: frame.contentWindow,
+            }),
+          );
+        });
+
+      await post(retained);
+      expect(toggles).not.toHaveBeenCalled();
+      await post(active);
+      expect(toggles).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener("agent-panel:toggle", toggles);
+    }
+  });
+
   it("opens mounted apps when optional connected-app discovery fails", async () => {
     clientState.workspaceApps = [
       {
@@ -640,6 +711,42 @@ describe("Dispatch NavContent", () => {
     expect(wrapper).not.toBeNull();
     expect(wrapper?.getAttribute("aria-hidden")).toBe("false");
     expect(wrapper?.className).not.toContain("hidden");
+  });
+
+  it("opens the exact Fleet installation despite an earlier template with the same name", async () => {
+    clientState.workspaceApps = [
+      {
+        id: "fleet-2",
+        name: "Fleet",
+        path: "/fleet-2",
+        url: "/fleet-2",
+        source: "builtin",
+        status: "ready",
+      },
+      {
+        id: "fleet",
+        name: "Fleet",
+        path: "/fleet",
+        url: "/fleet",
+        source: "workspace",
+        status: "ready",
+      },
+    ];
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/fleet-installation"]}>
+          <Layout extensions={{ chatFirst: true }}>
+            <div />
+          </Layout>
+        </MemoryRouter>,
+      );
+    });
+    await act(async () => {
+      emitChatFirstOpenApp({ app: "fleet" });
+    });
+    expect(
+      getChatFirstSurfaceTabsStore("fleet-installation").getSnapshot().tabs,
+    ).toMatchObject([{ appId: "fleet" }]);
   });
 
   it("opens the app Dispatch delegates to, once", async () => {
@@ -768,8 +875,12 @@ describe("Dispatch NavContent", () => {
       });
     }
 
-    async function renderChat(path: string, children: React.ReactNode = null) {
-      clientState.workspaceApps = apps;
+    async function renderChat(
+      path: string,
+      children: React.ReactNode = null,
+      registrations = apps,
+    ) {
+      clientState.workspaceApps = registrations;
       clientState.callAction.mockClear();
       await act(async () => {
         root.render(
@@ -782,7 +893,12 @@ describe("Dispatch NavContent", () => {
 
     it("asks the route with the shown app and previous turn, and opens its answer", async () => {
       await renderChat("/chat/route-opens");
-      const route = routeTo({ status: "ok", app: "mail" });
+      const route = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
       await send("show my inbox", "User: hi\nAssistant: hello");
       expect(clientState.callAction).toHaveBeenCalledWith(
         "route-app-intent",
@@ -793,7 +909,7 @@ describe("Dispatch NavContent", () => {
       await route.answer();
       expect(appTabs("route-opens").map((tab) => tab.appId)).toEqual(["mail"]);
 
-      routeTo({ status: "ok", app: "mail" });
+      routeTo({ status: "ok", app: "mail", confidence: 1, explicit: true });
       await send("archive the first one");
       expect(clientState.callAction).toHaveBeenLastCalledWith(
         "route-app-intent",
@@ -803,11 +919,14 @@ describe("Dispatch NavContent", () => {
     });
 
     it.each([
-      ["a chat-only answer", { status: "ok", app: "none" }],
+      ["a chat-only answer", { status: "ok", app: "none", confidence: 1 }],
       ["an unconfigured route", { status: "not_configured", reason: "x" }],
       ["a failed route", { status: "failed", reason: "x" }],
-      ["an app that is not installed", { status: "ok", app: "planner" }],
-      ["Dispatch itself", { status: "ok", app: "dispatch" }],
+      [
+        "an app that is not installed",
+        { status: "ok", app: "planner", confidence: 1 },
+      ],
+      ["Dispatch itself", { status: "ok", app: "dispatch", confidence: 1 }],
     ])("leaves the pane closed for %s", async (_label, answer) => {
       await renderChat("/chat/route-skips");
       const route = routeTo(answer);
@@ -828,8 +947,13 @@ describe("Dispatch NavContent", () => {
 
     it("drops an answer once a newer message was sent", async () => {
       await renderChat("/chat/route-newer-send");
-      const first = routeTo({ status: "ok", app: "mail" });
-      routeTo({ status: "ok", app: "none" });
+      const first = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
+      routeTo({ status: "ok", app: "none", confidence: 1 });
       await send("show my inbox");
       await send("never mind, just chat");
       await first.answer();
@@ -838,7 +962,12 @@ describe("Dispatch NavContent", () => {
 
     it("drops an answer once the agent already opened a pane", async () => {
       await renderChat("/chat/route-agent-first");
-      const route = routeTo({ status: "ok", app: "mail" });
+      const route = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
       await send("show my notes");
       await act(async () => {
         emitChatFirstOpenApp({ app: "notes" });
@@ -847,6 +976,135 @@ describe("Dispatch NavContent", () => {
       expect(appTabs("route-agent-first").map((tab) => tab.appId)).toEqual([
         "notes",
       ]);
+    });
+
+    it("keeps Tasks offscreen before the authoritative Mail notification handoff", async () => {
+      await renderChat("/chat/route-notifications", null, [
+        {
+          id: "mail-2",
+          name: "Mail",
+          path: "/mail",
+          url: "/mail",
+          status: "ready",
+        },
+        {
+          id: "tasks-2",
+          name: "Tasks",
+          path: "/tasks",
+          url: "/tasks",
+          status: "ready",
+        },
+      ]);
+      const guess = routeTo({ status: "ok", app: "tasks-2", confidence: 0.95 });
+      await send("GitHub notifications from humans");
+      await guess.answer();
+      expect(appTabs("route-notifications")).toEqual([]);
+      expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
+
+      const pending = routeTo({
+        status: "ok",
+        app: "tasks-2",
+        confidence: 1,
+        explicit: true,
+      });
+      await send("GitHub notifications from humans, please");
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent("agent-native:tool-start", {
+            detail: { tool: "open_app", input: { app: "mail-2" } },
+          }),
+        );
+      });
+      await pending.answer();
+      expect(appTabs("route-notifications")).toEqual([]);
+      await act(async () => {
+        emitChatFirstOpenApp({ app: "mail-2", path: "/split/github" });
+      });
+      expect(appTabs("route-notifications")).toMatchObject([
+        { appId: "mail-2", path: "/split/github" },
+      ]);
+    });
+
+    it("reads a refreshed selection only from the visible workspace pane", async () => {
+      const install = (app: string) => ({
+        id: app,
+        name: app,
+        path: `/${app}`,
+        url: `https://${app}.example.test/${app}`,
+        status: "ready",
+      });
+      await renderChat("/chat/pane-context", null, [
+        install("mail"),
+        install("notes"),
+      ]);
+
+      async function openFrame(app: string, selection: () => string) {
+        clientState.createEmbedSessionMutateAsync.mockResolvedValueOnce({
+          startUrl: `https://${app}.example.test/${app}/initial`,
+          childBrowserTabId:
+            app === "mail"
+              ? "d178e672-918b-4c93-bd78-f627f7f00001"
+              : "d178e672-918b-4c93-bd78-f627f7f00002",
+        });
+        await act(async () => emitChatFirstOpenApp({ app }));
+        const frame = container.querySelector<HTMLIFrameElement>(
+          `iframe[src^="https://${app}.example.test/"]`,
+        );
+        if (!frame?.contentWindow) throw new Error("Missing pane iframe");
+        const read = vi
+          .spyOn(frame.contentWindow, "postMessage")
+          .mockImplementation((request, _origin, transfer) => {
+            if (request?.operation !== "read") return;
+            const [port] = transfer as MessagePort[];
+            port.postMessage({
+              result: { path: `/${app}/current`, selectedText: selection() },
+            });
+            port.close();
+          });
+        await act(async () => frame.dispatchEvent(new Event("load")));
+        return read;
+      }
+
+      let selectedMail = "First message";
+      const mailRead = await openFrame("mail", () => selectedMail);
+      await send("Summarize this");
+      await vi.waitFor(() =>
+        expect(clientState.callAction).toHaveBeenLastCalledWith(
+          "route-app-intent",
+          expect.objectContaining({
+            openApp: "mail",
+            openPath: "/mail/current",
+            selection: "First message",
+          }),
+          expect.anything(),
+        ),
+      );
+
+      selectedMail = "Edited message";
+      await send("Summarize this again");
+      await vi.waitFor(() =>
+        expect(clientState.callAction).toHaveBeenLastCalledWith(
+          "route-app-intent",
+          expect.objectContaining({ selection: "Edited message" }),
+          expect.anything(),
+        ),
+      );
+
+      await openFrame("notes", () => "Visible note");
+      mailRead.mockClear();
+      await send("Summarize the current selection");
+      await vi.waitFor(() =>
+        expect(clientState.callAction).toHaveBeenLastCalledWith(
+          "route-app-intent",
+          expect.objectContaining({
+            openApp: "notes",
+            openPath: "/notes/current",
+            selection: "Visible note",
+          }),
+          expect.anything(),
+        ),
+      );
+      expect(mailRead).not.toHaveBeenCalled();
     });
 
     it("does not route a send from another chat", async () => {
@@ -862,7 +1120,12 @@ describe("Dispatch NavContent", () => {
 
     it("drops an answer once a queued message was sent after it", async () => {
       await renderChat("/chat/route-queued");
-      const route = routeTo({ status: "ok", app: "mail" });
+      const route = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
       await send("show my inbox");
       await act(async () => {
         reportAgentChatComposerSubmit({ text: "and my notes", queued: true });
@@ -874,7 +1137,12 @@ describe("Dispatch NavContent", () => {
 
     it("drops an answer for a send that was withdrawn", async () => {
       await renderChat("/chat/route-withdrawn");
-      const route = routeTo({ status: "ok", app: "mail" });
+      const route = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
       let id: string | null = null;
       await act(async () => {
         id = reportAgentChatComposerSubmit({ text: "show my inbox" });
@@ -891,7 +1159,12 @@ describe("Dispatch NavContent", () => {
         "/chat/route-left",
         <ChatRouteSwitcher target="/agents" />,
       );
-      const route = routeTo({ status: "ok", app: "mail" });
+      const route = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
       await send("show my inbox");
       await act(async () => {
         [...container.querySelectorAll("button")]
@@ -908,8 +1181,13 @@ describe("Dispatch NavContent", () => {
         "/chat",
         <ChatRouteSwitcher target="/chat/route-superseded" />,
       );
-      const first = routeTo({ status: "ok", app: "mail" });
-      const second = routeTo({ status: "ok", app: "none" });
+      const first = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
+      const second = routeTo({ status: "ok", app: "none", confidence: 1 });
       await send("show my inbox");
       await first.answer();
       await send("never mind");
@@ -924,7 +1202,12 @@ describe("Dispatch NavContent", () => {
 
     it("moves the same pane when the agent opens that app deeper", async () => {
       await renderChat("/chat/route-same-app");
-      const route = routeTo({ status: "ok", app: "mail" });
+      const route = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
       await send("show my inbox");
       await route.answer();
       const [openedId] = appTabs("route-same-app").map((tab) => tab.id);
@@ -942,7 +1225,12 @@ describe("Dispatch NavContent", () => {
 
     it("replaces the pane when the agent opens a different app", async () => {
       await renderChat("/chat/route-other-app");
-      const route = routeTo({ status: "ok", app: "mail" });
+      const route = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
       await send("show my inbox");
       await route.answer();
       await act(async () => {
@@ -955,7 +1243,12 @@ describe("Dispatch NavContent", () => {
 
     it("keeps an app the agent opened after the routed turn", async () => {
       await renderChat("/chat/route-later-turn");
-      const route = routeTo({ status: "ok", app: "mail" });
+      const route = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
       await send("show my inbox");
       await route.answer();
       await send("thanks");
@@ -974,7 +1267,12 @@ describe("Dispatch NavContent", () => {
         <ChatRouteSwitcher target="/chat/route-first-turn" />,
       );
       clientState.createEmbedSessionMutateAsync.mockClear();
-      const route = routeTo({ status: "ok", app: "mail" });
+      const route = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
       await send("show my inbox");
       await route.answer();
       expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
@@ -1001,7 +1299,12 @@ describe("Dispatch NavContent", () => {
         "/chat",
         <ChatRouteSwitcher target="/chat/route-named-thread" />,
       );
-      const route = routeTo({ status: "ok", app: "mail" });
+      const route = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
       await act(async () => {
         reportAgentChatComposerSubmit({
           text: "show my inbox",
@@ -1031,7 +1334,12 @@ describe("Dispatch NavContent", () => {
 
     it("forgets a sent new chat's thread when another new chat starts", async () => {
       await renderChat("/chat", <ChatRouteSwitcher target="/chat" />);
-      const route = routeTo({ status: "ok", app: "mail" });
+      const route = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
       await act(async () => {
         reportAgentChatComposerSubmit({
           text: "show my inbox",
@@ -1055,7 +1363,12 @@ describe("Dispatch NavContent", () => {
 
     it("clears a provisional new-chat thread when its send is withdrawn, without clearing a newer send", async () => {
       await renderChat("/chat");
-      const firstRoute = routeTo({ status: "ok", app: "mail" });
+      const firstRoute = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
       let firstSubmitId: string | null = null;
       await act(async () => {
         firstSubmitId = reportAgentChatComposerSubmit({
@@ -1072,7 +1385,12 @@ describe("Dispatch NavContent", () => {
       expect(appTabs("route-withdrawn-thread")).toEqual([]);
       expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
 
-      const secondRoute = routeTo({ status: "ok", app: "mail" });
+      const secondRoute = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
       await act(async () => {
         reportAgentChatComposerSubmit({
           text: "show my inbox again",
@@ -1098,7 +1416,12 @@ describe("Dispatch NavContent", () => {
         "/chat",
         <ChatRouteSwitcher target="/chat/route-back-thread" />,
       );
-      const route = routeTo({ status: "ok", app: "mail" });
+      const route = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
       await act(async () => {
         reportAgentChatComposerSubmit({
           text: "show my inbox",
@@ -1145,7 +1468,12 @@ describe("Dispatch NavContent", () => {
         "/chat",
         <ChatRouteSwitcher target="/chat/new-chat-no-flash" />,
       );
-      const route = routeTo({ status: "ok", app: "calendar" });
+      const route = routeTo({
+        status: "ok",
+        app: "calendar",
+        confidence: 1,
+        explicit: true,
+      });
       await send("hows my week look");
       await route.answer();
       expect(container.querySelector("[data-chat-first-app-pane]")).toBeNull();
@@ -1165,7 +1493,12 @@ describe("Dispatch NavContent", () => {
         "/chat",
         <ChatRouteSwitcher target="/chat/route-lifecycle" />,
       );
-      const first = routeTo({ status: "ok", app: "mail" });
+      const first = routeTo({
+        status: "ok",
+        app: "mail",
+        confidence: 1,
+        explicit: true,
+      });
       await act(async () => {
         reportAgentChatComposerSubmit({
           text: "show my inbox",
@@ -1200,7 +1533,12 @@ describe("Dispatch NavContent", () => {
       });
       expect(clientState.callAction).toHaveBeenCalledTimes(1);
 
-      const second = routeTo({ status: "ok", app: "notes" });
+      const second = routeTo({
+        status: "ok",
+        app: "notes",
+        confidence: 1,
+        explicit: true,
+      });
       await act(async () => {
         reportAgentChatComposerSubmit({
           text: "open my Q4 planning doc",
@@ -1593,6 +1931,59 @@ describe("Dispatch NavContent", () => {
       container.querySelector("[data-chat-first-app-pane]"),
     ).not.toBeNull();
   });
+
+  it("restores a saved pane when the first mount is discarded", async () => {
+    clientState.connectedApps = [
+      {
+        id: "clips",
+        name: "Clips",
+        url: "https://clips.agent-native.com",
+        source: "builtin",
+      },
+    ];
+    clientState.appState[CHAT_FIRST_PANE_STATE_KEY] = {
+      appId: "clips",
+      path: "/inbox",
+    };
+
+    await act(async () => {
+      root.render(
+        <React.StrictMode>
+          <MemoryRouter initialEntries={["/chat/strict-restore"]}>
+            <Layout extensions={{ chatFirst: true }}>
+              <div />
+            </Layout>
+          </MemoryRouter>
+        </React.StrictMode>,
+      );
+    });
+
+    expect(
+      container.querySelector("[data-chat-first-app-pane]"),
+    ).not.toBeNull();
+    expect(container.querySelector("[data-app-notice]")).toBeNull();
+  });
+
+  it.each([[null], [{ appId: 7 }]])(
+    "only reports a restore failure for unreadable pane state %j",
+    async (saved) => {
+      clientState.appState[CHAT_FIRST_PANE_STATE_KEY] = saved;
+
+      await act(async () => {
+        root.render(
+          <MemoryRouter initialEntries={["/chat/pane-state-outcome"]}>
+            <Layout extensions={{ chatFirst: true }}>
+              <div />
+            </Layout>
+          </MemoryRouter>,
+        );
+      });
+
+      expect(container.querySelector("[data-app-notice]") !== null).toBe(
+        saved !== null,
+      );
+    },
+  );
 
   it("puts Overview before Chat in the primary navigation", async () => {
     await act(async () => {

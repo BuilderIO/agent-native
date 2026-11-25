@@ -155,6 +155,8 @@ function stableJson(value: unknown): string {
   return JSON.stringify(value) ?? "null";
 }
 
+const workspacePickerReference = Symbol("workspacePickerReference");
+
 const attachmentFileInstances = new WeakMap<object, number>();
 let nextAttachmentFileInstance = 0;
 
@@ -6883,9 +6885,13 @@ function TiptapComposerSurface({
     };
     visit(contextMenuItems ?? []);
     const pickerFor = (filter?: { referenceType: string; source: string }) => {
-      const available = new Map<string, MentionItem>();
       return {
         identityScope: "workspace" as const,
+        ...(filter
+          ? {
+              refreshKey: JSON.stringify([filter.source, filter.referenceType]),
+            }
+          : {}),
         presentation: { type: "dialog" as const, mode: "action" as const },
         searchPlaceholder: t("agentChat.composer.menu.searchWorkspace", {
           defaultValue: "Search workspace…",
@@ -6926,10 +6932,10 @@ function TiptapComposerSurface({
           );
           if (signal.aborted)
             throw new DOMException("The operation was aborted.", "AbortError");
-          available.clear();
-          for (const item of entries) available.set(item.id, item);
+          const available = new Map(entries.map((item) => [item.id, item]));
           return {
             items: Array.from(available.values()).map((item) => ({
+              [workspacePickerReference]: item,
               id: item.id,
               title: item.label,
               ...(item.description === undefined
@@ -6957,8 +6963,11 @@ function TiptapComposerSurface({
             })),
           };
         },
-        onSelect: (item: { id: string }) => {
-          const reference = available.get(item.id);
+        onSelect: (item: {
+          id: string;
+          [workspacePickerReference]?: MentionItem;
+        }) => {
+          const reference = item[workspacePickerReference];
           if (!reference)
             throw new Error(
               t("agentChat.composer.contextLoadFailed", {

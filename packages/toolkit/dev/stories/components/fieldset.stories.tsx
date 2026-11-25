@@ -3,10 +3,11 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Field, FieldLabel } from "../../../src/ui/base-ui/field.js";
 import { Fieldset, FieldsetLegend } from "../../../src/ui/base-ui/fieldset.js";
 import { Input } from "../../../src/ui/base-ui/input.js";
+import guide from "./fieldset.docs.md?raw";
 
 const meta = {
   title: "Components/Fieldset",
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
 } satisfies Meta;
 
 export default meta;

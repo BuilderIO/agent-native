@@ -5,6 +5,19 @@ import * as React from "react";
 import { partClassName } from "./part-class.js";
 import { splitProps } from "./props.js";
 
+export type SwitchThumbProps = BaseSwitch.Thumb.Props;
+
+const SwitchThumb = React.forwardRef<HTMLSpanElement, SwitchThumbProps>(
+  ({ className, ...props }, ref) => (
+    <BaseSwitch.Thumb
+      {...props}
+      ref={ref}
+      className={partClassName("switch-thumb", className)}
+    />
+  ),
+);
+SwitchThumb.displayName = "SwitchThumb";
+
 export interface SwitchProps
   extends Omit<BaseSwitch.Root.Props, "color">, SwitchOwnProps {}
 
@@ -15,7 +28,10 @@ export interface SwitchProps
  * @import import { Switch } from "@agent-native/toolkit/ui/base-ui/switch";
  */
 const Switch = React.forwardRef<HTMLElement, SwitchProps>((props, ref) => {
-  const [attributes, { className, ...rest }] = splitProps(switchProps, props);
+  const [attributes, { className, children, ...rest }] = splitProps(
+    switchProps,
+    props,
+  );
   return (
     <BaseSwitch.Root
       ref={ref}
@@ -23,10 +39,10 @@ const Switch = React.forwardRef<HTMLElement, SwitchProps>((props, ref) => {
       {...attributes}
       className={partClassName("switch", className)}
     >
-      <BaseSwitch.Thumb className="switch-thumb" />
+      {children === undefined ? <SwitchThumb /> : children}
     </BaseSwitch.Root>
   );
 });
 Switch.displayName = "Switch";
 
-export { Switch };
+export { Switch, SwitchThumb };

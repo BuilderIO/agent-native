@@ -10,14 +10,22 @@ import {
 
 export type { EvaluatedFeatureFlags } from "./helpers.js";
 
+const retryUnavailableFlags = (query: { state: { status: string } }) =>
+  query.state.status === "error" ? 60_000 : false;
+
 export function useFeatureFlag(key: string): boolean {
   const { status } = useSession();
   const query = useActionQuery<EvaluatedFeatureFlags>(
     "get-feature-flags" as never,
     undefined,
-    { enabled: status === "authenticated" },
+    {
+      enabled: status === "authenticated",
+      batchInitial: true,
+      refetchInterval: retryUnavailableFlags,
+    },
   );
   if (RETIRED_ENABLED_FLAG_KEYS.has(key)) return true;
+  if (query.isError) return false;
   return featureFlagValue(evaluatedFeatureFlagValues(query.data), key);
 }
 
@@ -52,6 +60,8 @@ export function useFeatureFlagState(
     undefined,
     {
       enabled: status === "authenticated",
+      batchInitial: true,
+      refetchInterval: retryUnavailableFlags,
       ...(options?.freshOnMount
         ? {
             staleTime: 0,
@@ -69,8 +79,7 @@ export function useFeatureFlagState(
   if (status !== "authenticated") {
     return { status: "unavailable", enabled: false };
   }
-  if (options?.freshOnMount && query.isError)
-    return { status: "unavailable", enabled: false };
+  if (query.isError) return { status: "unavailable", enabled: false };
   if (options?.freshOnMount && !query.isFetchedAfterMount)
     return { status: "loading", enabled: false };
   if (query.data !== undefined) {
@@ -79,7 +88,6 @@ export function useFeatureFlagState(
       enabled: featureFlagValue(evaluatedFeatureFlagValues(query.data), key),
     };
   }
-  if (query.isError) return { status: "unavailable", enabled: false };
   return { status: "loading", enabled: false };
 }
 
@@ -88,7 +96,11 @@ export function useFeatureFlags(): Record<string, boolean> {
   const query = useActionQuery<EvaluatedFeatureFlags>(
     "get-feature-flags" as never,
     undefined,
-    { enabled: status === "authenticated" },
+    {
+      enabled: status === "authenticated",
+      batchInitial: true,
+      refetchInterval: retryUnavailableFlags,
+    },
   );
-  return evaluatedFeatureFlagValues(query.data);
+  return query.isError ? {} : evaluatedFeatureFlagValues(query.data);
 }

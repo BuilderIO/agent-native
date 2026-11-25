@@ -1456,6 +1456,8 @@ const messages: ToolkitAgentChatTranslation = {
     "El esquema de una herramienta no era válido, así que el modelo rechazó la solicitud antes de iniciarla. Puedes omitir la herramienta no válida y volver a intentarlo.",
   "errorMessages.malformedRequest":
     "El proveedor del modelo rechazó esta solicitud por estar mal formada, así que no se reintentó. Vuelve a intentarlo o inicia un chat nuevo si sigue ocurriendo.",
+  "errorMessages.requestNotRead":
+    "El modelo no pudo leer esta solicitud porque era demasiado grande o compleja, por ejemplo por demasiadas herramientas, así que no se reintentó. Inicia un chat nuevo o elige otro modelo.",
   "errorMessages.requestTooLarge":
     "Esta solicitud superó el límite de tamaño del servidor (HTTP 413). Inicia un chat nuevo o quita archivos adjuntos o referencias grandes y vuelve a intentarlo.",
   "errorMessages.capabilityUnavailable":
@@ -1464,6 +1466,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Esta aplicación aún no puede volver a intentar tu mensaje guardado de forma segura. Actualiza la aplicación y vuelve a intentarlo.",
   "errorMessages.runInterrupted": "El agente se detuvo antes de terminar.",
   "errorMessages.runFailed": "La ejecución del agente falló.",
+  "errorMessages.writeOutcomeUnknown":
+    "Me detuve antes de repetir una acción de escritura porque un intento anterior podría haber guardado cambios y no pude confirmar el resultado. Comprueba qué se guardó antes de volver a intentarlo.",
   "errorMessages.runUnverified":
     "Este chat perdió el rastro del agente, que puede seguir ejecutándose. Recarga para ver su progreso.",
   "errorMessages.runSignedOut":
@@ -2147,6 +2151,7 @@ const messages: ToolkitAgentChatTranslation = {
     "No se pudo guardar el almacenamiento de archivos.",
   "settings.storage.clearFailed":
     "No se pudieron borrar las credenciales de almacenamiento.",
+  "settings.timezoneLoadFailed": "No se pudo cargar tu zona horaria.",
   "settings.storage.loadFailed":
     "No se pudo cargar la configuración del almacenamiento de archivos.",
   "settings.storage.retry": "Reintentar",
@@ -2360,6 +2365,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.languageDescription":
     "Se aplica en todos tus dispositivos.",
   "settingsShell.account.appearance": "Apariencia",
+  "settingsShell.account.theme": "Tema",
+  "settingsShell.account.themeSystem": "Sistema",
+  "settingsShell.account.themeLight": "Claro",
+  "settingsShell.account.themeDark": "Oscuro",
   "settingsShell.account.themeFamily": "Familia de tema",
   "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
   "settingsShell.account.themeFamilyOriginal":
@@ -3757,6 +3766,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpApps.openInNewTab": "Abrir en una pestaña nueva",
   "mcpApps.initFailed": "No se pudo inicializar la aplicación MCP.",
   "mcpApps.readOnly": "Esta aplicación MCP guardada es de solo lectura.",
+  "markdown.opensInNewTab": "(se abre en una pestaña nueva)",
   "iframeEmbed.blocked": "Inserción bloqueada",
   "iframeEmbed.missingSrc": "Falta la fuente",
   "iframeEmbed.crossOrigin": "No se permite una URL de otro origen",
@@ -3969,6 +3979,26 @@ const messages: ToolkitAgentChatTranslation = {
   "workSteps.editing": "Editando archivos",
   "workSteps.runningCommands": "Ejecutando comandos",
   "workSteps.runningActions": "Ejecutando acciones",
+  "workSteps.sourcesUsed": "Usado: {{sources}}",
+  "workSteps.sourcesSeparator": ", ",
+  "workSteps.sourcesDocumentsOne": "1 página",
+  "workSteps.sourcesDocumentsOther": "{{count}} páginas",
+  "workSteps.sourcesWebOne": "1 página web",
+  "workSteps.sourcesWebOther": "{{count}} páginas web",
+  "workSteps.sourcesFilesOne": "1 archivo",
+  "workSteps.sourcesFilesOther": "{{count}} archivos",
+  "workSteps.sourcesSearchesOne": "1 búsqueda",
+  "workSteps.sourcesSearchesOther": "{{count}} búsquedas",
+  "workSteps.sourceRead": "Leído",
+  "workSteps.sourceOpened": "Abierto",
+  "workSteps.sourceSearched": "Buscado",
+  "workSteps.sourceFailedRead": "No se pudo leer {{name}}",
+  "workSteps.sourceFailedOpen": "No se pudo abrir {{name}}",
+  "workSteps.sourceFailedSearch": "No se pudo buscar {{name}}",
+  "workSteps.sourceFailedPage": "No se pudo leer una página",
+  "workSteps.sourceFailedFile": "No se pudo leer un archivo",
+  "workSteps.sourceFailedWeb": "No se pudo abrir una página web",
+  "workSteps.sourceFailedSearchAny": "No se pudo buscar",
   "composer.effortDefaultBadge": "Recomendado",
   "queue.itemBusy": "Este mensaje se enviará después de esta respuesta.",
   "queue.itemBlocked":
@@ -4150,6 +4180,11 @@ const messages: ToolkitAgentChatTranslation = {
   "filters.typeValue": "Escribe un valor",
   "filters.enterNumber": "Escribe un número",
   "filters.exactDate": "Fecha exacta",
+  "filters.relativeRange": "Rango relativo",
+  "filters.startDate": "Fecha de inicio",
+  "filters.endDate": "Fecha de fin",
+  "filters.dateBetween": "{{start}} – {{end}}",
+  "filters.dateTimeFormat": "AAAA-MM-DD o AAAA-MM-DD HH:MM",
   "filters.op.is": "es",
   "filters.op.isNot": "no es",
   "filters.op.isAnyOf": "es alguno de",
@@ -4165,11 +4200,13 @@ const messages: ToolkitAgentChatTranslation = {
   "filters.op.startsWith": "empieza por",
   "filters.op.endsWith": "termina en",
   "filters.op.isOn": "es el",
+  "filters.op.isNotOn": "no es el",
   "filters.op.isBefore": "es antes del",
   "filters.op.isAfter": "es después del",
   "filters.op.isOnOrBefore": "es el o antes del",
   "filters.op.isOnOrAfter": "es el o después del",
   "filters.op.isWithin": "está en",
+  "filters.op.isBetween": "está entre",
   "filters.op.isMoreThan": "es mayor que",
   "filters.op.isLessThan": "es menor que",
   "filters.op.isAtLeast": "es como mínimo",
@@ -4183,6 +4220,8 @@ const messages: ToolkitAgentChatTranslation = {
   "filters.date.this.year": "Este año",
   "filters.date.past": "Últimos {{duration}}",
   "filters.date.next": "Próximos {{duration}}",
+  "filters.date.direction.past": "Últimos",
+  "filters.date.direction.next": "Próximos",
   "filters.views.notSaved": "Sin guardar",
   "filters.views.save": "Guardar",
   "filters.views.saveForMe": "Guardar para mí",

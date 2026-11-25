@@ -28,13 +28,13 @@ Use local docs only (no web research): `pnpm action docs-search --query "<topic>
 | `manage-event-draft` | Manage unsent invite drafts; outside agents need approval for delete-all; never sends invitations |
 | `list-events` | Read a schedule with account and source coverage |
 | `create-event` | Create on an owned Google account's primary calendar |
-| `update-event` | Edit an event using its id and accountEmail |
+| `update-event` | Edit an event using its id and accountEmail, sending the `revision` you read |
 | `delete-event` | Delete one event |
 | `respond-to-event` | RSVP; scope=single (default) answers one occurrence, scope=all answers the series |
 | `search-events`, `get-event`, `find-a-time`, `check-availability`, `search-people` | Find events, free time and people |
 | `list-booking-links`, `list-bookings`, `create-booking-link`, `update-booking-link` | Read and edit booking links |
 
-Other actions outside agents can use are `mcpTool: "search"`. Outside agents need approval to delete, remove, cancel, email, replace the feed or overlay list, change availability, or create or change a booking link.
+Other actions outside agents can use are `mcpTool: "search"`. Outside agents need approval to delete, remove, cancel, email, replace the feed or overlay list, change availability, or create or change a booking link or its single-use links.
 
 MCP writes use the authenticated caller's connected accounts. `respond-to-event` shares the in-app `rsvp-event` implementation; supply an occurrence id from `list-events` for a single-instance response.
 

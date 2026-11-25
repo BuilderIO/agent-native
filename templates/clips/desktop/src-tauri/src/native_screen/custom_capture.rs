@@ -7,7 +7,12 @@ use std::io::{Seek, SeekFrom, Write};
 use std::sync::RwLock;
 use tauri::{AppHandle, Emitter};
 
+mod audio_writer;
+mod camera_writer;
 mod screen_writer;
+mod track_writer;
+pub(super) use audio_writer::{start_audio_capture, AudioCapture, RichAudioTaps};
+pub(super) use camera_writer::{start_camera_capture, CameraCapture};
 pub(super) use screen_writer::{start_screen_capture, ScreenCapture};
 
 const AV_WRITER_STATUS_COMPLETED: i64 = 2;
@@ -845,6 +850,7 @@ pub(crate) struct CustomScreenCaptureWriter {
     pause_offset_bits: Arc<AtomicU64>,
     audio_producer: Option<crate::capture_audio_bus::AudioProducer>,
     audio_sidecars: Option<Arc<AudioSidecarManager>>,
+    rich_audio: Arc<RichAudioTaps>,
 }
 
 struct CustomScreenCaptureWriterState {
@@ -1155,6 +1161,7 @@ impl Clone for CustomScreenCaptureWriter {
             pause_offset_bits: Arc::clone(&self.pause_offset_bits),
             audio_producer: self.audio_producer.clone(),
             audio_sidecars: self.audio_sidecars.clone(),
+            rich_audio: Arc::clone(&self.rich_audio),
         }
     }
 }
@@ -1267,6 +1274,17 @@ impl SCStreamOutputTrait for CustomScreenCaptureOutputHandler {
         );
         if self.writer.appends_closed.load(Ordering::SeqCst) {
             return;
+        }
+        if matches!(
+            of_type,
+            SCStreamOutputType::Audio | SCStreamOutputType::Microphone
+        ) {
+            let tapped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                self.writer.rich_audio.offer(&sample_buffer, of_type);
+            }));
+            if tapped.is_err() {
+                eprintln!("[rich-tracks] panic while handing {of_type:?} to its track");
+            }
         }
         if matches!(of_type, SCStreamOutputType::Screen) {
             use std::sync::atomic::AtomicU64;
@@ -1496,6 +1514,7 @@ impl CustomScreenCaptureWriter {
                 pause_offset_bits: Arc::new(AtomicU64::new(0.0_f64.to_bits())),
                 audio_producer,
                 audio_sidecars,
+                rich_audio: Arc::default(),
             })
         }
     }
@@ -1705,6 +1724,12 @@ impl CustomScreenCaptureWriter {
             Arc::clone(&self.session_start_bits),
             Arc::clone(&self.pause_offset_bits),
         )
+    }
+
+    /// Where the stream's audio goes for a rich recording's mic and system
+    /// sound tracks.
+    pub(super) fn rich_audio_taps(&self) -> Arc<RichAudioTaps> {
+        Arc::clone(&self.rich_audio)
     }
 
     fn append_sample(

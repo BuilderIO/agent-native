@@ -25,7 +25,11 @@ import {
   resolveOwnerEngineApiKey,
   runAgentLoop,
   appendAgentLoopContinuation,
+  filterActionsByAllowedNames,
+  normalizeAgentActionSurfaceResolution,
   type ActionEntry,
+  type AgentActionSurfaceDetails,
+  type AgentActionSurfaceResolution,
 } from "../agent/production-agent.js";
 import { foldReapedRunIntoThread } from "../agent/reaped-run-thread.js";
 import {
@@ -195,6 +199,14 @@ export interface BackgroundAutomationDeps {
   getInitialToolNames?: (
     automation?: BackgroundAutomationContext,
   ) => string[] | undefined;
+  /**
+   * The app's `resolveActionSurface`, applied to the tools a saved automation
+   * can discover and call. An allowlist withholds every other tool for the whole run,
+   * including after lazy `tool-search`.
+   */
+  resolveActionSurface?: (
+    details: AgentActionSurfaceDetails,
+  ) => AgentActionSurfaceResolution | Promise<AgentActionSurfaceResolution>;
   engine?: AgentEngine;
   apiKey?: string;
   model?: string;
@@ -1482,6 +1494,31 @@ export async function checkBackgroundAutomationCredentials(
   }
 }
 
+async function surfaceAutomationActions(
+  actions: Record<string, ActionEntry>,
+  deps: BackgroundAutomationDeps,
+  run: {
+    automation: BackgroundAutomationContext;
+    ownerEmail: string;
+    orgId?: string | undefined;
+  },
+): Promise<Record<string, ActionEntry>> {
+  if (!deps.resolveActionSurface) return actions;
+  const surface = normalizeAgentActionSurfaceResolution(
+    await deps.resolveActionSurface({
+      event: undefined,
+      ownerEmail: run.ownerEmail,
+      orgId: run.orgId ?? null,
+      mode: "act",
+      internalContinuation: false,
+      automation: { name: run.automation.name },
+      availableActionNames: Object.keys(actions),
+    }),
+  );
+  if (surface.mode === "default") return actions;
+  return filterActionsByAllowedNames(actions, surface.allowedActionNames);
+}
+
 async function executeBackgroundAutomation(
   options: BackgroundAutomationRunOptions,
   deps: BackgroundAutomationDeps,
@@ -1501,7 +1538,11 @@ async function executeBackgroundAutomation(
       assertHardDeadline(options.hardDeadlineAt);
       let noOpReason: string | undefined;
       const messages = await automationOutcomeMessagesForUser(ownerEmail);
-      const registeredActions = await deps.getActions(automation);
+      const registeredActions = await surfaceAutomationActions(
+        await deps.getActions(automation),
+        deps,
+        { automation, ownerEmail, orgId },
+      );
       const baseActions: Record<string, ActionEntry> = {
         ...(automation.meta.mcpManaged
           ? Object.fromEntries(

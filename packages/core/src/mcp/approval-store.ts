@@ -42,6 +42,10 @@ export const mcpApprovalsStore = defineStore({
         "CREATE INDEX IF NOT EXISTS idx_mcp_action_approvals_call ON mcp_action_approvals (caller_key, action_name, arguments_hash)",
       ],
     },
+    {
+      name: "approval-notice",
+      sql: "ALTER TABLE mcp_action_approvals ADD COLUMN IF NOT EXISTS approval_notice TEXT",
+    },
   ],
 });
 
@@ -88,6 +92,10 @@ export interface NewMcpApprovalGrant extends McpApprovalGrant {
   oauthClientId: string | undefined;
   /** The action declares that running this exact call again can't duplicate it. */
   retrySafe: boolean;
+  /** The action's `approvalNotice` for this call, as the server computed it. */
+  approvalNotice?: string | undefined;
+  /** When the server asked, which the notice is dated from. */
+  createdAt: number;
 }
 
 /**
@@ -121,6 +129,8 @@ export interface McpApprovalRecord extends McpApprovalGrant {
   argumentsJson: string | null;
   oauthClientId: string | null;
   retrySafe: boolean;
+  /** The action's server-computed notice; null when it gave none. */
+  approvalNotice: string | null;
   status: McpApprovalStatus;
   /** Who decided on the review page; null when the MCP client answered. */
   approverEmail: string | null;
@@ -132,7 +142,7 @@ export interface McpApprovalRecord extends McpApprovalGrant {
   runSettledAt: number | null;
 }
 
-const RECORD_COLUMNS = `nonce, caller_key, action_name, arguments_hash, expires_at, consumed_at, owner_email, org_id, app_id, call_arguments, oauth_client_id, retry_safe, status, approver_email, approved_at, denied_at, created_at, run_status, run_settled_at`;
+const RECORD_COLUMNS = `nonce, caller_key, action_name, arguments_hash, expires_at, consumed_at, owner_email, org_id, app_id, call_arguments, oauth_client_id, retry_safe, approval_notice, status, approver_email, approved_at, denied_at, created_at, run_status, run_settled_at`;
 
 // Wide enough to review a long message body; past it the stored copy is
 // truncated, which the review page shows.
@@ -178,6 +188,7 @@ function recordFromRow(row: Record<string, unknown>): McpApprovalRecord {
     argumentsJson: live ? stringOrNull(row.call_arguments) : null,
     oauthClientId: stringOrNull(row.oauth_client_id),
     retrySafe: row.retry_safe === true,
+    approvalNotice: stringOrNull(row.approval_notice),
     status:
       status === "approved" || status === "denied" || status === "declined"
         ? status
@@ -202,9 +213,8 @@ export async function createMcpApprovalGrant(
 ): Promise<void> {
   await ensureApprovalTable();
   const client = getDbExec();
-  const now = Date.now();
   await client.execute({
-    sql: `INSERT INTO mcp_action_approvals (nonce, caller_key, action_name, arguments_hash, expires_at, consumed_at, owner_email, org_id, app_id, call_arguments, oauth_client_id, retry_safe, status, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+    sql: `INSERT INTO mcp_action_approvals (nonce, caller_key, action_name, arguments_hash, expires_at, consumed_at, owner_email, org_id, app_id, call_arguments, oauth_client_id, retry_safe, approval_notice, status, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
     args: [
       grant.nonce,
       grant.callerKey,
@@ -217,9 +227,30 @@ export async function createMcpApprovalGrant(
       grant.argumentsJson,
       grant.oauthClientId ?? null,
       grant.retrySafe,
-      now,
+      grant.approvalNotice ?? null,
+      grant.createdAt,
     ],
   });
+}
+
+/** The notice the server stored when it asked about this exact call; null when it gave none. */
+export async function getMcpApprovalNotice(
+  grant: McpApprovalGrant,
+): Promise<string | null> {
+  await ensureApprovalTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT approval_notice FROM mcp_action_approvals
+      WHERE nonce = ? AND app_id = ? AND caller_key = ? AND action_name = ? AND arguments_hash = ?`,
+    args: [
+      grant.nonce,
+      grant.appId,
+      grant.callerKey,
+      grant.actionName,
+      grant.argumentsHash,
+    ],
+  });
+  const row = (rows as Record<string, unknown>[]).at(0);
+  return row ? stringOrNull(row.approval_notice) : null;
 }
 
 // Far past the prior-run window; a row this old is deleted.

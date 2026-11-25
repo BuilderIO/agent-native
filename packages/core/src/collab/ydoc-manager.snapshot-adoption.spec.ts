@@ -59,7 +59,7 @@ afterEach(() => {
 });
 
 async function setUp(docId: string) {
-  const pglite = await createTestPglite();
+  const pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   await pglite.exec(`
     CREATE TABLE _collab_docs (
       doc_id TEXT PRIMARY KEY,
@@ -98,7 +98,10 @@ async function setUp(docId: string) {
     },
   };
   const emit = vi.fn();
-  vi.doMock("../db/client.js", () => ({ getDbExec: () => exec }));
+  vi.doMock("../db/client.js", () => ({
+    getEnclosingTransactionDbExec: () => undefined,
+    getDbExec: () => exec,
+  }));
   vi.doMock("../db/ddl-guard.js", () => ({
     ensureColumnExists: vi.fn().mockResolvedValue(undefined),
     ensureTableExists: vi.fn().mockResolvedValue(undefined),

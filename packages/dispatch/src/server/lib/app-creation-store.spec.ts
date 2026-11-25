@@ -391,6 +391,25 @@ describe("getAppCreationSettings", () => {
 });
 
 describe("listWorkspaceApps", () => {
+  let isolatedCwd: string | null = null;
+  let isolatedCwdSpy: ReturnType<typeof vi.spyOn> | null = null;
+
+  beforeEach(() => {
+    isolatedCwd = fs.mkdtempSync(
+      path.join(os.tmpdir(), "dispatch-list-workspace-apps-"),
+    );
+    isolatedCwdSpy = vi.spyOn(process, "cwd").mockReturnValue(isolatedCwd);
+  });
+
+  afterEach(() => {
+    isolatedCwdSpy?.mockRestore();
+    isolatedCwdSpy = null;
+    if (isolatedCwd) {
+      fs.rmSync(isolatedCwd, { recursive: true, force: true });
+      isolatedCwd = null;
+    }
+  });
+
   function stubNoPendingContext() {
     for (const key of [
       "BRANCH",

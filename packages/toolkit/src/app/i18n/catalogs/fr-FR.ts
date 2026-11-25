@@ -1467,6 +1467,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Le schéma d’un outil n’était pas valide. Le modèle a donc rejeté la demande avant son démarrage. Vous pouvez ignorer cet outil et réessayer.",
   "errorMessages.malformedRequest":
     "Le fournisseur du modèle a rejeté cette demande car elle était mal formée, elle n’a donc pas été réessayée. Réessayez ou démarrez une nouvelle conversation si le problème persiste.",
+  "errorMessages.requestNotRead":
+    "Le modèle n’a pas pu lire cette demande car elle était trop volumineuse ou trop complexe, par exemple à cause d’un trop grand nombre d’outils, elle n’a donc pas été réessayée. Démarrez une nouvelle conversation ou choisissez un autre modèle.",
   "errorMessages.requestTooLarge":
     "Cette requête a dépassé la limite de taille du serveur (HTTP 413). Démarrez un nouveau chat ou supprimez les pièces jointes ou références volumineuses, puis réessayez.",
   "errorMessages.capabilityUnavailable":
@@ -1475,6 +1477,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Cette application ne peut pas encore réessayer votre message enregistré en toute sécurité. Mettez l’application à jour, puis réessayez.",
   "errorMessages.runInterrupted": "L’agent s’est arrêté avant de terminer.",
   "errorMessages.runFailed": "L’exécution de l’agent a échoué.",
+  "errorMessages.writeOutcomeUnknown":
+    "Je me suis arrêté avant de répéter une action d’écriture, car une tentative précédente a peut-être déjà enregistré des modifications sans que je puisse confirmer le résultat. Vérifiez ce qui a été enregistré avant de réessayer.",
   "errorMessages.runUnverified":
     "Cette conversation a perdu la trace de l’agent, qui est peut-être encore en cours. Rechargez pour voir sa progression.",
   "errorMessages.runSignedOut":
@@ -2163,6 +2167,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Impossible d'enregistrer le stockage des fichiers.",
   "settings.storage.clearFailed":
     "Impossible d'effacer les identifiants de stockage.",
+  "settings.timezoneLoadFailed": "Impossible de charger votre fuseau horaire.",
   "settings.storage.loadFailed":
     "Impossible de charger les paramètres de stockage des fichiers.",
   "settings.storage.retry": "Réessayer",
@@ -2377,6 +2382,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.languageDescription":
     "S’applique sur tous vos appareils.",
   "settingsShell.account.appearance": "Apparence",
+  "settingsShell.account.theme": "Thème",
+  "settingsShell.account.themeSystem": "Système",
+  "settingsShell.account.themeLight": "Clair",
+  "settingsShell.account.themeDark": "Sombre",
   "settingsShell.account.themeFamily": "Famille de thème",
   "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
   "settingsShell.account.themeFamilyOriginal":
@@ -3795,6 +3804,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpApps.openInNewTab": "Ouvrir dans un nouvel onglet",
   "mcpApps.initFailed": "Impossible d’initialiser l’application MCP.",
   "mcpApps.readOnly": "Cette application MCP enregistrée est en lecture seule.",
+  "markdown.opensInNewTab": "(s'ouvre dans un nouvel onglet)",
   "iframeEmbed.blocked": "Intégration bloquée",
   "iframeEmbed.missingSrc": "Source manquante",
   "iframeEmbed.crossOrigin": "URL d’une autre origine non autorisée",
@@ -4007,6 +4017,26 @@ const messages: ToolkitAgentChatTranslation = {
   "workSteps.editing": "Modification des fichiers",
   "workSteps.runningCommands": "Exécution des commandes",
   "workSteps.runningActions": "Exécution des actions",
+  "workSteps.sourcesUsed": "Utilisé : {{sources}}",
+  "workSteps.sourcesSeparator": ", ",
+  "workSteps.sourcesDocumentsOne": "1 page",
+  "workSteps.sourcesDocumentsOther": "{{count}} pages",
+  "workSteps.sourcesWebOne": "1 page web",
+  "workSteps.sourcesWebOther": "{{count}} pages web",
+  "workSteps.sourcesFilesOne": "1 fichier",
+  "workSteps.sourcesFilesOther": "{{count}} fichiers",
+  "workSteps.sourcesSearchesOne": "1 recherche",
+  "workSteps.sourcesSearchesOther": "{{count}} recherches",
+  "workSteps.sourceRead": "Lu",
+  "workSteps.sourceOpened": "Ouvert",
+  "workSteps.sourceSearched": "Recherché",
+  "workSteps.sourceFailedRead": "Impossible de lire {{name}}",
+  "workSteps.sourceFailedOpen": "Impossible d’ouvrir {{name}}",
+  "workSteps.sourceFailedSearch": "Impossible de rechercher {{name}}",
+  "workSteps.sourceFailedPage": "Impossible de lire une page",
+  "workSteps.sourceFailedFile": "Impossible de lire un fichier",
+  "workSteps.sourceFailedWeb": "Impossible d’ouvrir une page web",
+  "workSteps.sourceFailedSearchAny": "Recherche impossible",
   "composer.effortDefaultBadge": "Recommandé",
   "queue.itemBusy": "Ce message sera envoyé après cette réponse.",
   "queue.itemBlocked":
@@ -4190,6 +4220,11 @@ const messages: ToolkitAgentChatTranslation = {
   "filters.typeValue": "Saisir une valeur",
   "filters.enterNumber": "Saisir un nombre",
   "filters.exactDate": "Date exacte",
+  "filters.relativeRange": "Période relative",
+  "filters.startDate": "Date de début",
+  "filters.endDate": "Date de fin",
+  "filters.dateBetween": "{{start}} – {{end}}",
+  "filters.dateTimeFormat": "AAAA-MM-JJ ou AAAA-MM-JJ HH:MM",
   "filters.op.is": "est",
   "filters.op.isNot": "n’est pas",
   "filters.op.isAnyOf": "est l’un de",
@@ -4205,11 +4240,13 @@ const messages: ToolkitAgentChatTranslation = {
   "filters.op.startsWith": "commence par",
   "filters.op.endsWith": "se termine par",
   "filters.op.isOn": "est le",
+  "filters.op.isNotOn": "n’est pas le",
   "filters.op.isBefore": "est avant le",
   "filters.op.isAfter": "est après le",
   "filters.op.isOnOrBefore": "est le ou avant le",
   "filters.op.isOnOrAfter": "est le ou après le",
   "filters.op.isWithin": "est dans",
+  "filters.op.isBetween": "est entre",
   "filters.op.isMoreThan": "est supérieur à",
   "filters.op.isLessThan": "est inférieur à",
   "filters.op.isAtLeast": "est au moins",
@@ -4223,6 +4260,8 @@ const messages: ToolkitAgentChatTranslation = {
   "filters.date.this.year": "Cette année",
   "filters.date.past": "{{duration}} passés",
   "filters.date.next": "{{duration}} à venir",
+  "filters.date.direction.past": "Derniers",
+  "filters.date.direction.next": "Prochains",
   "filters.views.notSaved": "Non enregistré",
   "filters.views.save": "Enregistrer",
   "filters.views.saveForMe": "Enregistrer pour moi",
