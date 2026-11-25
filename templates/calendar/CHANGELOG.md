@@ -3,6 +3,16 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-24
+
+### Improved
+
+- Week navigation reuses cached events and refreshes calendar changes in the background.
+
+### Fixed
+
+- Calendar keeps saved events visible and retries when Google limits requests.
+
 ## 2026-11-23
 
 ### Added

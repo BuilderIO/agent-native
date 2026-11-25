@@ -1,5 +1,15 @@
 # @agent-native/design-system
 
+## 0.234.0
+
+### Minor Changes
+
+- dd1218f: Expose Switch styling inputs in the parts catalog and the Components token collection. Existing switch appearances keep their defaults.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.233.0
 
 ### Minor Changes

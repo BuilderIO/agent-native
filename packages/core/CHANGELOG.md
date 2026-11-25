@@ -51,6 +51,52 @@
   - @agent-native/toolkit@0.18.0
   - @agent-native/recap-cli@0.5.21
 
+## 0.234.0
+
+### Minor Changes
+
+- bf2d0b4: Generalize the MCP Skills extension (`io.modelcontextprotocol/skills`, SEP-2640) so any app can opt in via `mcp.skills` to serve reviewed, exported skills and optional `references/...` files alongside `ui://` MCP App resources with unified caller identity, org, OAuth scope, and revocation checks.
+- f7de4d5: Actions can live in subfolders of `actions/`; the name is the relative path joined with `-` (`billing/create-invoice.ts` is `billing-create-invoice`), and two files resolving to one name fail boot. `tool-search` returns exactly the tools named when a query is only known action names, and its description no longer pushes `includeSchemas`. Saved automations now apply the app's `resolveActionSurface`, so excluded tools are neither discoverable nor callable from them (`details.automation` is set and `details.event` is undefined for those runs).
+
+### Patch Changes
+
+- 4a34f01: The `an` skill now describes when a live app view helps, carries the user's selection into follow-ups, updates the same view after a change and reads back what was saved. Dispatch's MCP server serves the skill through the MCP Skills extension, so hosts that support Skills over MCP get it with the connector.
+- 33e0e8c: Persist a run's terminal reason atomically with its terminal status so a successor lease cannot leave the completed run without a reason.
+- 7210d1c: Tag existing trigger and scheduled-job chat threads with the app that ran them (from automation run history) so they stop appearing in every app's chat history. Threads whose run history names no app, or more than one, stay untagged.
+- 1c54a03: A Builder.io sign-in no longer needs re-authorizing after a temporary failure to refresh its access token during a chat turn. Only a refresh Builder rejects outright (a revoked or invalid grant) asks the user to sign in again; a network or server error is retried on the next request.
+- f3976d7: Starting an app branch for an email Builder does not recognize now retries with the connected account's user id whatever status Builder answers with. When there is no account to fall back to, the failure says the email is not a member of the connected Builder space instead of calling it temporary.
+- e466d90: Keep a chat alive when it reconnects after its run moved on: the client and event stream now skip events from a run other than the subscribed one, and reconnecting from a sequence the server already pruned resumes from the earliest retained event instead of failing with `run_stream_failed`.
+- feadc42: An app pane in ChatGPT now tells the host it is ready as soon as ChatGPT's bridge is read, instead of after a five second wait for the host handshake, so the pane stays open. The open-app tool description now asks the model to open the pane for show, open, draft, chart, calendar, and dashboard requests.
+- 2573f75: Make agent run limits configurable: `toolLimits.maxSameErrorAcrossArguments`, `maxIdenticalErrors` and `maxFailureStreak` for the repeated-error stops, `historyLimits` (`maxToolCalls`, `maxBytes`, `maxValueBytes`) on the chat runtime for follow-up history, and `agent.hostedRunSoftTimeoutCeilingMs` / `agent.maxAutoContinuesPerTurn` for hosted run chunks. Defaults are unchanged.
+- 135e0a3: Workspace guidance now lists Content among the hosted first-party apps and tells app agents to save pages or Collection rows by asking Content to do it as the signed-in person over A2A, never by asking for a Content token or keeping one in an environment variable.
+- 1419c5a: Retry transient `lock_timeout` DDL failures with bounded backoff, fail loudly when a table with a framework table's name lacks its required columns, add `notified_at` to app-owned shares tables at release (plus `sharesTableMigrationSql` for app migrations), and add `configurePgliteExtensions` for registering PGlite extensions.
+- 14b0089: Stop losing the first dev database cleanup request after a dev server restart. A new Nitro worker now reports when its database close and resume listeners are ready, and the Vite plugin waits for that before sending a request, so an `.env` restart no longer waits out a 5 s timeout or logs that cleanup is "still waiting for active PGlite operations". A worker that never reports ready still fails after the same three bounded attempts, with an error that says it never became ready.
+- fa3a0fd: Refine local dev server defaults:
+  - The dev action discovery file now lives under `~/.agent-native/dev-servers/`, and Vite no longer serves files under `.agent-native/`.
+  - Local request detection also considers the `Host` and forwarding headers.
+  - In Builder cloud dev containers, local development conveniences are off by default; set `AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV=1` to enable them.
+
+- fe85161: Inline `open_app` embeds in claude.ai and Claude Desktop now load. When the host sandbox blocks the transplanted document's `<base>` element, link, script and image URLs resolve against the app origin instead of the sandbox origin.
+- Release all public npm packages with a patch version bump.
+- 7f630e8: Rewrite Dispatch and core cross-app MCP tool descriptions as neutral, factual capability descriptions so hosts like ChatGPT do not flag prescriptive cross-tool instructions as suspicious.
+- e023573: Workspace invitations no longer report the email as sent when it was not. `emailSent` is true only when the email transport accepted the message; a suppressed send, or a deployment with no email delivery configured, now returns `emailSent: false` with an `emailError`, so the invite form says the invitation was saved instead of claiming it was emailed. `sendOrgInvitationEmail` now returns the transport result.
+- d1f5fae: Add `postgres` to the Analytics panel capture source list so PostgreSQL-backed dashboard panels can be captured.
+- 309bd05: Keep an active background chat run running when a duplicate processor request fails before entering the agent handler.
+- d114e46: Preserve fixed framework termination reasons in private run history while continuing to omit private error content and metadata.
+- 8b8f1a3: `spawnTask` can now be called from app server code with no chat waiting on it. `parentSend`, `systemPrompt` and `actions` are optional, `scope` sets the task thread's scope so an app can keep it out of chat history, `allowedActionNames` limits which actions the sub-agent may call (it's required when `parentSend` is omitted, and inside a run with its own allowlist only names in that allowlist are kept), and `quiet` keeps the task out of the runs tray, the background task list and completion notifications.
+- 0315ffa: Show readable chat errors for HTTP-prefixed service failures and announce the failed state to assistive technology.
+- 124141d: Show a localized uncertain-write warning in live chat and saved history while retaining technical details for diagnosis.
+- e11a707: Fence application state during session verification and isolate initial action batches by scope and read type.
+- 559944d: Keep lazy store initialization on the active transaction and support reconciling federated membership before a consistent snapshot read.
+- 343d243: Fix email change in multi-app workspaces: Dispatch's identity policies now ship in core, so any app sharing the database can rekey. Workspace apps no longer answer 503 `org-domain-missing` for an org without an allowed domain; the registry token names the org by id instead. Add `setupDispatch({ hostedCatalog: false })` to hide Builder-hosted apps from Dispatch lists.
+- 2a4c4f5: Keep startup application state writes ordered as the initial session resolves, and batch concurrent lab and feature flag reads.
+- a07c17a: A write that names no resources no longer refetches the theme-family read, so a second write can't cancel that refetch mid-flight (the browser reported it as an aborted get-theme-family request). The theme read still refreshes through its own app-state subscription.
+- 971ad70: Anthropic turns with adaptive thinking no longer fail with "Invalid signature in thinking block" when the tool list changes mid-turn: requests ask the API to drop a mismatched thinking block. A pending approval in the agent sidebar is no longer replaced by the "no longer running" banner. `createAgentChatPlugin` gains `onAgentRunNotStarted`, and `onAgentRunComplete` now receives the thread projection outcome.
+- Updated dependencies [e466d90]
+- Updated dependencies
+  - @agent-native/agentkit@0.234.0
+  - @agent-native/recap-cli@0.5.109
+
 ## 0.233.0
 
 ### Minor Changes
@@ -4935,121 +4981,5 @@
 - Updated dependencies
   - @agent-native/recap-cli@0.5.11
   - @agent-native/toolkit@0.16.14
-
-## 0.173.1
-
-### Patch Changes
-
-- 1417ba5: Give UI and agents the parts of a `fail()` failure they were missing.
-
-  Action errors now carry `actionMessage`, the text the action wrote with no
-  `Action <name> failed:` framing, plus an `actionErrorMessage()` helper exported
-  from `@agent-native/core/client/hooks`. Templates render `error.message`
-  directly, so a refusal surfaced as "Action update-brand-kit failed: That name
-  is taken." The helper returns `undefined` when nothing authored a message (a
-  network drop, a proxy's HTML error page, a bare status line), so a UI cannot
-  mistake transport noise for copy.
-
-  Tool results now include the `errorCode` an action chose, as
-  `Error running get-meeting: No such meeting (errorCode: not_found)`, on both
-  the in-app agent loop and MCP. The model can branch on the code without parsing
-  prose. `fail()`'s default `action_failed` is omitted, since it says only "it
-  failed", which the word "Error" already said.
-
-- 191f4d3: Keep the Google account chooser when connecting a managed workspace connection and preselect the signed-in identity.
-- Release all public npm packages with a patch version bump.
-- a4b36e0: Stop billing cached prompt tokens twice, and normalize what `inputTokens` means
-  across every engine.
-
-  Providers disagree: OpenAI's `prompt_tokens` includes cached tokens, Anthropic's
-  `input_tokens` excludes them. The `usage` event never said which it carried, so
-  both conventions reached `calculateCost`, which charged `inputTokens` at the
-  full input rate and then added `cacheReadTokens` / `cacheWriteTokens` on top.
-  On a long cached conversation the cache is nearly the whole prompt, so a turn
-  that cost $0.0054 was reported as $0.0478 — and every `token_usage` row for an
-  OpenAI-family model was inflated the same way.
-  - The `usage` event now documents one convention: `inputTokens` is the whole
-    prompt and INCLUDES both cache counts, which are a slice of it rather than an
-    addition. This matches the AI SDK's own `inputTokens.total` / `noCache` /
-    `cacheRead` / `cacheWrite` normalization, and the Builder gateway.
-  - `anthropic-engine` was the only ENGINE reporting the exclusive form. It now
-    adds the cache counts back, which also fixes its prompt size: a fully cached
-    turn used to report ~3 input tokens instead of the real 42,438.
-  - `calculateCost` treats the three counts as a partition and prices each token
-    exactly once. Callers with no prompt caching pass zeroes and are unaffected.
-
-  The recap CLI carried all three conventions at once and now shares this one:
-  `parseClaudeUsage` adds Anthropic's cache counts back into the prompt,
-  `parseCodexUsage` no longer strips OpenAI's cached tokens out of it (it did that
-  to compensate for the old pricing formula, so keeping both would have swung the
-  error the other way), and `parseOpenAiCompatibleUsage` was already correct.
-
-- a4b36e0: Correct the GPT-5.6 pricing rates, which matched no published tier.
-
-  The `sol` / `terra` / `luna` entries carried input and output rates that appear
-  in neither column of OpenAI's table (luna was $1.00/$6.00 per MTok against a
-  real $0.20/$1.20), and set `cacheWrite: 0` on the belief that OpenAI does not
-  bill cache writes — it does, at above the full input rate. All three now track
-  the published short-context rates:
-
-  |       | input | cached | cache write | output |
-  | ----- | ----- | ------ | ----------- | ------ |
-  | sol   | $4.00 | $0.40  | $5.00       | $20.00 |
-  | terra | $2.00 | $0.20  | $2.50       | $12.00 |
-  | luna  | $0.20 | $0.02  | $0.25       | $1.20  |
-
-  Short context on purpose: each model has a long-context tier at roughly 2x, and
-  a usage row does not preserve the request's context size, so the tier cannot be
-  recovered at pricing time.
-
-  Together with the cached-token double-billing fix, a real 11-call run drops from
-  a reported $0.8524 to $0.0358 — 24x. Pricing that run's cache writes at the
-  input rate instead reproduces PostHog's independently derived $0.0328 to the
-  cent, which is what confirms the rates.
-
-- a4b36e0: Fix tool calls rendering without their output in PostHog LLM analytics.
-
-  Engine messages shipped verbatim as `$ai_input`, in a shape PostHog does not
-  read: `tool-call` / `tool-result` parts with camelCase ids, and tool results
-  carried inside a `user` message because `EngineMessage` has no `tool` role.
-  PostHog dumps raw JSON for shapes it does not recognize, so a tool call rendered
-  as an escaped blob with its result nowhere in sight. Messages now normalize to
-  the OpenAI/Anthropic conventions PostHog reads, and attachment bodies become a
-  marker naming the media type and size instead of inlining base64.
-  - `tool_calls[].id` now carries the id the model issued rather than our span id,
-    so a call and its result actually pair. Span id remains the fallback for
-    emitters that report no call id.
-  - The byte-ceiling rescue in `boundAiContent` keeps "the last user message",
-    which in engine shape was the last tool result — so the user's question was
-    dropped from every oversized generation. Normalizing first fixes it.
-  - A tool span with `captureToolResults` off now carries an explicit "withheld"
-    marker in `$ai_output_state` instead of omitting it, matching what the error
-    path already did. An absent output state reads as a tool that returned
-    nothing, and the tool did answer.
-
-- 7265794: Prevent background chat recovery from reporting completed runs as lost.
-- 1417ba5: Make `fail()` reach the caller, and stop retrying deterministic action failures.
-
-  `fail()` threw a bare `Error`, which the action HTTP route cannot distinguish
-  from a driver or upstream blowup. Every refusal written for a person became a
-  500 `"Internal server error"` with the real message dropped and an
-  error-tracking report filed. It now raises an `ActionContractError` with a
-  default 400, so the message, `errorCode`, and `details` survive the transport,
-  and it accepts an explicit `statusCode` for causes like 404 or 409. `fail()`
-  now lives beside that error in `action.ts` and is exported from
-  `@agent-native/core/action` as well as the package root.
-
-  `defaultActionQueryRetry` retried by exclusion, so every status nobody had
-  added to its deny list was retried three times. A `useActionQuery()` read
-  refused with 400, 404, or 409 cost four executions, and a 500 cost four
-  duplicate error reports. It now retries by exception: `429`, `502`, `503`, and
-  `504`, plus one retry for status-less network failures. A 500 is an action's
-  own unhandled throw, so it is treated as deterministic and surfaces on the
-  first response.
-
-- Updated dependencies
-- Updated dependencies [a4b36e0]
-  - @agent-native/recap-cli@0.5.10
-  - @agent-native/toolkit@0.16.13
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

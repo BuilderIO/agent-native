@@ -1,5 +1,11 @@
 # CRM changelog
 
+## 2026-11-24
+
+### Added
+
+- Agents and MCP/A2A callers can now log calls, meetings, and emails on a CRM record's timeline.
+
 ## 2026-11-18
 
 ### Added

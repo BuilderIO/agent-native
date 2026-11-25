@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-24
+
+### Added
+
+- Dashboard panels and the agent can now query a connected PostgreSQL database.
+
 ## 2026-11-23
 
 ### Added
@@ -20,6 +26,12 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 ### Improved
 
 - When connected MCP agents reach your first $1 of BigQuery for the day, Analytics now asks you once on its review page to allow up to $5 until 00:00 UTC, instead of stopping them.
+
+## 2026-11-20
+
+### Fixed
+
+- Stacked combo charts now display bar series correctly alongside target lines.
 
 ## 2026-11-19
 
@@ -48,6 +60,10 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 ### Added
 
 - Connected MCP agents can now edit, archive, and restore dashboards and analyses; each write applies only to the version the agent read, a retried request never writes twice, and every edit can be undone: from history, or by unarchiving, unhiding, or moving it back.
+
+### Fixed
+
+- Dashboard name conflicts now explain how to resolve them instead of returning a server error.
 
 ## 2026-11-14
 
@@ -1323,65 +1339,5 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 - Daily dashboard email captures authenticate with a session cookie, fall back to a lighter panel set, and record page diagnostics when a capture fails.
 - Long-running cross-app analyses now continue reliably in the background and can use synced workspace provider credentials.
-
-## 2026-07-13
-
-### Added
-
-- A full Agent page now brings context, files, connections, jobs, and external access together
-
-### Improved
-
-- Chart legends can filter to one series or hide a series on hover.
-- Session replay links now support Cmd-click and middle-click to open in a new tab
-
-### Fixed
-
-- All-time dashboard filters no longer send invalid dates to BigQuery
-- Analytics answers can use built-in first-party event data
-- Ask app now uses the current core agent loop and response guards in production MCP runs.
-- Daily dashboard emails recover more reliably from serverless browser failures and report image errors accurately.
-- Dashboard charts now honor the selected time range by default and reject accidental unbounded first-party queries
-- Error issue titles wrap instead of overflowing
-- GPT 5.6 Luna answers now recover normally instead of showing an unrelated data-source warning.
-- Analytics incident lookups now use first-party session, error, and replay evidence instead of incorrectly asking you to connect a data source.
-- Keep real authorized identities in Analytics incident lookups when browser Demo mode is enabled
-- Saving a new dashboard view no longer fails with a server error
-- Session replay cursors stay hidden until their first recorded position
-- Session replays keep a visible Mac-style cursor over the visitor's recorded actions
-- The Analytics Agents tab is available again from the main navigation.
-
-## 2026-07-12
-
-### Added
-
-- Connected external agents can now look up sessions, error issues, and sanitized replay timelines directly, with the app agent remaining the default path.
-
-### Improved
-
-- Analytics uses the full in-app agent for multi-step incident investigations, with direct read tools available for focused lookups.
-- Command menu loading placeholders now stay below available results without flashing.
-- Demo mode line and area charts now show unique upward trends while preserving each series' original range and volatility.
-- Named session incident investigations now start with session, replay, and error evidence
-- Session replays load faster in demo mode while visitor emails stay anonymized.
-
-### Fixed
-
-- Analytics chat retries before showing a generic no-data message
-- Analytics sessions search no longer loses fast keystrokes, and agent incident lookups no longer stall after background dispatch failures.
-- Dashboard charts only select for chat when the chat sidebar is already open.
-- Command menu search now finds settings, prioritizes the best match, and keeps keyboard selection aligned with each query.
-- Daily dashboard emails reliably include the complete dashboard image.
-- Demo mode trend charts now preserve the source series' real spikes, dips, and smooth stretches.
-- Fixed session replays that appeared ultra-wide, hid recorded menus, or skipped captured cursor movement.
-- Incident lookups include network and stuck-run evidence even when no JavaScript error is recorded
-- Replay storage settings stay readable at narrow widths.
-- Session identities stay visible when Demo mode is off
-- Session replays preserve recorded styling and keep malformed ultra-wide captures readable.
-- Session replays now show activity inside extensions and email content.
-
-### Security
-
-- Demo mode now reliably anonymizes email addresses throughout error reports.
 
 For the full list of updates, see the [changelog folder](./changelog/).

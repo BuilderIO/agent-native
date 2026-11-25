@@ -1,5 +1,24 @@
 # @agent-native/toolkit
 
+## 0.234.0
+
+### Patch Changes
+
+- 0f7bf06: Chat links to another app in the same workspace now open in a new tab, and links that open a new tab show an external-link icon with a screen-reader hint.
+- Release all public npm packages with a patch version bump.
+- 459726e: Opening a saved thread by URL no longer redirects to a blank new chat when the thread has been idle for more than 12 hours.
+- 0315ffa: Show readable chat errors for HTTP-prefixed service failures and announce the failed state to assistive technology.
+- 124141d: Show a localized uncertain-write warning in live chat and saved history while retaining technical details for diagnosis.
+- 4ad86d5: `VisualScrubInput` takes a trailing slot, a key handler that runs before its own keys, a draft listener, combobox ARIA props and an `apiRef` with `focus`, `blur` and `resetDraft`, so an app can build a token combobox on top of it.
+- f037abc: Fix stacked bar series in combo charts while preserving independent target lines.
+- 971ad70: Anthropic turns with adaptive thinking no longer fail with "Invalid signature in thinking block" when the tool list changes mid-turn: requests ask the API to drop a mismatched thinking block. A pending approval in the agent sidebar is no longer replaced by the "no longer running" banner. `createAgentChatPlugin` gains `onAgentRunNotStarted`, and `onAgentRunComplete` now receives the thread projection outcome.
+- 631ee7c: Fix first-run onboarding hydration when Core is externalized during server rendering.
+- Updated dependencies [e466d90]
+- Updated dependencies
+- Updated dependencies [dd1218f]
+  - @agent-native/agentkit@0.234.0
+  - @agent-native/design-system@0.234.0
+
 ## 0.233.0
 
 ### Minor Changes
@@ -1779,12 +1798,6 @@
 - Release all public npm packages with a patch version bump.
 
 ## 0.16.13
-
-### Patch Changes
-
-- Release all public npm packages with a patch version bump.
-
-## 0.16.12
 
 ### Patch Changes
 
