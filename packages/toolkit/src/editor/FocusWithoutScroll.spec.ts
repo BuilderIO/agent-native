@@ -58,9 +58,8 @@ describe("FocusWithoutScroll", () => {
       },
     },
     {
-      // Chrome on macOS reports `ontouchend`, so TipTap takes every Mac for
-      // an iPad.
-      device: "a Mac that reports touch support",
+      device:
+        "a Mac whose Chrome reports touch, which TipTap takes for an iPad",
       emulate: () => {
         vi.spyOn(navigator, "userAgent", "get").mockReturnValue(
           MAC_CHROME_USER_AGENT,
@@ -92,9 +91,7 @@ describe("FocusWithoutScroll", () => {
       for (const [options] of focus.mock.calls) {
         expect(options).toMatchObject({ preventScroll: true });
       }
-      expect(editor.getJSON().content?.[0]?.content?.[0]?.attrs?.checked).toBe(
-        true,
-      );
+      expect(editor.state.doc.firstChild?.firstChild?.attrs.checked).toBe(true);
       editor.destroy();
     },
   );
