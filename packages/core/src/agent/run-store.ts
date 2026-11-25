@@ -1,5 +1,7 @@
 import { createHmac } from "node:crypto";
 
+import { getAppConfig } from "../app-config/index.js";
+
 import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   TURN_RUN_LEDGER_SLACK,
@@ -2520,6 +2522,7 @@ export async function tryClaimRunSlot(
               turn,
               stoppedRunId: continueOf.runId,
               nowMs: now,
+              maxAutoContinuesPerTurn: getAppConfig().agent.maxAutoContinuesPerTurn,
             })
           : admitManualContinue({
               turn,

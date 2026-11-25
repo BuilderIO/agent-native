@@ -1,4 +1,3 @@
-import { getAppConfig } from "../app-config/index.js";
 import { MAX_TURN_WALL_CLOCK_MS } from "../app-config/run-lifecycle-invariants.js";
 import { isRequestedStopAbortReason } from "./abort-reasons.js";
 
@@ -102,6 +101,7 @@ export function admitAutoContinue(input: {
   readonly turn: TurnRunState | null;
   readonly stoppedRunId: string;
   readonly nowMs: number;
+  readonly maxAutoContinuesPerTurn?: number;
 }): { admit: true } | { admit: false; code: AutoContinueRefusalCode } {
   const turn = input.turn;
   if (
@@ -116,7 +116,8 @@ export function admitAutoContinue(input: {
   // The server's own turn ceiling still ends the turn first; that is what
   // keeps a continued turn inside the browser's follow budget.
   if (
-    turn.autoContinues >= getAppConfig().agent.maxAutoContinuesPerTurn ||
+    turn.autoContinues >=
+      (input.maxAutoContinuesPerTurn ?? MAX_AUTO_CONTINUES_PER_TURN) ||
     input.nowMs - turn.startedAt > MAX_TURN_WALL_CLOCK_MS
   ) {
     return { admit: false, code: "auto_continue_cap_reached" };
