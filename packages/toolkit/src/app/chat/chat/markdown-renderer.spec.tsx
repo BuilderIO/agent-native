@@ -2,7 +2,7 @@
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { splitMarkdownBlocks } from "../../../markdown-block-split.js";
 import {
@@ -76,6 +76,133 @@ describe("markdown links", () => {
       type: "a",
       props: { target: undefined, rel: undefined },
     });
+  });
+});
+
+describe("markdown links across app base paths", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllEnvs();
+    delete (window as Window & { __AGENT_NATIVE_CONFIG__?: unknown })
+      .__AGENT_NATIVE_CONFIG__;
+    window.history.replaceState(null, "", "/");
+  });
+
+  function mountApp(basePath: string, mounts?: string[]) {
+    vi.stubEnv("VITE_APP_BASE_PATH", basePath);
+    if (mounts) {
+      vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+      (
+        window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+      ).__AGENT_NATIVE_CONFIG__ = {
+        workspaceRuntime: true,
+        workspaceAppMountPaths: mounts,
+      };
+    }
+    window.history.replaceState(
+      null,
+      "",
+      basePath === "/" ? "/chat" : `${basePath}/chat`,
+    );
+  }
+
+  function renderLink(href: string): HTMLAnchorElement {
+    const A = markdownComponents.a;
+    act(() => {
+      root.render(<A href={href}>Deck</A>);
+    });
+    const anchor = container.querySelector("a");
+    if (!anchor) throw new Error("link did not render");
+    return anchor;
+  }
+
+  function opensNewTab(anchor: HTMLAnchorElement): boolean {
+    const hasIndicator = Boolean(
+      anchor.querySelector("[data-new-tab-indicator]"),
+    );
+    expect(hasIndicator).toBe(anchor.target === "_blank");
+    return anchor.target === "_blank";
+  }
+
+  it("opens a cross-origin link in a new tab", () => {
+    mountApp("/brain", ["/brain", "/slides"]);
+    expect(opensNewTab(renderLink("https://example.com/deck"))).toBe(true);
+  });
+
+  it("keeps links inside the app base path in the current tab", () => {
+    mountApp("/brain", ["/brain", "/slides"]);
+    for (const href of [
+      "/brain/sources",
+      "/brain",
+      "/brain/",
+      `${window.location.origin}/brain/sources?tab=1#top`,
+      "/brain/_agent-native/open?app=brain&id=src_1",
+      "sources",
+    ]) {
+      expect(opensNewTab(renderLink(href))).toBe(false);
+    }
+  });
+
+  it("opens a sibling workspace app in a new tab", () => {
+    mountApp("/brain", ["/brain", "/slides"]);
+    expect(opensNewTab(renderLink("/slides/deck/abc"))).toBe(true);
+    expect(
+      opensNewTab(renderLink(`${window.location.origin}/slides/deck/abc`)),
+    ).toBe(true);
+    expect(
+      opensNewTab(renderLink("/slides/_agent-native/open?id=deck_1")),
+    ).toBe(true);
+  });
+
+  it("resolves the app from workspace mounts without a configured base path", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    (
+      window as Window & { __AGENT_NATIVE_CONFIG__?: unknown }
+    ).__AGENT_NATIVE_CONFIG__ = {
+      workspaceRuntime: true,
+      workspaceAppMountPaths: ["/brain", "/slides"],
+    };
+    window.history.replaceState(null, "", "/brain/chat");
+
+    expect(opensNewTab(renderLink("/brain/sources"))).toBe(false);
+    expect(opensNewTab(renderLink("/slides/deck/abc"))).toBe(true);
+  });
+
+  it("matches the base path on a segment boundary", () => {
+    mountApp("/slides", ["/slides", "/slides-2"]);
+    expect(opensNewTab(renderLink("/slides/deck/abc"))).toBe(false);
+    expect(opensNewTab(renderLink("/slides-2/deck/abc"))).toBe(true);
+  });
+
+  it("keeps same-origin links in the current tab for a root app", () => {
+    mountApp("/");
+    expect(opensNewTab(renderLink("/slides/deck/abc"))).toBe(false);
+    expect(opensNewTab(renderLink("https://example.com/deck"))).toBe(true);
+  });
+
+  it("marks new-tab links with an icon and a screen-reader hint", () => {
+    mountApp("/brain", ["/brain", "/slides"]);
+    const anchor = renderLink("/slides/deck/abc");
+    const icon = anchor.querySelector("svg");
+    expect(icon?.getAttribute("aria-hidden")).toBe("true");
+    expect(anchor.querySelector(".sr-only")?.textContent).toBe(
+      "(opens in a new tab)",
+    );
+    expect(anchor.rel).toBe("noopener noreferrer");
+
+    const inApp = renderLink("/brain/sources");
+    expect(inApp.querySelector("svg")).toBeNull();
+    expect(inApp.textContent).toBe("Deck");
   });
 });
 

@@ -13,6 +13,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { syncAnalyticsChartCitations } from "../server/lib/analytics-chart-citations.js";
 import { documentAttributionActor } from "../server/lib/document-attribution.js";
+import { assertInteractiveHtmlBlocks } from "../server/lib/interactive-html-blocks.js";
 import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import type {
   ContentDatabaseView,
@@ -440,14 +441,10 @@ export default defineAction({
       height: 900,
     }),
   },
-  run: async ({
-    databaseId,
-    viewId,
-    title,
-    content,
-    propertyEntries,
-    propertyValues,
-  }): Promise<SubmitContentDatabaseFormResponse> => {
+  run: async (
+    { databaseId, viewId, title, content, propertyEntries, propertyValues },
+    ctx,
+  ): Promise<SubmitContentDatabaseFormResponse> => {
     if (propertyEntries && propertyValues) {
       throw new Error("Provide propertyEntries or propertyValues, not both.");
     }
@@ -582,6 +579,14 @@ export default defineAction({
         propertyId !== primaryBlocks?.id
       );
     });
+    for (const body of [
+      documentContent,
+      ...additionalBlocks.map(([, value]) => value),
+    ]) {
+      if (typeof body === "string") {
+        assertInteractiveHtmlBlocks(ctx, null, body);
+      }
+    }
     const actor = documentAttributionActor();
     const shareCreatedBy = actor ?? database.ownerEmail;
 

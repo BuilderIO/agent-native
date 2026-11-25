@@ -10,6 +10,7 @@ import { syncAnalyticsChartCitations } from "../server/lib/analytics-chart-citat
 import { documentAttributionActor } from "../server/lib/document-attribution.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { documentRevisionToken } from "../server/lib/document-revision.js";
+import { assertInteractiveHtmlBlocks } from "../server/lib/interactive-html-blocks.js";
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
 import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
@@ -977,6 +978,7 @@ async function mutatePrimaryBlockThroughLiveCopy(
     );
     insertedBlockId = resolved.insertedBlockId;
     assertNoNewlySharedVideoIds(loaded.markdown, changed.markdown);
+    assertInteractiveHtmlBlocks(ctx, loaded.markdown, changed.markdown);
     await editContentLiveCopy(input.target.rowDocumentId, {
       cause: {
         ctx,
@@ -1146,6 +1148,7 @@ export async function mutateDatabaseBlock(
           loaded,
           input,
         );
+        assertInteractiveHtmlBlocks(ctx, loaded.markdown, changed.markdown);
         const now = new Date().toISOString();
         let postIdentity = loaded.identity;
         if (changed.changed) {

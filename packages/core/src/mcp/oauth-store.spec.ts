@@ -34,6 +34,7 @@ function makeExec() {
 let exec = makeExec();
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => exec,
   isConnectionError: (err: any) => err?.message === "CONNECTION_LOST",
   isProductionServerlessFunctionRuntime: () => false,

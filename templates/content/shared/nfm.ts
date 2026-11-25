@@ -1,4 +1,8 @@
 import {
+  readFullScreenBlockLink,
+  type FullScreenBlockLink,
+} from "./block-link.js";
+import {
   formatColumnRatio,
   normalizeColumnRatios,
   parseColumnRatio,
@@ -8,6 +12,10 @@ import {
   matchInlineMathAt,
   MAX_INLINE_MATH_LENGTH,
 } from "./inline-math.js";
+import {
+  INTERACTIVE_HTML_LANGUAGE,
+  readInteractiveHtmlNote,
+} from "./interactive-html-language.js";
 import { registryBlockSpecByTag } from "./nfm-registry.js";
 
 export interface PMMark {
@@ -4093,7 +4101,48 @@ export function notionMarkdownToNfm(markdown: string): string {
   } finally {
     readingNotionMarkdown = previous;
   }
+  readInteractiveHtmlFromNotion(doc);
   return notionNfmFromDoc(doc);
+}
+
+export function soleLinkHref(node: PMNode): unknown {
+  if (node.type !== "paragraph" && node.type !== "heading") return null;
+  const hrefs = new Set<unknown>(
+    (node.content ?? []).map(
+      (child) =>
+        (child.marks ?? []).find((mark) => mark.type === "link")?.attrs?.href,
+    ),
+  );
+  return hrefs.size === 1 ? [...hrefs][0] : null;
+}
+
+function readInteractiveHtmlFromNotion(parent: PMNode): void {
+  if (!parent.content) return;
+  const kept: PMNode[] = [];
+  let above: FullScreenBlockLink | null = null;
+  for (const node of parent.content) {
+    const link = readFullScreenBlockLink(soleLinkHref(node));
+    const captions: boolean =
+      above !== null &&
+      link?.pagePath === above.pagePath &&
+      link.blockId === above.blockId;
+    above = captions ? null : readInteractiveHtmlCode(node);
+    if (captions) continue;
+    if (!above) readInteractiveHtmlFromNotion(node);
+    kept.push(node);
+  }
+  parent.content = kept;
+}
+
+function readInteractiveHtmlCode(node: PMNode): FullScreenBlockLink | null {
+  if (node.type !== "codeBlock" || node.attrs?.language !== "html") return null;
+  const noted = readInteractiveHtmlNote(
+    (node.content ?? []).map((text) => text.text ?? "").join(""),
+  );
+  if (!noted) return null;
+  node.attrs = { ...node.attrs, language: INTERACTIVE_HTML_LANGUAGE };
+  node.content = noted.source ? [{ type: "text", text: noted.source }] : [];
+  return noted.link;
 }
 
 function notionNfmFromDoc(doc: PMDoc): string {

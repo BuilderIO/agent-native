@@ -1136,6 +1136,7 @@ const messages = {
     visibilityDescription:
       "आपकी बनाई रिकॉर्डिंग पर लागू होती है। आप इसे किसी भी रिकॉर्डिंग पर बदल सकते हैं।",
     useOrgDefault: "{{org}} का डिफ़ॉल्ट इस्तेमाल करें ({{visibility}})",
+    enforceOrgDefault: "सदस्य अपना डिफ़ॉल्ट सेट नहीं कर सकते",
     useDefault: "डिफ़ॉल्ट इस्तेमाल करें ({{visibility}})",
     transcriptExport: "ट्रांसक्रिप्ट एक्सपोर्ट",
     logoDescription: "शेयर ईमेल और सार्वजनिक क्लिप पेजों पर दिखता है।",

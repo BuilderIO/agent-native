@@ -9,7 +9,9 @@ const approvalAudit = vi.hoisted(() => vi.fn(async (_input: any) => {}));
 vi.mock("../audit/store.js", () => ({ insertAuditEvent: approvalAudit }));
 
 const mockNotifyActionChange = vi.hoisted(() => vi.fn(async () => {}));
-const mockIsLoopbackRequest = vi.hoisted(() => vi.fn(() => true));
+const mockIsLoopbackRequest = vi.hoisted(() =>
+  vi.fn((_event: unknown) => true),
+);
 const mockResolveDeployEnvironment = vi.hoisted(() => vi.fn(() => "local"));
 const mockResolveDevUserEmail = vi.hoisted(() =>
   vi.fn(async () => undefined as string | undefined),
@@ -43,8 +45,9 @@ vi.mock("./action-change.js", () => ({
   ) => entry.readOnly ?? fallback,
   notifyActionChange: (...args: unknown[]) => mockNotifyActionChange(...args),
 }));
-vi.mock("./auth.js", () => ({
-  isLoopbackRequest: (...args: unknown[]) => mockIsLoopbackRequest(...args),
+vi.mock("./loopback.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./loopback.js")>()),
+  isLoopbackPeerRequest: (event: unknown) => mockIsLoopbackRequest(event),
 }));
 vi.mock("./deploy-environment.js", () => ({
   resolveDeployEnvironment: () => mockResolveDeployEnvironment(),
@@ -79,6 +82,8 @@ vi.mock("drizzle-orm/pglite/migrator", () => ({
   migrate: (...args: unknown[]) => mockMigrate(...args),
 }));
 
+import type { H3Event } from "h3";
+
 import { currentInvocationEvidence } from "../action-frame.js";
 import { runActionInvocation } from "../action-invocation.js";
 import { defineAction } from "../action.js";
@@ -100,11 +105,46 @@ import {
   removeDevActionDiscoveryFile,
   writeDevActionDiscoveryFile,
 } from "./dev-action-bridge.js";
+import { devActionDiscoveryFilePath } from "./dev-action-discovery.js";
 import {
   getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "./request-context.js";
+
+const { isLoopbackPeerRequest } =
+  await vi.importActual<typeof import("./loopback.js")>("./loopback.js");
+
+let fakeHome: string;
+
+beforeEach(() => {
+  fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "an-dev-action-home-"));
+  vi.spyOn(os, "homedir").mockReturnValue(fakeHome);
+});
+
+afterEach(() => {
+  vi.mocked(os.homedir).mockRestore();
+  fs.rmSync(fakeHome, { recursive: true, force: true });
+});
+
+interface ProxiedEvent {
+  _headers: Record<string, string>;
+  _body: unknown;
+  _status?: number;
+  node: { req: { headers: Record<string, string> } };
+}
+
+function proxiedEvent(
+  extraHeaders: Record<string, string>,
+  body?: unknown,
+): ProxiedEvent {
+  const headers = {
+    host: "localhost:8080",
+    [DEV_ACTION_TOKEN_HEADER]: getDevActionToken() ?? "",
+    ...extraHeaders,
+  };
+  return { _headers: headers, _body: body, node: { req: { headers } } };
+}
 
 describe("dev action browser handoff validation", () => {
   it("accepts only the relative embed path or a loopback APP_URL origin", () => {
@@ -164,7 +204,7 @@ describe("dev action discovery file", () => {
 
   it("writes 0600, is readable back, and removes cleanly", () => {
     writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:4000", "db-key");
-    const filePath = path.join(tmpDir, ".agent-native", "dev-server.json");
+    const filePath = devActionDiscoveryFilePath(tmpDir);
     expect(fs.existsSync(filePath)).toBe(true);
     expect(fs.statSync(filePath).mode & 0o777).toBe(0o600);
 
@@ -183,7 +223,7 @@ describe("dev action discovery file", () => {
 
   it("leaves a discovery file that a newer dev server has replaced", () => {
     writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
-    const filePath = path.join(tmpDir, ".agent-native", "dev-server.json");
+    const filePath = devActionDiscoveryFilePath(tmpDir);
     const replaced = {
       origin: "http://127.0.0.1:2",
       pid: process.pid + 1,
@@ -195,6 +235,23 @@ describe("dev action discovery file", () => {
     removeDevActionDiscoveryFile(tmpDir);
     expect(JSON.parse(fs.readFileSync(filePath, "utf8"))).toEqual(replaced);
     expect(getDevActionToken()).toBeUndefined();
+  });
+
+  it("keeps the token file out of the app root and deletes the legacy one", () => {
+    const legacyPath = path.join(tmpDir, ".agent-native", "dev-server.json");
+    fs.mkdirSync(path.dirname(legacyPath), { recursive: true });
+    fs.writeFileSync(legacyPath, JSON.stringify({ token: "stale" }));
+
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:4000", "db-key");
+
+    const filePath = devActionDiscoveryFilePath(tmpDir);
+    expect(path.relative(tmpDir, filePath).startsWith("..")).toBe(true);
+    expect(filePath.startsWith(fakeHome + path.sep)).toBe(true);
+    expect(fs.existsSync(legacyPath)).toBe(false);
+    expect(fs.readdirSync(tmpDir, { recursive: true })).not.toContain(
+      path.join(".agent-native", "dev-server.json"),
+    );
+    removeDevActionDiscoveryFile(tmpDir);
   });
 
   it("removing twice, or a directory that never had one, is a no-op", () => {
@@ -209,11 +266,10 @@ describe("dev action discovery file", () => {
   });
 
   it("treats malformed JSON as absent rather than throwing", () => {
-    fs.mkdirSync(path.join(tmpDir, ".agent-native"), { recursive: true });
-    fs.writeFileSync(
-      path.join(tmpDir, ".agent-native", "dev-server.json"),
-      "{not valid json",
-    );
+    fs.mkdirSync(path.dirname(devActionDiscoveryFilePath(tmpDir)), {
+      recursive: true,
+    });
+    fs.writeFileSync(devActionDiscoveryFilePath(tmpDir), "{not valid json");
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     expect(readDevActionDiscoveryFile(tmpDir)).toBeUndefined();
     expect(warn).toHaveBeenCalled();
@@ -221,9 +277,11 @@ describe("dev action discovery file", () => {
   });
 
   it("treats a file with the wrong shape as absent rather than throwing", () => {
-    fs.mkdirSync(path.join(tmpDir, ".agent-native"), { recursive: true });
+    fs.mkdirSync(path.dirname(devActionDiscoveryFilePath(tmpDir)), {
+      recursive: true,
+    });
     fs.writeFileSync(
-      path.join(tmpDir, ".agent-native", "dev-server.json"),
+      devActionDiscoveryFilePath(tmpDir),
       JSON.stringify({ origin: "http://x" }),
     );
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -720,6 +778,57 @@ describe("mountDevActionForwardRoute", () => {
     expect(event._status).toBe(401);
   });
 
+  it.each([
+    { "x-forwarded-for": "203.0.113.7" },
+    { "x-forwarded-host": "preview.example.dev" },
+    { forwarded: "for=203.0.113.7;host=preview.example.dev;proto=https" },
+    { "x-real-ip": "203.0.113.7" },
+    { host: "preview.example.dev" },
+  ])(
+    "refuses a proxied call carrying %j even with the right token",
+    async (headers) => {
+      mockIsLoopbackRequest.mockImplementation((event) =>
+        isLoopbackPeerRequest(event as H3Event),
+      );
+      writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+      const run = vi.fn();
+      const handler = mountedHandler({
+        echo: defineAction({ schema: z.object({}), run }),
+      });
+      const event = proxiedEvent(headers, { name: "echo" });
+      await expect(handler(event)).resolves.toMatchObject({ ok: false });
+      expect(event._status).toBe(401);
+      expect(run).not.toHaveBeenCalled();
+    },
+  );
+
+  it("still runs the local CLI's call, including through a local dev proxy", async () => {
+    mockIsLoopbackRequest.mockImplementation((event) =>
+      isLoopbackPeerRequest(event as H3Event),
+    );
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const run = vi.fn(async () => "ran");
+    const handler = mountedHandler({
+      echo: defineAction({ schema: z.object({}), run }),
+    });
+    for (const headers of [
+      { host: "127.0.0.1:8080" },
+      {
+        host: "127.0.0.1:3001",
+        "x-forwarded-host": "localhost:8080",
+        "x-forwarded-for": "::1",
+        "x-forwarded-proto": "http",
+      },
+    ]) {
+      const event = proxiedEvent(headers, { name: "echo" });
+      await expect(handler(event)).resolves.toMatchObject({
+        ok: true,
+        result: "ran",
+      });
+    }
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+
   it("rejects a missing or wrong dev token with 401", async () => {
     writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
     const handler = mountedHandler({});
@@ -1046,6 +1155,21 @@ describe("mountDevDbQueryForwardRoute", () => {
     mockIsLoopbackRequest.mockReturnValue(false);
     const handler = mountedDbQueryHandler();
     const event: any = { _headers: {} };
+    await expect(handler(event)).resolves.toMatchObject({ ok: false });
+    expect(event._status).toBe(401);
+    expect(mockRunDbQuery).not.toHaveBeenCalled();
+  });
+
+  it("refuses a proxied query even with the right token", async () => {
+    mockIsLoopbackRequest.mockImplementation((event) =>
+      isLoopbackPeerRequest(event as H3Event),
+    );
+    writeDevActionDiscoveryFile(tmpDir, "http://127.0.0.1:1", "k");
+    const handler = mountedDbQueryHandler();
+    const event = proxiedEvent(
+      { "x-forwarded-for": "203.0.113.7" },
+      { sql: "select 1" },
+    );
     await expect(handler(event)).resolves.toMatchObject({ ok: false });
     expect(event._status).toBe(401);
     expect(mockRunDbQuery).not.toHaveBeenCalled();
@@ -1420,7 +1544,7 @@ describe("auth guard exemption", () => {
     expect(index).toBeGreaterThan(-1);
     const bypass = source.slice(index, index + 200);
     expect(bypass).toContain('resolveDeployEnvironment() !== "production"');
-    expect(bypass).toContain("isLoopbackRequest(event)");
+    expect(bypass).toContain("isLoopbackPeerRequest(event)");
   }
 
   it("keeps the loopback dev-action bypass in auth.ts", () => {

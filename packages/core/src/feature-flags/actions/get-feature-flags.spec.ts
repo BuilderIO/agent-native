@@ -40,6 +40,7 @@ vi.mock("../../settings/store.js", async (importOriginal) => ({
   putSetting: vi.fn(),
 }));
 vi.mock("../../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
 }));
 

@@ -18,10 +18,10 @@
 
 @layer components {
   .switch {
-    --_height: 16px;
-    --_width: 28px;
-    --_inset: 2px;
-    --_radius: var(--radius-full);
+    --_height: var(--switch-height, 16px);
+    --_width: var(--switch-width, 28px);
+    --_inset: var(--switch-inset, 2px);
+    --_radius: var(--switch-radius, var(--radius-full));
 
     position: relative;
     display: inline-flex;
@@ -31,6 +31,7 @@
     width: var(--_width);
     height: var(--_height);
     padding: var(--_inset);
+    background-color: var(--_track-color, transparent);
     border-radius: calc(var(--_radius) * var(--corner-scale, 1));
     corner-shape: var(--corner-shape, round);
     vertical-align: top;
@@ -48,10 +49,13 @@
   }
 
   .switch[data-radius] {
-    --_radius: var(--shape-control);
+    --_radius: var(--switch-radius, var(--shape-control));
   }
 
   .switch-thumb {
+    --_thumb-color: var(--switch-thumb-color, var(--surface-raised));
+    --_thumb-shadow: var(--switch-thumb-shadow, var(--shadow-2));
+
     display: block;
     width: calc(var(--_height) - 2 * var(--_inset));
     height: calc(var(--_height) - 2 * var(--_inset));
@@ -59,8 +63,8 @@
       max(0px, var(--_radius) - var(--_inset)) * var(--corner-scale, 1)
     );
     corner-shape: var(--corner-shape, round);
-    background-color: var(--surface-raised);
-    box-shadow: var(--shadow-2);
+    background-color: var(--_thumb-color);
+    box-shadow: var(--_thumb-shadow);
     pointer-events: none;
     transition: translate var(--duration-2) var(--ease-standard);
   }
@@ -82,27 +86,34 @@
   /* ---- variants ---- */
 
   .switch[data-variant="surface"] {
-    background-color: var(--gray-a10);
+    --_track-color: var(--switch-surface-track-color, var(--gray-a10));
   }
 
   .switch[data-variant="surface"]:where([data-checked]) {
-    background-color: var(--accent-track);
+    --_track-color: var(
+      --switch-surface-track-color-checked,
+      var(--accent-track)
+    );
   }
 
   .switch[data-variant="soft"] {
-    background-color: var(--gray-a4);
+    --_track-color: var(--switch-soft-track-color, var(--gray-a4));
   }
 
   .switch[data-variant="soft"]:where([data-checked]) {
-    background-color: var(--accent-a6);
+    --_track-color: var(--switch-soft-track-color-checked, var(--accent-a6));
   }
 
   .switch[data-high-contrast]:where([data-checked]) {
-    background-color: var(--accent-12);
+    --_track-color: var(
+      --switch-high-contrast-track-color-checked,
+      var(--accent-12)
+    );
   }
 
   .switch[data-invalid][data-unchecked] {
-    box-shadow: inset 0 0 0 1px var(--fill-danger);
+    --_invalid-ring-color: var(--switch-invalid-ring-color, var(--fill-danger));
+    box-shadow: inset 0 0 0 1px var(--_invalid-ring-color);
   }
 
   .switch:focus-visible {
@@ -113,14 +124,16 @@
   /* ---- disabled ---- */
 
   .switch[data-disabled][data-variant] {
+    --_track-color: var(--switch-disabled-track-color, var(--gray-a3));
+    --_disabled-ring-color: var(--switch-disabled-ring-color, var(--gray-a6));
+
     cursor: not-allowed;
-    background-color: var(--gray-a3);
-    box-shadow: inset 0 0 0 1px var(--gray-a6);
+    box-shadow: inset 0 0 0 1px var(--_disabled-ring-color);
   }
 
   .switch[data-disabled] .switch-thumb {
-    background-color: var(--gray-2);
-    box-shadow: 0 0 0 1px var(--gray-a6);
+    --_thumb-color: var(--switch-disabled-thumb-color, var(--gray-2));
+    --_thumb-shadow: 0 0 0 1px var(--_disabled-ring-color);
   }
 
   @media (forced-colors: active) {

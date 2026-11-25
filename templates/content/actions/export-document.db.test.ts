@@ -7,6 +7,12 @@ import { putUserSetting } from "@agent-native/core/settings";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { identityBlockIds } from "../shared/block-identity-ids.js";
+import { readBlockLink } from "../shared/block-link.js";
+import { legacyBlocksFieldIdentity } from "../shared/blocks-field-identity.js";
+import { decodeHtmlEntities } from "../shared/import/html-fragment.js";
+import { serializePropertyOptions } from "../shared/properties.js";
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `content-export-document-${process.pid}-${Date.now()}.pglite`,
@@ -38,6 +44,7 @@ let nextPosition = 0;
 async function createDocument(args: {
   id: string;
   title: string;
+  parentId?: string;
   content?: string;
   ownerEmail?: string;
   visibility?: "private" | "org" | "public";
@@ -49,7 +56,7 @@ async function createDocument(args: {
     .values({
       id: args.id,
       ownerEmail: args.ownerEmail ?? OWNER,
-      parentId: null,
+      parentId: args.parentId ?? null,
       title: args.title,
       content: args.content ?? "",
       position: nextPosition++,
@@ -1314,5 +1321,111 @@ describe("export-document database collections", () => {
     );
 
     expect(result.content).toBe("# Ordinary Page\n\nPage body\n");
+  });
+
+  it("links to an interactive block from HTML, and keeps its source in Markdown", async () => {
+    const block =
+      "```html interactive\n<title>Tap counter</title>\n<button>0</button>\n```";
+    await createDocument({
+      id: "interactive-page",
+      title: "Interactive Page",
+      content: `Before\n${block}`,
+    });
+    const exported = (format: "html" | "markdown") =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        exportDocumentAction.run({ id: "interactive-page", format }),
+      );
+
+    const html = (await exported("html")).content;
+    expect(html).toContain("Open “Tap counter”");
+    expect(html).toMatch(/href="[^"]*\/page\/interactive-page\?[^"]*full=1"/);
+    expect(html).not.toContain("<button>");
+    expect(html).not.toContain("&lt;button");
+    expect((await exported("markdown")).content).toContain(block);
+  });
+
+  it("links to a record's own interactive block, or its page, from a collection's HTML", async () => {
+    const databaseId = "interactive-database";
+    const propertyId = "interactive-database-content";
+    const content =
+      "Before\n```html interactive\n<title>Tap counter</title>\n```";
+    await createDatabase({
+      id: databaseId,
+      documentId: "interactive-database-page",
+      title: "Interactive Database",
+    });
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({ primaryBlocksPropertyId: propertyId })
+      .where(eq(schema.contentDatabases.id, databaseId));
+    await addProperty({
+      id: propertyId,
+      databaseId,
+      name: "Content",
+      type: "blocks",
+      position: 0,
+      optionsJson: serializePropertyOptions({ blocks: { primary: true } }),
+    });
+    await addProperty({
+      id: "interactive-database-notes",
+      databaseId,
+      name: "Notes",
+      type: "blocks",
+      position: 1,
+      optionsJson: serializePropertyOptions({ blocks: { primary: false } }),
+    });
+    await createDocument({
+      id: "interactive-record",
+      title: "Interactive record",
+      parentId: "interactive-database-page",
+      content,
+    });
+    await getDb().insert(schema.documentBlockFieldContents).values({
+      id: "interactive-record-notes",
+      ownerEmail: OWNER,
+      documentId: "interactive-record",
+      propertyId: "interactive-database-notes",
+      content,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    await addDatabaseItem({
+      id: "interactive-record-item",
+      databaseId,
+      documentId: "interactive-record",
+      position: 0,
+    });
+    const { idsByPath } = identityBlockIds(
+      legacyBlocksFieldIdentity({
+        documentId: "interactive-record",
+        propertyId,
+        markdown: content,
+      }).blocks,
+    );
+
+    const html = await runWithRequestContext({ userEmail: OWNER }, () =>
+      exportDocumentAction.run({
+        id: "interactive-database-page",
+        format: "html",
+        collection: {
+          scope: { kind: "all_members" },
+          propertyIds: [],
+          includePrimaryBody: true,
+          blockPropertyIds: ["interactive-database-notes"],
+        },
+      }),
+    );
+
+    const links = [
+      ...html.content.matchAll(
+        /href="([^"]*\/page\/interactive-record[^"]*)"/g,
+      ),
+    ].map(([, href = ""]) =>
+      readBlockLink(new URL(decodeHtmlEntities(href)).search),
+    );
+    expect(links).toEqual([
+      { blockId: idsByPath["1"], fullScreen: true },
+      { blockId: null, fullScreen: false },
+    ]);
   });
 });

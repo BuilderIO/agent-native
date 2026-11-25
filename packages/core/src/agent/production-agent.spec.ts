@@ -175,6 +175,7 @@ import {
   resolveChatEngine,
   shouldChainBackgroundContinuation,
   toolCallCacheKey,
+  resolveToolFailureLimit,
   MAX_IDENTICAL_TOOL_CALLS,
   shouldGuardRepeatedSourceSweep,
   resolveSourceSweepToolCallThreshold,
@@ -187,6 +188,7 @@ import {
   type AgentLoopFinalResponseGuardContext,
   type AgentLoopOutcome,
   type ProductionAgentOptions,
+  type ToolLimits,
 } from "./production-agent.js";
 import type { ActiveRun } from "./run-manager.js";
 import * as runManager from "./run-manager.js";
@@ -503,7 +505,12 @@ function isLoopBreakerCloseout(options: EngineStreamOptions): boolean {
 async function runToolCallSequence(
   calls: Array<{ name: string; input: Record<string, unknown> }>,
   actions: Record<string, ActionEntry>,
-  options?: { threadId?: string; turnId?: string; messages?: EngineMessage[] },
+  options?: {
+    threadId?: string;
+    turnId?: string;
+    messages?: EngineMessage[];
+    toolLimits?: ToolLimits;
+  },
 ) {
   let nextCall = 0;
   const events: AgentChatEvent[] = [];
@@ -18673,6 +18680,40 @@ describe("runAgentLoop", () => {
     expect(events).toContainEqual(
       expect.objectContaining({ type: "done", reason: "loop_breaker" }),
     );
+  });
+
+  it("lets toolLimits.maxSameErrorAcrossArguments raise the across-arguments stop", async () => {
+    const calls = [1, 2, 3, 4, 5].map((id) => ({
+      name: "fetch-page",
+      input: { id },
+    }));
+    const actions = {
+      "fetch-page": preExecutionCheckedWrite(async () =>
+        fail("HTTP 403 Forbidden"),
+      ),
+    };
+
+    const defaulted = await runToolCallSequence(calls, actions);
+    expect(
+      (defaulted.find((e) => e.type === "done") as { message?: string })
+        .message,
+    ).toContain("rejected 3 different attempts the same way");
+
+    const raised = await runToolCallSequence(calls, actions, {
+      toolLimits: { maxSameErrorAcrossArguments: 5 },
+    });
+    expect(
+      (raised.find((e) => e.type === "done") as { message?: string }).message,
+    ).toContain("rejected 5 different attempts the same way");
+  });
+
+  it("falls back to the default when a failure limit is not a positive whole number", () => {
+    expect(resolveToolFailureLimit(undefined, 3)).toBe(3);
+    expect(resolveToolFailureLimit(0, 3)).toBe(3);
+    expect(resolveToolFailureLimit(-2, 3)).toBe(3);
+    expect(resolveToolFailureLimit(2.5, 3)).toBe(3);
+    expect(resolveToolFailureLimit(Number.NaN, 3)).toBe(3);
+    expect(resolveToolFailureLimit(7, 3)).toBe(7);
   });
 
   it("quotes the last error's first line when the across-arguments breaker stops the turn", async () => {

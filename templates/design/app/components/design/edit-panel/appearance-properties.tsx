@@ -32,7 +32,11 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-import { ScrubInput, type ScrubInputChangeMeta } from "../inspector";
+import { type ScrubInputChangeMeta } from "../inspector";
+import {
+  TokenScrubInput,
+  type TokenFieldBinding,
+} from "../inspector/TokenScrubInput";
 import type { ElementInfo } from "../types";
 import { elementIdentityKey } from "./element-identity";
 import { FieldTrailer } from "./field-primitives";
@@ -47,6 +51,7 @@ import {
   InspectorGrid,
   InspectorGridCell,
 } from "./inspector-grid";
+import { authoredStyleValue } from "./interaction-state-helpers";
 import { PanelSection } from "./panel-primitives";
 import { cssLengthNumber, fourValuesEqual } from "./position-helpers";
 import { isMixedValue, MIXED_VALUE } from "./selection-helpers";
@@ -148,8 +153,7 @@ export function CornerRadiusControl({
     : cornersDiffer
       ? corners.topLeft
       : cssLengthNumber(styles.borderRadius || String(corners.topLeft));
-  const commitRadius = (value: number, meta?: ScrubInputChangeMeta) => {
-    const next = `${Math.max(0, Math.round(value))}${radiusUnit}`;
+  const writeRadius = (next: string, meta?: ScrubInputChangeMeta) => {
     const patch = {
       borderRadius: next,
       borderTopLeftRadius: next,
@@ -165,6 +169,18 @@ export function CornerRadiusControl({
       onStyleChange(property, style, meta),
     );
   };
+  const commitRadius = (value: number, meta?: ScrubInputChangeMeta) =>
+    writeRadius(`${Math.max(0, Math.round(value))}${radiusUnit}`, meta);
+  const radiusTokenBinding: TokenFieldBinding | undefined =
+    element && !cornersDiffer
+      ? {
+          accepts: ["radius"],
+          authored: authoredStyleValue(element, "borderRadius"),
+          onBind: (cssVar) => writeRadius(`var(${cssVar})`),
+          onDetach: (resolved) =>
+            resolved ? writeRadius(resolved) : commitRadius(radius),
+        }
+      : undefined;
   const toggleIndependentCorners = () => {
     if (showIndependentCorners && cornersDiffer && !radiusMixed) {
       commitRadius(radius);
@@ -183,13 +199,14 @@ export function CornerRadiusControl({
         mixed={radiusMixed}
         min={0}
         precision={0}
+        tokenBinding={radiusTokenBinding}
       />
       {element ? (
         <FieldTrailer
           element={element}
           overrideProperty="border-radius"
           breakpointOverrideContext={breakpointOverrideContext}
-          className="absolute -top-3.5 right-0"
+          className="absolute -top-2 right-0"
         />
       ) : null}
     </div>
@@ -377,9 +394,11 @@ export function AppearanceScrubField({
   unit,
   precision,
   disabled = false,
+  tokenBinding,
 }: {
   label: string;
   ariaLabel?: string;
+  tokenBinding?: TokenFieldBinding | undefined;
   icon: (props: { className?: string }) => ReactNode;
   value: number;
   onChange: (value: number, meta?: ScrubInputChangeMeta) => void;
@@ -392,18 +411,19 @@ export function AppearanceScrubField({
   disabled?: boolean;
 }) {
   return (
-    <ScrubInput
+    <TokenScrubInput
+      tokenBinding={tokenBinding}
       label={label}
       ariaLabel={ariaLabel ?? label}
       icon={icon}
       value={value}
       onChange={onChange}
       mixed={mixed}
-      min={min}
-      max={max}
-      step={step}
-      unit={unit}
-      precision={precision}
+      {...(min !== undefined ? { min } : {})}
+      {...(max !== undefined ? { max } : {})}
+      {...(step !== undefined ? { step } : {})}
+      {...(unit !== undefined ? { unit } : {})}
+      {...(precision !== undefined ? { precision } : {})}
       disabled={disabled}
       className="w-full min-w-0 gap-0"
       labelClassName="h-6 w-7 justify-center gap-0 rounded-l-md rounded-r-none border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-muted-foreground [&>span]:sr-only"
@@ -520,15 +540,7 @@ function BlendModeRow({
     MIXED_VALUE;
 
   return (
-    <InspectorGrid
-      className="design-inspector-pair-fields items-center"
-      layout="label-field-action"
-    >
-      <InspectorGridCell span={INSPECTOR_GRID_COLUMNS}>
-        <p className="design-sidebar-field-label min-w-0 truncate text-muted-foreground">
-          {blendModeLabel}
-        </p>
-      </InspectorGridCell>
+    <InspectorGrid className="items-center" layout="field-action">
       <InspectorGridCell
         span={INSPECTOR_GRID_COLUMNS - INSPECTOR_GRID_ACTION_SPAN}
       >
@@ -647,31 +659,7 @@ export function AppearanceProperties({
         </>
       }
     >
-      <InspectorGrid
-        className="design-inspector-pair-fields items-center"
-        layout="label-action-rows"
-      >
-        <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
-          <p className="design-sidebar-field-label min-w-0 truncate text-muted-foreground">
-            {t("editPanel.labels.opacity")}
-          </p>
-        </InspectorGridCell>
-        <InspectorGridCell
-          span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
-          ariaHidden
-        />
-        <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
-          {showCornerRadius ? (
-            <p className="design-sidebar-field-label min-w-0 truncate text-muted-foreground">
-              {t("editPanel.labels.cornerRadius")}
-            </p>
-          ) : null}
-        </InspectorGridCell>
-        <InspectorGridCell
-          span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
-          ariaHidden
-        />
-        <InspectorGridCell span={INSPECTOR_GRID_ACTION_SPAN} ariaHidden />
+      <InspectorGrid className="items-center" layout="action-pair">
         <InspectorGridCell
           span={INSPECTOR_GRID_ACTION_PAIR_SPAN}
           className="group/field relative"
@@ -693,12 +681,19 @@ export function AppearanceProperties({
             step={1}
             unit="%"
             precision={1}
+            tokenBinding={{
+              accepts: ["opacity"],
+              authored: authoredStyleValue(element, "opacity"),
+              onBind: (cssVar) => onStyleChange("opacity", `var(${cssVar})`),
+              onDetach: (resolved) =>
+                onStyleChange("opacity", resolved ?? (styles.opacity || "1")),
+            }}
           />
           <FieldTrailer
             element={element}
             overrideProperty="opacity"
             breakpointOverrideContext={breakpointOverrideContext}
-            className="absolute -top-3.5 right-0"
+            className="absolute -top-2 right-0"
           />
         </InspectorGridCell>
         <InspectorGridCell

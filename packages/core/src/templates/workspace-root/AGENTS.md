@@ -57,6 +57,9 @@ resources to All apps only for global guidance.
 - Reuse provider connections and scoped resolvers. Framework apps use
   `resolveSecret`; workspace apps use the connector helper. Request missing
   keys through Dispatch vault, not a non-admin's `.env`.
+- Save to Content as the signed-in person, in a message: `call-agent` to
+  `content`, or `invokeAgent()` with `userEmail`, `orgDomain` and `orgSecret`
+  from `resolveA2ACallerAuth()`. Never ask for a Content token or put one in env.
 - Verify `/<app-id>` on the workspace gateway serves the new app before saying
   it is created; app servers start lazily.
 

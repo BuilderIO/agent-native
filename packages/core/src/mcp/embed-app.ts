@@ -1193,6 +1193,51 @@ export function embedApp(
         base,
         ...nodes.map((node) => document.importNode(node, true))
       );
+      installBaseUrlFallback(baseHref);
+    }
+
+    // Claude's sandbox CSP sets base-uri 'self', so the base element above is
+    // ignored there and URLs React creates after hydration (modulepreload
+    // links, route chunks) would resolve against the sandbox origin and 404.
+    function installBaseUrlFallback(baseHref) {
+      if (document.baseURI === baseHref) return;
+      const absolute = (value) => {
+        if (
+          typeof value !== "string" ||
+          !value ||
+          /^(?:[a-z][a-z0-9+.-]*:|\\/\\/|#)/i.test(value)
+        ) {
+          return value;
+        }
+        try {
+          return new URL(value, baseHref).href;
+        } catch (_err) {
+          return value;
+        }
+      };
+      const nativeSetAttribute = Element.prototype.setAttribute;
+      Element.prototype.setAttribute = function(name, value) {
+        const key = String(name).toLowerCase();
+        const resource =
+          (key === "href" && (this instanceof HTMLLinkElement)) ||
+          (key === "src" && (this instanceof HTMLScriptElement || this instanceof HTMLImageElement));
+        return nativeSetAttribute.call(this, name, resource ? absolute(value) : value);
+      };
+      const targets = [
+        [HTMLLinkElement, "href"],
+        [HTMLScriptElement, "src"],
+        [HTMLImageElement, "src"]
+      ];
+      for (const [ctor, prop] of targets) {
+        const descriptor = Object.getOwnPropertyDescriptor(ctor.prototype, prop);
+        if (!descriptor || !descriptor.set) continue;
+        Object.defineProperty(ctor.prototype, prop, {
+          ...descriptor,
+          set(value) {
+            descriptor.set.call(this, absolute(value));
+          }
+        });
+      }
     }
 
     function isModuleScript(script) {
@@ -3354,7 +3399,13 @@ export function embedApp(
 
     try {
       const nativeStartup = startNativeMcpAppsBridge();
-      const openAiStartup = waitForOpenAiBridge().then(syncOpenAiBridge);
+      // ChatGPT may leave ui/initialize unanswered; the pane must not wait out
+      // that 5 s timeout before telling the host it is ready.
+      const openAiStartup = waitForOpenAiBridge().then((bridge) => {
+        const synced = syncOpenAiBridge(bridge);
+        if (synced) notifyOuterMcpAppReady();
+        return synced;
+      });
       await Promise.all([
         openAiStartup,
         nativeStartup.catch(async (nativeErr) => {

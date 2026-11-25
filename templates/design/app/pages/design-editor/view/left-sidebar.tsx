@@ -425,10 +425,12 @@ export function renderLeftSidebar({
             >
               {id && canEditDesign && !shellMode ? (
                 <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
-                  <TokensPanel
-                    designId={id}
-                    onTokensApplied={handleTokensApplied}
-                  />
+                  {activeLeftPanel === "library" ? (
+                    <TokensPanel
+                      designId={id}
+                      onTokensApplied={handleTokensApplied}
+                    />
+                  ) : null}
                 </div>
               ) : (
                 <ReadOnlyEditorPanel

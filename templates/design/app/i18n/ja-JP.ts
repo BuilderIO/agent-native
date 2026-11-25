@@ -367,6 +367,8 @@ export default {
       blur: "ブラー",
       spread: "スプレッド",
       rotation3d: "3D 回転",
+      constraints: "制約",
+      absolutePosition: "絶対位置",
       rotationX: "X 軸回転",
       rotationY: "Y 軸回転",
       perspective: "パースペクティブ",
@@ -1157,6 +1159,12 @@ export default {
         opacity: "不透明度",
       },
       editColor: "{{name}} のカラーを編集",
+      field: {
+        open: "トークン",
+        detach: "トークンを切り離す",
+        primitives: "{{group}}のプリミティブ",
+        loading: "トークンを読み込み中…",
+      },
     },
     import: {
       description:
@@ -1858,8 +1866,6 @@ export default {
         "やり直し操作をスキップしました — 他のユーザーがそれを移動しました",
       saveConflict:
         "このページは別の場所で変更されました。最後の編集は保存されませんでした。",
-      versionHistoryUnavailable:
-        "このデザインではバージョン履歴を利用できません。編集内容は保存されました。",
       removeAutoLayoutFailed: "オートレイアウトを削除できませんでした",
       autoLayoutScreensUnsupported:
         "オートレイアウトの追加はページには適用されません",

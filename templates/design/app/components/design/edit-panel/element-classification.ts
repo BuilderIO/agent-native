@@ -613,6 +613,39 @@ export function commitFixedElementSizes(
   );
 }
 
+export function commitElementSizeToken(
+  element: ElementInfo,
+  axis: AutoLayoutSizingAxis,
+  cssValue: string,
+  resolvedPx: number,
+  onStyleChange: StyleChangeHandler,
+  onStylesChange?: StylesChangeHandler,
+  pairedPx?: number,
+): boolean {
+  const other = axis === "horizontal" ? "vertical" : "horizontal";
+  const write = writeLayoutChange(layoutModelForElement(element), {
+    kind: "sizing",
+    sizing:
+      pairedPx === undefined
+        ? { [axis]: "fixed" }
+        : { [axis]: "fixed", [other]: "fixed" },
+    px:
+      pairedPx === undefined
+        ? { [axis]: resolvedPx }
+        : { [axis]: resolvedPx, [other]: pairedPx },
+  });
+  if (write.status !== "ok" || write.children.size !== 0) {
+    trace("structure", "sizing-refused", {
+      reason: write.status === "ok" ? "children-not-writable" : write.reason,
+    });
+    return false;
+  }
+  const styles = definedStyles(write.frame);
+  styles[axis === "horizontal" ? "width" : "height"] = cssValue;
+  commitStylePatch(styles, onStyleChange, onStylesChange);
+  return true;
+}
+
 function definedStyles(patch: LayoutStylePatch): Record<string, string> {
   const styles: Record<string, string> = {};
   for (const [property, value] of Object.entries(patch)) {

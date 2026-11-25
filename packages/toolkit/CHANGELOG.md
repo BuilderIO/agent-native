@@ -1,5 +1,67 @@
 # @agent-native/toolkit
 
+## 0.234.0
+
+### Patch Changes
+
+- 0f7bf06: Chat links to another app in the same workspace now open in a new tab, and links that open a new tab show an external-link icon with a screen-reader hint.
+- Release all public npm packages with a patch version bump.
+- 459726e: Opening a saved thread by URL no longer redirects to a blank new chat when the thread has been idle for more than 12 hours.
+- 0315ffa: Show readable chat errors for HTTP-prefixed service failures and announce the failed state to assistive technology.
+- 124141d: Show a localized uncertain-write warning in live chat and saved history while retaining technical details for diagnosis.
+- 4ad86d5: `VisualScrubInput` takes a trailing slot, a key handler that runs before its own keys, a draft listener, combobox ARIA props and an `apiRef` with `focus`, `blur` and `resetDraft`, so an app can build a token combobox on top of it.
+- f037abc: Fix stacked bar series in combo charts while preserving independent target lines.
+- 971ad70: Anthropic turns with adaptive thinking no longer fail with "Invalid signature in thinking block" when the tool list changes mid-turn: requests ask the API to drop a mismatched thinking block. A pending approval in the agent sidebar is no longer replaced by the "no longer running" banner. `createAgentChatPlugin` gains `onAgentRunNotStarted`, and `onAgentRunComplete` now receives the thread projection outcome.
+- 631ee7c: Fix first-run onboarding hydration when Core is externalized during server rendering.
+- Updated dependencies [e466d90]
+- Updated dependencies
+- Updated dependencies [dd1218f]
+  - @agent-native/agentkit@0.234.0
+  - @agent-native/design-system@0.234.0
+
+## 0.233.0
+
+### Minor Changes
+
+- a57a58f: Add Image Card parts and edge-to-edge Dialog media and body slots. Compose both in the feature announcement recipe. Video playback controls stay reachable when a card has a full-card link. Long dialog titles wrap clear of the close button in either reading direction.
+- a57a58f: Add a composable layer tree with keyboard navigation, selection, renaming, visibility, locking and subtree reordering. Set a viewport height to render large expanded trees with a bounded number of rows while preserving selection, focus, and keyboard navigation. Keep focus inside the tree when a document update removes the focused row, and navigate visible rows by typing their names. Horizontal arrow keys follow the reading direction. Drag previews check the selection and target without rebuilding the document order.
+- a57a58f: Compose editable inspector sections, labeled property rows, transparency-aware paint swatches, and custom slider tracks and thumbs. Edit single or mixed frame dimensions with preview, commit, and cancel events. Compose token-bound solid and gradient fills, override inspector geometry, and keep overlays inside a scoped theme. Mixed flip selections expose their state to assistive technology and share the mixed-state indicator used by the aspect-ratio lock. Controlled number fields retain pointer movement when focus enters the scrub field. Inspector dimensions support one-pixel adjustments. Selection property updates and code previews retain the application’s geometry type. Compose axis constraints inline or in a compact picker, with keyboard-operable physical edge pins and independent mixed values. Set an accessible name on Select to label both its trigger and its portaled listbox. Alignment and grid size pickers support spatial keyboard navigation in right-to-left layouts. Paint fields support canceling numeric previews and interrupted stop drags, and gradient tracks follow the theme’s reading direction. Matching fills can be edited across layers while preserving each layer’s fill and gradient stop IDs.
+- a57a58f: Compose editor workspaces with token-based stack, inline, and grid layouts and resizable panes with pointer and keyboard controls.
+
+  Reuse the Design File panel and property inspector independently or together in the editor workspace.
+
+  Arrange workspace tabs into persistent, resizable groups with pointer, touch, or keyboard docking.
+
+- 87dfdb6: The shared filter kit's date editor builds a relative range, such as "past 14 weeks" or "next 3 months", in the directions the field's `dates` allows. `FilterButton` takes a child button to open the panel with, in place of its own, and an `align` for the panel. `FilterBar` and `FilterButton` take `clearable={false}` to leave out Clear when the app has its own. `FilterNouns.matchCount` and `showCount` are now optional, for apps that pass no counts. The filter bar's chips, its add menu and the filter panel now open as modal popovers: while one is open the rest of the page takes no clicks, so the click that closes it no longer also lands on whatever is underneath. `FilterBar`, `FilterButton` and `FilterPanel` take a `groupMode` for a group the user adds, `"or"` unless set. Rule and group ids now carry a part chosen once per page load, so an app that saves them can't get back an id it saved before a reload. Closing a group's chip drops unfinished rules only in that group, and the range form keeps a saved range's direction even when the field's `dates` doesn't offer it. The filter panel and a group's chip keep rules that were already unfinished when they opened, such as a draft an app saved, and drop only those left unfinished during the visit; `pruneFilterState` takes the ids of rules to keep for this. Changing a range to a single-date operator keeps its first date.
+- a57a58f: Add a scoped ThemeProvider for appearance, app theme, density, radius, corners and registered palettes. Dialogs and other overlays inherit the theme of their nearest provider. Native form controls and scrollbars follow the nearest explicit light or dark appearance. Explicit left-to-right and right-to-left regions align keyboard navigation with their layout. Reduce WebKit style recalculation during continuous resizing when multiple app themes are loaded.
+
+### Patch Changes
+
+- 6f4b56e: The agent chat page header shows the full chat title on hover when a long title is truncated.
+- c71955a: Connect Builder.io from browsers that refuse blank popups: when the host refuses the blank sign-in window, the connect flow opens its waiting page in the same click instead of reporting that popups are blocked. The app's own redirect to Builder no longer cuts off a popup that started on that page, which the app took for a closed window and reported as a failed setup 20 seconds into the sign-in.
+- a57a58f: Keep loading button content mounted, preserve keyboard focus in interactive input slots, and render switch states distinctly in forced colors. App shell drawers and collapsed navigation tooltips inherit their overlay scope.
+- 7c866e8: `AgentKitComposer` accepts `submitRequiresAiSetup={false}` for a host `onSubmit` that never starts an agent run, such as a keyword search box, so its submit is not refused when no AI provider is connected. Host overrides stay gated by default.
+- 6f84c01: Format saved custom credential names as code so technical identifiers remain distinguishable from descriptive settings text.
+- c541b37: Hide chat tool cells for calls to tools that do not exist instead of showing the raw tool name and dispatch error.
+- Release all public npm packages with a patch version bump.
+- a57a58f: Associate menu group labels with their command or radio group in menus, context menus and menubars. Menu transitions follow the popup lifecycle. Directional popups enter from their trigger side in right-to-left layouts.
+- c3bcccd: Show the submitted message and progress while chat submission admission is pending, and clear that feedback if admission fails.
+- bb20dd7: Show a plain translated message for generic failed chat runs, keeping diagnostic details available without resubmitting the request.
+- 2a7cf8c: `AppSidebarNavItem` without `to` or `href` renders a button, and its label now lines up at the start like linked items instead of centering.
+- 4b68858: Settings → Appearance now has a Theme row in every app, with System, Light and Dark, so people can see and change whether an app follows their computer. The early head script and the running app now keep the same saved theme, and a theme sent by a host app (the desktop app, an embedding page) shows without being saved as the person's own choice.
+- b755252: Add `@agent-native/toolkit/craft` primitives (`ResourceStateBoundary`, `useCommandRegistry`, `SafeDestructiveAction`, `useOptimisticAction`), `craft-tokens.css` semantic/elevation/density/motion tokens, and updated `build-an-app` template skill guidance.
+- Updated dependencies [a57a58f]
+- Updated dependencies [a57a58f]
+- Updated dependencies [a57a58f]
+- Updated dependencies [a57a58f]
+- Updated dependencies [a57a58f]
+- Updated dependencies [a57a58f]
+- Updated dependencies
+- Updated dependencies [a57a58f]
+- Updated dependencies [a57a58f]
+  - @agent-native/design-system@0.233.0
+  - @agent-native/agentkit@0.233.0
+
 ## 0.232.0
 
 ### Minor Changes
@@ -1740,27 +1802,5 @@
 ### Patch Changes
 
 - Release all public npm packages with a patch version bump.
-
-## 0.16.12
-
-### Patch Changes
-
-- Release all public npm packages with a patch version bump.
-
-## 0.16.11
-
-### Patch Changes
-
-- 6c2e431: Show a terminal raw-source error when a persisted registry block cannot hydrate instead of leaving it indefinitely loading.
-- af1b3bb: Stop silently dropping a collaborator's edits. A client that was not the reconcile lead never marked itself seeded, so its own changes were never written back
-  to SQL — they survived in the shared CRDT while a peer stayed connected and disappeared when that peer left. Read-only viewers were also counted in the lead
-  election, so a viewer could win it and then apply nothing at all, leaving a session where every editor's work was dropped.
-- c595519: Adds a shared `afterBodyPointerUnlock` helper (`@agent-native/toolkit/ui/pointer-lock`) that defers opening a follow-up Dialog/Sheet/AlertDialog until `document.body.style.pointerEvents` is confirmed unlocked, avoiding the Radix dismissable-layer race where a new modal mounts before a closing one (with a nested Select) finishes unregistering and leaves the page permanently unclickable.
-- 9735e4d: Fix the desktop agent picker readiness, tooltip stacking, and terminal mode control.
-- 15b86eb: `VisualScrubInput` keeps focus on Enter instead of blurring and selects the
-  committed value so editing can continue in the field. Blurring handed the next
-  keystroke to whatever global shortcut owned that key, so typing a value and
-  continuing to type could fire a canvas command (a zoom jump, in the report that
-  found this) while the user believed they were still editing the field.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

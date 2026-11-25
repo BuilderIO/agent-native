@@ -4,6 +4,7 @@ import { endsAtContinuationBoundary } from "../agent/production-agent.js";
 import type { ActiveRun } from "../agent/run-manager.js";
 import type { AgentChatEvent, AgentChatScope } from "../agent/types.js";
 import {
+  notifyRunNotStarted,
   runAgentChatRunCompletionHooksAfterProjection,
   runPostAgentRunComplete,
   runPostAgentTurnAutosave,
@@ -47,6 +48,76 @@ describe("run completion projection hooks", () => {
 
     expect(persistProjection).toHaveBeenCalledOnce();
     expect(completionHooks).toHaveBeenCalledOnce();
+    expect(completionHooks).toHaveBeenCalledWith({
+      status: "failed",
+      error: projectionError,
+    });
+  });
+
+  it("reports a successful projection to the completion hooks", async () => {
+    const completionHooks = vi.fn();
+    await runAgentChatRunCompletionHooksAfterProjection(
+      async () => {},
+      completionHooks,
+    );
+    expect(completionHooks).toHaveBeenCalledWith({ status: "updated" });
+  });
+});
+
+describe("run-not-started observer", () => {
+  const details = {
+    runId: "run-1",
+    turnId: "run-1",
+    threadId: "thread-1",
+    failure: { code: "missing_credentials", message: "no key" },
+  };
+
+  it("reports a refused turn to the observer", async () => {
+    const observer = vi.fn();
+    await notifyRunNotStarted(observer, details);
+    expect(observer).toHaveBeenCalledWith(details);
+  });
+
+  it("does nothing without an observer", async () => {
+    await expect(
+      notifyRunNotStarted(undefined, details),
+    ).resolves.toBeUndefined();
+  });
+
+  it("captures an observer failure without rejecting the refusal", async () => {
+    const error = new Error("exporter down");
+    const captured = vi.fn();
+    const unregister = registerErrorCaptureProvider("not-started", captured);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(
+        notifyRunNotStarted(async () => {
+          throw error;
+        }, details),
+      ).resolves.toBeUndefined();
+      expect(captured).toHaveBeenCalledWith(
+        error,
+        expect.objectContaining({
+          route: "agent-chat",
+          aiTraceId: "run-1",
+          tags: {
+            source: "agent-chat",
+            failureClass: "run-not-started-observer",
+          },
+          extra: expect.objectContaining({
+            runId: "run-1",
+            threadId: "thread-1",
+          }),
+        }),
+      );
+      expect(log).toHaveBeenCalledWith(
+        "[agent-chat] run-not-started observer failed:",
+        error,
+      );
+    } finally {
+      unregister();
+      log.mockRestore();
+    }
   });
 });
 

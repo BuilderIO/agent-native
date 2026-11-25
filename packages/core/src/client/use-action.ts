@@ -79,6 +79,7 @@ import {
 } from "./action-query-foreground.js";
 import {
   ACTION_RESOURCES_META_KEY,
+  ACTION_SELF_REFRESHING_META_KEY,
   actionQueryAffectedByResources,
   type ActionScopedQuery,
 } from "./action-query-scope.js";
@@ -338,6 +339,7 @@ type InternalActionFetchOptions = ActionFetchOptions & {
   uiCapabilityRetry?: boolean;
   /** A GET that may share one request with the other GETs in its tick. */
   batch?: boolean;
+  batchGroup?: string;
   /** Internal: never retain a private request body beyond transport handoff. */
   privateInput?: boolean;
   /** Internal: this read was already re-sent with the method the action declared. */
@@ -694,12 +696,20 @@ function utf8ByteLength(value: string): number {
  * refused where its GETs would pass, so an embed keeps one request per call.
  */
 function canBatchActionGet(options?: InternalActionFetchOptions): boolean {
-  return (
-    options?.batch === true &&
-    options.responseType !== "blob" &&
-    options.headers === undefined &&
-    !isEmbedAuthActive()
-  );
+  if (options?.batch !== true) return false;
+  if (options.responseType === "blob") {
+    console.debug(
+      "[agent-native] Skipping action-GET batching: responseType is blob",
+    );
+    return false;
+  }
+  if (isEmbedAuthActive()) {
+    console.debug(
+      "[agent-native] Skipping action-GET batching: embed auth is active",
+    );
+    return false;
+  }
+  return true;
 }
 
 function waitForActionSend(
@@ -850,6 +860,9 @@ async function performActionFetch<T>(
               init,
               headers,
               batchUrl: `${actionPrefix()}/${ACTION_BATCH_ACTION_NAME}`,
+              ...(options?.batchGroup
+                ? { batchGroup: options.batchGroup }
+                : {}),
             })
           : (() => {
               try {
@@ -1907,6 +1920,7 @@ export function useActionQuery<
      * than waiting on the other reads in their batch.
      */
     batchRefetches?: boolean;
+    batchInitial?: boolean;
     /** Captures a local projection fence before the authorized read starts. */
     onRequestStart?: () => unknown;
     /** Receives canonical responses only, never optimistic query-cache writes. */
@@ -1927,6 +1941,7 @@ export function useActionQuery<
     queryKeyScope,
     resources,
     batchRefetches,
+    batchInitial,
     onRequestStart,
     onServerResult,
     onServerError,
@@ -1986,6 +2001,8 @@ export function useActionQuery<
     queryFn: async ({ signal, client }) => {
       const key = circuitKey();
       const query = client.getQueryCache().find({ queryKey, exact: true });
+      const initialBatch =
+        batchInitial === true && query?.state.data === undefined;
       if (!restOptions.refetchIntervalInBackground && isSurfaceHidden())
         throw new CancelledError({ revert: true });
       const foreground =
@@ -2016,7 +2033,10 @@ export function useActionQuery<
               visibleOnly: !restOptions.refetchIntervalInBackground,
               uiOnly: uiOnly || interactive,
               ...(retryUiCapability === undefined ? {} : { retryUiCapability }),
-              batch: method === "GET" && canBatchActionQueryFetch(query),
+              batch:
+                method === "GET" &&
+                (initialBatch || canBatchActionQueryFetch(query)),
+              ...(initialBatch ? { batchGroup: "initial" } : {}),
               onResponse: (response) => {
                 lastResponse = response;
                 onResponse(response);
@@ -2157,7 +2177,12 @@ export type ActionReadState<T> =
  * refreshes every action query.
  */
 function actionQueryInvalidation(resources: readonly string[] | undefined) {
-  if (!resources?.length) return { queryKey: ["action"] };
+  if (!resources?.length)
+    return {
+      queryKey: ["action"],
+      predicate: (query: ActionScopedQuery) =>
+        query.meta?.[ACTION_SELF_REFRESHING_META_KEY] !== true,
+    };
   const changed = new Set(resources);
   return {
     predicate: (query: ActionScopedQuery) =>

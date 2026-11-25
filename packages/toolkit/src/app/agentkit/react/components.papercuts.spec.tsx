@@ -306,6 +306,42 @@ describe("AgentKitChat papercuts", () => {
     ).toBe(announcement);
   });
 
+  it("clears Working when a stopped run has no start timestamp or events", async () => {
+    const thread = runningThread("thread-stop-status", "run-stop-status");
+    const run = {
+      id: "run-stop-status",
+      status: "running" as const,
+      lastSequence: 0,
+    };
+    thread.runs["run-stop-status"] = run;
+    const store = observableController(snapshotOf(thread));
+    await render(
+      <AgentKitProvider controller={store.controller} threadId={thread.id}>
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+    const status = container.querySelector("[data-agentkit-live-status]");
+    expect(status?.textContent).toBe("Working");
+    await act(async () => {
+      store.update(
+        snapshotOf(
+          {
+            ...thread,
+            activeRunIds: [],
+            runs: {
+              "run-stop-status": {
+                ...run,
+                status: "cancelled",
+              },
+            },
+          },
+          1,
+        ),
+      );
+    });
+    await vi.waitFor(() => expect(status?.textContent).toBe("Stopped"));
+  });
+
   it.each([
     ["with an error, which its own alert reads", true, ""],
     ["without an error", false, "Response failed"],

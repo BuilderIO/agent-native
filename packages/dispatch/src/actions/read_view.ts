@@ -9,7 +9,7 @@ import { callGrantedDispatchMcpAppAction } from "../server/lib/mcp-gateway.js";
 
 export default defineAction({
   description:
-    "Read what the user is looking at in the active tab of a granted app right now: the open screen, selection, and any open composer or draft, including edits not yet saved. Call it before answering questions like 'what does my draft say now?'. Fast; use after the user edits in the app view.",
+    "Read the current view state in the active tab of a granted app, including the open screen, selection, and any open composer or unsaved draft edits.",
   schema: z.object({
     app: z.string().describe("Granted app id, e.g. mail or calendar."),
   }),

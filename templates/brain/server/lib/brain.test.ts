@@ -1276,6 +1276,62 @@ describe("Brain knowledge quality gates", () => {
     });
   });
 
+  it("lists signed ingest availability without exposing source keys or token hashes", async () => {
+    seedSource({
+      id: "column-key",
+      provider: "clips",
+      sourceKey: "column-private-key",
+      ingestTokenHash: "column-private-hash",
+      configJson: JSON.stringify({
+        sourceKey: "old-private-key",
+        ingestTokenHash: "old-private-hash",
+      }),
+    });
+    seedSource({
+      id: "legacy-key",
+      provider: "generic",
+      sourceKey: "  ",
+      configJson: JSON.stringify({
+        sourceKey: " legacy-private-key ",
+        ingestTokenHash: "legacy-private-hash",
+      }),
+    });
+    seedSource({
+      id: "no-key",
+      provider: "generic",
+      configJson: JSON.stringify({ sourceKey: "  " }),
+    });
+    seedSource({
+      id: "other-provider",
+      provider: "slack",
+      sourceKey: "slack-private-key",
+    });
+
+    const result = await listSourcesAction.run({ includeArchived: false });
+    expect(
+      Object.fromEntries(
+        result.sources.map((source) => [source.id, source.hasIngestSourceKey]),
+      ),
+    ).toEqual({
+      "column-key": true,
+      "legacy-key": true,
+      "no-key": false,
+      "other-provider": false,
+    });
+    const encoded = JSON.stringify(result);
+    for (const secret of [
+      "column-private-key",
+      "old-private-key",
+      "legacy-private-key",
+      "slack-private-key",
+      "column-private-hash",
+      "old-private-hash",
+      "legacy-private-hash",
+    ]) {
+      expect(encoded).not.toContain(secret);
+    }
+  });
+
   it("counts only allowed captures in audiences accessible to the caller", async () => {
     seedSource();
     seedCapture({ id: "accessible-capture" });

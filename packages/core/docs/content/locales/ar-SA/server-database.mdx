@@ -80,6 +80,19 @@ DATABASE_URL=pglite:./data/pglite
 
 يُشغّل [PGlite](https://pglite.dev/) قاعدة بيانات Postgres مبنية بتقنية WASM داخل العملية نفسها. يتيح لك اكتشاف مشكلات المخطط الخاصة بـ Postgres فقط قبل النشر، مع إبقاء الإعداد بسيطًا مثل الإعداد الافتراضي لـ PGlite. وهو، مثل PGlite، تخزين محلي فقط. لا تستخدمه في الإنتاج أو البيئات المشتركة.
 
+#### امتدادات PGlite {#pglite-extensions}
+
+يحمّل PGlite الامتدادات عند إنشاء العميل فقط. سجّل الامتدادات باستخدام `configurePgliteExtensions` قبل أول وصول إلى قاعدة البيانات، داخل وحدة تستوردها كل نقاط الدخول (مثل `server/db/index.ts`)، ثم فعّلها عبر `CREATE EXTENSION` في ترحيل يعمل بعد التسجيل:
+
+```ts
+import { configurePgliteExtensions } from "@agent-native/core/db";
+import { pg_textsearch } from "@electric-sql/pglite-pg_textsearch";
+
+configurePgliteExtensions({ pg_textsearch });
+```
+
+يؤدي التسجيل بعد وجود عميل PGlite إلى رمي خطأ. يتجاهل PostgreSQL المستضاف هذا التسجيل، لذا ثبّت الامتداد على ذلك الخادم بشكل منفصل.
+
 ### قاعدة بيانات الإنتاج {#production}
 
 اضبط `DATABASE_URL` في ملف `.env` الخاص بك أو في بيئة موفر النشر للاتصال بقاعدة PostgreSQL مستضافة. تشمل الخيارات المُدارة الشائعة [Neon](/docs/neon) و[Supabase](/docs/supabase) و[Amazon RDS for PostgreSQL](/docs/aws-rds) و[Cloud SQL for PostgreSQL](/docs/cloud-sql) و[Azure Database for PostgreSQL](/docs/azure-postgresql). استخدم دليل [Plain Postgres](/docs/postgres) للخدمات المُدارة الأخرى وخوادم PostgreSQL ذاتية الاستضافة:

@@ -751,10 +751,10 @@ test("pasting a 17 by 9 SVG keeps the selected layer at its copied size", async 
     });
   await expect(selectedLayer).toHaveAttribute("aria-selected", "true");
   await expect(
-    page.getByRole("textbox", { name: "W size in pixels" }),
+    page.getByRole("combobox", { name: "W size in pixels" }),
   ).toHaveValue("17");
   await expect(
-    page.getByRole("textbox", { name: "H size in pixels" }),
+    page.getByRole("combobox", { name: "H size in pixels" }),
   ).toHaveValue("9");
 });
 
@@ -816,10 +816,10 @@ test("pasting a frame from another design app lands in the selected container wi
     .first();
   await expect(pastedRow).toHaveAttribute("aria-selected", "true");
   await expect(
-    page.getByRole("textbox", { name: "W size in pixels" }),
+    page.getByRole("combobox", { name: "W size in pixels" }),
   ).toHaveValue("104");
   await expect(
-    page.getByRole("textbox", { name: "H size in pixels" }),
+    page.getByRole("combobox", { name: "H size in pixels" }),
   ).toHaveValue("72");
   await fillHexInspector(page, "4A70C8");
 
@@ -835,10 +835,10 @@ test("pasting a frame from another design app lands in the selected container wi
   await reloadedRow.locator("[data-layer-row-button]").click();
   await expect(reloadedRow).toHaveAttribute("aria-selected", "true");
   await expect(
-    page.getByRole("textbox", { name: "W size in pixels" }),
+    page.getByRole("combobox", { name: "W size in pixels" }),
   ).toHaveValue("104");
   await expect(
-    page.getByRole("textbox", { name: "H size in pixels" }),
+    page.getByRole("combobox", { name: "H size in pixels" }),
   ).toHaveValue("72");
   await fillHexInspector(page, "4A70C8");
   expect(await placement()).toMatchObject({

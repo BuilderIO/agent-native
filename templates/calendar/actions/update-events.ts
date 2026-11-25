@@ -377,6 +377,7 @@ export default defineAction({
             {
               account: { ownerEmail, accountEmail },
               sendUpdates: args.sendUpdates,
+              expectedRevision: event.revision,
             },
           );
           return {

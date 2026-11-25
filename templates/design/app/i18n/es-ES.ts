@@ -366,6 +366,8 @@ export default {
       blur: "Desenfoque",
       spread: "Expansión",
       rotation3d: "Rotación 3D",
+      constraints: "Restricciones",
+      absolutePosition: "Posición absoluta",
       rotationX: "Rotar X",
       rotationY: "Rotar Y",
       perspective: "Perspectiva",
@@ -1159,6 +1161,12 @@ export default {
         opacity: "Opacidad",
       },
       editColor: "Editar el color de {{name}}",
+      field: {
+        open: "Tokens",
+        detach: "Desvincular token",
+        primitives: "Primitivos de {{group}}",
+        loading: "Cargando tokens…",
+      },
     },
     import: {
       description:
@@ -1866,8 +1874,6 @@ export default {
       redoSkippedConcurrentEdit: "Se omitió rehacer: otra persona movió eso",
       saveConflict:
         "Esta página cambió en otro lugar. Tu último cambio no se guardó.",
-      versionHistoryUnavailable:
-        "El historial de versiones no está disponible para este diseño. Tu edición se guardó de todos modos.",
       removeAutoLayoutFailed: "No se pudo quitar el auto layout",
       autoLayoutScreensUnsupported:
         "Añadir diseño automático no se aplica a las páginas",

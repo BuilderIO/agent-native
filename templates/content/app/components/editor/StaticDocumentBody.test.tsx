@@ -91,6 +91,13 @@ const BODY = [
   "```mermaid",
   "```",
   "",
+  "```html interactive",
+  "<title>Tap counter</title>",
+  "```",
+  "",
+  "```html interactive",
+  "```",
+  "",
   "```ts",
   "const plain = true;",
   "```",
@@ -103,6 +110,10 @@ const BODY = [
 const LABELS = {
   imageBroken: "editor.media.imageBroken",
   mermaidSource: "editor.mermaid.source",
+  interactiveHtmlUntitled: "editor.interactiveHtml.untitled",
+  interactiveHtmlRunHint: "editor.interactiveHtml.runHint",
+  interactiveHtmlRun: "editor.interactiveHtml.run",
+  runInteractiveHtml: false,
 };
 
 const IMAGE_BODY = [
@@ -195,6 +206,7 @@ describe("the static document body", () => {
     createElement(StaticDocumentBody, {
       schema: getContentEditorSchema(),
       content: IMAGE_BODY,
+      runInteractiveHtml: false,
     });
   const imageEditor = () =>
     createElement(VisualEditor, {
@@ -241,6 +253,7 @@ describe("the static document body", () => {
         createElement(StaticDocumentBody, {
           schema: getContentEditorSchema(),
           content: "Recovered snapshot.",
+          runInteractiveHtml: false,
         }),
       );
       expect(container.querySelector('[role="alert"]')).toBeNull();
@@ -311,11 +324,29 @@ describe("the static document body", () => {
     expect(blocks(staticBody).map(shape)).toEqual(blocks(editor).map(shape));
   });
 
+  it("offers Run only where the editor's block won't run on its own", async () => {
+    const storedBody = (runInteractiveHtml: boolean) =>
+      createElement(StaticDocumentBody, {
+        schema: getContentEditorSchema(),
+        content: "```html interactive\n<title>Tap counter</title>\n```",
+        runInteractiveHtml,
+      });
+    const waiting = () =>
+      container.querySelector(".content-interactive-html__waiting");
+
+    await show(storedBody(false));
+    expect(waiting()?.textContent).toContain("editor.interactiveHtml.run");
+    await show(storedBody(true));
+    expect(waiting()).toBeNull();
+    expect(container.textContent).toContain("Tap counter");
+  });
+
   it("labels and sizes the tables it draws, as the editor does", async () => {
     await show(
       createElement(StaticDocumentBody, {
         schema: getContentEditorSchema(),
         content: ["| Name | Role |", "| --- | --- |", "| Priya | |"].join("\n"),
+        runInteractiveHtml: false,
       }),
     );
 
@@ -342,6 +373,7 @@ describe("the static document body", () => {
       createElement(StaticDocumentBody, {
         schema: getContentEditorSchema(),
         content,
+        runInteractiveHtml: false,
       }),
     );
     const standIn = empty();

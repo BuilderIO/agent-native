@@ -56,6 +56,7 @@ describe("Dispatch agent chat plugin", () => {
         mcp: {
           appApprovalPage: true,
           readOnlyResources: true,
+          servesAnSkill: true,
           taskCandidates: expect.any(Function),
           connectorCatalog: expect.arrayContaining([
             "start-workspace-app-creation",
