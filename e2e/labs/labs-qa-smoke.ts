@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 
-import { chromium, type BrowserContext, type Page } from "@playwright/test";
+import { chromium } from "@playwright/test";
 
 import {
   verificationLinkFor,
@@ -29,11 +29,7 @@ async function readSession(context: import("playwright").BrowserContext) {
     },
   );
   if (!res.ok()) return null;
-  try {
-    return (await res.json()) as { email?: string };
-  } catch {
-    return null;
-  }
+  return (await res.json()) as { email?: string };
 }
 
 async function ensureSignedIn(
@@ -83,6 +79,7 @@ async function ensureSignedIn(
   const continueBtn = page.locator('form button[type="submit"]');
   if ((await continueBtn.count()) > 0) {
     await continueBtn.click();
+    // fixed-sleep-ok: allow verification redirect and session cookie to settle
     await page.waitForTimeout(2000);
   }
 
@@ -102,6 +99,7 @@ async function run() {
   try {
     await ensureSignedIn(context, page);
     await page.goto(appUrl, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    // fixed-sleep-ok: allow client hydration and initial app render to settle
     await page.waitForTimeout(3000);
     await page.screenshot({ path: `${artifactDir}/${app}-loaded.png` });
 

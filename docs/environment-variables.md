@@ -734,3 +734,9 @@ only in code.
 <!-- END GENERATED: declared-app-config -->
 
 `BETA_DATABASE_URL_<APP>` is the required GitHub Actions credential mirror for each beta site, including `BETA_DATABASE_URL_CHAT` and `BETA_DATABASE_URL_CRM`. Beta migrations never fall back to production or PR-preview mirrors. `NETLIFY_PREVIEW_DATABASE_URL_<APP>` remains the production database mirror used by PR previews.
+
+### Labs QA Identities Smoke Workflow
+
+- `INPUT_APPS`: Comma-separated Labs app names or `all` passed via `workflow_dispatch` in `.github/workflows/labs-qa-identities.yml`.
+- `LABS_APP`: Target Labs app slug (e.g. `analytics-2`) for `e2e/labs/labs-qa-smoke.ts`.
+- `QA_SLOT`: Identity slot index (`1`–`5`) used to derive the durable `qa-fleet-<slot>` Mailosaur account in `.github/workflows/labs-qa-identities.yml`.
