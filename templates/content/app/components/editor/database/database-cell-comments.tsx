@@ -29,6 +29,7 @@ import {
   collectionRowsShowingDocumentFilter,
   useComments,
 } from "@/hooks/use-comments";
+import { useT3AgentRequestSync } from "@/hooks/use-t3-agents";
 import { cn } from "@/lib/utils";
 
 import {
@@ -353,6 +354,7 @@ function DatabaseCellCommentCard({
   const queryClient = useQueryClient();
   const documentId = item.document.id;
   const propertyId = property.definition.id;
+  useT3AgentRequestSync(documentId);
   const { data: threads, isLoading, refetch } = useComments(documentId);
   // The marker can be newer than this row's cached threads, so a card opened
   // from it reads the threads again before deciding the cell has none.

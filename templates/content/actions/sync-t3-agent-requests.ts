@@ -28,16 +28,26 @@ export default defineAction({
   outputSchema: z.object({
     requests: z.array(t3AgentRequestViewSchema),
     unreachable: z.boolean(),
+    posted: z.boolean(),
   }),
-  changeResource: (input) => documentChangeResource(input.documentId),
+  changeResource: (input, result) =>
+    result.posted ? documentChangeResource(input.documentId) : null,
   run: async ({ documentId }, ctx) => {
     await assertLabEnabled(T3_CODE_AGENTS_LAB, ctx);
     await assertAccess("document", documentId, "commenter");
     const email = getRequestUserEmail();
     if (!email) fail("Not authenticated.", { statusCode: 401 });
     const name = getRequestUserName()?.trim() || displayNameFromEmail(email);
-    const { unreachable } = await syncT3AgentRequests(email, documentId, name);
+    const { unreachable, posted } = await syncT3AgentRequests(
+      email,
+      documentId,
+      name,
+    );
     const rows = await listT3AgentRequests(email, documentId);
-    return { requests: rows.map(serializeT3AgentRequest), unreachable };
+    return {
+      requests: rows.map(serializeT3AgentRequest),
+      unreachable,
+      posted,
+    };
   },
 });

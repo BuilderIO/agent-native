@@ -1,7 +1,7 @@
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useLabState } from "@agent-native/core/client/labs/use-lab";
 import { useQueryClient } from "@tanstack/react-query";
-import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef } from "react";
 
 export const T3_CODE_AGENTS_LAB = "t3-code-agents";
 
@@ -90,27 +90,31 @@ export function useT3AgentRequestsContext() {
   return useContext(T3AgentRequestsContext);
 }
 
-export function useT3AgentRequests(
-  documentId: string,
-): T3AgentRequestsController {
-  const lab = useLabState(T3_CODE_AGENTS_LAB);
-  const agents = useT3Agents();
-  const queryClient = useQueryClient();
-  const query = useActionQuery<{ requests: T3AgentRequest[] }>(
+interface T3AgentRequestList {
+  requests: T3AgentRequest[];
+  unreachable?: boolean;
+}
+
+function useT3AgentRequestList(documentId: string, enabled: boolean) {
+  return useActionQuery<T3AgentRequestList>(
     "list-t3-agent-requests" as never,
     { documentId },
-    { enabled: lab.enabled },
+    { enabled },
   );
-  const requests = query.data?.requests ?? EMPTY.requests;
-  const active = requests.some(isT3AgentRequestActive);
-  const [unreachable, setUnreachable] = useState(false);
+}
+
+export function useT3AgentRequestSync(documentId: string): void {
+  const lab = useLabState(T3_CODE_AGENTS_LAB);
+  const queryClient = useQueryClient();
+  const query = useT3AgentRequestList(documentId, lab.enabled);
+  const active = (query.data?.requests ?? EMPTY.requests).some(
+    isT3AgentRequestActive,
+  );
   const syncing = useRef(false);
 
   useEffect(() => {
-    if (!lab.enabled || !active) {
-      setUnreachable(false);
-      return;
-    }
+    if (!lab.enabled || !active) return;
+    const queryKey = ["action", "list-t3-agent-requests", { documentId }];
     let stopped = false;
     const sync = async () => {
       if (syncing.current) return;
@@ -119,16 +123,18 @@ export function useT3AgentRequests(
         const result = (await callAction(
           "sync-t3-agent-requests" as never,
           { documentId } as never,
-        )) as { requests: T3AgentRequest[]; unreachable?: boolean };
+        )) as T3AgentRequestList;
         if (stopped) return;
-        setUnreachable(Boolean(result.unreachable));
-        queryClient.setQueryData(
-          ["action", "list-t3-agent-requests", { documentId }],
-          { requests: result.requests },
-        );
+        queryClient.setQueryData<T3AgentRequestList>(queryKey, {
+          requests: result.requests,
+          unreachable: result.unreachable === true,
+        });
       } catch {
         // coercion-ok: a failed sync leaves each request where it was; the next tick tries again.
-        if (!stopped) setUnreachable(true);
+        if (!stopped)
+          queryClient.setQueryData<T3AgentRequestList>(queryKey, (list) =>
+            list ? { ...list, unreachable: true } : list,
+          );
       } finally {
         syncing.current = false;
       }
@@ -140,7 +146,17 @@ export function useT3AgentRequests(
       clearInterval(timer);
     };
   }, [active, documentId, lab.enabled, queryClient]);
+}
 
+export function useT3AgentRequests(
+  documentId: string,
+): T3AgentRequestsController {
+  const lab = useLabState(T3_CODE_AGENTS_LAB);
+  const agents = useT3Agents();
+  const query = useT3AgentRequestList(documentId, lab.enabled);
+  const requests = query.data?.requests ?? EMPTY.requests;
+  const unreachable =
+    query.data?.unreachable === true && requests.some(isT3AgentRequestActive);
   return lab.enabled ? { agents, requests, unreachable } : EMPTY;
 }
 

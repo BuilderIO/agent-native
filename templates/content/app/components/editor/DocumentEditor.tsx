@@ -171,6 +171,7 @@ import {
 } from "@/hooks/use-optimistic-document-title";
 import { usePageTabTitle } from "@/hooks/use-page-tab-title";
 import { usePendingTrash } from "@/hooks/use-pending-trash";
+import { useT3AgentRequestSync } from "@/hooks/use-t3-agents";
 import { workspaceReferenceErrorMessage } from "@/lib/content-action-errors";
 import { rememberContentLandingDocument } from "@/lib/content-landing";
 import { withContentSaveOrigin } from "@/lib/content-save-telemetry";
@@ -3266,6 +3267,7 @@ function PageEditorSessionBody({
     databaseDocumentId,
   });
   const queryClient = useQueryClient();
+  useT3AgentRequestSync(documentId);
   const { session } = useSession();
   const lastLocationScope = filesRootHintScope(session?.email, session?.orgId);
   useEffect(() => {

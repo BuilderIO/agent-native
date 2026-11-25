@@ -17,13 +17,13 @@ const COMMENT_MUTATIONS = new Set([
   "add-comment",
   "delete-comment",
   "sync-notion-comments",
-  "sync-t3-agent-requests",
   "update-comment",
 ]);
 
 /** Changes that open, resolve, or remove a Comment thread. */
 const COMMENT_COUNT_MUTATIONS = new Set([
   ...COMMENT_MUTATIONS,
+  "sync-t3-agent-requests",
   "apply-comment-ai-request",
   "undo-comment-ai-request",
 ]);
@@ -360,7 +360,8 @@ function eventsIncludePageMutation(
 function eventRefreshesDocumentQuery(eventKey: string, queryName: unknown) {
   if (
     eventKey === "reply-to-comment-ai-request" ||
-    eventKey === "create-comment-ai-suggestion"
+    eventKey === "create-comment-ai-suggestion" ||
+    eventKey === "sync-t3-agent-requests"
   )
     return queryName === "list-comments";
   if (PAGE_COMMENT_AI_MUTATIONS.has(eventKey)) return false;

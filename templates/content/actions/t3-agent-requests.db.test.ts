@@ -202,8 +202,11 @@ it("starts a new thread with the comment, the discussion and the page, then post
     ],
   };
   t3.reads.push(finished, finished);
-  await asAlice(() => syncRequests.run({ documentId }, ctx));
-  await asAlice(() => syncRequests.run({ documentId }, ctx));
+  const syncs = [
+    await asAlice(() => syncRequests.run({ documentId }, ctx)),
+    await asAlice(() => syncRequests.run({ documentId }, ctx)),
+  ];
+  expect(syncs.filter((sync) => sync.posted)).toHaveLength(1);
 
   const [answered] = await requestsFor(human.id);
   expect(answered.status).toBe("answered");

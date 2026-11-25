@@ -490,9 +490,11 @@ export async function syncT3AgentRequests(
     )
     .limit(10);
   let unreachable = false;
+  let posted = false;
   for (const row of rows) {
     const synced = await syncT3AgentRequest(row, requesterName);
     if (synced.unreachable) unreachable = true;
+    if (synced.replyCommentId && !row.replyCommentId) posted = true;
   }
-  return { unreachable };
+  return { unreachable, posted };
 }
