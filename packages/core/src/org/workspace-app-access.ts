@@ -255,11 +255,44 @@ export function workspaceAppsFromManifest(
 
 /**
  * The Access settings list follows the runtime gateway registry, not only
- * the startup manifest. Unavailable discovery must not hide a live app.
+ * the startup manifest. Missing discovery must not silently hide live apps.
  */
-export async function currentWorkspaceAppIdsForAccessList(
+export type WorkspaceAppAccessInventoryEntry = {
+  id: string;
+  name: string;
+  description: string | null;
+  path: string;
+};
+
+function inventoryPresentation(
+  app: WorkspaceAppRegistryEntry,
+): WorkspaceAppAccessInventoryEntry {
+  const id = app.id.trim();
+  if (!id) throw new Error("Workspace app inventory contains an empty app ID.");
+  const name =
+    typeof app.name === "string" && app.name.trim()
+      ? app.name.trim()
+      : id;
+  // A missing legacy path falls back to a safe, encoded app route.
+  const path =
+    typeof app.path === "string" && app.path.trim()
+      ? app.path.trim()
+      : `/${encodeURIComponent(id)}`;
+  if (!path.startsWith("/") || path.startsWith("//") || /[?#]/.test(path)) {
+    throw new Error("Workspace app inventory contains an invalid app path.");
+  }
+  return {
+    id,
+    name,
+    description:
+      typeof app.description === "string" ? app.description : null,
+    path,
+  };
+}
+
+export async function currentWorkspaceAppInventoryForAccessList(
   context: WorkspaceAppAccessContext,
-): Promise<ReadonlySet<string> | null> {
+): Promise<ReadonlyArray<WorkspaceAppAccessInventoryEntry> | null> {
   const directory = configuredWorkspaceDirectory();
   if (directory) {
     const auth = await resolveHostedWorkspaceAppAuth(
@@ -282,11 +315,19 @@ export async function currentWorkspaceAppIdsForAccessList(
         `Workspace app inventory unavailable: ${registry.reason}`,
       );
     }
-    return new Set(registry.apps.map((app) => app.id.trim()));
+    return registry.apps.map(inventoryPresentation);
   }
 
   const manifest = workspaceAppsFromManifest(getAppConfig().workspace.appsJson);
-  return manifest ? new Set(manifest.map((app) => app.id.trim())) : null;
+  return manifest ? manifest.map(inventoryPresentation) : null;
+}
+
+/** Backward-compatible ID-only helper for access checks and existing callers. */
+export async function currentWorkspaceAppIdsForAccessList(
+  context: WorkspaceAppAccessContext,
+): Promise<ReadonlySet<string> | null> {
+  const apps = await currentWorkspaceAppInventoryForAccessList(context);
+  return apps ? new Set(apps.map((app) => app.id)) : null;
 }
 
 function workspaceAppIsDisabled(app: WorkspaceAppRegistryEntry): boolean {
