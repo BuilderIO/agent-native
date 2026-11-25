@@ -200,6 +200,7 @@ function insertionClass(spec: SuggestionHighlightSpec) {
 
 interface SettlingCommentHighlight {
   threadId: string;
+  threadIds: string[];
   className: string;
 }
 
@@ -225,6 +226,7 @@ function settlingCommentHighlight(
   if (!threadId) return null;
   return {
     threadId,
+    threadIds,
     className: `comment-highlight${commentHighlightEmphasis(
       threadIds,
       comments.activeId,
@@ -246,6 +248,7 @@ function settlingWidget(
       parent = document.createElement("span");
       parent.className = comment.className;
       parent.setAttribute("data-comment-thread", comment.threadId);
+      parent.setAttribute("data-comment-threads", comment.threadIds.join(" "));
       widget.append(parent);
     }
     appendSuggestionText(

@@ -129,6 +129,26 @@ describe("comment stack blocks", () => {
     expect(blocks.get("b")!.order).toBeLessThan(blocks.get("a")!.order);
   });
 
+  it("measures every thread on a highlight that several share", () => {
+    const root = editor(
+      `<p><span data-comment-thread="outer" data-comment-threads="outer">x</span><span data-comment-thread="inner" data-comment-threads="outer inner">y</span></p>
+       <p><span data-comment-thread="other">z</span></p>`,
+    );
+    const blocks = measureCommentBlocks(root, [
+      thread("inner"),
+      thread("outer"),
+      thread("other"),
+    ]);
+    expect([...blocks.keys()]).toEqual(["outer", "inner", "other"]);
+    expect(blocks.get("inner")?.key).toBe(blocks.get("outer")?.key);
+    expect(
+      groupCommentStacks(
+        [thread("outer"), thread("inner"), thread("other")],
+        blocks,
+      ).map((stack) => stack.threads.map((member) => member.threadId)),
+    ).toEqual([["outer", "inner"]]);
+  });
+
   it("puts a thread on a whole block with the highlights in that block", () => {
     const root = editor(
       `<ul><li>

@@ -185,7 +185,7 @@ function cssEscape(value: string) {
  */
 export function commentThreadMarkSelector(threadId: string) {
   const id = cssEscape(threadId);
-  return `[data-comment-thread="${id}"], [data-comment-block-threads~="${id}"], [data-clip-comment-threads~="${id}"]`;
+  return `[data-comment-thread="${id}"], [data-comment-threads~="${id}"], [data-comment-block-threads~="${id}"], [data-clip-comment-threads~="${id}"]`;
 }
 
 /**
