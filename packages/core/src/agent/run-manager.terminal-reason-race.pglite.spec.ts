@@ -115,13 +115,14 @@ describe("terminal persistence across a successor lease claim", () => {
     try {
       await committed.promise;
       const before = await pglite.query(
-        `SELECT r.status, l.generation, l.lease_expires_at > clock_timestamp() AS lease_is_live
+        `SELECT r.status, r.terminal_reason, l.generation, l.lease_expires_at > clock_timestamp() AS lease_is_live
            FROM agent_runs r JOIN agent_execution_leases l ON l.owner_run_id = r.id
           WHERE r.id = ?`,
         [runId],
       );
       expect(before.rows[0]).toMatchObject({
         status: "completed",
+        terminal_reason: "done",
         lease_is_live: true,
       });
       const generation = BigInt(String(before.rows[0]?.generation));
