@@ -1234,11 +1234,11 @@ describe("useChatThreads", () => {
     expect(hook!.restoredThreadIdOnListFailure).toBe("thread-1");
 
     await act(async () => {
-      hook!.switchThread("thread-2");
-      hook!.switchThread("thread-1");
+      hook?.switchThread("thread-2");
+      hook?.switchThread("thread-1");
     });
-    expect(hook!.activeThreadId).toBe("thread-1");
-    expect(hook!.restoredThreadIdOnListFailure).toBeNull();
+    expect(hook?.activeThreadId).toBe("thread-1");
+    expect(hook?.restoredThreadIdOnListFailure).toBeNull();
   });
 
   it.each([
@@ -1270,19 +1270,19 @@ describe("useChatThreads", () => {
       await act(async () => {
         root.render(<Harness />);
       });
-      expect(hook!.activeThreadId).toBe("old-thread");
-      expect(hook!.isLoading).toBe(true);
+      expect(hook?.activeThreadId).toBe("old-thread");
+      expect(hook?.isLoading).toBe(true);
 
       await act(async () => {
-        if (selection !== "same") hook!.switchThread("existing-thread");
-        if (selection !== "different") hook!.switchThread("old-thread");
+        if (selection !== "same") hook?.switchThread("existing-thread");
+        if (selection !== "different") hook?.switchThread("old-thread");
         resolveList(new Response(null, { status: 503 }));
         for (let i = 0; i < 12; i++) await Promise.resolve();
       });
 
-      expect(hook!.isLoading).toBe(false);
-      expect(hook!.activeThreadId).toBe(expected);
-      expect(hook!.restoredThreadIdOnListFailure).toBe(failure);
+      expect(hook?.isLoading).toBe(false);
+      expect(hook?.activeThreadId).toBe(expected);
+      expect(hook?.restoredThreadIdOnListFailure).toBe(failure);
       expect(window.localStorage.getItem(key)).toBe(expected);
     },
   );
@@ -1322,9 +1322,9 @@ describe("useChatThreads", () => {
       for (let i = 0; i < 12; i++) await Promise.resolve();
     });
 
-    expect(hook!.isLoading).toBe(false);
-    expect(hook!.activeThreadId).toBe("old-thread");
-    expect(hook!.restoredThreadIdOnListFailure).toBeNull();
+    expect(hook?.isLoading).toBe(false);
+    expect(hook?.activeThreadId).toBe("old-thread");
+    expect(hook?.restoredThreadIdOnListFailure).toBeNull();
   });
 
   it("keeps marked local drafts unconfirmed when they appear in the history list", async () => {
@@ -2379,14 +2379,14 @@ describe("useChatThreads", () => {
         root.render(<Harness />);
       });
       await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-      expect(hook!.activeThreadId).toBe("old-thread");
-      expect(hook!.isLoading).toBe(true);
+      expect(hook?.activeThreadId).toBe("old-thread");
+      expect(hook?.isLoading).toBe(true);
 
       await act(async () => {
         if (select === "create") {
-          void hook!.createThread("new-thread");
+          void hook?.createThread("new-thread");
         } else {
-          hook!.switchThread("new-thread");
+          hook?.switchThread("new-thread");
         }
         resolveLookup(
           lookup === "other scope"
@@ -2404,8 +2404,8 @@ describe("useChatThreads", () => {
         for (let i = 0; i < 12; i++) await Promise.resolve();
       });
 
-      expect(hook!.isLoading).toBe(false);
-      expect(hook!.activeThreadId).toBe("new-thread");
+      expect(hook?.isLoading).toBe(false);
+      expect(hook?.activeThreadId).toBe("new-thread");
       expect(window.localStorage.getItem(key)).toBe("new-thread");
     },
   );
@@ -2454,18 +2454,24 @@ describe("useChatThreads", () => {
         root.render(<Harness />);
       });
       await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-      expect(hook!.activeThreadId).toBe("old-thread");
-      expect(hook!.isLoading).toBe(true);
+      expect(hook?.activeThreadId).toBe("old-thread");
+      expect(hook?.isLoading).toBe(true);
+      let afterRenderSwitch = hook?.activeThreadId;
       if (selection === "returning to after a render") {
         await act(async () => {
-          hook!.switchThread("other-thread");
+          hook?.switchThread("other-thread");
         });
-        expect(hook!.activeThreadId).toBe("other-thread");
+        afterRenderSwitch = hook?.activeThreadId;
       }
+      expect(afterRenderSwitch).toBe(
+        selection === "returning to after a render"
+          ? "other-thread"
+          : "old-thread",
+      );
 
       await act(async () => {
-        if (selection === "returning to") hook!.switchThread("other-thread");
-        hook!.switchThread("old-thread");
+        if (selection === "returning to") hook?.switchThread("other-thread");
+        hook?.switchThread("old-thread");
         resolveLookup(
           lookup === "missing" || lookup === "forbidden"
             ? new Response(null, { status: lookup === "missing" ? 404 : 403 })
@@ -2485,15 +2491,14 @@ describe("useChatThreads", () => {
         for (let i = 0; i < 12; i++) await Promise.resolve();
       });
 
-      expect(hook!.isLoading).toBe(false);
-      if (lookup === "valid") {
-        expect(hook!.activeThreadId).toBe("old-thread");
-        expect(hook!.isThreadPersisted("old-thread")).toBe(true);
-        expect(window.localStorage.getItem(key)).toBe("old-thread");
-      } else {
-        expect(hook!.activeThreadId).toBe("forked-thread");
-        expect(window.localStorage.getItem(key)).toBe("forked-thread");
-      }
+      expect(hook?.isLoading).toBe(false);
+      const expectedThreadId =
+        lookup === "valid" ? "old-thread" : "forked-thread";
+      expect(hook?.activeThreadId).toBe(expectedThreadId);
+      expect(window.localStorage.getItem(key)).toBe(expectedThreadId);
+      expect(
+        lookup === "valid" ? hook?.isThreadPersisted("old-thread") : true,
+      ).toBe(true);
     },
   );
 
@@ -2525,18 +2530,18 @@ describe("useChatThreads", () => {
       root.render(<Harness />);
     });
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    expect(hook!.activeThreadId).toBe("old-thread");
+    expect(hook?.activeThreadId).toBe("old-thread");
 
     await act(async () => {
-      React.startTransition(() => hook!.switchThread("new-thread"));
+      React.startTransition(() => hook?.switchThread("new-thread"));
       flushSync(() => urgentUpdate(1));
       expect(container.textContent).toBe("1");
-      expect(hook!.activeThreadId).toBe("old-thread");
+      expect(hook?.activeThreadId).toBe("old-thread");
       resolveLookup(new Response(null, { status: 404 }));
       for (let i = 0; i < 12; i++) await Promise.resolve();
     });
-    expect(hook!.isLoading).toBe(false);
-    expect(hook!.activeThreadId).toBe("new-thread");
+    expect(hook?.isLoading).toBe(false);
+    expect(hook?.activeThreadId).toBe("new-thread");
     expect(window.localStorage.getItem(key)).toBe("new-thread");
   });
 
@@ -2580,6 +2585,7 @@ describe("useChatThreads", () => {
         );
         if (designId === "design-2") {
           attemptedSecondScope = true;
+          // oxlint-disable-next-line typescript/only-throw-error -- React Suspense suspends by throwing a promise
           throw never;
         }
         return (
@@ -2668,7 +2674,7 @@ describe("useChatThreads", () => {
       await act(async () => {
         root.render(<Harness designId="design-2" />);
       });
-      expect(hook!.activeThreadId).toBe("old-thread");
+      expect(hook?.activeThreadId).toBe("old-thread");
       await act(async () => {
         resolveLookup(
           jsonResponse({
@@ -2687,14 +2693,16 @@ describe("useChatThreads", () => {
         for (let i = 0; i < 12; i++) await Promise.resolve();
       });
 
-      expect(hook!.isLoading).toBe(false);
-      if (threadScope === "global") {
-        expect(hook!.activeThreadId).toBe("old-thread");
-        expect(hook!.isThreadPersisted("old-thread")).toBe(true);
-      } else {
-        expect(hook!.activeThreadId).toBe("forked-thread");
-        expect(hook!.isNewThread("forked-thread")).toBe(true);
-      }
+      expect(hook?.isLoading).toBe(false);
+      const isGlobal = threadScope === "global";
+      expect(hook?.activeThreadId).toBe(
+        isGlobal ? "old-thread" : "forked-thread",
+      );
+      expect(
+        isGlobal
+          ? hook?.isThreadPersisted("old-thread")
+          : hook?.isNewThread("forked-thread"),
+      ).toBe(true);
       expect(fetchMock).toHaveBeenCalledTimes(2);
     },
   );
@@ -2756,27 +2764,29 @@ describe("useChatThreads", () => {
         root.render(<Harness />);
       });
       await act(async () => {
-        hook!.confirmThreadSnapshotPersisted("old-thread");
+        hook?.confirmThreadSnapshotPersisted("old-thread");
         resolveList(jsonResponse({ threads: [] }));
         for (let i = 0; i < 12; i++) await Promise.resolve();
       });
       await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-      expect(hook!.isThreadPersisted("old-thread")).toBe(true);
+      expect(hook?.isThreadPersisted("old-thread")).toBe(true);
+      let openResult: string | undefined = "opened";
       await act(async () => {
         if (confirmation === "open") {
-          expect(await hook!.openThread("old-thread")).toBe("opened");
+          openResult = await hook?.openThread("old-thread");
         } else {
-          hook!.confirmThreadSnapshotPersisted("old-thread");
+          hook?.confirmThreadSnapshotPersisted("old-thread");
         }
       });
+      expect(openResult).toBe("opened");
       await act(async () => {
         resolveLookup(new Response(null, { status }));
         for (let i = 0; i < 12; i++) await Promise.resolve();
       });
 
-      expect(hook!.isLoading).toBe(false);
-      expect(hook!.activeThreadId).toBe("old-thread");
-      expect(hook!.isThreadPersisted("old-thread")).toBe(true);
+      expect(hook?.isLoading).toBe(false);
+      expect(hook?.activeThreadId).toBe("old-thread");
+      expect(hook?.isThreadPersisted("old-thread")).toBe(true);
       expect(window.localStorage.getItem(key)).toBe("old-thread");
     },
   );
@@ -2830,17 +2840,18 @@ describe("useChatThreads", () => {
         root.render(<Harness />);
       });
       await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      let openResult: string | undefined = "opened";
       await act(async () => {
-        hook!.switchThread("other-thread");
+        hook?.switchThread("other-thread");
         if (testCase === "new draft") {
-          await hook!.createThread("old-thread");
+          await hook?.createThread("old-thread");
         } else {
           if (testCase === "confirmed thread") {
-            expect(await hook!.openThread("old-thread")).toBe("opened");
+            openResult = await hook?.openThread("old-thread");
           } else {
-            await hook!.detachThread("old-thread");
+            await hook?.detachThread("old-thread");
           }
-          hook!.switchThread("old-thread");
+          hook?.switchThread("old-thread");
         }
       });
       await act(async () => {
@@ -2860,20 +2871,21 @@ describe("useChatThreads", () => {
         for (let i = 0; i < 12; i++) await Promise.resolve();
       });
 
-      expect(hook!.isLoading).toBe(false);
-      expect(hook!.activeThreadId).toBe("old-thread");
-      if (testCase === "new draft") {
-        expect(window.localStorage.getItem(key)).toBe("old-thread");
-        expect(hook!.isNewThread("old-thread")).toBe(true);
-      } else if (testCase === "confirmed thread") {
-        expect(window.localStorage.getItem(key)).toBe("old-thread");
-        expect(hook!.isThreadPersisted("old-thread")).toBe(true);
-      } else {
-        expect(hook!.isThreadPersisted("old-thread")).toBe(false);
-        expect(hook!.threads.some((thread) => thread.id === "old-thread")).toBe(
-          false,
-        );
-      }
+      expect(hook?.isLoading).toBe(false);
+      expect(openResult).toBe("opened");
+      expect(hook?.activeThreadId).toBe("old-thread");
+      const retained = testCase !== "detached thread";
+      expect(
+        testCase === "new draft"
+          ? hook?.isNewThread("old-thread")
+          : hook?.isThreadPersisted("old-thread"),
+      ).toBe(retained);
+      expect(retained ? window.localStorage.getItem(key) : "old-thread").toBe(
+        "old-thread",
+      );
+      const listed =
+        hook?.threads.some((thread) => thread.id === "old-thread") ?? false;
+      expect(retained || !listed).toBe(true);
     },
   );
 
@@ -2913,16 +2925,16 @@ describe("useChatThreads", () => {
       root.render(<Harness />);
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(hook!.isLoading).toBe(true);
+    expect(hook?.isLoading).toBe(true);
 
     await act(async () => {
-      void hook!.createThread("new-thread");
+      void hook?.createThread("new-thread");
       resolveList(jsonResponse({ threads: [] }));
       for (let i = 0; i < 16; i++) await Promise.resolve();
     });
 
-    expect(hook!.isLoading).toBe(false);
-    expect(hook!.activeThreadId).toBe("new-thread");
+    expect(hook?.isLoading).toBe(false);
+    expect(hook?.activeThreadId).toBe("new-thread");
     expect(window.localStorage.getItem(key)).toBe("new-thread");
   });
 

@@ -822,18 +822,15 @@ export function useChatThreads(
   const [activeThreadId, setActiveThreadIdState] = useState<string | null>(
     initialActiveThreadRef.current.id,
   );
-  // A render may still show older state after a selection has been requested.
   const activeThreadIdRef = useRef(activeThreadId);
   const activeThreadKeyRef = useRef(activeThreadKey);
   const initialActiveThreadKeyRef = useRef(activeThreadKey);
-  // Suspended renders must not change the scope of in-flight restores.
   useLayoutEffect(() => {
     historyScopeKeyRef.current = historyScopeKey;
     routeThreadLookupKeyRef.current = routeThreadLookupKey;
     scopeRef.current = scope;
     activeThreadKeyRef.current = activeThreadKey;
   }, [historyScopeKey, routeThreadLookupKey, scope, activeThreadKey]);
-  // Restore can settle before React commits a newer selection.
   const activeThreadSelectionRevisionRef = useRef(0);
   const setActiveThreadId = useCallback((id: string | null) => {
     if (activeThreadIdRef.current !== id) {
