@@ -35,6 +35,8 @@ import {
 } from "./page-checks-context";
 
 const LIVE_READ_DELAY_MS = 400;
+const MARK_BESIDE_HANDLE_PX = 50;
+const MARK_AFTER_TEXT_PX = 4;
 
 interface MarkGroup {
   from: number;
@@ -43,7 +45,44 @@ interface MarkGroup {
 
 interface MarkLayout {
   tops: ReadonlyMap<number, number>;
-  start: number;
+  inset: number;
+}
+
+function clipOf(element: HTMLElement): HTMLElement | null {
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    if (getComputedStyle(node).overflowX !== "visible") return node;
+  }
+  return null;
+}
+
+function layoutLeft(element: HTMLElement): number {
+  let left = 0;
+  for (
+    let node: Element | null = element;
+    node instanceof HTMLElement;
+    node = node.offsetParent
+  ) {
+    left += node.offsetLeft;
+  }
+  return left;
+}
+
+function markInset(wrapper: HTMLElement, text: HTMLElement, rtl: boolean) {
+  const clip = clipOf(wrapper);
+  const clipLeft = clip ? layoutLeft(clip) + clip.clientLeft : 0;
+  const clipRight =
+    clipLeft + (clip?.clientWidth ?? document.documentElement.clientWidth);
+  const boxLeft = layoutLeft(wrapper);
+  const textLeft = layoutLeft(text);
+  const textRight = textLeft + text.offsetWidth;
+  const start = rtl
+    ? boxLeft + wrapper.offsetWidth - textRight
+    : textLeft - boxLeft;
+  const before = rtl ? clipRight - textRight : textLeft - clipLeft;
+  if (before >= MARK_BESIDE_HANDLE_PX) return start - MARK_BESIDE_HANDLE_PX;
+  const after = rtl ? textLeft - clipLeft : clipRight - textRight;
+  const width = window.matchMedia("(pointer: coarse)").matches ? 32 : 22;
+  return start + text.offsetWidth + Math.min(MARK_AFTER_TEXT_PX, after - width);
 }
 
 export function PageCheckMarks({
@@ -130,8 +169,12 @@ export function PageCheckMarks({
 
   useEffect(() => {
     const dom = editor.view.dom;
+    const clip = clipOf(dom);
     const observer = new ResizeObserver(() => setLayoutTick((n) => n + 1));
-    observer.observe(dom);
+    for (let node: HTMLElement | null = dom; node; node = node.parentElement) {
+      observer.observe(node);
+      if (node === clip) break;
+    }
     return () => observer.disconnect();
   }, [editor]);
 
@@ -143,7 +186,6 @@ export function PageCheckMarks({
     }
     const view = editor.view;
     const box = wrapper.getBoundingClientRect();
-    const text = view.dom.getBoundingClientRect();
     const rtl = getComputedStyle(view.dom).direction === "rtl";
     const tops = new Map<number, number>();
     const size = view.state.doc.content.size;
@@ -156,10 +198,7 @@ export function PageCheckMarks({
         // coercion-ok: a position the mapping left behind waits for the next read.
       }
     }
-    setLayout({
-      tops,
-      start: rtl ? box.right - text.right : text.left - box.left,
-    });
+    setLayout({ tops, inset: markInset(wrapper, view.dom, rtl) });
   }, [editor, groups, layoutTick, wrapperRef]);
 
   const focusCheck = useCallback(
@@ -193,12 +232,21 @@ export function PageCheckMarks({
 
   if (!actions || !layout || groups.length === 0) return null;
 
+  const skipHere = (mark: PageCheckMark, textHash: string) => () => {
+    setOpenFrom(null);
+    void actions.skip({
+      checkId: mark.check.id,
+      placeKey: mark.answer.key,
+      textHash,
+    });
+  };
+
   return (
     <div className="page-check-marks" data-page-check-marks>
       {groups.map((group) => {
         const top = layout.tops.get(group.from);
-        if (top === undefined) return null;
-        const first = group.marks[0]!;
+        const first = group.marks.at(0);
+        if (top === undefined || !first) return null;
         const labels = group.marks.map((mark) =>
           t("pageChecks.markLabel", {
             answer: pageCheckAnswerText(t, mark.check.parts, mark.answer),
@@ -216,10 +264,7 @@ export function PageCheckMarks({
               <button
                 type="button"
                 className="page-check-mark"
-                style={{
-                  top,
-                  insetInlineStart: Math.max(0, layout.start - 26),
-                }}
+                style={{ top, insetInlineStart: layout.inset }}
                 aria-label={labels.join("; ")}
                 data-page-check-from={group.from}
               >
@@ -270,14 +315,7 @@ export function PageCheckMarks({
                   }
                   onSkip={
                     actions.canEdit && mark.answer.place
-                      ? () => {
-                          setOpenFrom(null);
-                          void actions.skip({
-                            checkId: mark.check.id,
-                            placeKey: mark.answer.key,
-                            textHash: mark.answer.place!.textHash,
-                          });
-                        }
+                      ? skipHere(mark, mark.answer.place.textHash)
                       : undefined
                   }
                   onEdit={
