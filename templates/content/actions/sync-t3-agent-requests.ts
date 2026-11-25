@@ -30,8 +30,6 @@ export default defineAction({
     unreachable: z.boolean(),
     posted: z.boolean(),
   }),
-  changeResource: (input, result) =>
-    result.posted ? documentChangeResource(input.documentId) : null,
   run: async ({ documentId }, ctx) => {
     await assertLabEnabled(T3_CODE_AGENTS_LAB, ctx);
     await assertAccess("document", documentId, "commenter");
@@ -50,4 +48,6 @@ export default defineAction({
       posted,
     };
   },
+  changeResource: (input, result) =>
+    result.posted ? documentChangeResource(input.documentId) : null,
 });
