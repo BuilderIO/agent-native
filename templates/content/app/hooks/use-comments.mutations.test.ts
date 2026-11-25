@@ -192,7 +192,12 @@ describe("optimistic comment mutations", () => {
   it("refetches the page's T3 Code requests after a comment tags a T3 agent", async () => {
     const client = queryClient();
     useQueryClient.mockReturnValue(client);
-    const mutation = useCreateComment({ email: "jane.doe@example.com" }) as any;
+    const mutation = useCreateComment({
+      email: "jane.doe@example.com",
+    }) as unknown as {
+      onMutate: (variables: object) => Promise<unknown>;
+      onSuccess: (data: object, variables: object, context: unknown) => void;
+    };
     const variables = {
       documentId: "doc-1",
       content: "@Claude Code which day?",

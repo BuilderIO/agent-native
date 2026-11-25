@@ -419,22 +419,23 @@ describe("T3 Code agent tags", () => {
           range: { from: 3, to: 9 },
         }),
       );
+      const pendingId = owner.pendingComment?.id;
+      if (!pendingId) throw new Error("No pending comment");
       await act(async () =>
-        owner.changePendingComment(owner.pendingComment!.id, () => ({
+        owner.changePendingComment(pendingId, () => ({
           text: "@Claude Code which day?",
           mentions: [claudeCode],
         })),
       );
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 75));
+      await vi.waitFor(() => {
+        const editor = richEditor(container);
+        expect(editor ? richEditorValue(editor) : "").toContain("which day?");
       });
-      await act(async () =>
-        [...container.querySelectorAll("button")]
-          .find(
-            (node) => node.getAttribute("aria-label") === "comments.submit",
-          )!
-          .click(),
+      const submit = [...container.querySelectorAll("button")].find(
+        (node) => node.getAttribute("aria-label") === "comments.submit",
       );
+      if (!submit) throw new Error("No submit button");
+      await act(async () => submit.click());
       expect(String(fetch.mock.calls[0]?.[0])).toContain("add-comment");
       const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body)) as {
         mentions?: string;
