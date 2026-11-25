@@ -10477,7 +10477,10 @@ describe("server/auth", () => {
 
         await expect(
           getBrowserCookieSession(createMockEvent()),
-        ).resolves.toMatchObject({ email: "dev@local.test" });
+        ).resolves.toMatchObject({
+          email: "dev@local.test",
+          authDisabled: true,
+        });
         await expect(
           getBrowserCookieSession(
             createMockEvent({
@@ -10868,6 +10871,7 @@ describe("server/auth", () => {
 
       await expect(getSession(event)).resolves.toEqual({
         email: "dev@local.test",
+        authDisabled: true,
       });
       expect(readDesktopSso).not.toHaveBeenCalled();
     });
@@ -10952,6 +10956,7 @@ describe("server/auth", () => {
 
       await expect(getSession(event)).resolves.toEqual({
         email: "dev@local.test",
+        authDisabled: true,
       });
       expect(readDesktopSso).not.toHaveBeenCalled();
     });
@@ -10993,6 +10998,7 @@ describe("server/auth", () => {
 
       await expect(getSession(event)).resolves.toEqual({
         email: "dev@local.test",
+        authDisabled: true,
       });
       expect(readDesktopSso).not.toHaveBeenCalled();
     });
@@ -11112,7 +11118,10 @@ describe("server/auth", () => {
       const { getSession } = await import("./auth.js");
       const event = createMockEvent();
 
-      expect(await getSession(event)).toEqual({ email: "dev@local.test" });
+      expect(await getSession(event)).toEqual({
+        email: "dev@local.test",
+        authDisabled: true,
+      });
     });
 
     it("returns a shared session when AUTH_DISABLED=true", async () => {
@@ -11137,7 +11146,10 @@ describe("server/auth", () => {
       const { getSession } = await import("./auth.js");
       const event = createMockEvent();
 
-      expect(await getSession(event)).toEqual({ email: "dev@local.test" });
+      expect(await getSession(event)).toEqual({
+        email: "dev@local.test",
+        authDisabled: true,
+      });
     });
 
     it("does not return the AUTH_DISABLED session after this browser explicitly logs out", async () => {
@@ -11344,6 +11356,7 @@ describe("server/auth", () => {
       const event = createMockEvent();
       expect(await authModule.getSession(event)).toEqual({
         email: "dev@local.test",
+        authDisabled: true,
       });
     });
 

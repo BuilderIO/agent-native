@@ -5869,6 +5869,18 @@ async function verifyIssuedMcpCredential(
   };
 }
 
+async function refusesLocalDevCredential(
+  ownerEmail: string,
+  event: import("h3").H3Event | undefined,
+): Promise<boolean> {
+  const { isLocalDevIdentityEmail } =
+    await import("../server/local-dev-identity.js");
+  if (!isLocalDevIdentityEmail(ownerEmail)) return false;
+  if (!event) return true;
+  const { isLoopbackRequest } = await import("../server/loopback.js");
+  return !isLoopbackRequest(event);
+}
+
 /**
  * The one admission path for MCP credentials this app issued. A connect token
  * is admitted only while its stored row exists, is unrevoked, and names the
@@ -6106,7 +6118,7 @@ export async function verifyAuth(
     allowDevOpen?: boolean;
     allowLocalOwnerHint?: boolean;
     resourceUrl?: string | string[];
-    event?: unknown;
+    event?: import("h3").H3Event;
     /** This app's public origin; federated orgs need it for the membership check. */
     requestOrigin?: string;
   } = {},
@@ -6138,8 +6150,12 @@ export async function verifyAuth(
           }
         );
       }
-      if (issued)
+      if (issued) {
+        if (await refusesLocalDevCredential(issued.userEmail, options.event)) {
+          return { authed: false, refusal: "local-dev-identity" };
+        }
         return admitIssuedMcpCredential(issued, options.requestOrigin);
+      }
     }
   }
   if (accessTokens.length === 0 && !hasA2ASecret && !token) {

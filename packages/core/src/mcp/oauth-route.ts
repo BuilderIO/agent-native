@@ -18,7 +18,11 @@ import {
   readAnalyticsAnonymousId,
   readAnalyticsSessionId,
 } from "../server/attribution.js";
-import { getConfiguredLoginHtml, getSession } from "../server/auth.js";
+import {
+  getConfiguredLoginHtml,
+  getSession,
+  isLoopbackRequest,
+} from "../server/auth.js";
 import {
   describeBearerCredentialRefusalWithRecovery,
   type BearerCredentialRefusal,
@@ -28,6 +32,11 @@ import { requestAllowsConsentCategory } from "../server/consent-route.js";
 import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-membership-unavailable.js";
 import { getOrigin } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
+import {
+  isLocalDevIdentityEmail,
+  isLocalDevSession,
+  LOCAL_DEV_CREDENTIAL_REFUSED_MESSAGE,
+} from "../server/local-dev-identity.js";
 import { serializeMcpSignupAttributionCookie } from "../server/mcp-signup-attribution.js";
 import {
   ANALYTICS_ANONYMOUS_ID_COOKIE_NAME,
@@ -1120,6 +1129,14 @@ async function handleAuthorize(
     return appendSetCookies(response, setCookies);
   }
 
+  if (isLocalDevSession(session) && !isLoopbackRequest(event)) {
+    return oauthError(
+      "access_denied",
+      LOCAL_DEV_CREDENTIAL_REFUSED_MESSAGE,
+      403,
+    );
+  }
+
   const scope = normalizeOAuthScope(params.scope);
   if (!scope) {
     return redirectWithOAuthError({
@@ -1356,6 +1373,9 @@ async function handleAuthorizationCodeGrant(
     return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
   }
   if (!row) return oauthError("invalid_grant", "Invalid or expired code");
+  if (isLocalDevIdentityEmail(row.ownerEmail) && !isLoopbackRequest(event)) {
+    return oauthError("invalid_grant", LOCAL_DEV_CREDENTIAL_REFUSED_MESSAGE);
+  }
   if (row.clientId !== clientId || row.redirectUri !== redirectUri) {
     return oauthError("invalid_grant", "Code was issued to another client");
   }
@@ -1440,6 +1460,12 @@ async function handleRefreshTokenGrant(
     return grantUnavailableError(CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE);
   }
   if (!existing) return oauthError("invalid_grant", "Invalid refresh token");
+  if (
+    isLocalDevIdentityEmail(existing.ownerEmail) &&
+    !isLoopbackRequest(event)
+  ) {
+    return oauthError("invalid_grant", LOCAL_DEV_CREDENTIAL_REFUSED_MESSAGE);
+  }
   if (existing.clientId !== clientId) {
     return oauthError(
       "invalid_grant",

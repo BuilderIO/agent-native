@@ -305,6 +305,7 @@ import {
   resolveCanonicalUserForLegacySession,
   type CanonicalLegacyUser,
 } from "./legacy-auth-migration.js";
+import { LOCAL_DEV_IDENTITY_EMAIL } from "./local-dev-identity.js";
 import * as loopback from "./loopback.js";
 import {
   encodeMagicLinkSignupAttribution,
@@ -494,6 +495,11 @@ export interface AuthSession {
   orgRole?: string;
   /** Explicit personal scope on a server-issued chat capability. */
   orgScope?: "personal";
+  /**
+   * The `AUTH_DISABLED` fallback session: anyone who reaches the server gets
+   * it, so it must never be issued credentials that outlive the request.
+   */
+  authDisabled?: true;
 }
 
 /**
@@ -1442,6 +1448,7 @@ export async function getMcpOAuthBearerSession(
       resourceUrl: getMcpOAuthAudiences(event),
       allowDevOpen: false,
       requestOrigin: getOrigin(event),
+      event,
     });
     if (!result.authed && result.unavailable) {
       markCredentialMembershipUnavailable(event);
@@ -4970,7 +4977,7 @@ function createAuthGuardFn(
   };
 }
 
-const AUTO_DEV_ACCOUNT_EMAIL = "dev@local.test";
+const AUTO_DEV_ACCOUNT_EMAIL = LOCAL_DEV_IDENTITY_EMAIL;
 // No fixed password: maybeAutoCreateDevSession mints a random one per DB and
 // never emits it to logs.
 
@@ -4998,7 +5005,7 @@ function getAuthDisabledSession(event: H3Event): AuthSession | null {
       `[agent-native] AUTH_DISABLED — login/signup disabled; all requests run as ${AUTO_DEV_ACCOUNT_EMAIL}`,
     );
   }
-  return { email: AUTO_DEV_ACCOUNT_EMAIL };
+  return { email: AUTO_DEV_ACCOUNT_EMAIL, authDisabled: true };
 }
 
 function optOutOfAuthDisabledSession(event: H3Event): void {

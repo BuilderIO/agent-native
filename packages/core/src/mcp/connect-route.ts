@@ -21,6 +21,11 @@ import { CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE } from "../server/credential-
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import { publicFrameworkPath } from "../server/framework-route-prefix.js";
 import { readBody } from "../server/h3-helpers.js";
+import {
+  isLocalDevIdentityEmail,
+  isLocalDevSession,
+  LOCAL_DEV_CREDENTIAL_REFUSED_MESSAGE,
+} from "../server/local-dev-identity.js";
 import { FRAMEWORK_INTERNAL_ROUTE_PREFIX } from "../shared/framework-route-prefix.js";
 import {
   buildMcpInstallLink,
@@ -1537,6 +1542,9 @@ export async function handleMcpConnect(
     const identity = resolveIdentity();
     const session = await getSession(event);
     if (!session?.email) return json({ error: "Unauthorized" }, 401);
+    if (isLocalDevSession(session) && !isLoopbackRequest(event)) {
+      return json({ error: LOCAL_DEV_CREDENTIAL_REFUSED_MESSAGE }, 403);
+    }
     if (
       !readDeployCredentialEnv("A2A_SECRET")?.trim() &&
       canUseDevOpenConnect(event)
@@ -1658,6 +1666,9 @@ export async function handleMcpConnect(
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
     const session = await getSession(event);
     if (!session?.email) return json({ error: "Unauthorized" }, 401);
+    if (isLocalDevSession(session) && !isLoopbackRequest(event)) {
+      return json({ error: LOCAL_DEV_CREDENTIAL_REFUSED_MESSAGE }, 403);
+    }
     const body = ((await readBody(event).catch(() => ({}))) ?? {}) as {
       user_code?: unknown;
       org_id?: unknown;
@@ -1735,6 +1746,12 @@ export async function handleMcpConnect(
       !row.ownerEmail
     ) {
       return json({ status: "pending" });
+    }
+    if (isLocalDevIdentityEmail(row.ownerEmail) && !isLoopbackRequest(event)) {
+      return json(
+        { status: "error", error: LOCAL_DEV_CREDENTIAL_REFUSED_MESSAGE },
+        403,
+      );
     }
     try {
       const devOpen =
