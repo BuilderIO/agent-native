@@ -53,6 +53,19 @@ export {
 } from "./embed-route.js";
 
 export {
+  MCP_SKILLS_EXTENSION_ID,
+  buildSkill,
+  getBuiltinMcpSkill,
+  type BuiltMcpSkill,
+  type McpBuiltinSkillId,
+  type McpSkillAuthContext,
+  type McpSkillConfig,
+  type McpSkillDefinition,
+  type McpSkillEntry,
+  type McpSkillReferenceFileInput,
+  type McpSkillResourceDigest,
+} from "./skills-extension.js";
+export {
   resolveWorkspace,
   resolveLocalAppOrigin,
   findWorkspaceRoot,

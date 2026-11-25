@@ -16,6 +16,11 @@ const schema = new Schema({
       attrs: { level: { default: 1 } },
     },
     paragraph: { group: "block", content: "text*" },
+    codeBlock: {
+      group: "block",
+      content: "text*",
+      attrs: { language: { default: null }, identityId: { default: null } },
+    },
     registryBlock: {
       group: "block",
       atom: true,
@@ -183,5 +188,57 @@ describe("a selected block", () => {
       doc.content.size - 1,
     );
     expect(payload.selectedBlock).toBeUndefined();
+  });
+});
+
+describe("a selected interactive HTML block", () => {
+  const code = (language: string, text: string, identityId?: string) =>
+    schema.node("codeBlock", { language, identityId }, schema.text(text));
+  const doc = schema.node("doc", null, [
+    schema.node("heading", null, schema.text("Demo")),
+    code("html interactive", "<title>First</title>"),
+    code("html", "<title>Plain</title>"),
+    code("html interactive", "<title>Second</title>", "block_second"),
+  ]);
+  const second = doc.content.size - doc.child(3).nodeSize;
+
+  it("is named with its place among the page's blocks and its ID", () => {
+    expect(
+      buildContentSelectionPayload(doc, "doc1", second, doc.content.size),
+    ).toEqual({
+      documentId: "doc1",
+      collapsed: false,
+      interactiveBlock: {
+        title: "Second",
+        blockId: "block_second",
+        number: 2,
+        whole: true,
+      },
+      blockText: "",
+      heading: "Demo",
+    });
+  });
+
+  it("is named where its source is being edited", () => {
+    const { from, to } = findTextRange(doc, "First");
+
+    expect(buildContentSelectionPayload(doc, "doc1", from, to)).toMatchObject({
+      selectedText: "First",
+      interactiveBlock: { title: "First", number: 1, whole: false },
+    });
+    expect(buildContentSelectionPayload(doc, "doc1", to, to)).toMatchObject({
+      collapsed: true,
+      interactiveBlock: { title: "First", number: 1, whole: false },
+    });
+  });
+
+  it("isn't named for other code, or a selection that runs past it", () => {
+    const plain = findTextRange(doc, "Plain");
+
+    for (const { from, to } of [plain, { from: 1, to: doc.content.size }]) {
+      expect(
+        buildContentSelectionPayload(doc, "doc1", from, to).interactiveBlock,
+      ).toBeUndefined();
+    }
   });
 });

@@ -550,6 +550,8 @@ export default {
       blur: "模糊",
       spread: "擴散",
       rotation3d: "3D 旋轉",
+      constraints: "約束",
+      absolutePosition: "絕對定位",
       rotationX: "旋轉 X",
       rotationY: "旋轉 Y",
       perspective: "透視",
@@ -1351,6 +1353,12 @@ export default {
         opacity: "不透明度",
       },
       editColor: "編輯 {{name}} 的顏色",
+      field: {
+        open: "權杖",
+        detach: "卸離權杖",
+        primitives: "{{group}}原始權杖",
+        loading: "正在載入權杖…",
+      },
     },
     import: {
       description: "將 Figma 剪貼簿 HTML 或獨立 HTML 匯入為 Design 頁面。",
@@ -1822,7 +1830,6 @@ export default {
       undoSkippedConcurrentEdit: "已略過復原 — 其他人移動了該項目",
       redoSkippedConcurrentEdit: "已略過重做 — 其他人移動了該項目",
       saveConflict: "此頁面已在別處變更。你的上一次編輯未儲存。",
-      versionHistoryUnavailable: "此設計暫無法使用版本歷史。您的編輯已儲存。",
       removeAutoLayoutFailed: "無法移除自動版面配置",
       autoLayoutScreensUnsupported: "新增自動布局不適用於頁面",
       booleanSubtractUnsupported:

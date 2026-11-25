@@ -69,7 +69,7 @@ describe("Inbox navigation commands", () => {
     expect(emailList).toContain("{showPrioritySort && (");
     expect(emailList).toContain("!showPrioritySort &&");
     expect(emailList).toContain("jevAvailabilityError ? (");
-    expect(emailList).toContain('variant="menu-item"');
+    expect(emailList).toContain("<JevConnectionMenuItem");
     expect(source).toContain('toast.error(t("mail.sort.priorityFailed"))');
     expect(source).not.toContain("refetchOnWindowFocus: false");
   });

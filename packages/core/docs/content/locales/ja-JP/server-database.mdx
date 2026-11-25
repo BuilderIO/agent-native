@@ -80,6 +80,19 @@ DATABASE_URL=pglite:./data/pglite
 
 [PGlite](https://pglite.dev/) はプロセス内で動作する WASM 版の Postgres データベースです。PGlite デフォルトと同じくらい簡単なセットアップを保ちながら、デプロイ前に Postgres 固有のスキーマ問題を見つけられるようにします。PGlite と同様、これはローカル専用のストレージです。本番環境や共有環境では使用しないでください。
 
+#### PGlite 拡張 {#pglite-extensions}
+
+PGlite は拡張をクライアント作成時にのみ読み込みます。最初のデータベースアクセスの前に、すべてのエントリポイントが import するモジュール（例: `server/db/index.ts`）で `configurePgliteExtensions` を使って登録し、登録後に実行されるマイグレーションで `CREATE EXTENSION` を使って有効化します。
+
+```ts
+import { configurePgliteExtensions } from "@agent-native/core/db";
+import { pg_textsearch } from "@electric-sql/pglite-pg_textsearch";
+
+configurePgliteExtensions({ pg_textsearch });
+```
+
+PGlite クライアントが作成された後に登録するとエラーになります。ホスト型 PostgreSQL ではこの登録は無視されるため、そのサーバーには拡張を別途インストールしてください。
+
 ### 本番データベース {#production}
 
 `.env` ファイルまたはデプロイプロバイダーの環境で `DATABASE_URL` を設定し、ホスト型 PostgreSQL データベースに接続します。一般的なマネージドオプションには、[Neon](/docs/neon)、[Supabase](/docs/supabase)、[Amazon RDS for PostgreSQL](/docs/aws-rds)、[Cloud SQL for PostgreSQL](/docs/cloud-sql)、[Azure Database for PostgreSQL](/docs/azure-postgresql) があります。その他のマネージドサービスとセルフホスト型 PostgreSQL サーバーについては、[Plain Postgres](/docs/postgres) ガイドを参照してください。

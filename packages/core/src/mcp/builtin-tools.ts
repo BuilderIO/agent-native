@@ -804,8 +804,7 @@ function listAppsTool(
 ): ActionEntry {
   return {
     tool: tool(
-      "List the workspace apps and their URLs. Use this to discover which " +
-        "apps exist before opening or asking one. In a single-app project " +
+      "List the workspace apps and their ids and URLs. In a single-app project " +
         "this returns just that app. When an org directory is configured " +
         "this also includes the org's deployed sibling apps.",
     ),
@@ -1120,7 +1119,7 @@ function createEmbedSessionTool(
   return {
     tool: {
       ...tool(
-        "MCP Apps helper: create a one-time browser embed session for a same-origin app URL. Usually called by an MCP App iframe, not directly by the model.",
+        "Create a one-time browser embed session for a same-origin app URL, used by embedded MCP App views.",
         {
           url: {
             type: "string",
@@ -1421,19 +1420,16 @@ function askAppTool(
 ): ActionEntry {
   return {
     tool: tool(
-      "Send a natural-language message to an app's AI agent and get its " +
-        "response. A completed response is an agent claim, not proof of a " +
-        "write; it includes verification:'unverified'. Prefer host page WebMCP or cataloged direct action tools for " +
-        "known, bounded current-app work. Use this when direct tools are " +
-        "unavailable or the task needs the app agent's interpretation, full " +
-        "skills, instructions, tools, and context for investigation, diagnosis, " +
-        "multi-step work, or changes. In a " +
-        "single-app project the 'app' " +
-        "param is optional (defaults to this app). When 'app' names a " +
-        "different workspace app it is routed there over A2A; the result's " +
-        "'routedVia' field reports whether it ran cross-app or locally. " +
-        "On hosted MCP, long tasks may return a durable taskHandle instead of " +
-        "a final response; pass that handle to ask_app_status until completed.",
+      "Send a natural-language message to an app's AI agent and return its " +
+        "response. Completed responses include verification:'unverified' because " +
+        "they reflect the agent's report rather than a direct verified write. " +
+        "Runs the app agent with its full skills, instructions, tools, and " +
+        "context for multi-step or open-ended work (unlike direct single-action " +
+        "tools). In a single-app project the 'app' parameter is optional " +
+        "(defaults to this app); when 'app' names another workspace app it " +
+        "routes over A2A and reports 'routedVia'. On hosted MCP, long-running " +
+        "tasks may return a durable taskHandle whose status can be checked " +
+        "with ask_app_status.",
       {
         app: {
           type: "string",
@@ -1583,11 +1579,10 @@ function askAppStatusTool(
 ): ActionEntry {
   return {
     tool: tool(
-      "Poll a durable ask_app task and return its current status or final response. " +
+      "Return the current status or final response of a durable ask_app task. " +
         "If a transient status read stays unavailable after bounded retries, the " +
-        "result preserves the app and taskId with statusRead 'unavailable' and a " +
-        "poll instruction. Retry ask_app_status for that same task; never resubmit " +
-        "ask_app as status-read recovery because that can duplicate work.",
+        "result preserves the app and taskId with statusRead 'unavailable' so " +
+        "the same task can be polled again without duplicating work.",
       {
         app: {
           type: "string",

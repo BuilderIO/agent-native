@@ -17,6 +17,7 @@ export interface ClipsOrganizationBranding {
   brandColor: string;
   brandLogoUrl: string | null;
   defaultVisibility: ClipsDefaultVisibility;
+  enforceDefaultVisibility?: boolean;
   ownerEmail?: string;
 }
 
@@ -28,7 +29,10 @@ interface OrganizationStateResponse {
 export type ClipsBrandingPatch = Partial<
   Pick<
     ClipsOrganizationBranding,
-    "brandColor" | "brandLogoUrl" | "defaultVisibility"
+    | "brandColor"
+    | "brandLogoUrl"
+    | "defaultVisibility"
+    | "enforceDefaultVisibility"
   >
 >;
 

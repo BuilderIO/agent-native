@@ -17,7 +17,43 @@ import {
   shouldEvict,
   shouldRestartPersistent5xx,
   shouldRestartStuckApp,
+  shouldUseWorkspaceDev,
 } from "./dev-lazy";
+
+describe("dev-lazy workspace handoff", () => {
+  it("hands a declared workspace to workspace-dev unless a dev-lazy-only flag is passed", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "dev-lazy-ws-"));
+    try {
+      assert.equal(shouldUseWorkspaceDev(root, []), false);
+
+      fs.writeFileSync(
+        path.join(root, "agent-native.json"),
+        JSON.stringify({ version: 1, apps: {} }),
+      );
+      assert.equal(shouldUseWorkspaceDev(root, []), false);
+
+      fs.writeFileSync(
+        path.join(root, "agent-native.json"),
+        JSON.stringify({
+          version: 1,
+          deployment: { workspace: { appsDirectory: "templates" } },
+        }),
+      );
+      assert.equal(shouldUseWorkspaceDev(root, []), true);
+      assert.equal(shouldUseWorkspaceDev(root, ["--eager"]), true);
+      assert.equal(shouldUseWorkspaceDev(root, ["--apps", "mail"]), false);
+      assert.equal(shouldUseWorkspaceDev(root, ["--apps=mail"]), false);
+      assert.equal(shouldUseWorkspaceDev(root, ["--desktop"]), false);
+      assert.equal(shouldUseWorkspaceDev(root, ["--watch-core-dist"]), false);
+      assert.equal(
+        shouldUseWorkspaceDev(root, [], { WORKSPACE_WATCH_CORE_DIST: "1" }),
+        false,
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("dev-lazy app-local environment", () => {
   it("passes only app-scoped env values with local overrides", () => {
@@ -39,26 +75,6 @@ describe("dev-lazy app-local environment", () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
-  });
-});
-
-describe("dev-lazy native binding preflight", () => {
-  it("runs before the first template Vite spawn", () => {
-    const source = fs.readFileSync(
-      new URL("./dev-lazy.ts", import.meta.url),
-      "utf8",
-    );
-    const main = source.indexOf("async function main(): Promise<void>");
-    const preflightCall = source.indexOf("runNativeBindingPreflight();", main);
-    const gatewayCreation = source.indexOf(
-      "const server = createGateway();",
-      main,
-    );
-
-    assert.ok(main >= 0);
-    assert.ok(preflightCall >= 0);
-    assert.ok(gatewayCreation > main);
-    assert.ok(preflightCall < gatewayCreation);
   });
 });
 

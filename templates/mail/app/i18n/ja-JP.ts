@@ -47,7 +47,7 @@ const messages = {
         "この傾向を重要度または自動アーカイブのルールにできます。",
       priorityFeedbackAskAgent: "エージェントにルールを提案してもらう",
       aiSetupTitle: "AI 受信トレイを設定",
-      aiSetupTagLabel: "AI タグを作成",
+      aiSetupTagLabel: "AI ラベルを作成",
       aiSetupImportanceLabel: "重要なメール",
       aiSetupSpamLabel: "スパム",
       aiSetupArchiveLabel: "受信トレイをスキップ",
@@ -116,7 +116,7 @@ const messages = {
       aiSetupSortInbox: "受信トレイを整理",
       aiSetupImportantExample: "上司の Priya（priya@company.com）からのメール…",
       aiSetupTagsDescription:
-        "AIが一致するメールにタグを付け、受信トレイの横にタグごとのタブを作成します。",
+        "AIが一致するメールにラベルを付け、受信トレイの横にラベルごとのタブを作成します。",
       aiSetupImportantDescription:
         "AIが一致するメールに「重要」ラベルを付け、重要タブに表示します。",
       aiSetupSkipInboxDescription:
@@ -154,7 +154,7 @@ const messages = {
       accounts: "Accounts",
       closeSidebar: "サイドバーを閉じる",
       settings: "設定",
-      aiSettings: "タグとルールを管理",
+      aiSettings: "ラベルとルールを管理",
     },
     search: {
       label: "検索",
@@ -179,7 +179,7 @@ const messages = {
       combinedInbox: "統合受信トレイ",
       allTab: "すべてタブ",
       help: "選んだビュー、ラベル、保存済みフィルタを受信トレイの個別のタブとして表示します。オフにすると、受信トレイのメールをすべて1つのタブで表示します。",
-      aiSetup: "AI タグとルールを設定",
+      aiSetup: "AI ラベルとルールを設定",
     },
     accounts: {
       remove: "削除",
@@ -199,6 +199,7 @@ const messages = {
       moveToTrash: "ゴミ箱へ移動",
       star: "スターを付ける",
       unstar: "スターを外す",
+      copyLink: "リンクをコピー",
     },
     labels: {
       labelAsPlaceholder: "ラベルを付ける…",
@@ -460,10 +461,13 @@ const messages = {
       tryDifferentKeywords: "別のキーワードを試してください",
       nothingHere: "まだ何もありません",
       loadingMore: "さらに読み込み中...",
+      loadOlder: "以前の会話を読み込む",
       openAllMailForOlder: "古いメッセージはすべてのメールで開く",
     },
     toasts: {
       noEmailSelected: "メールが選択されていません。",
+      linkCopied: "リンクをコピーしました。",
+      linkCopyFailed: "リンクをコピーできませんでした。",
       reportedSpam: "迷惑メールとして報告しました。",
       reportedSpamBlocked: "Reported as spam & blocked {{email}}.",
       noThreadSelected: "スレッドが選択されていません。",
@@ -559,8 +563,14 @@ const messages = {
       tryAgain: "再試行",
       rateLimitTitle: "Gmail のレート制限に達しました",
       loadTitle: "メールを読み込めません",
+      staleSaved:
+        "メールを更新できませんでした。保存済みの会話を表示しています。",
       rateLimitDescription:
         "Google への最近のリクエストが多すぎます。少し待ってから再試行します。",
+      limitedListFrom:
+        "最終更新: {{time}}。一部のメールが表示されていない可能性があります。Google が Mail のリクエストを制限しています。",
+      limitedList:
+        "一部のメールが表示されていない可能性があります。Google が Mail のリクエストを制限しています。",
       failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",
       failedToParseJson: "No se pudo analizar JSON",
       missingGoogleCredentials:
@@ -702,23 +712,23 @@ const messages = {
       autoArchiveMode: "自動アーカイブ",
       skipInboxMode: "受信トレイをスキップ",
       spamMode: "スパム",
-      tagMode: "タグ",
-      aiTagsTitle: "AIタグ",
+      tagMode: "ラベル",
+      aiTagsTitle: "AIラベル",
       ruleHelpLabel: "{{mode}}ルールの説明",
       aiTagRuleHelp:
-        "自然な言葉で指示を書きます。一致したメールにこのタグを付けます。",
+        "自然な言葉で指示を書きます。一致したメールにこのラベルを付けます。",
       importantRuleHelp:
         "自然な言葉で指示を書きます。一致したメールを重要としてマークします。",
       skipInboxRuleHelp:
         "自然な言葉で指示を書きます。一致したメールをアーカイブして受信トレイをスキップします。",
       spamRuleHelp:
-        "自然な言葉で指示を書きます。Jev は一致したメールに agent-native-filtered ラベルを付けてアーカイブします。Gmail の迷惑メールには送信しません。",
+        "自然な言葉で指示を書きます。Mail は一致したメールに agent-native-filtered ラベルを付けてアーカイブします。Gmail の迷惑メールには送信しません。",
       filteredMode: "フィルター済み",
       manageSettings: "管理",
-      askJev: "Jev に相談",
+      askJev: "Mail のエージェントに相談",
       askJevPrompt:
         "この Mail ルールを調整してください: {{condition}}。変更したい内容を質問してから更新してください。",
-      composerPlaceholder: "Jev に受信トレイの整理を頼む…",
+      composerPlaceholder: "Mail のエージェントに受信トレイの整理を頼む…",
       chatSuggestionFilter: "このようなメッセージをフィルタする",
       chatSuggestionPriority: "次の差出人のメールを優先…",
       chatSuggestionArchive: "ボット通知を自動でアーカイブ",
@@ -748,7 +758,7 @@ const messages = {
       importantPlaceholder: "例：返信が必要なメールや期限のあるメール",
       ruleAdded: "AI ルールを追加しました。",
       instructionHelp: "自然な言葉で入力",
-      tagNamePlaceholder: "タグ名",
+      tagNamePlaceholder: "ラベル名",
       spamLabelHint: "一致したメールにラベルを付け、受信トレイから移動します。",
       spamPlaceholder: "例：明らかに宣伝目的または不要なメッセージ",
       tagPlaceholder: "例：オンラインショップの領収書や注文確認",
@@ -776,8 +786,8 @@ const messages = {
       previewEmpty: "プレビューを実行すると一致候補が表示されます。",
       previewFailed: "最近のメールをプレビューできませんでした。",
       promptRulesCleared: "トリアージルールを削除しました。",
-      tagTabsHelp: "各タグが受信トレイのタブになります",
-      addTag: "タグを追加",
+      tagTabsHelp: "各ラベルが受信トレイのタブになります",
+      addTag: "ラベルを追加",
       triageTitle: "AIトリアージ",
       connectJev: "AIプロバイダーを接続",
       connectJevToRunTriage:
@@ -856,7 +866,8 @@ const messages = {
     },
   },
   agent: {
-    emptyState: "メールについて何でも聞いてください",
+    emptyState:
+      "Mail のエージェントです。メールについて質問したり、整理を頼んだりできます。",
     suggestionSummarize: "未読メールを要約して",
     suggestionReplies: "今日返信が必要なものは？",
     suggestionWidget: "受信トレイ用のカスタムウィジェットを作成して",

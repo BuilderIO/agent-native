@@ -5,7 +5,7 @@ import { listGrantedDispatchMcpAppActions } from "../server/lib/mcp-gateway.js";
 
 export default defineAction({
   description:
-    "List the actions a granted app exposes (read inbox, create draft, move event, and so on) as names and one-line descriptions. Pass names to get full input schemas for just those actions. Call before call_app_action; results are fast, unlike ask_app.",
+    "List the actions exposed by a granted app (such as reading inbox messages, creating drafts, or managing events) as names and brief descriptions. Optional `names` filters the response to full input schemas for specific actions.",
   schema: z.object({
     app: z.string().describe("Granted app id, e.g. mail or calendar."),
     names: z

@@ -17,9 +17,16 @@ import {
 import { BlockRegistryProvider } from "@agent-native/toolkit/app/blocks";
 import type { ContentLinkTarget } from "@shared/api";
 import {
+  contentBlockLinkPath,
+  readBlockLink,
+  withoutBlockLink,
+} from "@shared/block-link";
+import { visitBlocksFieldBlocks } from "@shared/blocks-field-identity";
+import {
   CLIP_EMBED_BLOCK_TYPE,
   clipEmbedRecordingIdFromRaw,
 } from "@shared/clip-embed-block";
+import { interactiveHtmlFromNode } from "@shared/interactive-html";
 import { linkCardDataFromRaw } from "@shared/link-card-block";
 import { nfmToDoc, type PMNode } from "@shared/nfm";
 import { registryBlockSpecByType } from "@shared/nfm-registry";
@@ -37,7 +44,7 @@ import type {
   LoaderFunctionArgs,
   MetaFunction,
 } from "react-router";
-import { data, useLoaderData } from "react-router";
+import { data, useLoaderData, useLocation, useNavigate } from "react-router";
 
 import { publicContentBlockRegistry } from "@/blocks/publicBlockRegistry";
 import { ContentErrorBoundaryBody } from "@/components/ContentErrorBoundary";
@@ -298,10 +305,20 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
   ];
 };
 
-function textOf(node: PMNode): string {
-  if (node.type === "text") return node.text ?? "";
-  if (node.type === "hardBreak") return "\n";
-  return (node.content ?? []).map(textOf).join("");
+function piecesOf(node: PMNode): (string | PMNode)[] {
+  if (interactiveHtmlFromNode(node)) return [node];
+  if (node.type === "text") return [node.text ?? ""];
+  if (node.type === "hardBreak") return ["\n"];
+  const pieces: (string | PMNode)[] = [];
+  for (const piece of (node.content ?? []).flatMap(piecesOf)) {
+    const before = pieces[pieces.length - 1];
+    if (typeof piece === "string" && typeof before === "string") {
+      pieces[pieces.length - 1] = before + piece;
+    } else {
+      pieces.push(piece);
+    }
+  }
+  return pieces;
 }
 
 function savedText(value: unknown): string | null {
@@ -367,18 +384,77 @@ function RegistryBlockFallback({
   );
 }
 
+function InteractiveHtmlCaption({
+  node,
+  href,
+}: {
+  node: PMNode;
+  href: string | undefined;
+}) {
+  const t = useT();
+  const title =
+    interactiveHtmlFromNode(node)?.title ??
+    t("editor.interactiveHtml.untitled");
+  return href ? (
+    <a
+      href={href}
+      className="block text-foreground underline underline-offset-4"
+    >
+      {title}
+    </a>
+  ) : (
+    <span className="block">{title}</span>
+  );
+}
+
 /**
  * The page as plain elements, for the server and the first client render.
  * The editor's own static body draws into the DOM, so it has nothing to send.
  */
 function ServerRenderedBody({
+  documentId,
   content,
   clipsAppUrl,
+  blockIds,
+  basePath,
 }: {
+  documentId: string;
   content: string;
   clipsAppUrl: string | null;
+  blockIds: Record<string, string>;
+  basePath: string;
 }) {
-  return nfmToDoc(content).content.map((node, index) => {
+  const doc = nfmToDoc(content);
+  const hrefs = new Map<PMNode, string>();
+  visitBlocksFieldBlocks(doc, (node, { path }) => {
+    const id = interactiveHtmlFromNode(node) ? blockIds[path] : undefined;
+    if (!id) return;
+    const link = contentBlockLinkPath(documentId, id, { fullScreen: true });
+    hrefs.set(node, `${basePath}${link}`);
+  });
+  const inline = (node: PMNode) =>
+    piecesOf(node).map((piece, index) =>
+      typeof piece === "string" ? (
+        piece
+      ) : (
+        <InteractiveHtmlCaption
+          key={index}
+          node={piece}
+          href={hrefs.get(piece)}
+        />
+      ),
+    );
+  return doc.content.map((node, index) => {
+    if (interactiveHtmlFromNode(node)) {
+      return (
+        <div
+          key={index}
+          className="mt-4 rounded-md border border-border px-3 py-2 text-base leading-7 text-muted-foreground"
+        >
+          {inline(node)}
+        </div>
+      );
+    }
     switch (node.type) {
       case "registryBlock":
         return (
@@ -394,7 +470,7 @@ function ServerRenderedBody({
             key={index}
             className="mt-8 text-xl font-semibold text-foreground"
           >
-            {textOf(node)}
+            {inline(node)}
           </h2>
         );
       case "bulletList":
@@ -407,20 +483,21 @@ function ServerRenderedBody({
             className={`mt-4 ${node.type === "orderedList" ? "list-decimal" : "list-disc"} space-y-2 pl-6 text-base leading-7 text-muted-foreground`}
           >
             {(node.content ?? []).map((item, itemIndex) => (
-              <li key={itemIndex}>{textOf(item)}</li>
+              <li key={itemIndex}>{inline(item)}</li>
             ))}
           </List>
         );
       }
       default: {
-        const text = textOf(node);
-        if (!text.trim()) return null;
+        const pieces = piecesOf(node);
+        if (!pieces.some((piece) => typeof piece !== "string" || piece.trim()))
+          return null;
         return (
           <p
             key={index}
             className="mt-4 whitespace-pre-wrap text-base leading-7 text-muted-foreground"
           >
-            {text}
+            {inline(node)}
           </p>
         );
       }
@@ -467,15 +544,40 @@ export function ReadOnlyMarkdownContent({
   content,
   clipsAppUrl,
   pageLinks,
+  interactiveHtml,
   basePath,
 }: {
   documentId: string;
   content: string;
   clipsAppUrl: string | null;
   pageLinks: PublicReaderContext["pageLinks"];
+  interactiveHtml: PublicReaderContext["interactiveHtml"];
   basePath: string;
 }) {
   const [mounted, setMounted] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const blockLink = useMemo(
+    () => readBlockLink(location.search),
+    [location.search],
+  );
+  const linkedBlockId =
+    blockLink.blockId !== null &&
+    interactiveHtml &&
+    Object.values(interactiveHtml.blockIds).includes(blockLink.blockId)
+      ? blockLink.blockId
+      : null;
+  const publicInteractiveHtml = useMemo(
+    () => (interactiveHtml ? { ...interactiveHtml, documentId } : undefined),
+    [documentId, interactiveHtml],
+  );
+  const closeBlockLink = useCallback(() => {
+    if (!blockLink.fullScreen) return;
+    void navigate(
+      { search: withoutBlockLink(location.search), hash: location.hash },
+      { replace: true, preventScrollReset: true },
+    );
+  }, [blockLink.fullScreen, location.hash, location.search, navigate]);
   const blockContext = useMemo(
     () => ({ dialect: "nfm" as const, documentId, canEdit: false }),
     [documentId],
@@ -512,7 +614,13 @@ export function ReadOnlyMarkdownContent({
   if (!mounted) {
     return (
       <div className="content-editor">
-        <ServerRenderedBody content={content} clipsAppUrl={clipsAppUrl} />
+        <ServerRenderedBody
+          documentId={documentId}
+          content={content}
+          clipsAppUrl={clipsAppUrl}
+          blockIds={interactiveHtml?.blockIds ?? {}}
+          basePath={basePath}
+        />
       </div>
     );
   }
@@ -528,6 +636,10 @@ export function ReadOnlyMarkdownContent({
         onChange={() => {}}
         editable={false}
         drawDiagrams={false}
+        publicInteractiveHtml={publicInteractiveHtml}
+        linkedBlockId={linkedBlockId}
+        linkedBlockFullScreen={blockLink.fullScreen}
+        onFullScreenClosed={closeBlockLink}
         onOpenNotionPageLink={openPageLink}
         resolveNotionPageLink={resolvePageLink}
       />
@@ -671,6 +783,7 @@ export default function PublicDocumentPage() {
           content={document.content}
           clipsAppUrl={data.clipsAppUrl ?? null}
           pageLinks={data.reader.pageLinks}
+          interactiveHtml={data.reader.interactiveHtml}
           basePath={data.basePath}
         />
       </PublicReader>

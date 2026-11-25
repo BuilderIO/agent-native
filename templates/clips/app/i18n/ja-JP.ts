@@ -1173,6 +1173,7 @@ const messages = {
     visibilityDescription:
       "あなたが作成する録画に適用されます。録画ごとに変更できます。",
     useOrgDefault: "{{org}} のデフォルトを使用 ({{visibility}})",
+    enforceOrgDefault: "メンバーが独自のデフォルトを設定できないようにする",
     useDefault: "デフォルトを使用 ({{visibility}})",
     transcriptExport: "文字起こしのエクスポート",
     logoDescription: "共有メールと公開クリップページに表示されます。",

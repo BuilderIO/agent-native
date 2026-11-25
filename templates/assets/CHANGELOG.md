@@ -25,6 +25,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Export CSV on the audit log downloads the file instead of showing a Not found error.
 - Folder counts reflect the selected tab's asset type.
 - The move menu only shows folders an asset can move into.
 

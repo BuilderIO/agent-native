@@ -40,7 +40,7 @@ import {
   trimSelectionRange,
   type CommentTextAnchor,
 } from "./comment-anchors";
-import { isMermaidCodeBlock } from "./extensions/CodeBlockNode";
+import { isDrawnCodeBlock } from "./extensions/CodeBlockNode";
 import { rangeTouchesToggleTitle } from "./extensions/NotionExtensions";
 import { suggestionHighlightKey } from "./extensions/SuggestionHighlight";
 
@@ -288,7 +288,7 @@ function selectionIncludesBubbleToolbarExcludedNode(
   if (
     state.selection instanceof NodeSelection &&
     (BUBBLE_TOOLBAR_EXCLUDED_NODE_TYPES.has(state.selection.node.type.name) ||
-      isMermaidCodeBlock(state.selection.node))
+      isDrawnCodeBlock(state.selection.node))
   ) {
     return true;
   }

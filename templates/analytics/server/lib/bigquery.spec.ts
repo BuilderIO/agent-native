@@ -3384,6 +3384,34 @@ describe("runQuery cancellation", () => {
             state: "DONE",
             sameQuery: true,
             failureReason: "backend_error",
+            failureCode: "backendError",
+          },
+        },
+        {
+          name: "was cancelled",
+          lookup: () => ({
+            status: { state: "DONE", errorResult: { reason: "stopped" } },
+          }),
+          attempt: {
+            state: "DONE",
+            sameQuery: true,
+            failureReason: "other",
+            failureCode: "stopped",
+          },
+        },
+        {
+          name: "failed with a reason that isn't a plain code",
+          lookup: () => ({
+            status: {
+              state: "DONE",
+              errorResult: { reason: "Not found: table a.b" },
+            },
+          }),
+          attempt: {
+            state: "DONE",
+            sameQuery: true,
+            failureReason: "other",
+            failureCode: null,
           },
         },
         {

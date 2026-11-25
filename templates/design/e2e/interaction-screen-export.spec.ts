@@ -255,7 +255,7 @@ test("O and R draw an ellipse and a rectangle exactly where dragged inside the f
     .poll(() => app.selectedLayers())
     .toStrictEqual([rect.attrs["data-agent-native-layer-name"]]);
 
-  const radius = inspectorSection(app, "Appearance").getByRole("textbox", {
+  const radius = inspectorSection(app, "Appearance").getByRole("combobox", {
     name: "Corner radius",
   });
   await radius.fill("10");

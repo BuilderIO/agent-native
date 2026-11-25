@@ -469,7 +469,7 @@ test("the Rectangle tool draws a board rectangle outside the screen; radius 1 sa
     "height",
   );
 
-  const radius = page.getByRole("textbox", { name: "Corner radius" });
+  const radius = page.getByRole("combobox", { name: "Corner radius" });
   await radius.fill("1");
   await radius.press("Enter");
   await expect

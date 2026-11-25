@@ -46,6 +46,25 @@ describe("agent.sourceSweepToolCallThreshold", () => {
     expect(guardAt(40)).toMatchObject({ priorCalls: 40 });
   });
 
+  it("counts raw db-query reads toward the convergence budget", async () => {
+    const { shouldGuardRepeatedSourceSweep } = await load();
+    const dbCalls = (count: number) =>
+      Array.from({ length: count }, (_, i) => ({
+        name: "db-query",
+        input: { attempt: i },
+      }));
+
+    const guardAt = (count: number) =>
+      shouldGuardRepeatedSourceSweep({
+        toolName: "db-query",
+        entry: readOnlyEntry,
+        priorToolCalls: dbCalls(count),
+      });
+
+    expect(guardAt(23)).toBeNull();
+    expect(guardAt(24)).toMatchObject({ priorCalls: 24 });
+  });
+
   it("reports the configured budget in the message the agent reads", async () => {
     const { defineAppConfig, repeatedSourceSweepGuardMessage } = await load();
     defineAppConfig({ agent: { sourceSweepToolCallThreshold: 40 } });

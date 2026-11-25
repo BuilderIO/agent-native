@@ -20,6 +20,7 @@ export function useFeatureFlag(key: string): boolean {
     undefined,
     {
       enabled: status === "authenticated",
+      batchInitial: true,
       refetchInterval: retryUnavailableFlags,
     },
   );
@@ -59,6 +60,7 @@ export function useFeatureFlagState(
     undefined,
     {
       enabled: status === "authenticated",
+      batchInitial: true,
       refetchInterval: retryUnavailableFlags,
       ...(options?.freshOnMount
         ? {
@@ -96,6 +98,7 @@ export function useFeatureFlags(): Record<string, boolean> {
     undefined,
     {
       enabled: status === "authenticated",
+      batchInitial: true,
       refetchInterval: retryUnavailableFlags,
     },
   );

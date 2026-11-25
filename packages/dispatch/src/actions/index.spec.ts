@@ -42,7 +42,7 @@ describe("dispatch direct app actions", () => {
     }
     expect(actions.ask_app.run).toBe(dispatchActions.ask_app.run);
     expect(actions.ask_app.tool.description).toContain(
-      "prefer list_app_actions and call_app_action",
+      "list_app_actions and call_app_action",
     );
     expect(dispatchActions.ask_app.tool.description).not.toContain(
       "call_app_action",
@@ -130,9 +130,12 @@ describe("dispatch action registry", () => {
     expect(dispatchActions["inspect-connect-agent-card"].mcpTool).toBe(false);
   });
 
-  it("teaches MCP hosts to route through their existing Dispatch connection", () => {
+  it("describes ask_app factually without prescriptive tool-selection instructions", () => {
     expect(dispatchActions.ask_app.tool.description).toContain(
-      "do not require a separate app MCP connection",
+      "this Dispatch connection",
+    );
+    expect(dispatchActions.ask_app.tool.description).not.toMatch(
+      /do not require|call list_apps first|prefer /i,
     );
   });
 

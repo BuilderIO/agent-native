@@ -1,4 +1,7 @@
-import { useActionQuery } from "@agent-native/core/client/hooks";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { AI_PRIORITY_MAX_EMAILS, type MailSortMode } from "@shared/ai-priority";
 import { mailLabelsInclude, mailLabelsIncludeAny } from "@shared/gmail-labels";
@@ -7,6 +10,7 @@ import { openThreadPath } from "@shared/mail-routes";
 import { mailSettingsRoute } from "@shared/settings-navigation";
 import type { EmailMessage } from "@shared/types";
 import { IconMail } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
@@ -32,12 +36,14 @@ import {
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import {
   INBOX_PAGE_SIZE,
+  invalidateInboxThreads,
   inboxThreadsHasNextPage,
   mergeInboxThreadPages,
   resolveInboxTabId,
   useInboxOverview,
   useInboxThreads,
   useInboxThreadsPages,
+  type InboxSyncResult,
 } from "@/hooks/use-inbox-threads";
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -543,9 +549,51 @@ export function InboxPage() {
     { enabled: view === "inbox" },
   );
   const inboxOverview = useInboxOverview(inboxAccountEmails);
+  const queryClient = useQueryClient();
+  const loadOlderMutation = useActionMutation<
+    InboxSyncResult,
+    { accountEmails?: string[]; loadOlder: boolean },
+    "sync-inbox"
+  >("sync-inbox", {
+    method: "POST",
+    skipActionQueryInvalidation: true,
+    errorNotification: "caller",
+  });
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const loadingOlderRef = useRef(false);
   const inboxMetadata =
     inboxOverview.data ??
     (inboxThreads.isPlaceholderData ? undefined : inboxThreads.data);
+  const hasOlderInbox =
+    isInboxView &&
+    (inboxMetadata?.accounts.some((account) => account.backfillPending) ===
+      true ||
+      inboxThreads.data?.hasLegacyClassification === true);
+  const loadOlderInbox = useCallback(async () => {
+    if (loadingOlderRef.current) return;
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    try {
+      const result = await loadOlderMutation.mutateAsync({
+        ...(inboxAccountEmails ? { accountEmails: inboxAccountEmails } : {}),
+        loadOlder: true,
+      });
+      if (
+        result.accounts.some(
+          (account) =>
+            account.state === "error" || account.state === "needs_reauth",
+        )
+      ) {
+        toast.error(t("mail.toasts.failedToRefreshInbox"));
+      }
+      await invalidateInboxThreads(queryClient);
+    } catch {
+      toast.error(t("mail.toasts.failedToRefreshInbox"));
+    } finally {
+      loadingOlderRef.current = false;
+      setLoadingOlder(false);
+    }
+  }, [inboxAccountEmails, loadOlderMutation, queryClient, t]);
   const [inboxExtraPageCount, setInboxExtraPageCount] = useState(0);
   useEffect(() => {
     const priorityExtraPages = Math.max(
@@ -1064,7 +1112,7 @@ export function InboxPage() {
     searchQuery,
     isSavedFilter: Boolean(activeSavedFilter),
     threadCount: threads.length,
-    hasNextPage: Boolean(hasNextPage),
+    hasNextPage: Boolean(hasNextPage || hasOlderInbox),
     hasAccountErrors: Boolean(accountErrors?.length),
   });
   const [sidebarContactEmail, setSidebarContactEmail] = useState<
@@ -1096,45 +1144,61 @@ export function InboxPage() {
   }
 
   const emailList = (
-    <EmailList
-      emails={emails}
-      focusedId={focusedId}
-      setFocusedId={setFocusedId}
-      selectedIds={selectedIds}
-      setSelectedIds={setSelectedIds}
-      onCompose={handleCompose}
-      onArchived={setLastArchivedId}
-      onDraftOpen={handleDraftOpen}
-      onNavigateThread={handleOptimisticThreadNavigation}
-      isLoading={emailListLoading}
-      isFetching={isFetching}
-      emailsError={emailsError}
-      accountErrors={accountErrors}
-      read={listRead}
-      labels={isInboxView ? (inboxMetadata?.labels ?? EMPTY_LABELS) : undefined}
-      refetchEmails={refetchEmails}
-      hasNextPage={hasNextPage}
-      reachedCap={isInboxView && inboxReachedCap}
-      fetchNextPage={fetchNextPage}
-      isFetchingNextPage={isFetchingNextPage}
-      isFetchNextPageError={isFetchNextPageError}
-      sortMode={sortMode}
-      showPrioritySort={showPrioritySort}
-      jevConfigured={jevConfigured}
-      priorityProviderIdentity={
-        jevAvailability.data?.providerIdentity ?? "unavailable"
-      }
-      jevAvailabilityLoading={
-        jevAvailability.isLoading || jevAvailability.isFetching
-      }
-      jevAvailabilityError={jevAvailability.isError}
-      onJevConnected={onJevAvailabilityChange}
-      onJevRetry={onJevAvailabilityChange}
-      onSortModeChange={changeSortMode}
-      readingPane={paneLayout !== null}
-      keyboardEnabled={!(paneLayout && hasThread)}
-      onThreadOrderChange={setListThreadIds}
-    />
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="min-h-0 flex-1">
+        <EmailList
+          emails={emails}
+          focusedId={focusedId}
+          setFocusedId={setFocusedId}
+          selectedIds={selectedIds}
+          setSelectedIds={setSelectedIds}
+          onCompose={handleCompose}
+          onArchived={setLastArchivedId}
+          onDraftOpen={handleDraftOpen}
+          onNavigateThread={handleOptimisticThreadNavigation}
+          isLoading={emailListLoading}
+          isFetching={isFetching}
+          emailsError={emailsError}
+          accountErrors={accountErrors}
+          read={listRead}
+          labels={
+            isInboxView ? (inboxMetadata?.labels ?? EMPTY_LABELS) : undefined
+          }
+          refetchEmails={refetchEmails}
+          hasNextPage={hasNextPage}
+          reachedCap={isInboxView && inboxReachedCap}
+          fetchNextPage={fetchNextPage}
+          isFetchingNextPage={isFetchingNextPage}
+          isFetchNextPageError={isFetchNextPageError}
+          sortMode={sortMode}
+          showPrioritySort={showPrioritySort}
+          jevConfigured={jevConfigured}
+          priorityProviderIdentity={
+            jevAvailability.data?.providerIdentity ?? "unavailable"
+          }
+          jevAvailabilityLoading={
+            jevAvailability.isLoading || jevAvailability.isFetching
+          }
+          jevAvailabilityError={jevAvailability.isError}
+          onJevConnected={onJevAvailabilityChange}
+          onJevRetry={onJevAvailabilityChange}
+          onSortModeChange={changeSortMode}
+          readingPane={paneLayout !== null}
+          keyboardEnabled={!(paneLayout && hasThread)}
+          onThreadOrderChange={setListThreadIds}
+        />
+      </div>
+      {hasOlderInbox && (
+        <button
+          type="button"
+          disabled={loadingOlder}
+          onClick={() => void loadOlderInbox()}
+          className="shrink-0 border-t border-border/30 px-4 py-2 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+        >
+          {t(loadingOlder ? "mail.empty.loadingMore" : "mail.empty.loadOlder")}
+        </button>
+      )}
+    </div>
   );
   const showPaneList = paneLayout !== null && !(hasThread && isMaximized);
   const contactPanelDisplay = paneLayout

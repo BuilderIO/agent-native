@@ -1788,6 +1788,24 @@ describe("migrate-content-database-rows", () => {
     expect(await readDurableMigrationState(seed)).toEqual(before);
   });
 
+  it("refuses an agent's plan with an interactive block that would not work, migrating no row", async () => {
+    const seed = await fixture(2);
+    seed.rows[0].content =
+      '```html interactive\n<script src="https://unpkg.com/x"></script>\n```';
+    const before = await readDurableMigrationState(seed);
+
+    for (const phase of ["validate", "apply"] as const)
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          action.run(
+            { phase, plan: plan(seed) },
+            { caller: "mcp", userEmail: OWNER },
+          ),
+        ),
+      ).rejects.toMatchObject({ errorCode: "INTERACTIVE_HTML_BLOCK_REFUSED" });
+    expect(await readDurableMigrationState(seed)).toEqual(before);
+  });
+
   it("refuses a rollback that would restore the body of a row now on its live copy, leaving rows as migrated", async () => {
     const seed = await fixture(3);
     const input = plan(seed);

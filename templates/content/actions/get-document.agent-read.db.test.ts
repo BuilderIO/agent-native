@@ -7,6 +7,8 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { readBlockLink } from "../shared/block-link.js";
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `content-get-document-agent-read-${process.pid}-${Date.now()}.pglite`,
@@ -134,6 +136,32 @@ function read(
 }
 
 describe("get-document agent read", () => {
+  it("names each interactive HTML block and the link that opens it, for agents only", async () => {
+    const { row } = await seedRow("interactive");
+    const block = (title: string) =>
+      `\`\`\`html interactive\n<title>${title}</title>\n<p>Hi</p>\n\`\`\``;
+    await getDb()
+      .update(schema.documents)
+      .set({ content: ["Intro", block("First"), block("Second")].join("\n") })
+      .where(eq(schema.documents.id, row));
+
+    const { interactiveBlocks = [] } = await read(row, "mcp");
+
+    expect(interactiveBlocks.map(({ title }) => title)).toEqual([
+      "First",
+      "Second",
+    ]);
+    expect(new Set(interactiveBlocks.map(({ blockId }) => blockId)).size).toBe(
+      2,
+    );
+    for (const { blockId, url } of interactiveBlocks) {
+      const { pathname, search } = new URL(url);
+      expect(pathname).toBe(`/page/${row}`);
+      expect(readBlockLink(search)).toEqual({ blockId, fullScreen: true });
+    }
+    expect(await read(row, "frontend")).not.toHaveProperty("interactiveBlocks");
+  });
+
   it("gives agents the fields without the editor's display data", async () => {
     const { row, stageId, notesId } = await seedRow("trimmed");
     const full = await read(row, "frontend");

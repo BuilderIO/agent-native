@@ -71,6 +71,8 @@ import {
   resolveTargetUrl,
   shouldForwardRequestHeader,
   shouldForwardResponseHeader,
+  shouldForwardTerminalMcpRequestHeader,
+  shouldForwardTerminalMcpResponseHeader,
   stripCodexMcpConfig,
 } from "./desktop-chat.js";
 
@@ -318,6 +320,122 @@ describe("desktop chat relay target URLs", () => {
       expect(request.body).toContain('"method":"tools/list"');
       expect(request.headers.authorization).toBe("Bearer upstream-secret");
       expect(request.headers.cookie).toBeUndefined();
+    } finally {
+      await relay.close();
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    }
+  });
+
+  it("forwards MCP 2.0 request and response headers through DesktopTerminalMcpRelay while blocking restricted headers", async () => {
+    expect(shouldForwardTerminalMcpRequestHeader("Mcp-Method")).toBe(true);
+    expect(shouldForwardTerminalMcpRequestHeader("Mcp-Name")).toBe(true);
+    expect(shouldForwardTerminalMcpRequestHeader("MCP-Protocol-Version")).toBe(
+      true,
+    );
+    expect(shouldForwardTerminalMcpRequestHeader("Mcp-Param-Calendar-Id")).toBe(
+      true,
+    );
+    expect(shouldForwardTerminalMcpRequestHeader("If-None-Match")).toBe(true);
+    expect(shouldForwardTerminalMcpRequestHeader("Mcp-Param-")).toBe(false);
+    expect(shouldForwardTerminalMcpRequestHeader("Mcp-Param-bad header")).toBe(
+      false,
+    );
+    expect(shouldForwardTerminalMcpRequestHeader("Authorization")).toBe(false);
+    expect(shouldForwardTerminalMcpRequestHeader("Cookie")).toBe(false);
+    expect(
+      shouldForwardTerminalMcpRequestHeader("X-Agent-Native-Owner-Email"),
+    ).toBe(false);
+
+    expect(shouldForwardTerminalMcpResponseHeader("MCP-Protocol-Version")).toBe(
+      true,
+    );
+    expect(shouldForwardTerminalMcpResponseHeader("ETag")).toBe(true);
+    expect(shouldForwardTerminalMcpResponseHeader("Vary")).toBe(true);
+    expect(shouldForwardTerminalMcpResponseHeader("WWW-Authenticate")).toBe(
+      true,
+    );
+    expect(shouldForwardTerminalMcpResponseHeader("Set-Cookie")).toBe(false);
+
+    let resolveReceived!: (
+      headers: Record<string, string | string[] | undefined>,
+    ) => void;
+    const received = new Promise<Record<string, string | string[] | undefined>>(
+      (resolve) => {
+        resolveReceived = resolve;
+      },
+    );
+    const upstream = createServer((request, response) => {
+      request.resume();
+      request.on("end", () => {
+        resolveReceived({ ...request.headers });
+        response.writeHead(200, {
+          "content-type": "application/json",
+          "mcp-protocol-version": "2026-07-28",
+          "mcp-session-id": "session-123",
+          etag: '"tools-v1"',
+          vary: "Accept, MCP-Protocol-Version",
+          "www-authenticate": 'Bearer realm="mcp"',
+          "set-cookie": "secret=must-not-leak",
+          "x-internal-upstream": "must-not-leak",
+        });
+        response.end('{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}');
+      });
+    });
+    await new Promise<void>((resolve) =>
+      upstream.listen(0, "127.0.0.1", resolve),
+    );
+    const address = upstream.address();
+    if (!address || typeof address === "string") throw new Error("no port");
+
+    const relay = new DesktopTerminalMcpRelay(
+      `http://127.0.0.1:${address.port}/mcp`,
+      { Authorization: "Bearer upstream-secret" },
+    );
+    try {
+      const registration = await relay.start();
+      const response = await fetch(registration.url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${registration.bearerToken}`,
+          Accept: "application/json, text/event-stream",
+          "Content-Type": "application/json",
+          "MCP-Protocol-Version": "2026-07-28",
+          "Mcp-Method": "tools/call",
+          "Mcp-Name": "list-events",
+          "Mcp-Param-Range": "week",
+          "If-None-Match": '"tools-v0"',
+          Cookie: "spoofed=1",
+          "X-Agent-Native-Owner-Email": "spoofed@example.test",
+          "X-Unexpected": "drop-me",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "list-events", arguments: { range: "week" } },
+        }),
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get("mcp-protocol-version")).toBe("2026-07-28");
+      expect(response.headers.get("mcp-session-id")).toBe("session-123");
+      expect(response.headers.get("etag")).toBe('"tools-v1"');
+      expect(response.headers.get("vary")).toBe("Accept, MCP-Protocol-Version");
+      expect(response.headers.get("www-authenticate")).toBe(
+        'Bearer realm="mcp"',
+      );
+      expect(response.headers.get("set-cookie")).toBeNull();
+      expect(response.headers.get("x-internal-upstream")).toBeNull();
+
+      const forwarded = await received;
+      expect(forwarded["mcp-protocol-version"]).toBe("2026-07-28");
+      expect(forwarded["mcp-method"]).toBe("tools/call");
+      expect(forwarded["mcp-name"]).toBe("list-events");
+      expect(forwarded["mcp-param-range"]).toBe("week");
+      expect(forwarded["if-none-match"]).toBe('"tools-v0"');
+      expect(forwarded.authorization).toBe("Bearer upstream-secret");
+      expect(forwarded.cookie).toBeUndefined();
+      expect(forwarded["x-agent-native-owner-email"]).toBeUndefined();
+      expect(forwarded["x-unexpected"]).toBeUndefined();
     } finally {
       await relay.close();
       await new Promise<void>((resolve) => upstream.close(() => resolve()));

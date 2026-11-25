@@ -23,6 +23,7 @@ import { useEffect, useRef } from "react";
 import type { BlockAt } from "./block-menu-registry";
 import { EDITOR_NON_EDIT_META } from "./editor-transaction-meta";
 import { linkedBlockKey } from "./extensions/BlockIdentityIds";
+import { isInteractiveHtmlCodeBlock } from "./extensions/CodeBlockNode";
 
 const TRACKED = new Set<string>(BLOCKS_FIELD_BLOCK_KINDS);
 const ADDRESSABLE = new Set(BLOCK_IDENTITY_NODE_TYPES);
@@ -303,11 +304,46 @@ export async function blockLinkId(args: {
   }
 }
 
-export function blockLinkUrl(documentId: string, blockId: string): string {
+export function blockLinkUrl(
+  documentId: string,
+  blockId: string,
+  options?: { fullScreen?: boolean },
+): string {
   return new URL(
-    appPath(contentBlockLinkPath(documentId, blockId)),
+    appPath(contentBlockLinkPath(documentId, blockId, options)),
     window.location.origin,
   ).href;
+}
+
+export function usePublicBlockIds(
+  editor: Editor | null,
+  idsByPath: Record<string, string> | undefined,
+) {
+  useEffect(() => {
+    if (!editor || !idsByPath) return;
+    const stamp = () => {
+      if (editor.isDestroyed) return;
+      const tr = editor.state.tr;
+      for (const { path, pos, node } of blockPlaces(editor.state.doc)) {
+        const id = idsByPath[path];
+        if (
+          id &&
+          isInteractiveHtmlCodeBlock(node) &&
+          !blockIdentityIdOf(node)
+        ) {
+          tr.setNodeAttribute(pos, BLOCK_IDENTITY_ATTR, id);
+        }
+      }
+      if (!tr.docChanged) return;
+      tr.setMeta("addToHistory", false).setMeta(EDITOR_NON_EDIT_META, true);
+      editor.view.dispatch(tr);
+    };
+    stamp();
+    editor.on("update", stamp);
+    return () => {
+      editor.off("update", stamp);
+    };
+  }, [editor, idsByPath]);
 }
 
 export function linkedBlockPlace(
@@ -361,23 +397,26 @@ export function useLinkedBlockReveal(args: {
   editor: Editor | null;
   documentId: string | null | undefined;
   blockId: string | null | undefined;
+  fullScreen?: boolean;
   ready: boolean;
+  onRevealed?: (place: BlockPlace) => void;
   onDeleted: () => void;
   onMissing: () => void;
   onFailed: () => void;
 }) {
-  const { editor, documentId, blockId, ready } = args;
+  const { editor, documentId, blockId, fullScreen = false, ready } = args;
   const callbacksRef = useRef(args);
   callbacksRef.current = args;
   const handledRef = useRef<string | null>(null);
   useEffect(() => {
     if (!blockId) handledRef.current = null;
     if (!editor || !documentId || !blockId || !ready) return;
-    const key = `${documentId}:${blockId}`;
+    const key = `${documentId}:${blockId}:${fullScreen}`;
     if (handledRef.current === key) return;
     handledRef.current = key;
     let done = false;
     let at: { path: string; content: string } | null = null;
+    let frame: number | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const find = () =>
       linkedBlockPlace(editor, { id: blockId }) ??
@@ -386,10 +425,14 @@ export function useLinkedBlockReveal(args: {
       if (done || editor.isDestroyed) return done;
       if (!find()) return false;
       finish();
-      requestAnimationFrame(() => {
-        if (editor.isDestroyed) return;
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        if (editor.isDestroyed || callbacksRef.current.blockId !== blockId)
+          return;
         const place = find();
-        if (place) revealLinkedBlock(editor, place.pos, blockId);
+        if (!place) return;
+        revealLinkedBlock(editor, place.pos, blockId);
+        callbacksRef.current.onRevealed?.(place);
       });
       return true;
     };
@@ -423,8 +466,9 @@ export function useLinkedBlockReveal(args: {
         });
     }
     return () => {
-      if (!done) handledRef.current = null;
+      if (!done || frame !== null) handledRef.current = null;
+      if (frame !== null) cancelAnimationFrame(frame);
       finish();
     };
-  }, [editor, documentId, blockId, ready]);
+  }, [editor, documentId, blockId, fullScreen, ready]);
 }

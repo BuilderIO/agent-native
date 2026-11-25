@@ -3,6 +3,7 @@ import {
   SSR_QUERY_CACHE_KEY_HEADER,
 } from "@agent-native/core/shared";
 import { createElement } from "react";
+import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const resultQueue = vi.hoisted(() => ({ current: [] as unknown[][] }));
@@ -96,15 +97,29 @@ import {
   ReadOnlyMarkdownContent,
 } from "../routes/p.$id";
 
-function firstPaint(content: string, appUrl: string | null) {
+function firstPaint(
+  content: string,
+  appUrl: string | null,
+  options: { blockIds?: Record<string, string>; basePath?: string } = {},
+) {
   return renderToStaticMarkup(
-    createElement(ReadOnlyMarkdownContent, {
-      documentId: "doc-1",
-      content,
-      clipsAppUrl: appUrl,
-      pageLinks: {},
-      basePath: "",
-    }),
+    createElement(
+      MemoryRouter,
+      null,
+      createElement(ReadOnlyMarkdownContent, {
+        documentId: "doc-1",
+        content,
+        clipsAppUrl: appUrl,
+        pageLinks: {},
+        interactiveHtml: options.blockIds
+          ? {
+              blockIds: options.blockIds,
+              displaySources: { imageSources: [], mediaSources: [] },
+            }
+          : null,
+        basePath: options.basePath ?? "",
+      }),
+    ),
   );
 }
 
@@ -450,6 +465,45 @@ Second part
     expect(html).not.toContain("&lt;");
     expect(html).toContain(">Next</h2>");
     expect(html).toContain("<li>one</li><li>two</li>");
+  });
+
+  it("captions interactive blocks with their links, at any depth, and never their source", () => {
+    const html = firstPaint(
+      [
+        "Before.",
+        "```html interactive",
+        "<title>Tap counter</title><button>0</button>",
+        "```",
+        "- item",
+        "  ```html interactive",
+        "  <title>In a list</title>",
+        "  ```",
+        '<callout icon="💡">',
+        "\tRead this",
+        "\t```html interactive",
+        "\t<button>Unnamed</button>",
+        "\t```",
+        "</callout>",
+      ].join("\n"),
+      null,
+      {
+        blockIds: { "1": "block_a", "2.0.1": "block_b" },
+        basePath: "/content",
+      },
+    );
+    const links = [
+      ...html.matchAll(/<a href="([^"]*)"[^>]*>([^<]*)<\/a>/g),
+    ].map(([, href, label]) => [href, label]);
+
+    expect(links).toEqual([
+      ["/content/page/doc-1?block=block_a&amp;full=1", "Tap counter"],
+      ["/content/page/doc-1?block=block_b&amp;full=1", "In a list"],
+    ]);
+    expect(html).toContain("Before.");
+    expect(html).toContain("item");
+    expect(html).toContain("Read this");
+    expect(html).toContain(">editor.interactiveHtml.untitled</span>");
+    expect(html).not.toContain("button");
   });
 
   it("hands the public page the Clips URL from deployment config", async () => {

@@ -339,8 +339,12 @@ export async function ensureSchemaObject(options: {
   lockTimeout?: string;
   timeoutMs?: number;
   injectedClient?: DbExec;
+  lockRetries?: number;
+  lockRetryDelayMs?: number;
 }): Promise<boolean> {
   const { probe, ddl, label, lockTimeout, timeoutMs, injectedClient } = options;
+  const lockRetries = options.lockRetries ?? 3;
+  const lockRetryDelayMs = options.lockRetryDelayMs ?? 250;
   const initiallyExists = await probe();
   if (initiallyExists === true) return false;
   if (initiallyExists === undefined) {
@@ -348,9 +352,26 @@ export async function ensureSchemaObject(options: {
       `ensureSchemaObject: could not probe required schema "${label}"; refusing to issue DDL`,
     );
   }
-  const ran = await withLegacyServerlessSchemaDdl(() =>
-    runGuardedDdl(ddl, { lockTimeout, timeoutMs, injectedClient }),
-  );
+  let ran = false;
+  for (let attempt = 0; attempt <= lockRetries && !ran; attempt++) {
+    if (attempt > 0) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, lockRetryDelayMs * 2 ** (attempt - 1)),
+      );
+      const appeared = await probe();
+      if (appeared === true) {
+        invalidateSchemaSnapshot(injectedClient);
+        return true;
+      }
+    }
+    ran = await withLegacyServerlessSchemaDdl(() =>
+      runGuardedDdl(ddl, {
+        ...(lockTimeout !== undefined && { lockTimeout }),
+        ...(timeoutMs !== undefined && { timeoutMs }),
+        ...(injectedClient !== undefined && { injectedClient }),
+      }),
+    );
+  }
   invalidateSchemaSnapshot(injectedClient);
   if (ran) return true;
   const existsAfterTimeout = await probe();
@@ -366,6 +387,80 @@ export async function ensureSchemaObject(options: {
   );
 }
 
+export class ForeignTableSchemaError extends Error {
+  readonly table: string;
+  readonly missingColumns: readonly string[];
+
+  constructor(table: string, missingColumns: readonly string[]) {
+    super(
+      `ensureTableExists: table "${table}" already exists but lacks required ` +
+        `column(s) ${missingColumns.map((c) => `"${c}"`).join(", ")}. It looks ` +
+        `like a table the framework does not own that shares its name; refusing ` +
+        `to alter it. Rename or drop that table, or move it to another schema.`,
+    );
+    this.name = "ForeignTableSchemaError";
+    this.table = table;
+    this.missingColumns = missingColumns;
+  }
+}
+
+/**
+ * Columns an existing copy of this table must already have: those declared
+ * NOT NULL without a default, or as a primary key. Schema changes are additive
+ * (new columns are nullable or defaulted), so every framework table that ever
+ * shipped has them, and a table missing one was not created by this DDL.
+ */
+export function requiredColumnsOf(createSql: string): string[] {
+  const open = createSql.indexOf("(");
+  const close = createSql.lastIndexOf(")");
+  if (open < 0 || close <= open) return [];
+  const parts: string[] = [];
+  let depth = 0;
+  let start = open + 1;
+  for (let i = start; i < close; i++) {
+    const ch = createSql[i];
+    if (ch === "(") depth++;
+    else if (ch === ")") depth--;
+    else if (ch === "," && depth === 0) {
+      parts.push(createSql.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(createSql.slice(start, close));
+  const required: string[] = [];
+  for (const raw of parts) {
+    const def = raw.trim();
+    const match = /^"?([A-Za-z_][A-Za-z0-9_]*)"?\s+\S/.exec(def);
+    if (!match) continue;
+    const name = match[1];
+    if (!name) continue;
+    if (
+      /^(primary|unique|constraint|foreign|check|exclude|like)$/i.test(name)
+    ) {
+      continue;
+    }
+    if (/\bdefault\b|\bgenerated\b/i.test(def)) continue;
+    if (/\bnot\s+null\b|\bprimary\s+key\b/i.test(def)) {
+      required.push(name.toLowerCase());
+    }
+  }
+  return required;
+}
+
+async function assertExistingTableMatches(
+  table: string,
+  createSql: string,
+  injectedClient?: DbExec,
+): Promise<void> {
+  const missing: string[] = [];
+  for (const column of requiredColumnsOf(createSql)) {
+    if ((await pgColumnExists(table, column, injectedClient)) === false) {
+      missing.push(column);
+    }
+  }
+  if (missing.length > 0) throw new ForeignTableSchemaError(table, missing);
+}
+
 export async function ensureTableExists(
   table: string,
   createSql: string,
@@ -375,7 +470,17 @@ export async function ensureTableExists(
   } = {},
 ): Promise<boolean> {
   return ensureSchemaObject({
-    probe: () => pgTableExists(table, options.injectedClient),
+    probe: async () => {
+      const exists = await pgTableExists(table, options.injectedClient);
+      if (exists === true) {
+        await assertExistingTableMatches(
+          table,
+          createSql,
+          options.injectedClient,
+        );
+      }
+      return exists;
+    },
     ddl: createSql,
     label: `table ${table}`,
     lockTimeout: options.lockTimeout,

@@ -3,6 +3,30 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-24
+
+### Fixed
+
+- Long design titles stay clear of the sidebar controls, with the full title available on hover or keyboard focus.
+- Opening a localhost app in Design from an agent no longer fails with a view-move refusal.
+- The inspector stays readable when resized or reopened.
+- The "You don't have access to edit this design" banner no longer shows a zoom percentage.
+- The floating inspector panel fits narrow editor windows without clipping controls.
+
+## 2026-11-23
+
+### Added
+
+- Number fields in the inspector (width, height, opacity, corner radius, font size, line height and letter spacing) can bind to the design's tokens from a list under the field
+
+### Improved
+
+- The inspector sits on a 16px grid: section titles are larger, field names move into tooltips, and rows no longer reserve an empty action column.
+
+### Fixed
+
+- Edits on large designs no longer fail in workspaces without file storage, and version history now saves only the screens that changed
+
 ## 2026-11-22
 
 ### Fixed
@@ -14,6 +38,10 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 ### Added
 
 - Content pages can pin a picture of a screen from a design you can open; paste the screen's copied link into the page.
+
+### Improved
+
+- The top bar is gone, and its controls now sit at the top of the left and right columns. The left panel has Agent, File, and Library tabs, and Comments opens from the right column head. Screens are now called Pages, menus are tighter, and both panels resize from the keyboard and remember their width.
 
 ## 2026-11-19
 
@@ -2044,24 +2072,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 ### Fixed
 
 - Design edits now retry safely when another collaborator changes the file.
-
-## 2026-07-24
-
-### Improved
-
-- AI designs now default to a full-size desktop + mobile pair (Framer-style breakpoint frames) instead of duplicated desktop/tablet/home device frames
-- Secondary controls and dashboard surfaces now use quieter borderless styling.
-- Design frames now fill the viewport height and grow to fit their content at each breakpoint width, so mobile and tablet frames no longer clip below the fold
-- Sidebar utility controls now follow a consistent footer order.
-
-### Fixed
-
-- Generating an additional screen now places it beside the existing screens instead of stacking it on top at the same coordinates
-
-## 2026-07-23
-
-### Improved
-
-- Agent settings are clearly labeled Manage agent in the sidebar.
 
 For the full list of updates, see the [changelog folder](./changelog/).
