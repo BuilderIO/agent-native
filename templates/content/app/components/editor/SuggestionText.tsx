@@ -1,11 +1,17 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  clipSuggestionPresentation,
+  suggestionPresentationLength,
   suggestionTextPresentationForSource,
   suggestionTextPresentation,
   type SuggestionPresentationContext,
   type SuggestionPresentationNode,
 } from "@shared/suggestion-text";
 import { Fragment, type ReactNode } from "react";
+
+import { cn } from "@/lib/utils";
+
+const UNBROKEN_CODE = 24;
 
 function renderNode(node: SuggestionPresentationNode, key: string): ReactNode {
   if (node.type === "text") return <Fragment key={key}>{node.value}</Fragment>;
@@ -20,7 +26,14 @@ function renderNode(node: SuggestionPresentationNode, key: string): ReactNode {
   if (node.type === "strike") return <s key={key}>{children}</s>;
   if (node.type === "code")
     return (
-      <code key={key} className="rounded bg-muted px-1 font-mono text-[0.9em]">
+      <code
+        key={key}
+        className={cn(
+          "rounded bg-muted px-1 font-mono text-[0.9em]",
+          suggestionPresentationLength(node.children) <= UNBROKEN_CODE &&
+            "whitespace-nowrap",
+        )}
+      >
         {children}
       </code>
     );
@@ -35,38 +48,48 @@ function renderNode(node: SuggestionPresentationNode, key: string): ReactNode {
   }
 }
 
-export function SuggestionText({
-  content,
-  context,
-}: {
-  content: string;
-  context?: SuggestionPresentationContext;
-}) {
-  const t = useT();
+export function suggestionTextNodes(
+  content: string,
+  context?: SuggestionPresentationContext,
+): SuggestionPresentationNode[] | null {
   const presented = context
     ? suggestionTextPresentationForSource(content, context)
     : suggestionTextPresentation(content);
-  if (!presented) {
+  if (!presented) return null;
+  let start = 0;
+  let end = presented.length;
+  const isBreak = (node: SuggestionPresentationNode | undefined) =>
+    node?.type === "lineBreak";
+  while (start < end && isBreak(presented[start])) start += 1;
+  while (end > start && isBreak(presented[end - 1])) end -= 1;
+  const marker = (count: number): SuggestionPresentationNode[] =>
+    count ? [{ type: "text", value: "↵".repeat(count) }] : [];
+  return [
+    ...marker(start),
+    ...presented.slice(start, end),
+    ...marker(presented.length - end),
+  ];
+}
+
+export function SuggestionText({
+  content,
+  context,
+  clip,
+}: {
+  content: string;
+  context?: SuggestionPresentationContext | undefined;
+  clip?: { head: number; tail: number } | undefined;
+}) {
+  const t = useT();
+  const whole = suggestionTextNodes(content, context);
+  if (!whole) {
     return (
       <span data-suggestion-text-unavailable="true">
         {t("editor.sourceComponent.previewUnavailable")}
       </span>
     );
   }
-  // A new paragraph's own line break would open or close the card with an
-  // empty line, so a break at either edge shows as its marker instead; the
-  // breaks between lines stay.
-  let start = 0;
-  let end = presented.length;
-  while (start < end && presented[start]!.type === "lineBreak") start += 1;
-  while (end > start && presented[end - 1]!.type === "lineBreak") end -= 1;
-  const marker = (count: number): SuggestionPresentationNode[] =>
-    count ? [{ type: "text", value: "↵".repeat(count) }] : [];
-  const nodes = [
-    ...marker(start),
-    ...presented.slice(start, end),
-    ...marker(presented.length - end),
-  ];
+  const nodes = clip ? clipSuggestionPresentation(whole, clip) : whole;
   return (
     <span className="whitespace-pre-wrap break-words">
       {nodes.map((node, index) => renderNode(node, String(index)))}

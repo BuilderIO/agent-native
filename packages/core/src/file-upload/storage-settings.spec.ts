@@ -92,6 +92,7 @@ vi.mock("../secrets/storage.js", () => ({
 }));
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({
     execute: async () => ({
       rows: roleRef.role ? [{ role: roleRef.role }] : [],

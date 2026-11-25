@@ -94,6 +94,7 @@ let unregisterBuilderPayloadCleanupSweep: () => void;
 let getContentDatabaseSourceSnapshot: typeof import("./_database-source-utils.js").getContentDatabaseSourceSnapshot;
 let getContentDatabaseSourceSnapshotForWrite: typeof import("./_database-source-utils.js").getContentDatabaseSourceSnapshotForWrite;
 let builderReviewSourceValueTextProjection: typeof import("./_database-source-utils.js").builderReviewSourceValueTextProjection;
+let builderBodyHydrationVersion: typeof import("./_database-source-utils.js").builderBodyHydrationVersion;
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `pglite:${TEST_DB_PATH}`;
@@ -120,6 +121,7 @@ beforeAll(async () => {
     await import("../server/plugins/builder-private-payload-cleanup.js")
   ).registerBuilderPrivatePayloadCleanupSweep();
   ({
+    builderBodyHydrationVersion,
     builderReviewSourceValueTextProjection,
     getContentDatabaseSourceSnapshot,
     getContentDatabaseSourceSnapshotForWrite,
@@ -278,6 +280,60 @@ async function seedBuilderSource(args: {
     sourceId,
     changeSetId,
   };
+}
+
+async function addBuilderPage(
+  seeded: { databaseId: string; sourceId: string },
+  name: string,
+  page: {
+    position: number;
+    createdAt: string;
+    content: string;
+    sourceContent: string;
+    bodyHydrationVersion?: string;
+  },
+) {
+  const db = getDb();
+  const documentId = `${name}_${counter}`;
+  const itemId = `${name}_item_${counter}`;
+  await db.insert(schema.documents).values({
+    id: documentId,
+    ownerEmail: OWNER,
+    title: name,
+    content: page.content,
+    createdAt: page.createdAt,
+    updatedAt: page.createdAt,
+  });
+  await db.insert(schema.contentDatabaseItems).values({
+    id: itemId,
+    ownerEmail: OWNER,
+    databaseId: seeded.databaseId,
+    documentId,
+    position: page.position,
+    bodyHydrationStatus: "hydrated",
+    bodyHydrationVersion: page.bodyHydrationVersion ?? null,
+    createdAt: page.createdAt,
+    updatedAt: page.createdAt,
+  });
+  await db.insert(schema.contentDatabaseSourceRows).values({
+    id: `${name}_row_${counter}`,
+    ownerEmail: OWNER,
+    sourceId: seeded.sourceId,
+    databaseItemId: itemId,
+    documentId,
+    sourceRowId: `${name}_entry_${counter}`,
+    sourceQualifiedId: `builder-cms://${BUILDER_CMS_SAFE_WRITE_MODEL}/${name}_entry_${counter}`,
+    sourceDisplayKey: name,
+    provenance: "Builder CMS read adapter",
+    sourceValuesJson: JSON.stringify({
+      "data.title": name,
+      [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: `${name}-hash`,
+      [BUILDER_CMS_BODY_CONTENT_KEY]: page.sourceContent,
+    }),
+    createdAt: page.createdAt,
+    updatedAt: page.createdAt,
+  });
+  return documentId;
 }
 
 describe("Builder source review execution gates", () => {
@@ -530,6 +586,153 @@ describe("Builder source review execution gates", () => {
     expect(response.remainingDocumentIds).toEqual([
       laterDocumentId,
       seeded.rowDocumentId,
+    ]);
+  });
+
+  it("quick-starts a whole source on its first changed bodies, leaving a page with a rejected change last", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+    });
+    const db = getDb();
+    await db
+      .update(schema.contentDatabaseSourceChangeSets)
+      .set({ state: "rejected" })
+      .where(eq(schema.contentDatabaseSourceChangeSets.id, seeded.changeSetId));
+    await db
+      .update(schema.documents)
+      .set({ content: "Locally changed body" })
+      .where(eq(schema.documents.id, seeded.rowDocumentId));
+    await db
+      .update(schema.contentDatabaseSourceRows)
+      .set({
+        sourceValuesJson: JSON.stringify({
+          "data.title": "Old title",
+          [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "changed-baseline-hash",
+          [BUILDER_CMS_BODY_CONTENT_KEY]: "Remote baseline body",
+        }),
+      })
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, seeded.sourceId));
+    await addBuilderPage(seeded, "unchanged", {
+      position: 1,
+      createdAt: "2026-07-25T12:00:00.000Z",
+      content: "Same body",
+      sourceContent: "Same body",
+    });
+    const laterDocumentId = await addBuilderPage(seeded, "later", {
+      position: 2,
+      createdAt: "2026-07-26T12:00:00.000Z",
+      content: "Another locally changed body",
+      sourceContent: "Remote baseline body",
+    });
+    const quickStart = (batchSize: number) =>
+      asOwner(() =>
+        previewReview.run({
+          documentId: seeded.databaseDocumentId,
+          sourceId: seeded.sourceId,
+          scope: "all",
+          bodyComparison: "text",
+          batchSize,
+          quickStart: true,
+        }),
+      );
+
+    const first = await quickStart(1);
+    expect(first.documentIds).toEqual([laterDocumentId]);
+    expect(first.remainingDocumentIds).toBeUndefined();
+    expect(first.review?.rows.map((row) => row.documentId)).toEqual([
+      laterDocumentId,
+    ]);
+    expect(heavySnapshotReads.reviewDocumentScopes.at(-1)).toEqual([
+      laterDocumentId,
+    ]);
+
+    const both = await quickStart(5);
+    expect(both.documentIds).toEqual([laterDocumentId, seeded.rowDocumentId]);
+  });
+
+  it("leaves a whole source with a saved pending change to its listing instead of quick-starting it", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+    });
+    await addBuilderPage(seeded, "later", {
+      position: 1,
+      createdAt: "2026-07-25T12:00:00.000Z",
+      content: "Locally changed body",
+      sourceContent: "Remote baseline body",
+    });
+
+    const response = await asOwner(() =>
+      previewReview.run({
+        documentId: seeded.databaseDocumentId,
+        sourceId: seeded.sourceId,
+        scope: "all",
+        bodyComparison: "text",
+        batchSize: 5,
+        quickStart: true,
+      }),
+    );
+
+    expect(response).toMatchObject({
+      sourceId: seeded.sourceId,
+      review: null,
+      changeSetIds: [],
+      documentIds: [],
+    });
+    expect(response.remainingDocumentIds).toBeUndefined();
+  });
+
+  it("lists an unchanged body with images only when the current converter has not hydrated it", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+    });
+    await getDb()
+      .delete(schema.contentDatabaseSourceChangeSets)
+      .where(
+        eq(schema.contentDatabaseSourceChangeSets.sourceId, seeded.sourceId),
+      );
+    const body = "![Chart](https://example.com/chart.png)";
+    await addBuilderPage(seeded, "current", {
+      position: 1,
+      createdAt: "2026-07-25T12:00:00.000Z",
+      content: body,
+      sourceContent: body,
+      bodyHydrationVersion: builderBodyHydrationVersion({
+        id: "current_entry",
+        model: BUILDER_CMS_SAFE_WRITE_MODEL,
+        title: "current",
+        urlPath: "/current",
+        updatedAt: "2026-07-25T12:00:00.000Z",
+        sourceValues: {},
+      }),
+    });
+    const olderDocumentId = await addBuilderPage(seeded, "older", {
+      position: 2,
+      createdAt: "2026-07-26T12:00:00.000Z",
+      content: body,
+      sourceContent: body,
+      bodyHydrationVersion:
+        "2026-01-01T00:00:00.000Z:readable-native-images-v5",
+    });
+    const neverDocumentId = await addBuilderPage(seeded, "never", {
+      position: 3,
+      createdAt: "2026-07-27T12:00:00.000Z",
+      content: body,
+      sourceContent: body,
+    });
+
+    const response = await asOwner(() =>
+      previewReview.run({
+        documentId: seeded.databaseDocumentId,
+        sourceId: seeded.sourceId,
+        scope: "all",
+        bodyComparison: "text",
+        batchSize: 0,
+      }),
+    );
+
+    expect(response.remainingDocumentIds).toEqual([
+      olderDocumentId,
+      neverDocumentId,
     ]);
   });
 

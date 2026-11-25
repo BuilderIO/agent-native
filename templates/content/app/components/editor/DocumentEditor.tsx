@@ -44,6 +44,7 @@ import type {
   DocumentProperty,
   DocumentSyncStatus,
 } from "@shared/api";
+import type { EditorBlockIds } from "@shared/block-identity-ids";
 import { suggestionBlocksFieldId } from "@shared/blocks-field-suggestions";
 import type { CommentAiRequest } from "@shared/comment-ai";
 import { commentPropertyTarget } from "@shared/comment-property-target";
@@ -57,6 +58,7 @@ import {
   LIVE_BODY_BACKFILL_FLAG,
   LIVE_BODY_SHADOW_FLAG,
 } from "@shared/feature-flags";
+import { isLocalSourceDirectoryId } from "@shared/local-source-directory";
 import { canonicalizeNfm, docToNfm } from "@shared/nfm";
 import {
   joinRewrittenParagraphs,
@@ -177,7 +179,10 @@ import { documentContentHash } from "@/lib/document-content-hash";
 import { registerDocumentHistoryRestoreController } from "@/lib/document-history-restore-controller";
 import { documentReadFailure } from "@/lib/document-read-failures";
 import { rememberLandingTitleHint } from "@/lib/document-title-hint";
-import { cachedFilesRootDocumentIds } from "@/lib/files-navigation";
+import {
+  cachedFilesRootDocumentIds,
+  cachedFilesSiblingDocumentIds,
+} from "@/lib/files-navigation";
 import { filesRootHintScope } from "@/lib/files-root-hint";
 import { rememberLastLocationHint } from "@/lib/last-location-hint";
 import {
@@ -444,6 +449,7 @@ import {
   type SuggestionPresentationTransition,
   type SuggestionPresentationTransitions,
 } from "./suggestions/presentation-rebase";
+import { SyncedPageBanner } from "./SyncedPageBanner";
 import {
   refreshedProposalMembers,
   reviewedAsOne,
@@ -3053,20 +3059,29 @@ export function documentEditorBreadcrumbItems(
   documents: Pick<Document, "id" | "parentId" | "title" | "icon">[], // i18n-ignore type expression
 ) {
   const byId = new Map(documents.map((doc) => [doc.id, doc]));
-  const parents: { id: string; title: string; icon: Document["icon"] }[] = [];
+  const parents: ToolbarBreadcrumbItem[] = [];
   const seen = new Set<string>([document.id]);
-  let parentId = document.parentId;
+  const pathParentId = byId.get(document.id)?.parentId;
+  let parentId =
+    document.parentId ??
+    (pathParentId && isLocalSourceDirectoryId(pathParentId)
+      ? pathParentId
+      : null);
 
   while (parentId) {
     if (seen.has(parentId)) break;
     seen.add(parentId);
     const parent = byId.get(parentId);
     if (!parent) break;
-    parents.unshift({
-      id: parent.id,
-      title: parent.title,
-      icon: parent.icon,
-    });
+    parents.unshift(
+      isLocalSourceDirectoryId(parent.id)
+        ? { title: parent.title, icon: null, iconKind: "folder" }
+        : {
+            id: parent.id,
+            title: parent.title,
+            icon: parent.icon,
+          },
+    );
     parentId = parent.parentId;
   }
 
@@ -3321,6 +3336,10 @@ function PageEditorSessionBody({
   );
   const navigate = useNavigate();
   const location = useLocation();
+  const linkedBlockId = useMemo(
+    () => new URLSearchParams(location.search).get("block"),
+    [location.search],
+  );
   const mcpDirectoryWidgetReadOnly =
     document.mcpDirectoryWidgetReadOnly === true;
   const widgetEditability = directoryWidgetEditability(document);
@@ -3756,6 +3775,11 @@ function PageEditorSessionBody({
         ? null
         : remainingPageAfterDelete(documentId, {
             activePath: navigationPath,
+            siblingDocumentIds: cachedFilesSiblingDocumentIds(
+              queryClient,
+              documentId,
+              navigationPath,
+            ),
             filesRootDocumentIds: cachedFilesRootDocumentIds(
               queryClient,
               documentId,
@@ -3882,6 +3906,16 @@ function PageEditorSessionBody({
     updatedAt: null,
     revision: undefined,
   });
+  const editorBlockIdsRef = useRef<{
+    markdown: string;
+    ids: EditorBlockIds;
+  } | null>(null);
+  const handleBlockIdentityIds = useCallback(
+    (markdown: string, ids: EditorBlockIds) => {
+      editorBlockIdsRef.current = { markdown, ids };
+    },
+    [],
+  );
   const isInitializedRef = useRef(false);
   const prevDocIdRef = useRef<string | null>(null);
   const localSnapshotEpochRef = useRef(0);
@@ -4748,6 +4782,10 @@ function PageEditorSessionBody({
                     )
                   : undefined,
               ...updates,
+              ...(updates.content !== undefined &&
+              editorBlockIdsRef.current?.markdown === updates.content
+                ? { editorBlockIds: editorBlockIdsRef.current.ids }
+                : {}),
               historySessionId:
                 options.historySessionId ??
                 historySessionRef.current.activity(documentId),
@@ -12044,28 +12082,7 @@ function PageEditorSessionBody({
             </div>
           ) : null}
 
-          {isGitHubSourceDocument ? (
-            <div
-              className="border-b bg-muted/20 px-4 py-1.5 text-xs text-muted-foreground"
-              role="status"
-              data-github-source-read-only
-            >
-              {t("editor.githubSourceReadOnly")}
-              {document.source?.url ? (
-                <>
-                  {" "}
-                  <a
-                    href={document.source.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="underline underline-offset-2 hover:text-foreground"
-                  >
-                    {t("editor.githubSourceOpenFile")}
-                  </a>
-                </>
-              ) : null}
-            </div>
-          ) : null}
+          <SyncedPageBanner document={document} />
 
           {/* isolate makes the scroller its own stacking context. Safari
               misorders the layers inside a scroller that isn't one, so the
@@ -12547,6 +12564,7 @@ function PageEditorSessionBody({
                                     : document.collabContentRevision
                                 }
                                 requestCollabSync={requestCollabSync}
+                                flushCollabUpdates={flushCollabUpdates}
                                 onChange={
                                   isSuggesting
                                     ? handleSuggestionDraftChange
@@ -12651,6 +12669,16 @@ function PageEditorSessionBody({
                                 }
                                 onSuggestionPlacementsChange={
                                   handleSuggestionPlacementsChange
+                                }
+                                blockLinks={
+                                  !isLocalFileDocument &&
+                                  !mcpDirectoryWidgetReadOnly
+                                }
+                                linkedBlockId={linkedBlockId}
+                                onBlockIdentityIds={
+                                  isSuggesting
+                                    ? undefined
+                                    : handleBlockIdentityIds
                                 }
                               />
                             </WidgetVisualEditorBoundary>

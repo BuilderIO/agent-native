@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { renderLeftSidebar } from "@/pages/design-editor/view/left-sidebar";
 
 const mocks = vi.hoisted(() => ({
@@ -44,10 +45,6 @@ vi.mock("@/components/design/DesignExtensionsPanel", () => ({
   AssetLibraryPanel: () => null,
   DesignExtensionsPanel: () => null,
 }));
-vi.mock("@/components/design/editor/DesignWorkspaceRail", () => ({
-  DesignWorkspaceRail: () => null,
-  INITIAL_GENERATION_DISABLED_LEFT_PANELS: [],
-}));
 vi.mock("@/components/design/editor/LeftPanelHeader", () => ({
   LeftPanelHeader: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>
@@ -67,6 +64,10 @@ vi.mock("@/components/editor/DesignComposerContextProvider", () => ({
 vi.mock("@/components/editor/FigmaLinkComposerBubble", () => ({
   FigmaLinkComposerBubble: () => null,
 }));
+vi.mock("@agent-native/toolkit/app/feedback", () => ({
+  FeedbackButton: () => null,
+}));
+vi.mock("@agent-native/toolkit/app/org", () => ({ OrgSwitcher: () => null }));
 
 let container: HTMLDivElement;
 let root: Root;
@@ -135,7 +136,11 @@ describe("editor first-run templates", () => {
       leftSidebarVisible: true,
     } as unknown as Parameters<typeof renderLeftSidebar>[0];
     await act(async () =>
-      root.render(<MemoryRouter>{renderLeftSidebar(props)}</MemoryRouter>),
+      root.render(
+        <MemoryRouter>
+          <TooltipProvider>{renderLeftSidebar(props)}</TooltipProvider>
+        </MemoryRouter>,
+      ),
     );
     return onPickTemplate;
   }

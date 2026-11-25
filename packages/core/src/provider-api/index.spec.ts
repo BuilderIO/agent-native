@@ -4644,9 +4644,8 @@ describe("provider API runtime", () => {
   it("explains an out-of-scope credential instead of reporting it missing", async () => {
     resolveCredential.mockResolvedValue(null);
     describeCredentialScopeGap.mockResolvedValue(
-      'Ask an organization owner or admin to save "HUBSPOT_ACCESS_TOKEN" ' +
-        "with Workspace or Organization scope. This workspace has it only " +
-        "as a Personal key.",
+      "Ask an organization owner or admin to save it with Workspace or " +
+        "Organization scope. This workspace has it only as a Personal key.",
     );
     const runtime = createProviderApiRuntime({
       appId: "analytics",
@@ -4662,12 +4661,57 @@ describe("provider API runtime", () => {
       );
 
     expect(error?.message).toMatch(
-      /^hubspot credential not configured\. Ask an organization owner or admin to save "HUBSPOT_ACCESS_TOKEN" .* Personal key\. Tried: \S/,
+      /^hubspot credential not configured\. Ask an organization owner or admin to save it .* Personal key\. Tried: \S/,
     );
     expect(describeCredentialScopeGap).toHaveBeenCalledWith(
       expect.arrayContaining(["HUBSPOT_ACCESS_TOKEN"]),
       credentialContext,
     );
+  });
+
+  it("puts a single required key after the explanation, as the any-key error does", async () => {
+    resolveCredential.mockResolvedValue(null);
+    describeCredentialScopeGap.mockResolvedValue(
+      "Save it in this organization, or switch your active organization " +
+        'to "Builder.io", where it\'s saved.',
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["apollo"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const error = await runtime
+      .executeRequest({ provider: "apollo", path: "/v1/auth/health" })
+      .then(
+        () => null,
+        (err: Error) => err,
+      );
+
+    expect(error?.message).toBe(
+      "apollo credential not configured. Save it in this organization, or " +
+        'switch your active organization to "Builder.io", where it\'s saved. ' +
+        "Tried: APOLLO_API_KEY",
+    );
+  });
+
+  it("names a single required key alone when there's nothing to explain", async () => {
+    resolveCredential.mockResolvedValue(null);
+    describeCredentialScopeGap.mockResolvedValue(null);
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["apollo"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const error = await runtime
+      .executeRequest({ provider: "apollo", path: "/v1/auth/health" })
+      .then(
+        () => null,
+        (err: Error) => err,
+      );
+
+    expect(error?.message).toBe("APOLLO_API_KEY not configured");
   });
 
   it("gives no shared-key advice when the selected connection lacks the key", async () => {

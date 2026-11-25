@@ -3,6 +3,18 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-23
+
+### Added
+
+- The Content view counts daily.dev visits per blog article, and can track your YouTube channels' videos once you save a YouTube Data API key under Data Sources.
+
+## 2026-11-22
+
+### Added
+
+- Connected MCP agents can now run their own read-only BigQuery SELECT on Analytics' reviewed warehouse datasets with query-warehouse, and find tables and columns with search-warehouse-schema, counted against the same daily outside-agent BigQuery budget.
+
 ## 2026-11-21
 
 ### Improved
@@ -1371,58 +1383,5 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 ### Security
 
 - Demo mode now reliably anonymizes email addresses throughout error reports.
-
-## 2026-07-11
-
-### Added
-
-- The Agent-Native dashboard now shows explicit thumbs feedback trends and sentiment by model.
-- The Agent-Native dashboard now shows optional inferred message sentiment overall, over time, and by main model.
-
-### Improved
-
-- Analytics chats now start faster by loading metric definitions only when they are needed
-- Analytics only asks for replay storage when you enable session replay, with Builder.io as the primary setup path.
-- The command palette now responds instantly, and SQL previews expand and collapse smoothly.
-- Session filters now stay compact in a settings menu at medium widths.
-- Session replays load large recordings faster and surface failed network and scroll activity in the timeline.
-
-### Fixed
-
-- Analytics no longer repeatedly restarts background requests when the app initializes or syncs changes.
-- Charts now show their loading skeleton while refreshing.
-- Command search now reports loading failures and lets you retry instead of hiding unavailable results.
-- Dashboard navigation now loads faster and reports request failures instead of appearing empty.
-- Microphone settings from realtime voice mode now open the Voice Transcription settings reliably.
-- More dashboard edit paths are now safe against simultaneous agent and UI edits
-- Realtime voice now shows a clear connection indicator, completes its greeting, and can navigate the Analytics app.
-- Renaming a dashboard is now safe against simultaneous agent and UI edits
-- Renaming an analysis is now safe against simultaneous edits
-- Replay event counts stay hidden until recordings finish loading
-- Session replay storage key mismatches now show actionable setup guidance instead of a low-level encryption error.
-- Replay timelines group continuous scrolling, and Dev Tools counts and expanded details stay accurate and compact.
-- Session replay console errors now link to matching issues or a filtered Monitoring search.
-- Session replays preserve recorded styles and use one consistent viewport so previews match the original browser more closely.
-- Session replays stay centered instead of clipping wide recordings
-- Workspace-mounted Analytics now opens Ask reliably and routes between pages correctly.
-
-## 2026-07-10
-
-### Improved
-
-- Agent-created uptime monitors now return a direct link to their Analytics detail view
-- Analytics answers simple time-bounded metrics without unnecessary follow-up queries.
-- Context chips can now be selected and removed one at a time with Backspace from the start of the Ask composer.
-- Slack data-source setup now favors workspace connections and identifies raw bot tokens as a legacy local fallback.
-
-### Fixed
-
-- Analytics chat reliably uses connected data sources across supported models
-- Chat threads now stay clear of top actions and fade smoothly beneath them while scrolling.
-- Dashboard edits from the agent and the UI at the same time no longer overwrite each other
-- Dashboard email reports still arrive when screenshot capture temporarily fails.
-- The Ask composer no longer carries dashboard or panel context after leaving a dashboard.
-- The Ask section stays highlighted while its chat history is expanded.
-- Timed-out BigQuery jobs are now cancelled so they stop consuming warehouse quota.
 
 For the full list of updates, see the [changelog folder](./changelog/).

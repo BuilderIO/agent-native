@@ -17,7 +17,8 @@ export type BigQueryUsageAttribution = {
     | "dashboard-panel"
     | "dashboard-report"
     | "panel-verification"
-    | "alert";
+    | "alert"
+    | "outside-agent-query";
   dashboardId?: string;
   panelId?: string;
 };
@@ -237,6 +238,7 @@ export type BigQueryJobBilling =
       cacheHit: boolean | null;
       statementType: string | null;
       errorReason: string | null;
+      errorMessage?: string | null;
       location: string | undefined;
     }
   | { kind: "not_found" }
@@ -261,7 +263,10 @@ export async function readBigQueryJobBilling(
     if (!response.ok) return { kind: "unreadable" };
     const data = (await response.json()) as {
       jobReference?: { projectId?: string; jobId?: string; location?: string };
-      status?: { state?: string; errorResult?: { reason?: unknown } };
+      status?: {
+        state?: string;
+        errorResult?: { reason?: unknown; message?: unknown };
+      };
       statistics?: {
         query?: {
           totalBytesBilled?: unknown;
@@ -302,6 +307,10 @@ export async function readBigQueryJobBilling(
           ? data.status.errorResult.reason
           : "unreadable"
         : null,
+      errorMessage:
+        typeof data.status?.errorResult?.message === "string"
+          ? data.status.errorResult.message.slice(0, 4_000)
+          : null,
       location: data.jobReference.location ?? job.location ?? undefined,
     };
   } catch {

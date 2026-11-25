@@ -15,7 +15,11 @@ import {
   analyticsChartBlockRaw,
   type AnalyticsChartData,
 } from "../../shared/analytics-chart-block.js";
-import { analyticsChartsInBody } from "../../shared/analytics-charts-in-body.js";
+import {
+  analyticsChartDashboardIds,
+  analyticsChartsInBody,
+  chartTagNamesDashboard,
+} from "../../shared/analytics-charts-in-body.js";
 import {
   assertAnalyticsTablesFitAudience,
   assertAnalyticsTablesFitSharingChange,
@@ -93,6 +97,89 @@ describe("analyticsChartsInBody", () => {
       charts: [],
       unreadable: 1,
     });
+  });
+});
+
+describe("analyticsChartDashboardIds", () => {
+  it("names each dashboard a page holds charts from once", async () => {
+    const content = body(
+      chart("line", "org"),
+      chart("table", "private", "Customers"),
+      chart("line", "org"),
+    );
+    await expect(analyticsChartDashboardIds(content)).resolves.toEqual([
+      "dash-accounts",
+      "dash-customers",
+    ]);
+    await expect(analyticsChartDashboardIds("Just text.")).resolves.toEqual([]);
+  });
+
+  it("reads a tag written in another form the way the editor does", async () => {
+    const content = body(chart("line", "org")).replace(
+      ' dashboard={{\n  "id": "dash-accounts",',
+      " title='Quarter' dashboard={{\n  id: 'dash-accounts',",
+    );
+    expect(content).toContain("id: 'dash-accounts'");
+    await expect(analyticsChartDashboardIds(content)).resolves.toEqual([
+      "dash-accounts",
+    ]);
+  });
+
+  it("isn't fooled by an earlier attribute that quotes a dashboard", async () => {
+    const content = body(chart("line", "org")).replace(
+      " dashboard={{",
+      ' summary={"See dashboard={{\\"id\\": \\"dash-other\\"}}"} dashboard={{',
+    );
+    await expect(analyticsChartDashboardIds(content)).resolves.toEqual([
+      "dash-accounts",
+    ]);
+  });
+
+  it("skips tags with no usable dashboard id and tags in code", async () => {
+    const badId = body(chart("line", "org")).replace(
+      '"id": "dash-accounts"',
+      '"id": "not an id"',
+    );
+    const inCode = ["```mdx", body(chart("line", "org")), "```"].join("\n");
+    await expect(analyticsChartDashboardIds(badId)).resolves.toEqual([]);
+    await expect(
+      analyticsChartDashboardIds(withoutDashboard(chart("line", "org"))),
+    ).resolves.toEqual([]);
+    await expect(analyticsChartDashboardIds(inCode)).resolves.toEqual([]);
+  });
+});
+
+describe("chartTagNamesDashboard", () => {
+  it("finds a dashboard among a page's chart tags", async () => {
+    const content = body(
+      chart("line", "org"),
+      chart("table", "private", "Customers"),
+    );
+    await expect(
+      chartTagNamesDashboard(content, "dash-customers"),
+    ).resolves.toBe(true);
+    await expect(chartTagNamesDashboard(content, "dash-other")).resolves.toBe(
+      false,
+    );
+  });
+
+  it("reads a tag in another form the long way", async () => {
+    const content = [
+      "Write `<AnalyticsChart>` to keep a chart.",
+      body(chart("line", "org")).replace(
+        " dashboard={{",
+        " title='Quarter' dashboard={{",
+      ),
+    ].join("\n\n");
+    await expect(
+      chartTagNamesDashboard(content, "dash-accounts"),
+    ).resolves.toBe(true);
+    await expect(
+      chartTagNamesDashboard(
+        "Write `<AnalyticsChart>` to keep a chart.",
+        "dash-accounts",
+      ),
+    ).resolves.toBe(false);
   });
 });
 

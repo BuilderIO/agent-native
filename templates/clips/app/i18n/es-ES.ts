@@ -1193,6 +1193,8 @@ const messages = {
     visibilityDescription:
       "Se aplica a las grabaciones que creas. Puedes cambiarla en cualquier grabación.",
     useOrgDefault: "Usar el valor predeterminado de {{org}} ({{visibility}})",
+    enforceOrgDefault:
+      "Los miembros no pueden definir su propio valor predeterminado",
     useDefault: "Usar el valor predeterminado ({{visibility}})",
     transcriptExport: "Exportación de transcripciones",
     logoDescription:

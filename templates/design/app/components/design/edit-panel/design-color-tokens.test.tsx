@@ -167,7 +167,7 @@ describe("DesignColorTokensProvider", () => {
     expect(queryState.calls.length).toBeGreaterThan(0);
     expect(queryState.calls[0]).toEqual([
       "index-design-tokens",
-      { designId: "d1" },
+      { designId: "d1", compact: true },
     ]);
   });
 

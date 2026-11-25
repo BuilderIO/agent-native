@@ -76,6 +76,29 @@ afterAll(async () => {
 });
 
 describe("framework schema setup inside a failed action", () => {
+  it("initializes settings on a fresh database when first read inside a transaction", async () => {
+    const { createGetDb } = await import("./create-get-db.js");
+    const getDb = createGetDb({});
+    await getDb().transaction(async () => {
+      expect(await getSetting("fresh-in-transaction")).toBeNull();
+    });
+    expect(await exists("settings")).toBe(true);
+  });
+
+  it("retries settings setup after its enclosing transaction rolls back", async () => {
+    const { createGetDb } = await import("./create-get-db.js");
+    const getDb = createGetDb({});
+    const run = async () =>
+      await getDb().transaction(async () => {
+        await getSetting("rolled-back");
+        throw new Error("roll back");
+      });
+    await expect(run()).rejects.toThrow("roll back");
+    expect(await exists("settings")).toBe(false);
+    expect(await getSetting("rolled-back")).toBeNull();
+    expect(await exists("settings")).toBe(true);
+  });
+
   it("is none when the first read of a framework store created its tables", async () => {
     expect(await effectOf(() => getSetting("probe"))).toBe("none");
     expect(await exists("settings")).toBe(true);

@@ -1,6 +1,7 @@
 import {
   compareMirroredReviewComments,
   deleteMirroredReviewComments,
+  deleteOrphanedMirroredReplies,
   ensureReviewTables,
   listMirroredResourceIds,
   mirrorReviewComments,
@@ -206,6 +207,7 @@ export interface PlanCommentCopyReport {
   failedPlans: string[];
   differences: Array<{ planId: string } & ReviewMirrorDifference>;
   kitWrittenComments: Array<{ planId: string; id: string }>;
+  orphanedReplies: Array<{ planId: string; id: string }>;
 }
 
 const PLAN_PAGE_SIZE = 200;
@@ -219,6 +221,7 @@ export async function copyPlanCommentsToReviewKit(): Promise<PlanCommentCopyRepo
     failedPlans: [],
     differences: [],
     kitWrittenComments: [],
+    orphanedReplies: [],
   };
   let after = "";
   for (;;) {
@@ -276,7 +279,7 @@ async function copyPlan(
       if (plans.length === 0) {
         await deleteMirroredPlanComments(planId, "all");
         const { differences } = await comparePlanComments(resource, []);
-        return { comments: 0, differences, kitWritten: [] };
+        return { comments: 0, differences, kitWritten: [], orphaned: [] };
       }
       const rows = await tx
         .select()
@@ -301,14 +304,20 @@ async function copyPlan(
         await deleteMirroredPlanComments(planId, ids, by);
       }
       const { differences } = await comparePlanComments(resource, copies);
+      const extra = differences
+        .filter((difference) => difference.problem === "extra")
+        .map((difference) => difference.id);
+      const { deleted: orphaned } = await deleteOrphanedMirroredReplies(
+        resource,
+        extra,
+      );
       return {
         comments: copies.length,
         differences: differences.filter(
           (difference) => difference.problem !== "extra",
         ),
-        kitWritten: differences
-          .filter((difference) => difference.problem === "extra")
-          .map((difference) => difference.id),
+        kitWritten: extra.filter((id) => !orphaned.includes(id)),
+        orphaned,
       };
     });
     report.plans += 1;
@@ -318,6 +327,9 @@ async function copyPlan(
     }
     for (const id of copied.kitWritten) {
       report.kitWrittenComments.push({ planId, id });
+    }
+    for (const id of copied.orphaned) {
+      report.orphanedReplies.push({ planId, id });
     }
   } catch (error) {
     report.failedPlans.push(planId);

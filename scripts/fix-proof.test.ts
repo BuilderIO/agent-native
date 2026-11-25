@@ -265,4 +265,14 @@ describe("fix-proof", () => {
       /no non-test changes[^\n]*test-only change needs no fix proof/,
     );
   });
+
+  it("cannot run on a docs-only commit and says it needs no proof", () => {
+    mkdirSync(join(repo, "docs"), { recursive: true });
+    write("docs/guide.mdx", "# Guide\n");
+    sh("git", "add", "docs/guide.mdx");
+    sh("git", "commit", "-qm", "docs-only");
+    const r = sh("node", SCRIPT, "--fix", "HEAD", "--", "true");
+    assert.equal(r.status, 2);
+    assert.match(r.stderr, /only docs changed[^\n]*`fix-proof: docs-only`/);
+  });
 });

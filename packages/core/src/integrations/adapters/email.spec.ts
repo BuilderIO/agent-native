@@ -19,6 +19,7 @@ vi.mock("../config-store.js", () => ({
 }));
 
 vi.mock("../../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({
     execute: async () => {
       throw new Error("no table");

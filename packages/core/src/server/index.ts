@@ -617,8 +617,10 @@ export {
   getRequestRunContext,
   getCredentialContext,
   isIntegrationCallerRequest,
+  normalizeViewportMode,
   type RequestContext,
   type RequestRunContext,
+  type ViewportMode,
 } from "./request-context.js";
 export {
   loadFirstRunBuilderCreditsV2Assignment,
@@ -830,6 +832,7 @@ export {
   BUILDER_CONTENT_WRITE_SCOPE,
   BUILDER_OAUTH_RESOURCE,
   BUILDER_OAUTH_SCOPE,
+  hasOwnStoredBuilderOAuthGrantForUse,
   resolveBuilderOAuthRequestAccessState,
   type BuilderOAuthPermissionScope,
   type BuilderOAuthRequestAccessState,
@@ -1076,3 +1079,8 @@ export {
   isProviderPauseOperator,
   type ProviderPauseCaller,
 } from "./provider-pause-operator.js";
+export type {
+  AgentChatRunCompleteOutcome,
+  AgentChatRunNotStartedDetails,
+  AgentChatRunProjectionOutcome,
+} from "./agent-chat/plugin-options.js";

@@ -38,6 +38,58 @@ describe("route-app-intent", () => {
     ]);
   });
 
+  it.each([
+    ["show me GitHub messages from actual people", "mail"],
+    ["show emails about GitHub issues", "mail"],
+    ["open my GitHub inbox", "mail"],
+    ["find messages from people", "mail"],
+    ["show my GitHub issues", "tasks"],
+    ["open GitHub pull requests", "tasks"],
+    ["list GitHub PRs assigned to me", "tasks"],
+  ])(
+    "routes %s to %s despite a competing service pointer",
+    async (text, app) => {
+      mocks.listGrantedDispatchMcpApps.mockResolvedValue([
+        { id: "mail", name: "Mail", description: "Email inbox" },
+        { id: "tasks", name: "Tasks", description: "GitHub integration" },
+      ]);
+      mocks.listPointerRows.mockResolvedValue([
+        {
+          id: "p1",
+          owner: "owner@example.com",
+          path: "pointers/github.json",
+          content: JSON.stringify({ alias: "GitHub", appId: "tasks" }),
+        },
+      ]);
+      mocks.decide.mockResolvedValue({
+        status: "ok",
+        provider: "test",
+        model: "test",
+        answers: {
+          app: { type: "choice", choice: app === "mail" ? "tasks" : "mail" },
+        },
+      });
+      expect(await run({ text })).toMatchObject({ status: "ok", app });
+    },
+  );
+
+  it("falls back to classification when the mail app is not granted", async () => {
+    mocks.listGrantedDispatchMcpApps.mockResolvedValue([
+      { id: "tasks", name: "Tasks", description: "GitHub integration" },
+    ]);
+    mocks.decide.mockResolvedValue({
+      status: "ok",
+      provider: "test",
+      model: "test",
+      answers: { app: { type: "choice", choice: "none" } },
+    });
+    expect(await run({ text: "show my inbox" })).toMatchObject({
+      status: "ok",
+      app: "none",
+    });
+    expect(mocks.decide).toHaveBeenCalledOnce();
+  });
+
   it("recognizes an explicit registered app choice without classifying it", async () => {
     expect(await run({ text: "Open Mail." })).toMatchObject({
       status: "ok",
@@ -283,7 +335,7 @@ describe("route-app-intent", () => {
     });
     expect(result).toMatchObject({ status: "ok", app: "tasks" });
     expect(result).not.toHaveProperty("pointer");
-    expect(mocks.decide).toHaveBeenCalledOnce();
+    expect(mocks.decide).not.toHaveBeenCalled();
   });
 
   it("is reachable by desktop MCP clients but hidden from the in-app agent", () => {
@@ -362,7 +414,7 @@ describe("route-app-intent", () => {
       reason: "missing_credentials",
       providers: [],
     });
-    const notConfigured = await run({ text: "my inbox" });
+    const notConfigured = await run({ text: "my schedule" });
     expect(notConfigured).toMatchObject({
       status: "not_configured",
       reason: "missing_credentials",
@@ -370,7 +422,7 @@ describe("route-app-intent", () => {
     expect(notConfigured).not.toHaveProperty("app");
 
     mocks.decide.mockResolvedValueOnce({ status: "failed", reason: "timeout" });
-    const failed = await run({ text: "my inbox" });
+    const failed = await run({ text: "my schedule" });
     expect(failed).toMatchObject({ status: "failed", reason: "timeout" });
     expect(failed).not.toHaveProperty("app");
   });

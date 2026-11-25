@@ -733,6 +733,8 @@ const messages: ToolkitAgentChatTranslation = {
     "ツールのスキーマが無効だったため、モデルは開始前にリクエストを拒否しました。無効なツールをスキップして再試行できます。",
   "errorMessages.malformedRequest":
     "モデルプロバイダーがこのリクエストを不正な形式として拒否したため、再試行されませんでした。再試行するか、繰り返し発生する場合は新しいチャットを開始してください。",
+  "errorMessages.requestNotRead":
+    "リクエストが大きすぎるか複雑すぎる（たとえばツールが多すぎる）ため、モデルはこのリクエストを読み取れず、再試行されませんでした。新しいチャットを開始するか、別のモデルを選んでください。",
   "errorMessages.requestTooLarge":
     "このリクエストはサーバーのサイズ上限を超えました（HTTP 413）。新しいチャットを開始するか、大きな添付ファイルや参照を削除して再試行してください。",
   "errorMessages.capabilityUnavailable":
@@ -741,6 +743,8 @@ const messages: ToolkitAgentChatTranslation = {
     "このアプリは、保存したプロンプトをまだ安全に再試行できません。アプリを更新してから、もう一度お試しください。",
   "errorMessages.runInterrupted": "エージェントは完了前に停止しました。",
   "errorMessages.runFailed": "エージェントの実行に失敗しました。",
+  "errorMessages.writeOutcomeUnknown":
+    "以前の試行ですでに変更が保存された可能性があり、結果を確認できなかったため、書き込み操作を繰り返す前に停止しました。再試行する前に、何が保存されたか確認してください。",
   "errorMessages.runUnverified":
     "このチャットはエージェントを追跡できなくなりました。エージェントはまだ実行中の可能性があります。再読み込みして進捗を確認してください。",
   "errorMessages.runSignedOut":
@@ -2217,6 +2221,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.languageDescription":
     "すべてのデバイスに適用されます。",
   "settingsShell.account.appearance": "外観",
+  "settingsShell.account.theme": "カラーモード",
+  "settingsShell.account.themeSystem": "システム",
+  "settingsShell.account.themeLight": "ライト",
+  "settingsShell.account.themeDark": "ダーク",
   "settingsShell.account.themeFamily": "テーマ",
   "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
   "settingsShell.account.themeFamilyOriginal": "アプリのオリジナルカラー",
@@ -3535,6 +3543,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpApps.openInNewTab": "新しいタブで開く",
   "mcpApps.initFailed": "MCP アプリを初期化できませんでした。",
   "mcpApps.readOnly": "この保存済み MCP アプリは読み取り専用です。",
+  "markdown.opensInNewTab": "(新しいタブで開きます)",
   "iframeEmbed.blocked": "埋め込みがブロックされました",
   "iframeEmbed.missingSrc": "ソースがありません",
   "iframeEmbed.crossOrigin": "別オリジンの URL は許可されていません",
@@ -3944,6 +3953,7 @@ const messages: ToolkitAgentChatTranslation = {
   "filters.typeValue": "値を入力",
   "filters.enterNumber": "数値を入力",
   "filters.exactDate": "日付を指定",
+  "filters.relativeRange": "相対的な期間",
   "filters.startDate": "開始日",
   "filters.endDate": "終了日",
   "filters.dateBetween": "{{start}} – {{end}}",
@@ -3983,6 +3993,8 @@ const messages: ToolkitAgentChatTranslation = {
   "filters.date.this.year": "今年",
   "filters.date.past": "過去 {{duration}}",
   "filters.date.next": "今後 {{duration}}",
+  "filters.date.direction.past": "過去",
+  "filters.date.direction.next": "今後",
   "filters.views.notSaved": "未保存",
   "filters.views.save": "保存",
   "filters.views.saveForMe": "自分用に保存",

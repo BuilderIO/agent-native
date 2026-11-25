@@ -53,7 +53,7 @@ function actionsForAgentMode(
 }
 
 function ruleNameForMode(mode: AgentRuleMode, sentence: string): string {
-  const prefix = mode === "filter" ? "spam" : mode;
+  const prefix = mode === "filter" ? "spam" : mode === "tag" ? "label" : mode;
   return `AI ${prefix}: ${sentence.slice(0, 72)}`;
 }
 

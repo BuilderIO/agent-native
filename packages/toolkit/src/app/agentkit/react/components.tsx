@@ -7498,6 +7498,11 @@ export interface AgentKitComposerProps extends Omit<
   initialTextKey?: string | number | undefined;
   /** Override the default AgentKit submit path when the host owns send options. */
   onSubmit?: PromptComposerProps["onSubmit"];
+  /**
+   * Set false when the host `onSubmit` never starts an agent run (for example
+   * a keyword search box), so a submit is not refused for missing AI setup.
+   */
+  submitRequiresAiSetup?: boolean;
   /** Opt in to Agent-Native provider UI when this host owns that setup flow. */
   requireAgentEngine?: boolean;
   beforeSend?: (submission: AgentKitComposerSubmission) => void | Promise<void>;
@@ -7604,6 +7609,7 @@ export function AgentKitComposer({
   onRemoveContextItem,
   extraActionButton,
   onSubmit: onSubmitOverride,
+  submitRequiresAiSetup = true,
   onSubmissionPendingChange,
   onAttachmentError,
   onAttachmentsChange,
@@ -8002,11 +8008,14 @@ export function AgentKitComposer({
       }
     }
     if (!editingMessage && onSubmitOverride) {
-      const readinessEngine = options.engine ?? selectedEngine;
-      await controller.assertAiSetupReady({
-        engine:
-          typeof readinessEngine === "string" ? readinessEngine : undefined,
-      });
+      if (submitRequiresAiSetup) {
+        const readinessEngine = options.engine ?? selectedEngine;
+        await controller.assertAiSetupReady(
+          typeof readinessEngine === "string"
+            ? { engine: readinessEngine }
+            : {},
+        );
+      }
       const submitOptions = {
         ...(suggestion ? { ...options, suggestion } : options),
         onLocalSubmit,
@@ -8911,7 +8920,9 @@ function latestRunId(thread: AgentThreadState): RunId | undefined {
       latest = { id: run.id, startedAt: run.startedAt };
     }
   }
-  return latest?.id ?? thread.events.at(-1)?.runId;
+  return (
+    latest?.id ?? thread.events.at(-1)?.runId ?? Object.keys(thread.runs).at(-1)
+  );
 }
 
 function currentRunActivityLabel(

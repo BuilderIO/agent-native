@@ -10,7 +10,12 @@ import {
   within,
   waitFor,
 } from "@testing-library/react";
-import { isValidElement, useCallback, useState } from "react";
+import {
+  isValidElement,
+  useCallback,
+  useState,
+  type ReactElement,
+} from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -39,7 +44,11 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({
-  useT: () => (key: string) => key,
+  useFormatters: () => ({
+    formatDate: (date: number) => new Date(date).toISOString(),
+  }),
+  useT: () => (key: string, params?: { time?: string }) =>
+    params?.time === undefined ? key : `${key} ${params.time}`,
 }));
 
 vi.mock("sonner", () => ({
@@ -202,6 +211,7 @@ vi.mock("@/hooks/use-emails", () => {
   return {
     EMPTY_LABELS: [],
     MoveEmailPartialFailure: class MoveEmailPartialFailure extends Error {},
+    LabelEmailPartialFailure: class LabelEmailPartialFailure extends Error {},
     releaseSuppressionClaims: vi.fn(),
     useEmails: () => ({ data: [] }),
     useLabels: () => ({ data: [] }),
@@ -222,6 +232,8 @@ vi.mock("@/hooks/use-emails", () => {
     useBulkToggleStar: mutation,
     useBulkMarkRead: mutation,
     useMoveEmail: mutation,
+    useLabelEmail: mutation,
+    useCreateLabel: mutation,
   };
 });
 
@@ -283,6 +295,7 @@ function Harness({
   jevConfigured = showPrioritySort,
   jevAvailabilityError,
   priorityProviderIdentity,
+  onJevConnected,
   onJevRetry,
   sortMode,
   readingPane,
@@ -304,6 +317,7 @@ function Harness({
   jevConfigured?: boolean;
   jevAvailabilityError?: boolean;
   priorityProviderIdentity?: string;
+  onJevConnected?: React.ComponentProps<typeof EmailList>["onJevConnected"];
   onJevRetry?: React.ComponentProps<typeof EmailList>["onJevRetry"];
   sortMode?: "newest" | "priority";
   readingPane?: boolean;
@@ -336,6 +350,7 @@ function Harness({
         jevConfigured={jevConfigured}
         jevAvailabilityError={jevAvailabilityError}
         priorityProviderIdentity={priorityProviderIdentity}
+        onJevConnected={onJevConnected}
         onJevRetry={onJevRetry}
         sortMode={sortMode}
         readingPane={readingPane}
@@ -376,34 +391,29 @@ function hasText(node: unknown, text: string): boolean {
   return hasText((node.props as { children?: unknown }).children, text);
 }
 
-function hasJevConnectionPrompt(node: unknown): boolean {
-  if (Array.isArray(node)) return node.some(hasJevConnectionPrompt);
-  if (!isValidElement(node)) return false;
-  if (
-    typeof node.type === "function" &&
-    node.type.name === "JevConnectionPrompt"
-  ) {
-    return true;
-  }
-  return hasJevConnectionPrompt(
-    (node.props as { children?: unknown }).children,
-  );
+interface HeaderElementProps {
+  children?: unknown;
+  open?: boolean;
+  onSelect?: () => void;
+  onConnected?: () => void;
 }
 
-function jevConnectionPromptVariant(node: unknown): unknown {
+function findElement(
+  node: unknown,
+  typeName: string,
+): ReactElement<HeaderElementProps> | undefined {
   if (Array.isArray(node)) {
-    return node.map(jevConnectionPromptVariant).find((variant) => variant);
+    for (const child of node) {
+      const found = findElement(child, typeName);
+      if (found) return found;
+    }
+    return undefined;
   }
-  if (!isValidElement(node)) return undefined;
-  if (
-    typeof node.type === "function" &&
-    node.type.name === "JevConnectionPrompt"
-  ) {
-    return (node.props as { variant?: unknown }).variant;
+  if (!isValidElement<HeaderElementProps>(node)) return undefined;
+  if (typeof node.type === "function" && node.type.name === typeName) {
+    return node;
   }
-  return jevConnectionPromptVariant(
-    (node.props as { children?: unknown }).children,
-  );
+  return findElement(node.props.children, typeName);
 }
 
 describe("EmailList keyboard navigation interactions", () => {
@@ -471,12 +481,13 @@ describe("EmailList keyboard navigation interactions", () => {
     mocks.view = "inbox";
     const refetchEmails = vi.fn();
     const cooldownUntil = Date.now() + 20_000;
+    const staleSince = Date.now() - 60_000;
 
     render(
       <Harness
         read={{
           freshness: "cached",
-          staleSince: Date.now() - 60_000,
+          staleSince,
           cooldownUntil,
           retryAfterMs: 20_000,
         }}
@@ -486,7 +497,9 @@ describe("EmailList keyboard navigation interactions", () => {
 
     expect(rows().length).toBeGreaterThan(0);
     const notice = screen
-      .getByText("mail.error.rateLimitDescription")
+      .getByText(
+        `mail.error.limitedListFrom ${new Date(staleSince).toISOString()}`,
+      )
       .closest('[role="status"]');
     expect(notice?.textContent).toContain("mail.error.tryAgainIn");
     expect(
@@ -505,12 +518,28 @@ describe("EmailList keyboard navigation interactions", () => {
     expect(refetchEmails).toHaveBeenCalledOnce();
   });
 
+  it("says mail may be missing when no update time is known", () => {
+    mocks.view = "inbox";
+
+    render(
+      <Harness
+        read={{
+          freshness: "stale",
+          cooldownUntil: Date.now() + 20_000,
+          retryAfterMs: 20_000,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("mail.error.limitedList")).toBeTruthy();
+  });
+
   it("shows no notice for live rows", () => {
     mocks.view = "inbox";
 
     render(<Harness read={{ freshness: "live" }} />);
 
-    expect(screen.queryByText("mail.error.rateLimitDescription")).toBeNull();
+    expect(screen.queryByText(/mail\.error\.limitedList/)).toBeNull();
     expect(rows().length).toBeGreaterThan(0);
   });
 
@@ -580,8 +609,73 @@ describe("EmailList keyboard navigation interactions", () => {
     render(<Harness showPrioritySort={false} />);
 
     expect(hasPrioritySortOption(mocks.headerActions)).toBe(false);
-    expect(hasJevConnectionPrompt(mocks.headerActions)).toBe(true);
-    expect(jevConnectionPromptVariant(mocks.headerActions)).toBe("menu-item");
+    expect(
+      findElement(mocks.headerActions, "JevConnectionMenuItem"),
+    ).toBeTruthy();
+    expect(
+      findElement(mocks.headerActions, "JevConnectionDialog"),
+    ).toBeUndefined();
+  });
+
+  it("keeps the AI provider dialog mounted when the sort menu goes away", () => {
+    mocks.view = "inbox";
+    const { rerender } = render(<Harness showPrioritySort={false} />);
+
+    act(() =>
+      findElement(
+        mocks.headerActions,
+        "JevConnectionMenuItem",
+      )?.props.onSelect?.(),
+    );
+    const sortMenu = findElement(mocks.headerActions, "PassThrough");
+    expect(findElement(sortMenu, "JevConnectionMenuItem")).toBeTruthy();
+    expect(findElement(sortMenu, "JevConnectionDialog")).toBeUndefined();
+    expect(
+      findElement(mocks.headerActions, "JevConnectionDialog")?.props.open,
+    ).toBe(true);
+
+    rerender(<Harness showPrioritySort={false} emails={[]} isLoading />);
+    expect(findElement(mocks.headerActions, "PassThrough")).toBeUndefined();
+    expect(
+      findElement(mocks.headerActions, "JevConnectionDialog")?.props.open,
+    ).toBe(true);
+  });
+
+  it("keeps the AI provider dialog open until Priority can run", () => {
+    mocks.view = "inbox";
+    const onJevConnected = vi.fn();
+    const { rerender } = render(
+      <Harness showPrioritySort={false} onJevConnected={onJevConnected} />,
+    );
+    act(() =>
+      findElement(
+        mocks.headerActions,
+        "JevConnectionMenuItem",
+      )?.props.onSelect?.(),
+    );
+
+    act(() =>
+      findElement(
+        mocks.headerActions,
+        "JevConnectionDialog",
+      )?.props.onConnected?.(),
+    );
+    expect(onJevConnected).toHaveBeenCalledOnce();
+    expect(
+      findElement(mocks.headerActions, "JevConnectionDialog")?.props.open,
+    ).toBe(true);
+
+    rerender(<Harness showPrioritySort onJevConnected={onJevConnected} />);
+    expect(
+      findElement(mocks.headerActions, "JevConnectionDialog"),
+    ).toBeUndefined();
+
+    rerender(
+      <Harness showPrioritySort={false} onJevConnected={onJevConnected} />,
+    );
+    expect(
+      findElement(mocks.headerActions, "JevConnectionDialog"),
+    ).toBeUndefined();
   });
 
   it("shows a retry menu item when Jev availability lookup fails", () => {
@@ -595,7 +689,9 @@ describe("EmailList keyboard navigation interactions", () => {
     );
 
     expect(hasText(mocks.headerActions, "mail.error.tryAgain")).toBe(true);
-    expect(hasJevConnectionPrompt(mocks.headerActions)).toBe(false);
+    expect(
+      findElement(mocks.headerActions, "JevConnectionMenuItem"),
+    ).toBeUndefined();
   });
 
   it("keeps the active Priority option visible when availability lookup fails", () => {
@@ -611,7 +707,9 @@ describe("EmailList keyboard navigation interactions", () => {
 
     expect(hasPrioritySortOption(mocks.headerActions)).toBe(true);
     expect(hasText(mocks.headerActions, "mail.error.tryAgain")).toBe(false);
-    expect(hasJevConnectionPrompt(mocks.headerActions)).toBe(false);
+    expect(
+      findElement(mocks.headerActions, "JevConnectionMenuItem"),
+    ).toBeUndefined();
   });
 
   it("shows Priority sort when Jev is configured", () => {
@@ -619,7 +717,9 @@ describe("EmailList keyboard navigation interactions", () => {
     render(<Harness showPrioritySort />);
 
     expect(hasPrioritySortOption(mocks.headerActions)).toBe(true);
-    expect(hasJevConnectionPrompt(mocks.headerActions)).toBe(false);
+    expect(
+      findElement(mocks.headerActions, "JevConnectionMenuItem"),
+    ).toBeUndefined();
   });
 
   it("shows the localized provider setup message when Priority cannot run", async () => {

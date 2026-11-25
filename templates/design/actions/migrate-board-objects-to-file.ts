@@ -76,6 +76,7 @@ export default defineAction({
     "negative coordinates), stores boardFileId in designs.data, and nulls " +
     "boardObjects. Idempotent — returns immediately if boardFileId is already " +
     "set. Requires editor access on the design.",
+  automatic: true,
   schema: z.object({
     designId: z
       .string()

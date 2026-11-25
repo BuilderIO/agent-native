@@ -548,6 +548,77 @@ describe("Dispatch NavContent", () => {
     }
   });
 
+  it("takes the sidebar toggle from the active kept-alive app, not an earlier retained one", async () => {
+    const install = (app: string) => ({
+      id: app,
+      name: app,
+      path: `/${app}`,
+      url: `https://${app}.example.test/${app}`,
+      status: "ready",
+    });
+    clientState.workspaceApps = [install("mail"), install("calendar")];
+    for (const app of ["calendar", "mail"]) {
+      clientState.createEmbedSessionMutateAsync.mockResolvedValueOnce({
+        startUrl: `https://${app}.example.test/${app}/initial`,
+        childBrowserTabId:
+          app === "mail"
+            ? "d178e672-918b-4c93-bd78-f627f7f00001"
+            : "d178e672-918b-4c93-bd78-f627f7f00002",
+      });
+    }
+    const toggles = vi.fn();
+    window.addEventListener("agent-panel:toggle", toggles);
+    try {
+      await act(async () => {
+        root.render(
+          <MemoryRouter initialEntries={["/apps/calendar"]}>
+            <Layout>
+              <div />
+            </Layout>
+          </MemoryRouter>,
+        );
+      });
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            'button[data-chat-first-app][data-app-id="mail"]',
+          )
+          ?.click();
+      });
+
+      const frameOf = (app: string) => {
+        const frame = container.querySelector<HTMLIFrameElement>(
+          `[data-dispatch-workspace-app-cache-entry="${app}"] iframe`,
+        );
+        if (!frame?.contentWindow) throw new Error(`Missing ${app} iframe`);
+        return frame;
+      };
+      const retained = frameOf("calendar");
+      const active = frameOf("mail");
+      expect(
+        retained
+          .closest("[data-dispatch-workspace-app-cache-entry]")
+          ?.getAttribute("aria-hidden"),
+      ).toBe("true");
+      const post = async (frame: HTMLIFrameElement) =>
+        act(async () => {
+          window.dispatchEvent(
+            new MessageEvent("message", {
+              data: { type: "agentNative.toggleSidebar", data: {} },
+              source: frame.contentWindow,
+            }),
+          );
+        });
+
+      await post(retained);
+      expect(toggles).not.toHaveBeenCalled();
+      await post(active);
+      expect(toggles).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener("agent-panel:toggle", toggles);
+    }
+  });
+
   it("opens mounted apps when optional connected-app discovery fails", async () => {
     clientState.workspaceApps = [
       {
@@ -1860,6 +1931,59 @@ describe("Dispatch NavContent", () => {
       container.querySelector("[data-chat-first-app-pane]"),
     ).not.toBeNull();
   });
+
+  it("restores a saved pane when the first mount is discarded", async () => {
+    clientState.connectedApps = [
+      {
+        id: "clips",
+        name: "Clips",
+        url: "https://clips.agent-native.com",
+        source: "builtin",
+      },
+    ];
+    clientState.appState[CHAT_FIRST_PANE_STATE_KEY] = {
+      appId: "clips",
+      path: "/inbox",
+    };
+
+    await act(async () => {
+      root.render(
+        <React.StrictMode>
+          <MemoryRouter initialEntries={["/chat/strict-restore"]}>
+            <Layout extensions={{ chatFirst: true }}>
+              <div />
+            </Layout>
+          </MemoryRouter>
+        </React.StrictMode>,
+      );
+    });
+
+    expect(
+      container.querySelector("[data-chat-first-app-pane]"),
+    ).not.toBeNull();
+    expect(container.querySelector("[data-app-notice]")).toBeNull();
+  });
+
+  it.each([[null], [{ appId: 7 }]])(
+    "only reports a restore failure for unreadable pane state %j",
+    async (saved) => {
+      clientState.appState[CHAT_FIRST_PANE_STATE_KEY] = saved;
+
+      await act(async () => {
+        root.render(
+          <MemoryRouter initialEntries={["/chat/pane-state-outcome"]}>
+            <Layout extensions={{ chatFirst: true }}>
+              <div />
+            </Layout>
+          </MemoryRouter>,
+        );
+      });
+
+      expect(container.querySelector("[data-app-notice]") !== null).toBe(
+        saved !== null,
+      );
+    },
+  );
 
   it("puts Overview before Chat in the primary navigation", async () => {
     await act(async () => {
