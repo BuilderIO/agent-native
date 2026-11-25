@@ -82,6 +82,7 @@ async function render(node: ReactNode) {
             sidebar: {
               addChild: "Add child",
               addChildTo: "Add child to {{title}}",
+              collection: "Collection",
               database: "Database",
               page: "Page",
               pinToSidebar: "Pin to sidebar",
@@ -245,6 +246,62 @@ describe("sidebar document permission menus", () => {
       expect(menuItems.some((item) => item.textContent === "Delete")).toBe(
         canManage,
       );
+
+      cleanup(root, container);
+    },
+  );
+
+  it.each([
+    ["Page", 1, 0],
+    ["Collection", 0, 1],
+  ] as const)(
+    "adds a child %s from an editor's add-child menu",
+    async (choice, pages, collections) => {
+      const onCreateChildPage = vi.fn();
+      const onCreateChildDatabase = vi.fn();
+      const { container, root } = await render(
+        treeItem(
+          documentForRole("editor"),
+          undefined,
+          onCreateChildPage,
+          onCreateChildDatabase,
+        ),
+      );
+      const addChild = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Add child to Shared page"]',
+      );
+      if (!addChild) throw new Error("Expected an add-child button");
+
+      await act(async () => {
+        addChild.dispatchEvent(
+          new PointerEvent("pointerdown", {
+            bubbles: true,
+            button: 0,
+            pointerType: "mouse",
+          }),
+        );
+        await Promise.resolve();
+      });
+      const menuItems = Array.from(
+        document.querySelectorAll<HTMLElement>("[role=menuitem]"),
+      );
+      expect(menuItems.map((item) => item.textContent?.trim())).toEqual([
+        "Page",
+        "Collection",
+      ]);
+      await act(async () => {
+        menuItems
+          .find((item) => item.textContent?.trim() === choice)
+          ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        await Promise.resolve();
+      });
+
+      expect(onCreateChildPage).toHaveBeenCalledTimes(pages);
+      expect(onCreateChildDatabase).toHaveBeenCalledTimes(collections);
+      expect([
+        ...onCreateChildPage.mock.calls,
+        ...onCreateChildDatabase.mock.calls,
+      ]).toEqual([["shared"]]);
 
       cleanup(root, container);
     },

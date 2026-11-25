@@ -86,9 +86,9 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("settleOptimisticListRefresh(id)");
   });
 
+  // oracle-change: the DocumentTreeItem.tsx add-child greps became the rendered menu in DocumentTreeItem.test.tsx
   it("scopes sidebar creation to the selected Content space", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
-    const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
     const messages = readSidebarSource("../../i18n-data.ts");
 
     expect(sidebar).toContain("useContentSpaces()");
@@ -115,13 +115,6 @@ describe("document sidebar layout", () => {
     expect(sidebar).not.toContain(
       "onClick={() => void handleCreateDatabase(null)}",
     );
-
-    expect(treeItem).toContain("onCreateChildPage");
-    expect(treeItem).toContain("onCreateChildDatabase");
-    expect(treeItem).toContain('t("sidebar.addChild")');
-    expect(treeItem).toContain('t("sidebar.page")');
-    expect(treeItem).toContain('t("sidebar.collection")');
-    expect(treeItem).not.toContain("onCreateChild: (parentId: string)");
 
     expect(messages).toContain('workspaces: "Workspaces"');
     expect(messages).toContain('files: "Files"');
@@ -301,26 +294,17 @@ describe("document sidebar layout", () => {
     expect(sidebar).not.toContain("!localFileMode && favorites.length > 0");
   });
 
+  // oracle-change: the MovePageDialog.tsx greps became the rendered cross-space move in MovePageDialog.test.tsx
   it("asks before moving a Page into another space and never offers local folders", () => {
-    const dialog = readSidebarSource("./MovePageDialog.tsx");
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
 
-    expect(dialog).toContain("if (crossSpace) setPendingParentId(parentId);");
-    expect(dialog).toContain("else move(parentId);");
-    expect(dialog).toContain("sidebar.moveToSpaceWarningShared");
-    expect(dialog).toContain("sidebar.moveToSpaceWarningPrivate");
-    expect(dialog).toContain("setTargetSpaceId(page?.spaceId");
     expect(sidebar).toContain("useMovePageDialog(");
     expect(sidebar).toContain('useActionMutation("duplicate-page"');
   });
 
+  // oracle-change: the pointer-lock.ts grep became packages/toolkit/src/ui/pointer-lock.spec.ts; the rows' missing delete dialogs were absence checks for a removed design
   it("keeps delete confirmation owned by the stable sidebar", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
-    const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
-    const databaseSidebar = readSidebarSource("../editor/database/sidebar.tsx");
-    const pointerLock = readSidebarSource(
-      "../../../../../packages/toolkit/src/ui/pointer-lock.ts",
-    );
 
     expect(sidebar).toContain("const [pendingDelete, setPendingDelete]");
     expect(sidebar).toContain("open={pendingDelete !== null}");
@@ -330,13 +314,5 @@ describe("document sidebar layout", () => {
     );
     expect(sidebar).toContain("afterBodyPointerUnlock(() => {");
     expect(sidebar).toContain("void handleDelete(confirmedDeleteId)");
-    expect(pointerLock).toContain("window.requestAnimationFrame");
-    expect(pointerLock).toContain(
-      'document.body.style.pointerEvents === "none"',
-    );
-    expect(treeItem).not.toContain("deleteDialogOpen");
-    expect(treeItem).not.toContain("<AlertDialog");
-    expect(databaseSidebar).not.toContain("deleteDialogOpen");
-    expect(databaseSidebar).not.toContain("<AlertDialog");
   });
 });

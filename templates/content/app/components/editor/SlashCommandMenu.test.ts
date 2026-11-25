@@ -1,8 +1,6 @@
 // @vitest-environment happy-dom
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { docToNfm, nfmToDoc } from "@shared/nfm";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Editor } from "@tiptap/core";
@@ -12,10 +10,51 @@ import { TableHeader } from "@tiptap/extension-table-header";
 import { TableRow } from "@tiptap/extension-table-row";
 import { EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { act, createElement } from "react";
+import { act, createElement, useEffect } from "react";
 import { createRoot } from "react-dom/client";
-import { MemoryRouter } from "react-router";
-import { describe, expect, it, vi } from "vitest";
+import { MemoryRouter, useLocation } from "react-router";
+import { toast } from "sonner";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
+
+// The Generate popover's composer and the agent chat it hands a prompt to.
+const agentChat = vi.hoisted(() => ({ send: vi.fn() }));
+vi.mock("@agent-native/toolkit/app/chat", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/toolkit/app/chat")>()),
+  useSendToAgentChat: () => ({ send: agentChat.send, isGenerating: false }),
+}));
+vi.mock("@agent-native/toolkit/app/chat/composer/index", async () => {
+  const { createElement } = await import("react");
+  return {
+    PromptComposer: ({ onSubmit }: { onSubmit: (prompt: string) => void }) =>
+      createElement(
+        "button",
+        {
+          type: "button",
+          "data-prompt-composer": "",
+          onClick: () => onSubmit("  outline the launch  "),
+        },
+        "Submit",
+      ),
+  };
+});
+// The collections a slash command creates, which the server makes.
+const collections = vi.hoisted(() => ({
+  inline: { mutateAsync: vi.fn() },
+  fullPage: { mutateAsync: vi.fn() },
+}));
+vi.mock("@/hooks/use-content-database", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/hooks/use-content-database")>()),
+  useCreateInlineContentDatabase: () => collections.inline,
+  useCreateContentDatabase: () => collections.fullPage,
+}));
+
+import {
+  byLabel,
+  click,
+  nextFrame,
+  renderUi,
+  typeInto,
+} from "@/test-utils/render-ui";
 
 import {
   bodyAfterInsert,
@@ -43,6 +82,110 @@ import {
 } from "./SlashCommandMenu";
 import { createVisualEditorExtensions } from "./VisualEditor";
 
+/** Renders the slash menu beside an editor with the page's own blocks. */
+async function mountSlashMenu(
+  props: Partial<Parameters<typeof SlashCommandMenu>[0]> = {},
+) {
+  const editor = new Editor({
+    extensions: createVisualEditorExtensions(),
+    content: { type: "doc", content: [{ type: "paragraph" }] },
+  });
+  onTestFinished(() => editor.destroy());
+  let location = "";
+  function LocationProbe() {
+    const current = useLocation();
+    useEffect(() => {
+      location = current.pathname;
+    });
+    return null;
+  }
+  renderUi(
+    createElement(
+      MemoryRouter,
+      { initialEntries: ["/page/doc-1"] },
+      createElement(LocationProbe),
+      createElement(AgentNativeI18nProvider, {
+        initialLocale: "en-US",
+        persistPreference: false,
+        catalog: {
+          sourceLocale: "en-US",
+          messages: {
+            editor: {
+              slash: {
+                blockEquation: "Block equation",
+                collectionFullPage: "Full-page collection",
+                collectionInline: "Inline collection",
+                equationInputLabel: "LaTeX",
+                inlineEquation: "Inline equation",
+                insertEquation: "Insert equation",
+              },
+            },
+          },
+        },
+        children: createElement(
+          "div",
+          { className: "visual-editor-wrapper" },
+          createElement(EditorContent, { editor }),
+          createElement(SlashCommandMenu, {
+            editor,
+            documentId: "doc-1",
+            ...props,
+          }),
+        ),
+      }),
+    ),
+  );
+  await act(async () => Promise.resolve());
+  return { editor, location: () => location };
+}
+
+async function typeSlash(editor: Editor, text: string) {
+  act(() => {
+    editor.commands.focus("end");
+    for (const char of text) {
+      const { from, to } = editor.state.selection;
+      editor.view.dispatch(editor.state.tr.insertText(char, from, to));
+    }
+  });
+  await act(async () => Promise.resolve());
+}
+
+async function pressEnter() {
+  act(() => {
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Enter",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+  await act(async () => Promise.resolve());
+}
+
+function buttonNamed(name: string, scope: ParentNode = document.body) {
+  const button = Array.from(
+    scope.querySelectorAll<HTMLButtonElement>("button"),
+  ).find((candidate) => candidate.textContent?.trim().startsWith(name));
+  if (!button) throw new Error(`No button named "${name}"`);
+  return button;
+}
+
+function menuItem(title: string) {
+  const menu = document.body.querySelector(".slash-command-menu");
+  if (!menu) throw new Error("The slash menu is closed.");
+  return buttonNamed(title, menu);
+}
+
+async function waitFor(done: () => boolean) {
+  for (let wait = 0; wait < 100 && !done(); wait += 1) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+  }
+  if (!done()) throw new Error("Timed out waiting.");
+}
+
 describe("failed slash creation cleanup", () => {
   it("trashes the new resource even if removing its editor reference fails", async () => {
     const removeError = new Error("editor is unavailable");
@@ -59,15 +202,6 @@ describe("failed slash creation cleanup", () => {
 
 function TestIcon() {
   return createElement("svg");
-}
-
-function readSlashCommandMenuSource() {
-  return readFileSync(
-    join(process.cwd(), "app/components/editor/SlashCommandMenu.tsx"),
-    {
-      encoding: "utf8",
-    },
-  );
 }
 
 describe("inline slash generate command parsing", () => {
@@ -157,18 +291,82 @@ describe("generate command affordances", () => {
     }
   });
 
-  it("uses slash commands and the shared composer instead of a space shortcut", () => {
-    const source = readSlashCommandMenuSource();
+  // oracle-change: the SlashCommandMenu.tsx grep became the rendered Generate prompt below; its icon and the removed Space shortcut guarded nothing a writer can use
+  it("sends a prompt written in the Generate popover to the agent", async () => {
+    agentChat.send.mockClear();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const editor = new Editor({
+      extensions: [StarterKit],
+      content: "<p></p>",
+    });
+    // The page editor's Markdown extension, which Generate reads the page through.
+    (editor.storage as any).markdown = { getMarkdown: () => "" };
 
-    expect(source).toContain(
-      'import("@agent-native/toolkit/app/chat/composer/index")',
-    );
-    expect(source).toMatch(
-      /<PromptComposer[\s\S]*onSubmit={submitGeneratePrompt}/,
-    );
-    expect(source).toContain("icon: IconHierarchy2");
-    expect(source).not.toContain("shouldOpenGenerateOnSpace");
-    expect(source).not.toContain('e.code === "Space"');
+    try {
+      await act(async () => {
+        root.render(
+          createElement(
+            MemoryRouter,
+            null,
+            createElement(
+              QueryClientProvider,
+              { client: queryClient },
+              createElement(
+                "div",
+                { className: "visual-editor-wrapper" },
+                createElement(EditorContent, { editor }),
+                createElement(SlashCommandMenu, {
+                  editor,
+                  documentId: "doc-1",
+                }),
+              ),
+            ),
+          ),
+        );
+        await Promise.resolve();
+      });
+      act(() => {
+        editor.commands.focus("end");
+        editor.commands.insertContent("/generate");
+      });
+      await act(async () => Promise.resolve());
+      act(() => {
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      let composer: HTMLElement | null = null;
+      for (let wait = 0; wait < 50 && !composer; wait += 1) {
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        });
+        composer = document.body.querySelector("[data-prompt-composer]");
+      }
+      if (!composer) throw new Error("The Generate popover did not open.");
+
+      act(() => composer.click());
+
+      expect(agentChat.send).toHaveBeenCalledOnce();
+      expect(agentChat.send.mock.calls[0]?.[0]).toMatchObject({
+        message: "outline the launch",
+        submit: true,
+      });
+      expect(agentChat.send.mock.calls[0]?.[0].context).toContain("doc-1");
+    } finally {
+      await act(async () => root.unmount());
+      editor.destroy();
+      queryClient.clear();
+      container.remove();
+    }
   });
 });
 
@@ -219,20 +417,37 @@ describe("slash command menu trigger", () => {
     expect(slashCommandsForDirectoryWidget(commands, false)).toEqual(commands);
   });
 
-  it("repositions after an ancestor scroll moves the caret", () => {
-    const source = readSlashCommandMenuSource();
+  // oracle-change: the SlashCommandMenu.tsx scroll-listener grep became this rendered scroll
+  it("repositions after an ancestor scroll moves the caret", async () => {
+    const { editor } = await mountSlashMenu();
+    let caretTop = 200;
+    vi.spyOn(editor.view, "coordsAtPos").mockImplementation(() => ({
+      top: caretTop,
+      bottom: caretTop + 20,
+      left: 40,
+      right: 40,
+    }));
+    await typeSlash(editor, "/");
+    await nextFrame();
+    const menuTop = () =>
+      Number.parseFloat(
+        document.body.querySelector<HTMLElement>(".slash-command-menu")?.style
+          .top ?? "",
+      );
+    const before = menuTop();
+    expect(Number.isFinite(before)).toBe(true);
 
-    expect(source).toContain(
-      'document.addEventListener("scroll", updatePosition, true)',
-    );
-    expect(source).toContain(
-      'document.removeEventListener("scroll", updatePosition, true)',
-    );
-    expect(source).toMatch(
-      /requestAnimationFrame\(\(\) => \{[\s\S]*setPosition\(getSlashMenuPosition\(editor\)\)/,
-    );
+    caretTop = 300;
+    const scroller = document.createElement("div");
+    document.body.appendChild(scroller);
+    onTestFinished(() => scroller.remove());
+    act(() => {
+      scroller.dispatchEvent(new Event("scroll"));
+    });
+    await nextFrame();
+
+    expect(menuTop() - before).toBe(100);
   });
-
   it("opens above a caret near the viewport bottom", () => {
     expect(
       getSlashMenuVerticalPosition(
@@ -270,15 +485,27 @@ describe("slash command menu trigger", () => {
     ]);
   });
 
-  it("persists structural slash-command results immediately", () => {
-    const source = readSlashCommandMenuSource();
+  // oracle-change: the SlashCommandMenu.tsx save-call grep became these rendered saves
+  it.each([
+    { saved: true, toasts: 0 },
+    { saved: false, toasts: 1 },
+  ])(
+    "saves a structural command's result at once (saved: $saved)",
+    async ({ saved, toasts }) => {
+      const onDraftCommitted = vi.fn(async () => saved);
+      const toastError = vi.spyOn(toast, "error").mockReturnValue("");
+      onTestFinished(() => toastError.mockRestore());
+      const { editor } = await mountSlashMenu({ onDraftCommitted });
 
-    expect(source).toContain("const beforeDoc = editor.state.doc");
-    expect(source).toContain("!editor.state.doc.eq(beforeDoc)");
-    expect(source).toContain("await onDraftCommitted?.()");
-    expect(source).toContain("persisted === false");
-  });
+      await typeSlash(editor, "/code");
+      await pressEnter();
+      await act(async () => Promise.resolve());
 
+      expect(editor.getJSON().content?.[0]?.type).toBe("codeBlock");
+      expect(onDraftCommitted).toHaveBeenCalledOnce();
+      expect(toastError).toHaveBeenCalledTimes(toasts);
+    },
+  );
   it("opens for slash commands at the start of a block", () => {
     expect(parseSlashCommandQuery("/")).toBe("");
     expect(parseSlashCommandQuery("/heading")).toBe("heading");
@@ -852,14 +1079,24 @@ describe("equation slash commands", () => {
     }
   });
 
-  it("wires two searchable equation commands to a validated preview", () => {
-    const source = readSlashCommandMenuSource();
+  // oracle-change: the SlashCommandMenu.tsx equation greps became this rendered equation
+  it("finds both equations by LaTeX and inserts only one that renders", async () => {
+    const onDraftCommitted = vi.fn();
+    const { editor } = await mountSlashMenu({ onDraftCommitted });
 
-    expect(source).toContain('title: t("editor.slash.blockEquation")');
-    expect(source).toContain('title: t("editor.slash.inlineEquation")');
-    expect(source).toContain('searchText: "latex katex math formula"');
-    expect(source).toContain("renderMathToHtml(");
-    expect(source).toContain("disabled={!equationResult.ok}");
+    await typeSlash(editor, "/latex");
+    expect(() => menuItem("Inline equation")).not.toThrow();
+    await click(menuItem("Block equation"));
+    const latex = byLabel<HTMLTextAreaElement>("LaTeX");
+    await typeInto(latex, "\\frac{");
+    expect(buttonNamed("Insert equation").disabled).toBe(true);
+    await typeInto(latex, "x^2");
+    expect(buttonNamed("Insert equation").disabled).toBe(false);
+    await click(buttonNamed("Insert equation"));
+
+    expect(JSON.stringify(editor.getJSON())).toContain("x^2");
+    expect(editor.getText()).not.toContain("/latex");
+    expect(onDraftCommitted).toHaveBeenCalledOnce();
   });
 });
 
@@ -951,36 +1188,50 @@ describe("inline database slash command", () => {
     expect(chain.insertContent).not.toHaveBeenCalled();
   });
 
-  it("offers inline and full-page collection commands for /database", () => {
-    const source = readSlashCommandMenuSource();
+  // oracle-change: the SlashCommandMenu.tsx collection greps became the two rendered creations below
+  it("makes an inline collection where the slash was and saves the page with it", async () => {
+    collections.inline.mutateAsync.mockReset();
+    collections.inline.mutateAsync.mockResolvedValue({ block });
+    const onDraftPersisted = vi.fn(async (_body: string) => true);
+    const { editor } = await mountSlashMenu({ onDraftPersisted });
 
-    expect(source).toContain("useCreateInlineContentDatabase");
-    expect(source).toContain("hostDocumentId: documentId");
-    expect(source).toContain("preserveSlashRange: true");
-    expect(source).toMatch(
-      /insertInlineDatabaseBlock\(\s*editor,\s*result\.block,\s*slashRange,/,
+    await typeSlash(editor, "/database");
+    await click(menuItem("Inline collection"));
+    await waitFor(() => onDraftPersisted.mock.calls.length > 0);
+
+    expect(collections.inline.mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ hostDocumentId: "doc-1" }),
     );
-    expect(source).toMatch(
-      /bodyAfterInsert\(\s*editor,\s*result\.block\.ownerBlockId,/,
-    );
-    expect(source).toContain("await onDraftPersisted(content)");
-    expect(source).toContain("useCreateContentDatabase");
-    expect(source).toContain("contentDatabaseCreationRequest({");
-    expect(source).toContain("const newDocumentId = crypto.randomUUID()");
-    expect(source).toContain("createdPageId = newDocumentId");
-    expect(source).toContain(
-      ".catch(() => createFullPageDatabase.mutateAsync(request))",
-    );
-    expect(source).toContain("useRollbackCreatedSlashDocument");
-    expect(source).not.toContain("useDeleteContentDatabase");
-    expect(source).toContain('searchText: "database collection inline"');
-    expect(source).toContain('searchText: "database collection full page"');
-    expect(source).toContain("parentId: documentId");
-    expect(source).toContain(
-      'const insertContent = [pageReference, { type: "paragraph" }]',
-    );
-    expect(source).toContain("insertContentAt(range, insertContent)");
-    expect(source).toContain("navigate(`/page/${pageId}`");
+    const body = onDraftPersisted.mock.calls[0]?.[0] ?? "";
+    expect(body).toContain(block.ownerBlockId);
+    expect(body).not.toContain("/database");
+    expect(editor.getText()).not.toContain("/database");
+  });
+
+  it("makes a full-page collection under the page, retrying once, and opens it", async () => {
+    collections.fullPage.mutateAsync.mockReset();
+    collections.fullPage.mutateAsync
+      .mockRejectedValueOnce(new Error("busy"))
+      .mockResolvedValueOnce({ database: { documentId: "collection-page" } });
+    const onDraftPersisted = vi.fn(async (_body: string) => true);
+    const { editor, location } = await mountSlashMenu({
+      contentSpaceId: "space-1",
+      onDraftPersisted,
+    });
+
+    await typeSlash(editor, "/database");
+    await click(menuItem("Full-page collection"));
+    await waitFor(() => location() === "/page/collection-page");
+
+    expect(collections.fullPage.mutateAsync).toHaveBeenCalledTimes(2);
+    expect(collections.fullPage.mutateAsync.mock.calls[0]?.[0]).toMatchObject({
+      parentId: "doc-1",
+      spaceId: "space-1",
+    });
+    const body = onDraftPersisted.mock.calls[0]?.[0] ?? "";
+    expect(body).toContain('id="collection-page"');
+    expect(body).not.toContain("/database");
+    expect(editor.getText()).not.toContain("/database");
   });
 });
 

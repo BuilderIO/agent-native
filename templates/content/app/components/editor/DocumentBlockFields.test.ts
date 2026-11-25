@@ -1,15 +1,34 @@
-import { readFileSync } from "node:fs";
+// @vitest-environment happy-dom
 
 import type { DocumentProperty } from "@shared/api";
-import { describe, expect, it } from "vitest";
+import { createElement } from "react";
+import { describe, expect, it, vi } from "vitest";
+
+import { click, renderUi } from "@/test-utils/render-ui";
 
 import {
   blockFieldsFromProperties,
   blockFieldsRenderState,
   computeFieldReorderTarget,
+  DocumentBlockFields,
   isLoadedForDocument,
   primaryBlocksFieldAvailable,
 } from "./DocumentBlockFields";
+
+vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
+  useT: () => (key: string) => key,
+}));
+
+// The property read is the one stand-in; whether it failed is still decided
+// by the real hook module.
+const propertyRead = vi.hoisted(() => ({
+  current: {} as Record<string, unknown>,
+}));
+vi.mock("@/hooks/use-document-properties", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/hooks/use-document-properties")>()),
+  useDocumentProperties: () => propertyRead.current,
+}));
 
 function property(
   partial: Partial<DocumentProperty["definition"]> & {
@@ -338,22 +357,37 @@ describe("primaryBlocksFieldAvailable", () => {
 });
 
 describe("property-query failure UI", () => {
-  it("renders an explicit retry state instead of treating a failed query as loading", () => {
-    const source = readFileSync(
-      new URL("./DocumentBlockFields.tsx", import.meta.url),
-      "utf8",
+  // oracle-change: the DocumentBlockFields.tsx source grep became this rendered failed read
+  it("offers a retry instead of loading or an editor when the property read fails", async () => {
+    const refetch = vi.fn();
+    propertyRead.current = {
+      data: undefined,
+      dataUpdatedAt: 0,
+      fetchStatus: "idle",
+      isError: true,
+      isPlaceholderData: false,
+      refetch,
+    };
+    const { container } = renderUi(
+      createElement(DocumentBlockFields, {
+        documentId: "doc-1",
+        databaseId: "db-1",
+        databaseDocumentId: "db-page",
+        canEdit: true,
+        primaryEditor: createElement("div", { "data-primary-editor": "" }),
+      }),
     );
-    expect(source).toContain('data-block-fields-state="error"');
-    expect(source).toContain("<QueryErrorState");
-    expect(source).toContain("onRetry={() => void query.refetch()}");
-    expect(source).toContain(
-      "documentPropertiesReadFailed(documentId, databaseId, query)",
+
+    const state = container.querySelector("[data-block-fields-state]");
+    expect(state?.getAttribute("data-block-fields-state")).toBe("error");
+    expect(container.querySelector("[data-primary-editor]")).toBeNull();
+    // Its column can still shrink below its widest line.
+    expect(state?.classList.contains("grid-cols-[minmax(0,1fr)]")).toBe(true);
+    const retry = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "database.retry",
     );
-    expect(source).toContain(
-      "const primaryAvailable = !hasQueryError && primaryBlocksFieldAvailable(state)",
-    );
-    expect(source.indexOf("if (hasQueryError)")).toBeLessThan(
-      source.indexOf("switch (state.kind)"),
-    );
+    if (!retry) throw new Error("The failed read offers no Retry.");
+    await click(retry);
+    expect(refetch).toHaveBeenCalledOnce();
   });
 });

@@ -322,6 +322,25 @@ vi.mock("./database-cell-comments", async (importOriginal) => ({
   },
 }));
 
+// A row preview mounts the shared page surface; its props show which page it
+// opened and the collection it opened it in.
+const pageSurfaces = vi.hoisted(() => ({
+  props: [] as object[],
+}));
+vi.mock("../DocumentEditor", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../DocumentEditor")>();
+  const { createElement } = await import("react");
+  return {
+    ...actual,
+    PageEditorSurface: (
+      props: Parameters<typeof actual.PageEditorSurface>[0],
+    ) => {
+      pageSurfaces.props.push(props);
+      return createElement(actual.PageEditorSurface, props);
+    },
+  };
+});
+
 // The header and every row lay out their cells through one, so its render
 // count shows whether an update reached the table at all.
 const tableGridRenders = vi.hoisted(() => ({ count: 0 }));
@@ -2238,6 +2257,30 @@ describe("DatabaseView UI regressions", () => {
     expect(
       container.querySelector('[aria-label="Row actions for Alpha"]'),
     ).toBeNull();
+  });
+
+  // oracle-change: DatabaseView.test.ts's PageEditorSurface source grep became this opened preview
+  it("opens a row's own page in the preview as a member of its collection", async () => {
+    databaseResponse.items = [commentableRow("a", "Alpha", true)];
+    await renderDatabaseView();
+    pageSurfaces.props.length = 0;
+    const trigger = container.querySelector(
+      '[aria-label="Row actions for Alpha"]',
+    );
+    if (!trigger) throw new Error("Alpha has no row menu.");
+
+    await mousePointerDown(trigger);
+    await selectMenuItem("editor.comment");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(pageSurfaces.props[pageSurfaces.props.length - 1]).toMatchObject({
+      documentId: "document-a",
+      databaseId: "database-1",
+      databaseDocumentId: "document-1",
+      host: "preview",
+    });
   });
 
   it("keeps the preview a row's menu opened for a comment", async () => {
