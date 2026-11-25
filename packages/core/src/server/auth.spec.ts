@@ -14462,9 +14462,9 @@ describe("server/auth", () => {
       vi.doMock("../db/client.js", () => ({
         getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
-        getEnclosingTransactionDbExec: () => undefined,
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        withDbExec: (_exec: unknown, fn: () => Promise<unknown>) => fn(),
       }));
       const { autoMountAuth } = await import("./auth.js");
       const app = createMockApp();
