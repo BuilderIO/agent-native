@@ -236,21 +236,30 @@ describe("formatChatErrorText", () => {
     },
   );
 
-  it("normalizes overloaded provider JSON payloads without exposing raw details in the message", () => {
-    const raw =
-      '{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"},"request_id":"req_example"}';
-    const normalized = normalizeChatError(raw);
+  it.each([
+    ["", undefined],
+    ["529 ", undefined],
+    ["Error: 529 ", "http_529"],
+    ["HTTP 529 ", "runtime_error"],
+  ])(
+    "normalizes overloaded provider JSON with prefix %j and code %j without exposing raw details in the message",
+    (prefix, code) => {
+      const raw =
+        prefix +
+        '{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"},"request_id":"req_example"}';
+      const normalized = normalizeChatError(raw, code);
 
-    expect(normalized.message).toBe(
-      "The model provider is overloaded right now. Wait a moment, then retry.",
-    );
-    expect(normalized.details).toBe(raw);
-    expect(normalized.message).not.toContain("request_id");
-    expect(normalized.message).not.toContain("overloaded_error");
-    expect(formatChatErrorText(raw)).toBe(
-      "Error: The model provider is overloaded right now. Wait a moment, then retry.",
-    );
-  });
+      expect(normalized.message).toBe(
+        "The model provider is overloaded right now. Wait a moment, then retry.",
+      );
+      expect(normalized.details).toBe(raw);
+      expect(normalized.message).not.toContain("request_id");
+      expect(normalized.message).not.toContain("overloaded_error");
+      expect(formatChatErrorText(raw, undefined, code)).toBe(
+        "Error: The model provider is overloaded right now. Wait a moment, then retry.",
+      );
+    },
+  );
 
   it.each(["api_error", "internal_server_error"])(
     "shows a readable message for a %s provider payload",
