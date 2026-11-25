@@ -1,9 +1,8 @@
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
-import { useLabState } from "@agent-native/core/client/labs/use-lab";
 import { useQueryClient } from "@tanstack/react-query";
 import { createContext, useContext, useEffect, useRef } from "react";
 
-export const T3_CODE_AGENTS_LAB = "t3-code-agents";
+import { useT3AgentsLab } from "./use-t3-agents-lab";
 
 export type T3AgentKind = "claude-code" | "codex";
 
@@ -60,13 +59,13 @@ export function isT3AgentRequestActive(request: T3AgentRequest) {
 }
 
 export function useT3Agents(): T3Agent[] {
-  const lab = useLabState(T3_CODE_AGENTS_LAB);
+  const labEnabled = useT3AgentsLab();
   const status = useActionQuery<T3CodeStatus>(
     "get-t3-code-status" as never,
     undefined,
-    { enabled: lab.enabled, staleTime: 60_000 },
+    { enabled: labEnabled, staleTime: 60_000 },
   );
-  if (!lab.enabled || status.data?.state !== "connected") return [];
+  if (!labEnabled || status.data?.state !== "connected") return [];
   if (status.data.access !== "operate") return [];
   return status.data.agents.map(({ kind, name }) => ({ kind, name }));
 }
@@ -104,16 +103,16 @@ function useT3AgentRequestList(documentId: string, enabled: boolean) {
 }
 
 export function useT3AgentRequestSync(documentId: string): void {
-  const lab = useLabState(T3_CODE_AGENTS_LAB);
+  const labEnabled = useT3AgentsLab();
   const queryClient = useQueryClient();
-  const query = useT3AgentRequestList(documentId, lab.enabled);
+  const query = useT3AgentRequestList(documentId, labEnabled);
   const active = (query.data?.requests ?? EMPTY.requests).some(
     isT3AgentRequestActive,
   );
   const syncing = useRef(false);
 
   useEffect(() => {
-    if (!lab.enabled || !active) return;
+    if (!labEnabled || !active) return;
     const queryKey = ["action", "list-t3-agent-requests", { documentId }];
     let stopped = false;
     const sync = async () => {
@@ -145,19 +144,19 @@ export function useT3AgentRequestSync(documentId: string): void {
       stopped = true;
       clearInterval(timer);
     };
-  }, [active, documentId, lab.enabled, queryClient]);
+  }, [active, documentId, labEnabled, queryClient]);
 }
 
 export function useT3AgentRequests(
   documentId: string,
 ): T3AgentRequestsController {
-  const lab = useLabState(T3_CODE_AGENTS_LAB);
+  const labEnabled = useT3AgentsLab();
   const agents = useT3Agents();
-  const query = useT3AgentRequestList(documentId, lab.enabled);
+  const query = useT3AgentRequestList(documentId, labEnabled);
   const requests = query.data?.requests ?? EMPTY.requests;
   const unreachable =
     query.data?.unreachable === true && requests.some(isT3AgentRequestActive);
-  return lab.enabled ? { agents, requests, unreachable } : EMPTY;
+  return labEnabled ? { agents, requests, unreachable } : EMPTY;
 }
 
 export function lastAnsweredThread(

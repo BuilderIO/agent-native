@@ -171,7 +171,6 @@ import {
 } from "@/hooks/use-optimistic-document-title";
 import { usePageTabTitle } from "@/hooks/use-page-tab-title";
 import { usePendingTrash } from "@/hooks/use-pending-trash";
-import { useT3AgentRequestSync } from "@/hooks/use-t3-agents";
 import { workspaceReferenceErrorMessage } from "@/lib/content-action-errors";
 import { rememberContentLandingDocument } from "@/lib/content-landing";
 import { withContentSaveOrigin } from "@/lib/content-save-telemetry";
@@ -451,6 +450,7 @@ import {
   type SuggestionPresentationTransitions,
 } from "./suggestions/presentation-rebase";
 import { SyncedPageBanner } from "./SyncedPageBanner";
+import { T3AgentRequestSync } from "./T3AgentRequestSync";
 import {
   refreshedProposalMembers,
   reviewedAsOne,
@@ -3267,7 +3267,6 @@ function PageEditorSessionBody({
     databaseDocumentId,
   });
   const queryClient = useQueryClient();
-  useT3AgentRequestSync(documentId);
   const { session } = useSession();
   const lastLocationScope = filesRootHintScope(session?.email, session?.orgId);
   useEffect(() => {
@@ -11785,6 +11784,7 @@ function PageEditorSessionBody({
           onPersisted={handleLinkedLocalAgentPersistence}
         />
       ) : null}
+      <T3AgentRequestSync documentId={documentId} />
       <div
         ref={documentLayoutRef}
         className="relative grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] grid-rows-[auto_minmax(0,1fr)] overflow-hidden"
