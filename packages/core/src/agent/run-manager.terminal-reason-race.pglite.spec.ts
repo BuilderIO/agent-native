@@ -26,7 +26,7 @@ vi.mock("../db/client.js", async (importOriginal) => ({
       };
     },
     transaction: async (fn) => {
-      let committedTerminalStatus = false;
+      const committed = { terminal: false };
       const result = await pglite.transaction((tx) =>
         fn({
           ...tx,
@@ -35,17 +35,17 @@ vi.mock("../db/client.js", async (importOriginal) => ({
             if (
               typeof input !== "string" &&
               /UPDATE\s+agent_runs\b[\s\S]*?\bstatus\s*=/i.test(input.sql) &&
-              input.args?.includes(terminalCommit.runId) &&
-              input.args?.includes("completed") &&
+              input.args.includes(terminalCommit.runId) &&
+              input.args.includes("completed") &&
               result.rowsAffected
             ) {
-              committedTerminalStatus = true;
+              committed.terminal = true;
             }
             return result;
           },
         }),
       );
-      if (committedTerminalStatus) {
+      if (committed.terminal) {
         terminalCommit.entered();
         await terminalCommit.wait;
       }
@@ -70,7 +70,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await pglite?.close();
+  await pglite.close();
 });
 
 function gate() {
