@@ -35,6 +35,7 @@ vi.mock("./federation.js", () => ({
 import {
   checkWorkspaceAppAccess,
   currentWorkspaceAppIdsForAccessList,
+  currentWorkspaceAppInventoryForAccessList,
   isWorkspaceAppAccessAllowed,
   WORKSPACE_APP_ACCESS_UNAVAILABLE,
 } from "./workspace-app-access.js";
@@ -873,6 +874,47 @@ describe("isWorkspaceAppAccessAllowed", () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
       "/_agent-native/actions/list-workspace-apps",
     );
+  });
+
+  it("keeps verified dynamic app metadata for the access settings list", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            inventoryKind: "org-access",
+            apps: [
+              {
+                id: "dynamic-app",
+                name: "Dynamic App",
+                path: "/dynamic-app",
+                owner: "unrelated@example.test",
+                visibility: "private",
+              },
+            ],
+          }),
+          { headers: { "content-type": "application/json" } },
+        ),
+      ),
+    );
+    await expect(
+      currentWorkspaceAppInventoryForAccessList({
+        email: "inventory@example.test",
+        orgId: null,
+      }),
+    ).resolves.toEqual([
+      {
+        id: "dynamic-app",
+        name: "Dynamic App",
+        description: null,
+        path: "/dynamic-app",
+      },
+    ]);
   });
 
   it("reports a failed registry read instead of returning an unfiltered app inventory", async () => {
