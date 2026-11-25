@@ -729,6 +729,8 @@ const messages = {
     "This app can't safely retry your saved prompt yet. Update the app, then try again.",
   "errorMessages.runInterrupted": "The agent stopped before finishing.",
   "errorMessages.runFailed": "The agent run failed.",
+  "errorMessages.writeOutcomeUnknown":
+    "I stopped before running a write action again because an earlier attempt may have already saved changes and I could not confirm the result. Check what was saved before retrying.",
   "errorMessages.runUnverified":
     "This chat lost track of the agent, which may still be running. Reload to see its progress.",
   "errorMessages.runSignedOut":

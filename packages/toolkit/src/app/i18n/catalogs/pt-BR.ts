@@ -1454,6 +1454,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Este app ainda não pode tentar novamente com segurança o seu prompt salvo. Atualize o app e tente de novo.",
   "errorMessages.runInterrupted": "O agente parou antes de terminar.",
   "errorMessages.runFailed": "A execução do agente falhou.",
+  "errorMessages.writeOutcomeUnknown":
+    "Parei antes de repetir uma ação de gravação porque uma tentativa anterior pode já ter salvo alterações e não consegui confirmar o resultado. Verifique o que foi salvo antes de tentar novamente.",
   "errorMessages.runUnverified":
     "Este chat perdeu o acompanhamento do agente, que ainda pode estar em execução. Recarregue para ver o progresso.",
   "errorMessages.runSignedOut":

@@ -1466,6 +1466,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Esta aplicación aún no puede volver a intentar tu mensaje guardado de forma segura. Actualiza la aplicación y vuelve a intentarlo.",
   "errorMessages.runInterrupted": "El agente se detuvo antes de terminar.",
   "errorMessages.runFailed": "La ejecución del agente falló.",
+  "errorMessages.writeOutcomeUnknown":
+    "Me detuve antes de repetir una acción de escritura porque un intento anterior podría haber guardado cambios y no pude confirmar el resultado. Comprueba qué se guardó antes de volver a intentarlo.",
   "errorMessages.runUnverified":
     "Este chat perdió el rastro del agente, que puede seguir ejecutándose. Recarga para ver su progreso.",
   "errorMessages.runSignedOut":
