@@ -335,7 +335,10 @@ async function writeAndReadBack(
       waitUntil: "domcontentloaded",
       timeout: 60_000,
     });
-    await page.getByRole("button", { name: "New form" }).click();
+    await page
+      .getByRole("button", { name: "New form", exact: true })
+      .first()
+      .click();
     await page.waitForURL(/\/forms\/[^/]+\/edit/, { timeout: 30_000 });
     const id = decodeURIComponent(
       page.url().match(/\/forms\/([^/]+)\/edit/)?.[1] ?? "",
