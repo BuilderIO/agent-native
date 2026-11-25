@@ -25,12 +25,19 @@ import {
   type ContentDatabaseResponse,
   type ContentDatabaseResponsePayload,
   type ContentDatabaseSource,
+  type ContentDatabaseSourceBodyChange,
   type ContentDatabaseSourceChangeSet,
   type ContentDatabaseSourceExecutionState,
   type ContentDatabaseSourcePushMode,
   type DocumentPropertyValue,
   type ExecuteBuilderSourceExecutionRequest,
 } from "../shared/api.js";
+import {
+  BUILDER_ARTICLE_AUTOSAVE_UNCONFIRMED_STOP,
+  builderArticleAutosaveAllowsEffect,
+  builderArticleAutosaveExecutionUnsettled,
+  builderArticleAutosaveLiveStop,
+} from "./_builder-article-autosave-rules.js";
 import {
   builderExecutionPayloadReference,
   cleanupBuilderPrivatePayload,
@@ -619,6 +626,8 @@ export function builderCmsReconciledSourceValuesJson(args: {
     const requestBlocks = (requestData as Record<string, unknown>).blocks;
     if (Array.isArray(requestBlocks)) {
       next[BUILDER_CMS_BODY_BLOCK_COUNT_KEY] = requestBlocks.length;
+    } else if (effect === "create_draft") {
+      next[BUILDER_CMS_BODY_BLOCK_COUNT_KEY] = 0;
     }
     for (const [fieldName, value] of Object.entries(requestData)) {
       if (fieldName === "blocks") continue;
@@ -724,7 +733,7 @@ function liveTimestampsDiffer(args: {
 function livePreflightBlockMessage(args: {
   liveState: BuilderCmsEntryLiveState;
   baselineLastUpdated: string | null;
-  baselineBlocksHash: string | null;
+  bodyChange: ContentDatabaseSourceBodyChange | null | undefined;
   baselineValues: Record<string, DocumentPropertyValue> | undefined;
   effect: BuilderCmsExecutionPayload["effect"];
   request: BuilderCmsExecutionPayload["request"];
@@ -774,6 +783,8 @@ function livePreflightBlockMessage(args: {
         values: liveValues,
         expected: savedOver.liveValues,
       }));
+  const written = builderCmsWrittenSourceFields(args.request);
+  const baselineBlocksHash = args.bodyChange?.currentHash ?? null;
   if (
     liveTimestampsDiffer({
       liveLastUpdated: args.liveState.lastUpdated,
@@ -786,12 +797,10 @@ function livePreflightBlockMessage(args: {
       isBuilderCmsUnpublishedSaveEffect(args.effect) ||
       args.effect === "update_in_place";
     const liveValues = args.liveState.values;
-    const written = builderCmsWrittenSourceFields(args.request);
     // The body check below skips a missing hash, which is only safe while
     // the timestamps still vouch for the body.
     const bodyUnverifiable =
-      written.wroteBody &&
-      (!args.baselineBlocksHash || !args.liveState.blocksHash);
+      written.wroteBody && (!baselineBlocksHash || !args.liveState.blocksHash);
     if (!fieldLevel || !liveValues || bodyUnverifiable) {
       return "Builder entry changed since this diff was approved; refresh and re-review.";
     }
@@ -802,10 +811,12 @@ function livePreflightBlockMessage(args: {
       return `${changedFields.map(args.fieldLabel).join(", ")} changed in Builder since you edited it; refresh and re-review.`;
     }
   }
+  const reviewedBodyEmpty =
+    written.wroteBody && args.bodyChange?.currentEmpty === true;
   if (
-    args.baselineBlocksHash &&
+    (baselineBlocksHash || reviewedBodyEmpty) &&
     args.liveState.blocksHash &&
-    args.liveState.blocksHash !== args.baselineBlocksHash &&
+    args.liveState.blocksHash !== baselineBlocksHash &&
     args.liveState.blocksHash !== savedOver?.liveBlocksHash
   ) {
     return "Builder body changed since this diff was approved; refresh and re-review.";
@@ -1892,9 +1903,14 @@ async function changeSetDocumentIds(
   return items.map((item) => item.documentId);
 }
 
+export interface ExecuteBuilderSourceExecutionOptions {
+  automatic?: boolean;
+}
+
 export async function executeBuilderSourceExecutionWithDeps(
   args: ExecuteBuilderSourceExecutionRequest,
   deps: ExecuteBuilderSourceExecutionDeps,
+  options: ExecuteBuilderSourceExecutionOptions = {},
 ) {
   const timing = createBuilderSourceTiming("execute_builder_source_execution");
   try {
@@ -2000,6 +2016,14 @@ export async function executeBuilderSourceExecutionWithDeps(
     if (changeSet.state !== "approved") {
       throw new Error("Approve the Builder change set before executing it.");
     }
+    const automaticRecovery =
+      options.automatic === true &&
+      builderArticleAutosaveExecutionUnsettled(execution.state);
+    const stopAutomaticRecovery = (): never =>
+      fail(BUILDER_ARTICLE_AUTOSAVE_UNCONFIRMED_STOP.message, {
+        errorCode: BUILDER_ARTICLE_AUTOSAVE_UNCONFIRMED_STOP.errorCode,
+        statusCode: 409,
+      });
 
     const plan = buildBuilderCmsExecutionPlan({
       source,
@@ -2008,6 +2032,15 @@ export async function executeBuilderSourceExecutionWithDeps(
       publicationTransition: args.publicationTransition,
       confirmUnpublish: args.confirmUnpublish,
     });
+    if (
+      options.automatic &&
+      !builderArticleAutosaveAllowsEffect(plan.payload.effect)
+    ) {
+      fail(
+        "Automatic saves only create and save drafts; this change goes through Review Builder update.",
+        { errorCode: "builder_autosave_needs_review", statusCode: 409 },
+      );
+    }
     const storedPayload = initialStoredPayload;
     const storedRequest = recordValue(storedPayload.request) as
       | BuilderCmsExecutionPayload["request"]
@@ -2036,6 +2069,7 @@ export async function executeBuilderSourceExecutionWithDeps(
         dryRun?.status === "stale" && dryRun.mismatches.length > 0
           ? dryRun.mismatches.join(" ")
           : (plan.lastError ?? "Builder execution is blocked.");
+      if (automaticRecovery) stopAutomaticRecovery();
       await deps.updateExecutionState({
         executionId: execution.id,
         expected: {
@@ -2053,6 +2087,7 @@ export async function executeBuilderSourceExecutionWithDeps(
     }
     if (plan.state !== "ready") {
       const message = plan.lastError ?? "Builder execution is not ready.";
+      if (automaticRecovery) stopAutomaticRecovery();
       await deps.updateExecutionState({
         executionId: execution.id,
         expected: {
@@ -2071,6 +2106,7 @@ export async function executeBuilderSourceExecutionWithDeps(
 
     if (source.capabilities.liveWritesEnabled !== true) {
       const message = "Live Builder writes are disabled for this source.";
+      if (automaticRecovery) stopAutomaticRecovery();
       await deps.updateExecutionState({
         executionId: execution.id,
         expected: {
@@ -2136,6 +2172,7 @@ export async function executeBuilderSourceExecutionWithDeps(
         storedWriteResult = recoveredWriteResult(lookup.matches[0]!);
       }
     }
+    if (automaticRecovery && !storedWriteResult) stopAutomaticRecovery();
     if (storedWriteResult) {
       timing.record("approval_gate_and_dry_run_validation", gateStartedAt);
       timing.ensure("write_dispatch");
@@ -2333,11 +2370,30 @@ export async function executeBuilderSourceExecutionWithDeps(
         request: plan.payload.request,
         checkedAt: now,
       });
+      const baselineValues = sourceRowForChangeSet(
+        source,
+        changeSet,
+      )?.sourceValues;
+      const automaticStop = options.automatic
+        ? builderArticleAutosaveLiveStop({ liveState, baselineValues })
+        : null;
+      if (automaticStop) {
+        await releaseClaim({
+          state: "blocked",
+          summary: `${plan.summary} Automatic save stopped before write.`,
+          payload: { ...validatedPayload, livePreflight },
+          lastError: automaticStop.message,
+        });
+        fail(automaticStop.message, {
+          errorCode: automaticStop.errorCode,
+          statusCode: 409,
+        });
+      }
       const message = livePreflightBlockMessage({
         liveState,
         baselineLastUpdated,
-        baselineBlocksHash: changeSet.bodyChange?.currentHash ?? null,
-        baselineValues: sourceRowForChangeSet(source, changeSet)?.sourceValues,
+        bodyChange: changeSet.bodyChange,
+        baselineValues,
         effect: plan.payload.effect,
         request: plan.payload.request,
         fieldLabel: builderSourceFieldLabel(source),

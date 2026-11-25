@@ -40,7 +40,7 @@ let previousSecretsEncryptionKey: string | undefined;
 beforeAll(async () => {
   previousSecretsEncryptionKey = process.env.SECRETS_ENCRYPTION_KEY;
   process.env.SECRETS_ENCRYPTION_KEY = "workspace-connections-test-key";
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   sharedClient = {
     async execute(arg) {
       const sql = typeof arg === "string" ? arg : arg.sql;

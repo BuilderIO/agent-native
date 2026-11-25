@@ -67,4 +67,11 @@ describe("ReadOnlyDesignBanner", () => {
       container.querySelector("button")?.getAttribute("aria-pressed"),
     ).toBe("true");
   });
+
+  it("shows no zoom readout to viewers", () => {
+    act(() => root.render(<ReadOnlyDesignBanner />));
+
+    expect(container.querySelector("button")).toBeNull();
+    expect(container.textContent).not.toMatch(/%/);
+  });
 });

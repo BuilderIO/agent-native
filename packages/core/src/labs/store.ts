@@ -1,3 +1,4 @@
+import { isTransientDatabaseError } from "../db/errors.js";
 import {
   defaultFeatureFlagRules,
   evaluateFeatureFlagRules,
@@ -110,9 +111,10 @@ async function getLegacyRules(
 export async function getUserLabStates(
   email: string,
   scope: FeatureFlagScope = {},
+  options?: { propagateTransientErrors?: boolean },
 ): Promise<Record<string, UserLabStateResult>> {
   const stored = await getStoredLabs(email);
-  return resolveStoredLabStates(email, stored, scope);
+  return resolveStoredLabStates(email, stored, scope, listLabs(), options);
 }
 
 /**
@@ -138,6 +140,7 @@ async function resolveStoredLabStates(
   stored: Record<string, unknown> | null,
   scope: FeatureFlagScope,
   definitions: readonly LabDefinition[] = listLabs(),
+  options?: { propagateTransientErrors?: boolean },
 ): Promise<Record<string, UserLabStateResult>> {
   const invalidChoices = new Set(
     definitions
@@ -164,7 +167,12 @@ async function resolveStoredLabStates(
       legacyKeys.map(async (key) => {
         try {
           return [key, await getLegacyRules(key, evaluationScope)] as const;
-        } catch {
+        } catch (error) {
+          if (
+            options?.propagateTransientErrors &&
+            isTransientDatabaseError(error, { source: "database" })
+          )
+            throw error;
           return [key, null] as const;
         }
       }),

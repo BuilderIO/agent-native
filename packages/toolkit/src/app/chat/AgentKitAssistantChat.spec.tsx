@@ -2198,6 +2198,50 @@ describe("AgentKitAssistantChat host behavior", () => {
     ).toBeNull();
   });
 
+  it.each(["accept", "refuse", "reject"] as const)(
+    "shows pending feedback while submission admission waits and cleans up on %s",
+    async (outcome) => {
+      const admission = Promise.withResolvers<(() => void) | null>();
+      const release = vi.fn();
+      chatMocks.history = {
+        beginSubmission: vi.fn(() => admission.promise),
+      };
+      await mount(baseProps());
+      let submission: Promise<unknown> | undefined;
+      try {
+        await act(async () => {
+          submission = chatMocks.composerProps
+            .onSubmit("Rewrite the intro", [], [], { intent: "immediate" })
+            .catch((error: unknown) => error);
+        });
+        expect(container.textContent).toContain("Rewrite the intro");
+        expect(container.querySelector('[role="status"]')?.textContent).toBe(
+          "agentChat.status.thinking",
+        );
+        expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+      } finally {
+        await act(async () => {
+          if (outcome === "reject")
+            admission.reject(new Error("History unavailable"));
+          else admission.resolve(outcome === "accept" ? release : null);
+          const result = await submission;
+          expect(result === undefined).toBe(outcome === "accept");
+          expect(result instanceof Error).toBe(outcome !== "accept");
+        });
+      }
+      await act(async () => {
+        await vi.waitFor(() =>
+          expect(container.textContent).not.toContain("Rewrite the intro"),
+        );
+      });
+      expect(container.querySelector('[role="status"]')).toBeNull();
+      expect(chatMocks.control.sendMessage).toHaveBeenCalledTimes(
+        outcome === "accept" ? 1 : 0,
+      );
+      expect(release).toHaveBeenCalledTimes(outcome === "accept" ? 1 : 0);
+    },
+  );
+
   it("shows the submitted message and Thinking before the agent client accepts the send", async () => {
     let acceptSend: () => void = () => undefined;
     chatMocks.control.sendMessage.mockImplementationOnce(
@@ -9829,6 +9873,57 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(container.textContent).not.toContain("private provider details");
   });
 
+  it("keeps a verification-failed prompt through reconnect and permits retry", async () => {
+    const startRun = vi
+      .fn<AgentTransport["startRun"]>()
+      .mockRejectedValueOnce(
+        Object.assign(
+          new Error("Thread history cannot be verified. Retry shortly."),
+          { status: 409, code: "thread_history_unavailable", retryable: true },
+        ),
+      )
+      .mockResolvedValueOnce({ runId: "retried-run" });
+    chatMocks.useRealChat = true;
+    chatMocks.useRealRoot = true;
+    const client = await useRealComposer(startRun);
+    const loadThread = vi.spyOn(client, "loadThread");
+    await mount(baseProps({ showModelSelector: false }));
+    const composer = chatMocks.composerProps.composerRef.current;
+    const prompt = "do I have any GitHub notifications from humans?";
+    await act(async () => composer.setText(prompt));
+    const send = () => {
+      const button = container.querySelector<HTMLButtonElement>(
+        '[data-agent-composer-slot="send-button"]',
+      );
+      if (!button) throw new Error("Send button not found");
+      return button;
+    };
+    await act(async () => send().click());
+    await flush();
+    expect(startRun).toHaveBeenCalledOnce();
+    expect(
+      container.querySelector('[contenteditable="true"]')?.textContent,
+    ).toBe(prompt);
+    const reconnect = container.querySelector<HTMLButtonElement>(
+      '[data-error-code="thread_history_unavailable"] button',
+    );
+    expect(reconnect).not.toBeNull();
+    loadThread.mockClear();
+    await act(async () => {
+      reconnect?.click();
+      await vi.waitFor(() => expect(loadThread).toHaveBeenCalled());
+    });
+    expect(
+      container.querySelector('[contenteditable="true"]')?.textContent,
+    ).toBe(prompt);
+    await act(async () => send().click());
+    await vi.waitFor(() => expect(startRun).toHaveBeenCalledTimes(2));
+    expect(startRun.mock.calls[1]?.[0].messages.at(-1)?.parts).toEqual([
+      { type: "text", text: prompt },
+    ]);
+    await client.shutdown();
+  });
+
   it("handles a retryable Implement Plan start failure without an unhandled rejection", async () => {
     const unhandledRejections: unknown[] = [];
     const onUnhandledRejection = (error: unknown) => {
@@ -10697,6 +10792,39 @@ describe("AgentKitAssistantChat host behavior", () => {
     expect(container.querySelector('[role="alert"]')?.textContent).toBe(
       "agentChat.recovery.continueUnavailable",
     );
+  });
+
+  it.each(["runtime_error", "provider_internal_error", "http_500"])(
+    "uses a plain message for %s failures and retains diagnostics without retrying",
+    async (code) => {
+      const raw =
+        'Error: 500 {"type":"error","error":{"message":"Internal failure"}}';
+      chatMocks.failureError = { code, message: raw, retryable: false };
+
+      await mount(baseProps());
+
+      expect(chatMocks.failureProps.info).toMatchObject({
+        message: "actionErrors.failed",
+        details: raw,
+        errorCode: code,
+        recoverable: false,
+      });
+      expect(chatMocks.control.sendMessage).not.toHaveBeenCalled();
+      expect(chatMocks.composerProps).toBeTruthy();
+    },
+  );
+
+  it("preserves structured diagnostics when a generic run fails", async () => {
+    chatMocks.failureError = {
+      code: "runtime_error",
+      message: "The upstream request failed.",
+      details: { requestId: "request-123", status: 500 },
+    };
+
+    await mount(baseProps());
+
+    expect(chatMocks.failureProps.info.message).toBe("actionErrors.failed");
+    expect(chatMocks.failureProps.info.details).toContain("request-123");
   });
 
   it("shows an error when loop-limit Continue rejects", async () => {
@@ -12068,6 +12196,60 @@ describe("AgentKitAssistantChat host behavior", () => {
       "host-fallback",
     );
     expect(onThreadSnapshotPersisted).toHaveBeenCalledOnce();
+  });
+
+  it("does not fire onThreadSnapshotPersisted when a snapshot save resolves after unmount", async () => {
+    const createTransport = () => chatMocks.transport;
+    chatMocks.snapshotPersistenceUnavailable = true;
+    let resolveSave: ((saved: boolean) => void) | undefined;
+    const onSaveThread = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveSave = resolve;
+        }),
+    );
+    const onThreadSnapshotPersisted = vi.fn();
+    await mount(
+      baseProps({ createTransport, onSaveThread, onThreadSnapshotPersisted }),
+    );
+
+    chatMocks.thread = {
+      ...chatMocks.thread,
+      thread: null,
+      messages: [
+        {
+          id: "unmounted-save-message",
+          role: "user",
+          status: "complete",
+          createdAt: "2026-10-07T12:00:00.000Z",
+          parts: [{ type: "text", text: "show my apps" }],
+        },
+      ],
+    };
+    await act(async () => {
+      root.render(
+        <AgentKitAssistantChat
+          {...baseProps({
+            createTransport,
+            onSaveThread,
+            onThreadSnapshotPersisted,
+          })}
+        />,
+      );
+    });
+    expect(onSaveThread).toHaveBeenCalledOnce();
+    expect(resolveSave).toBeTypeOf("function");
+
+    await act(async () => {
+      root.unmount();
+    });
+    await act(async () => {
+      resolveSave?.(true);
+      await Promise.resolve();
+    });
+    await flush();
+
+    expect(onThreadSnapshotPersisted).not.toHaveBeenCalled();
   });
 
   it("uses the host fallback after a legacy controller save resolves", async () => {

@@ -1,4 +1,8 @@
 export default {
+  responseGuard: {
+    noDesignChangesSaved:
+      "In diesem Durchgang wurden keine Designänderungen gespeichert.",
+  },
   journeyCanvas: {
     observedSessionReference: "Beobachtete Sitzungsreferenz",
     sessionsOfAll: "{count} Sitzungen · {percent} aller",
@@ -264,7 +268,7 @@ export default {
     pageHelpDescription:
       "Bearbeiten Sie Typografie, Abstände, Größen, Ränder und Füllung für alles, was Sie auswählen. Seitenstandards unten.",
     sections: {
-      page: "Screen",
+      page: "Seite",
       canvas: "Arbeitsfläche",
       typography: "Typografie",
       autoLayout: "Auto-Layout",
@@ -367,6 +371,8 @@ export default {
       blur: "Unschärfe",
       spread: "Ausbreitung",
       rotation3d: "3D-Rotation",
+      constraints: "Constraints",
+      absolutePosition: "Absolute Position",
       rotationX: "X-Rotation",
       rotationY: "Y-Rotation",
       perspective: "Perspektive",
@@ -421,7 +427,7 @@ export default {
       addRecordRow: "{{item}} hinzufügen",
       recordRowLabel: "{{item}} {{index}}",
       removeRecordRow: "{{item}} {{index}} entfernen",
-      selectElementFirst: "Wähle zuerst ein Bildschirmelement aus",
+      selectElementFirst: "Wähle zuerst ein Element auf der Seite aus",
       selectCanvasElementFirst: "Wähle zuerst ein Element auf der Leinwand aus",
       saveFailed: "Shader konnte nicht gespeichert werden",
       custom: "Benutzerdefiniert",
@@ -847,11 +853,11 @@ export default {
     screenSource: {
       title: "Quelle",
       url: "URL",
-      urlLabel: "Screen-URL",
+      urlLabel: "Seiten-URL",
       urlPlaceholder: "/plans oder http://localhost:5173/plans",
       update: "Aktualisieren",
       chooseLocalApp: "Lokale App auswählen",
-      remove: "Screen entfernen",
+      remove: "Seite entfernen",
     },
     borderStyleOptions: {
       none: "Keine",
@@ -931,7 +937,7 @@ export default {
       original: "Originalseite versuchen",
     },
 
-    sourceLoadFailed: "Dieser Bildschirm konnte nicht geladen werden.",
+    sourceLoadFailed: "Diese Seite konnte nicht geladen werden.",
     selectionPublishFailed:
       "Der Agent sieht deine neueste Auswahl möglicherweise nicht. Wähle sie erneut aus.",
     liveCollaboration: {
@@ -1048,6 +1054,19 @@ export default {
       collapse: "Seitenleiste einklappen",
       expand: "Seitenleiste ausklappen",
     },
+    leftTabs: {
+      label: "Seitenleiste",
+      agent: "Agent",
+      file: "Datei",
+      library: "Bibliothek",
+    },
+    columnHead: {
+      comments: "Kommentare",
+      unreadComments: "Ungelesene Kommentare",
+      resizeLeftPanel: "Linkes Panel anpassen",
+      resizeInspector: "Inspektor anpassen",
+      whatsNew: "Neuigkeiten",
+    },
     breakpointBar: {
       base: "Basis",
       editBaseWidth: "Basisbreite bearbeiten",
@@ -1080,7 +1099,7 @@ export default {
       themeSystem: "System",
       themeSystemHint:
         "Zeigt das Design wie erstellt (nutzt die Systemeinstellung)",
-      screen: "Screen",
+      screen: "Seite",
       back: "Zurück",
       forward: "Weiter",
       reload: "Vorschau neu laden",
@@ -1091,8 +1110,8 @@ export default {
       zoomFit: "An die Zeichenfläche angepasst",
       zoomFitOption: "Anpassen",
       exit: "Responsive-Vorschau verlassen",
-      noScreens: "Dieses Design hat keine Screens für die Vorschau.",
-      unknownScreen: "Dieser Screen gehört nicht zu diesem Design.",
+      noScreens: "Dieses Design hat keine Seiten für die Vorschau.",
+      unknownScreen: "Diese Seite gehört nicht zu diesem Design.",
     },
     applyToSource: "Auf Quelle anwenden",
     applyToSourcePath: "Auf Quelle anwenden ({{path}})",
@@ -1150,10 +1169,16 @@ export default {
         opacity: "Deckkraft",
       },
       editColor: "Farbe von {{name}} bearbeiten",
+      field: {
+        open: "Tokens",
+        detach: "Token lösen",
+        primitives: "{{group}}-Primitive",
+        loading: "Tokens werden geladen…",
+      },
     },
     import: {
       description:
-        "Bringe Figma-Zwischenablage-HTML oder eigenständiges HTML als Design-Bildschirme hinein.",
+        "Füge HTML aus der Figma-Zwischenablage oder eigenständiges HTML als Design-Seiten ein.",
       figmaUrlLabel: "Figma-Frame- oder Datei-URL",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
       figmaTokenLabel: "Figma-Zugriffstoken",
@@ -1218,10 +1243,10 @@ export default {
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
       htmlDescription:
-        "Füge eigenständiges HTML ein oder lade es hoch. Design speichert es als neuen Bildschirm, ohne es in diese Editor-UI einzufügen.",
+        "Füge eigenständiges HTML ein oder lade es hoch. Design speichert es als neue Seite, ohne es in diese Editor-Oberfläche einzufügen.",
       allSupportedFiles: "Alle unterstützten Dateien",
       githubDescription:
-        "Demnächst: Bildschirme und Komponenten direkt aus einem Repository importieren.",
+        "Demnächst: Seiten und Komponenten direkt aus einem Repository importieren.",
       localDescription: "Verbinde jede laufende lokale App mit /visual-edit.",
       warningsToast: "Import mit Warnungen abgeschlossen",
       pasteUnreadable: "Die kopierten Ebenen konnten nicht gelesen werden.",
@@ -1237,7 +1262,7 @@ export default {
       pasteNeedsEditAccess:
         "Zum Einfügen in dieses Design brauchst du Bearbeitungszugriff.",
       pastePartialImport:
-        "Das Einfügen ist fehlgeschlagen, und einige Screens wurden möglicherweise erstellt. Prüfe deine Screens.",
+        "Das Einfügen ist fehlgeschlagen, einige Seiten wurden möglicherweise erstellt. Prüfe deine Seiten.",
       figmaSuccess: "Figma-Einfügung importiert",
       htmlSuccess: "HTML importiert",
       uploadSuccess: "Datei importiert",
@@ -1290,16 +1315,17 @@ export default {
     retryAccessCheck: "Erneut versuchen",
     saveAsTemplate: "Als Vorlage speichern…",
     saveTemplateDescription:
-      "Aktuelle Screens, Abmessungen, Standardwerte und gesperrte Ebenen als wiederverwendbaren Ausgangspunkt sichern.",
+      "Speichere die aktuellen Seiten, Abmessungen, Standardwerte und gesperrten Ebenen als wiederverwendbaren Ausgangspunkt.",
     templateName: "Vorlagenname",
     templateDescription: "Beschreibung",
     templateCategory: "Kategorie",
     templateSnapshotSummary:
-      "{{screens}} Screen(s) · {{locks}} gesperrte Ebene(n) werden beibehalten",
+      "{{screens}} Seite(n) · {{locks}} gesperrte Ebene(n) bleiben erhalten",
     saveTemplate: "Vorlage speichern",
     templateSaved: "Vorlage in der Bibliothek gespeichert",
     templateSaveFailed: "Diese Vorlage konnte nicht gespeichert werden",
     appMenu: {
+      backToDashboard: "Zurück zum Dashboard",
       file: "Datei",
       preferences: "Einstellungen",
       newDesign: "Neues Design",
@@ -1346,7 +1372,7 @@ export default {
       comment: "Kommentar",
       edit: "Bearbeiten",
       interact: "Interact",
-      screens: "Bildschirme",
+      screens: "Seiten",
     },
     topBar: {
       modeDesign: "Design",
@@ -1357,7 +1383,7 @@ export default {
     tools: {
       move: "Move",
       frame: "Frame",
-      screen: "Screen",
+      screen: "Seite",
       shapes: "Formen",
       rect: "Rectangle",
       line: "Linie",
@@ -1380,7 +1406,7 @@ export default {
       categoriesLabel: "Kategorien der Tastenkürzel",
       empty: "Keine Tastenkürzel passen zu „{{query}}“",
       codeContext: "Code",
-      screenContext: "Screens",
+      screenContext: "Seite",
       nudgeAmount: {
         title: "Verschiebeschrittweite",
         small: "Kleiner Schritt",
@@ -1466,8 +1492,8 @@ export default {
         enterSelection: "Auswahl",
         nextSibling: "Auswahl →",
         previousSibling: "← Auswahl",
-        nextScreen: "Screens →",
-        previousScreen: "← Screens",
+        nextScreen: "Nächste Seite",
+        previousScreen: "Vorherige Seite",
         toggleLayoutGrids: "Layoutraster ein- oder ausblenden",
         toggleRulers: "Lineale ein- oder ausblenden",
         nudge: "Move",
@@ -1520,10 +1546,10 @@ export default {
     duplicate: "Duplicate",
     delete: "Delete",
     view: "View",
-    returnToCurrentScreen: "Zum aktuellen Bildschirm zurückkehren",
-    openScreenOverview: "Bildschirmübersicht öffnen",
-    currentScreen: "Aktueller Bildschirm",
-    screenOverview: "Bildschirmübersicht",
+    returnToCurrentScreen: "Zur aktuellen Seite zurück",
+    openScreenOverview: "Seitenübersicht öffnen",
+    currentScreen: "Aktuelle Seite",
+    screenOverview: "Seitenübersicht",
     devicePreview: "Gerätevorschau",
     devices: {
       responsive: "Reaktionsschnell",
@@ -1553,7 +1579,7 @@ export default {
     downloadSvg: "SVG herunterladen",
     downloadFigmaSvg: "Für Figma herunterladen (SVG)",
     downloadZip: "ZIP herunterladen",
-    downloadPdfAllScreens: "Laden Sie PDF herunter (Alle Screens)",
+    downloadPdfAllScreens: "PDF herunterladen (alle Seiten)",
     publishApp: "App veröffentlichen",
     exportOptions: "Exportoptionen",
     exportHtml: "HTML exportieren",
@@ -1625,13 +1651,13 @@ export default {
       rollback: "Zurückrollen",
       keep: "Behalten",
       selectorMissing:
-        "Das ausgewählte Element existiert in diesem Screen nicht mehr.",
+        "Das ausgewählte Element hat keine bearbeitbare Entsprechung im Quellcode dieser Seite. Wenn eine Komponente es rendert, wende die Änderung über den Agenten an.",
       noRenderedBox:
         "Die ausgewählte Ebene hat keine gerenderte Box, daher wurde die Stiländerung nicht angewendet.",
       clientRenderedShell:
-        "Dieser Screen wird clientseitig gerendert. Daher enthält das bereitgestellte HTML kein App-Markup, das gepatcht werden kann. Bitte den Agenten, diese Änderung am Komponentenquellcode vorzunehmen.",
+        "Diese Seite wird clientseitig gerendert, daher enthält das ausgelieferte HTML kein App-Markup zum Patchen. Bitte den Agenten, die Änderung im Komponenten-Quellcode vorzunehmen.",
       snapshotNotLoaded:
-        "Der Quellcode dieses Screens wurde noch nicht geladen, daher wurde die Änderung nicht geschrieben. Warte, bis der Screen vollständig geladen ist, und versuche es erneut.",
+        "Der Quellcode dieser Seite wurde noch nicht geladen, daher wurde die Änderung nicht geschrieben. Warte, bis die Seite fertig geladen ist, und versuche es erneut.",
       selectorAmbiguous:
         "Dieses Element ist eine von {{count}} identischen Instanzen im Quellcode, daher wurde die Änderung nicht geschrieben. Bitte den Agenten, sie auf diese Instanz zu beschränken.",
       status: {
@@ -1687,18 +1713,18 @@ export default {
       leave: "Ohne Anwenden verlassen",
     },
     addLocalhostScreen: {
-      title: "Einen Screen aus deiner App hinzufügen",
+      title: "Seite aus deiner App hinzufügen",
       description:
         "Wähle eine Route als neuen Rahmen aus oder gib einen Pfad ein.",
       searchPlaceholder: "Routen durchsuchen…",
       noRoutes: "Keine passenden Routen",
       noDiscoveredRoutes:
-        "Für diese App wurden keine Routen gefunden. Gib einen Pfad ein, um einen Screen hinzuzufügen.",
+        "Für diese App wurden keine Routen gefunden. Gib einen Pfad ein, um eine Seite hinzuzufügen.",
       useCustomPath: "„{{path}}“ hinzufügen",
       viewportDesktop: "Desktop",
       viewportMobile: "Mobil",
-      added: "Screen hinzugefügt",
-      addFailed: "Screen konnte nicht hinzugefügt werden",
+      added: "Seite hinzugefügt",
+      addFailed: "Seite konnte nicht hinzugefügt werden",
     },
     localhostConsent: {
       approvedTitle: "Genehmigt – führe die Änderung erneut aus",
@@ -1781,7 +1807,7 @@ export default {
       zipCreateError: "ZIP-Download konnte nicht erstellt werden",
       zipDownloaded: "ZIP heruntergeladen",
       zipExportError: "ZIP konnte nicht exportiert werden",
-      openScreenPng: "Öffnen Sie vor dem PNG-Export einen Bildschirm",
+      openScreenPng: "Öffne eine Seite, bevor du PNG exportierst",
       pngCreateError: "PNG-Download konnte nicht erstellt werden",
       pngDownloaded: "PNG heruntergeladen",
       pngCopied: "PNG in die Zwischenablage kopiert",
@@ -1809,8 +1835,8 @@ export default {
         "Der Export ist nicht verfügbar, weil der Renderer nicht gestartet werden konnte. Versuchen Sie es später erneut.",
       pdfExportError: "PDF konnte nicht exportiert werden",
       pdfDownloaded: "PDF heruntergeladen",
-      pdfAllScreensDownloaded: "PDF heruntergeladen (Alle Screens)",
-      openScreenSvg: "Öffnen Sie vor dem SVG-Export einen Bildschirm",
+      pdfAllScreensDownloaded: "PDF heruntergeladen (alle Seiten)",
+      openScreenSvg: "Öffne eine Seite, bevor du SVG exportierst",
       svgDownloaded: "SVG heruntergeladen",
       svgExportError: "SVG konnte nicht exportiert werden",
       figmaSvgCopied: "Als Figma-SVG kopiert",
@@ -1823,17 +1849,17 @@ export default {
         "SVG konnte nicht in die Zwischenablage kopiert werden",
       figmaSvgRenderError: "Figma-SVG konnte nicht erstellt werden",
       figmaSvgExportError: "Figma-SVG konnte nicht exportiert werden",
-      screenDuplicated: "Screen dupliziert",
-      screenDuplicateError: "Screen konnte nicht dupliziert werden",
+      screenDuplicated: "Seite dupliziert",
+      screenDuplicateError: "Seite konnte nicht dupliziert werden",
       copied: "Copied",
       pasted: "Pasted",
       deleted: "Deleted",
       propsCopied: "Eigenschaften kopiert",
       propsPasted: "Eigenschaften eingefügt",
       primitiveInsertFailed:
-        "Diese Ebene konnte nicht zur Ansicht hinzugefügt werden",
+        "Diese Ebene konnte der Seite nicht hinzugefügt werden",
       designStateLiveScreen:
-        "Design-Zustände lassen sich in einem Live-Screen nicht vorschauen — sein Inhalt ist die laufende App, kein Dokument.",
+        "Designzustände können auf einer Live-Seite nicht in der Vorschau angezeigt werden: ihr Inhalt ist die laufende App, kein Dokument.",
       layerMoveFailed: "Diese Ebene konnte nicht verschoben werden",
       groupFillApplyFailed:
         "Diese Füllung konnte nicht auf alle Ebenen der Gruppe angewendet werden.",
@@ -1864,12 +1890,10 @@ export default {
       redoSkippedConcurrentEdit:
         "Wiederholen übersprungen – jemand anderes hat das verschoben",
       saveConflict:
-        "Dieser Screen wurde anderswo geändert. Deine letzte Änderung wurde nicht gespeichert.",
-      versionHistoryUnavailable:
-        "Der Versionsverlauf ist für dieses Design nicht verfügbar. Deine Änderung wurde trotzdem gespeichert.",
+        "Diese Seite wurde an anderer Stelle geändert. Deine letzte Änderung wurde nicht gespeichert.",
       removeAutoLayoutFailed: "Auto-Layout konnte nicht entfernt werden",
       autoLayoutScreensUnsupported:
-        "Auto-Layout hinzufügen gilt nicht für Bildschirme",
+        "Auto-Layout hinzufügen gilt nicht für Seiten",
       booleanSubtractUnsupported:
         "Wähle benachbarte Rechtecke oder Ellipsen mit einfarbiger Füllung aus, um sie zu subtrahieren.",
       booleanSubtractFailed: "Diese Ebenen konnten nicht subtrahiert werden.",
@@ -1879,9 +1903,8 @@ export default {
         "Diese App stellt dem Editor keine Quellcode-Positionen bereit, daher lässt sich diese Ebene keiner Zeile zuordnen. Lass die Änderung vom Agenten vornehmen.",
       sourceLocationSnapshotFailed:
         "Quellcode-Positionen für diese Vorschau konnten nicht geprüft werden.",
-      screenSourceUpdated: "Screen-Quelle aktualisiert",
-      screenSourceUpdateFailed:
-        "Screen-Quelle konnte nicht aktualisiert werden",
+      screenSourceUpdated: "Seitenquelle aktualisiert",
+      screenSourceUpdateFailed: "Seitenquelle konnte nicht aktualisiert werden",
       vectorEditUnsupported:
         "Vektorbearbeitung ist für diese Form oder Transformation nicht verfügbar.",
       imageUploading: "Bild wird hochgeladen…",
@@ -1897,7 +1920,7 @@ export default {
       alignNeedsTwoLayers:
         "Wähle zwei oder mehr Ebenen aus, um sie auszurichten",
       alignNeedsTwoScreens:
-        "Wähle zwei oder mehr Screens aus, um sie auszurichten",
+        "Wähle zwei oder mehr Seiten aus, um sie auszurichten",
       layoutUnmeasurable:
         "Eine ausgewählte Ebene konnte nicht gemessen werden. Prüfe, ob sie auf der Arbeitsfläche sichtbar ist, und versuche es erneut.",
       layoutAutoLayoutChildren:
@@ -1947,11 +1970,10 @@ export default {
   },
   layersPanel: {
     title: "Ebenen",
-    screens: "Screens",
-    resizeScreens: "Größe des Bildschirmbereichs ändern",
-    allScreens: "Alle Screens",
+    screens: "Seiten",
+    resizeScreens: "Größe des Seitenbereichs ändern",
     thumbnail: "Miniaturansicht",
-    addScreen: "Screen hinzufügen",
+    addScreen: "Seite hinzufügen",
     searchPlaceholder: "Ebenen suchen",
     empty: "Keine Ebenen",
     noMatches: "Keine passenden Ebenen",
@@ -2000,7 +2022,7 @@ export default {
         "Die Live-Editor-Bridge hat die Verbindung auch nach mehreren Versuchen nicht bestätigt.",
       connectionNotConfirmed:
         "Die Live-Editor-Bridge hat die Verbindung nicht bestätigt. Läuft der lokale Entwicklungsserver noch?",
-      permissionPromptTitle: "Lokale Bildschirme verbinden",
+      permissionPromptTitle: "Lokale Seiten verbinden",
       permissionPromptDescription:
         "Wähle in der Chrome-Abfrage „Zulassen“, um die Live-Bearbeitung zu aktivieren.",
       permissionPromptNoPrompt: "Keine Chrome-Abfrage?",
@@ -2010,15 +2032,15 @@ export default {
       previewCredentialsUnavailableTitle:
         "Anmeldedaten für die lokale Vorschau sind nicht verfügbar",
       previewCredentialsUnavailableDescription:
-        "Verbinde die Localhost-Verbindung dieses Screens im Inspektor erneut und versuche es dann noch einmal.",
+        "Verbinde die Localhost-Verbindung dieser Seite im Inspektor neu und versuche es dann erneut.",
       publicPreviewUnavailableDescription:
-        "Localhost-Vorschauen werden nicht mit öffentlichen Betrachtern geteilt. Öffne dieses Design als Mitwirkender, um diesen Screen zu sehen.",
+        "Localhost-Vorschauen werden nicht mit öffentlichen Betrachtern geteilt. Öffne dieses Design als Mitarbeiter, um diese Seite zu sehen.",
       previewCredentialsRetry: "Anmeldedaten erneut abrufen",
     },
   },
   multiScreenCanvas: {
     addBreakpointToAllScreens:
-      "{{label}}-Breakpoint ({{width}}px) zu allen Screens hinzufügen",
+      "Breakpoint {{label}} ({{width}}px) zu allen Seiten hinzufügen",
     preparingLiveEditor: "Live-Editor wird vorbereitet…",
     duplicate: "Duplizieren",
     fork: "Abzweigen",
@@ -2564,10 +2586,10 @@ export default {
     openDesign: "Design oeffnen",
     templatesCta: "Vorlagen durchsuchen",
     previewLabel: "Lokale Vorschau",
-    layoutLabel: "Bildschirm-Layout bereit zum Speichern",
+    layoutLabel: "Seitenlayout bereit zum Speichern",
   },
   templatesPage: {
-    previewEmpty: "Diese Vorlage enthält keine Vorschauseiten.",
+    previewEmpty: "Diese Vorlage enthält keine Seiten mit Vorschau.",
     loading: "Vorlagen werden geladen",
     title: "Vorlagen",
     description:
@@ -2632,8 +2654,8 @@ export default {
     commentsTab: "Kommentare · {{count}}",
     commentsTitle: "Prüfkommentare",
     commentNumber: "Prüfkommentar {{count}}",
-    thisScreen: "Dieser Bildschirm",
-    allScreens: "Alle Bildschirme",
+    thisScreen: "Diese Seite",
+    allScreens: "Alle Seiten",
     signInToComment: "Zum Kommentieren anmelden",
     panelTitle: "Feedback",
     placeholder: "Feedback hinterlassen…",
@@ -2783,7 +2805,7 @@ export default {
         permission: "Du hast keinen Bearbeitungszugriff mehr",
         threadUnavailable: "Dieser Thread ist nicht mehr geöffnet",
         targetChanged: "Das Design wurde geändert, während der Agent arbeitete",
-        applyUnavailable: "Ein Agent kann diesen Bildschirm nicht bearbeiten",
+        applyUnavailable: "Ein Agent kann diese Seite nicht bearbeiten",
         applyIncomplete:
           "Das Design wurde bearbeitet, der Thread wurde aber nicht erledigt. Prüfe die Änderung.",
         cancelledAfterEdit:

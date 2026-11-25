@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { isCalendarConnectionComplete } from "./calendar-connection";
+import {
+  findUnreportedCalendarConnection,
+  isCalendarConnectionComplete,
+} from "./calendar-connection";
 
 const connected = {
   id: "account-1",
@@ -46,5 +49,46 @@ describe("isCalendarConnectionComplete", () => {
         "account-1",
       ),
     ).toBe(false);
+  });
+});
+
+describe("findUnreportedCalendarConnection", () => {
+  const stale = { ...connected, status: "needs-reauth" };
+
+  it("finds a reconnect the popup never reported", () => {
+    expect(
+      findUnreportedCalendarConnection([stale], [connected], "account-1"),
+    ).toBe("account-1");
+  });
+
+  it("finds a new account the popup never reported", () => {
+    expect(
+      findUnreportedCalendarConnection(
+        [connected],
+        [connected, { ...connected, id: "account-2" }],
+      ),
+    ).toBe("account-2");
+  });
+
+  it("ignores accounts that were already connected", () => {
+    expect(findUnreportedCalendarConnection([connected], [connected])).toBe(
+      null,
+    );
+  });
+
+  it("finds nothing when the reconnect was cancelled", () => {
+    expect(
+      findUnreportedCalendarConnection([stale], [stale], "account-1"),
+    ).toBe(null);
+  });
+
+  it("requires the account targeted by reconnect", () => {
+    expect(
+      findUnreportedCalendarConnection(
+        [stale],
+        [stale, { ...connected, id: "account-2" }],
+        "account-1",
+      ),
+    ).toBe(null);
   });
 });

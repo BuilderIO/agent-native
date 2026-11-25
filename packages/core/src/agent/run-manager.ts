@@ -40,6 +40,7 @@ import {
   withExecutionLeaseRequested,
   type ExecutionFence,
 } from "./execution-fence.js";
+import { LeaseRenewalDiagnostics } from "./lease-renewal-diagnostics.js";
 import {
   AGENT_RUN_NO_OUTPUT_ERROR_CODE,
   resolvePrivateSafeError,
@@ -77,7 +78,6 @@ import {
   getLastTerminalRunEvent,
   resolveErroredRunTerminalEvent,
   setRunError,
-  setRunTerminalReason,
   setRunTerminalReasonIfStatus,
   persistRunCheckpointEvent,
   recordRunDiagnostic,
@@ -548,9 +548,12 @@ export function resolveRunSoftTimeoutMs(
 ): number {
   const hosted = isHostedRuntime();
   const background = options?.backgroundFunction === true;
+  const hostedForegroundCeilingMs =
+    getAppConfig().agent.hostedRunSoftTimeoutCeilingMs ??
+    HOSTED_SOFT_TIMEOUT_CEILING_MS;
   const ceiling = background
     ? BACKGROUND_SOFT_TIMEOUT_CEILING_MS
-    : HOSTED_SOFT_TIMEOUT_CEILING_MS;
+    : hostedForegroundCeilingMs;
   const clampHosted = (ms: number): number =>
     hosted && ms > ceiling ? ceiling : ms;
 
@@ -563,7 +566,7 @@ export function resolveRunSoftTimeoutMs(
     return hosted ? BACKGROUND_SOFT_TIMEOUT_CEILING_MS : 0;
   }
   return options?.useHostedDefault && hosted
-    ? DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS
+    ? Math.min(DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS, hostedForegroundCeilingMs)
     : 0;
 }
 
@@ -635,6 +638,16 @@ function isBatchableRunEvent(event: AgentChatEvent): boolean {
   );
 }
 
+const retainedPrivateRepliesWithText = new WeakSet<AgentChatEvent>();
+const retainedPrivateCompletedUiTools = new WeakSet<AgentChatEvent>();
+
+export function carriesAssistantText(event: AgentChatEvent): boolean {
+  return (
+    event.type === "text" &&
+    (event.text.trim().length > 0 || retainedPrivateRepliesWithText.has(event))
+  );
+}
+
 /**
  * A tool result with no later assistant text is an unfinished turn, not a
  * successful terminal response. Keep this predicate beside the run-manager's
@@ -653,15 +666,14 @@ function isBatchableRunEvent(event: AgentChatEvent): boolean {
  */
 export function endsAfterToolResultWithoutAssistantFinal(
   run: ActiveRun,
-  privateCompletedUiTools: ReadonlySet<number> = new Set(),
 ): boolean {
   let toolResultAfterLastAssistantText = false;
-  for (const { event, seq } of run.events) {
+  for (const { event } of run.events) {
     if (event.type === "done" && event.reason === "action_settled") {
       toolResultAfterLastAssistantText = false;
       continue;
     }
-    if (event.type === "text" && event.text.trim().length > 0) {
+    if (carriesAssistantText(event)) {
       toolResultAfterLastAssistantText = false;
       continue;
     }
@@ -671,7 +683,7 @@ export function endsAfterToolResultWithoutAssistantFinal(
         event.isError === true ||
         (event.chatUI === undefined &&
           event.mcpApp === undefined &&
-          !privateCompletedUiTools.has(seq));
+          !retainedPrivateCompletedUiTools.has(event));
       continue;
     }
     if (
@@ -700,7 +712,7 @@ export function endsDuringActionPreparation(run: ActiveRun): boolean {
       continue;
     }
     if (
-      (event.type === "text" && event.text.trim().length > 0) ||
+      carriesAssistantText(event) ||
       event.type === "tool_start" ||
       event.type === "tool_done" ||
       event.type === "approval_required" ||
@@ -999,7 +1011,6 @@ export function startRun(
     },
   };
   let softTimedOut = false;
-  let checkpointBoundaryStarted = false;
   let resolveFinalized: () => void = () => {};
   let rejectFinalized: (reason?: unknown) => void = () => {};
   let resolveLivenessReady: (ready: boolean) => void = () => {};
@@ -1033,8 +1044,6 @@ export function startRun(
   threadToRun.set(threadId, runId);
 
   let privateTurn = false;
-  const privateAssistantTextSequences = new Set<number>();
-  const privateCompletedUiTools = new Set<number>();
   const safeRunError = (error: unknown) =>
     privateTurn ? new Error("Private content omitted") : error;
 
@@ -1570,7 +1579,6 @@ export function startRun(
     )
       return checkpointRunBoundaryTask;
     checkpointAbortInFlight = true;
-    checkpointBoundaryStarted = true;
     const task = (async () => {
       let checkpointPersisted = false;
       try {
@@ -1907,15 +1915,24 @@ export function startRun(
   let livenessResolved = false;
   let heartbeatAttempt = 0;
   let pendingHeartbeats = 0;
+  const leaseRenewalDiagnostics = options?.executionLease
+    ? new LeaseRenewalDiagnostics(runId, {
+        intervalMs: 1_500,
+        attemptDeadlineMs: HEARTBEAT_ATTEMPT_DEADLINE_MS,
+        maxPending: MAX_PENDING_HEARTBEATS,
+      })
+    : undefined;
   const heartbeatTimer: ReturnType<typeof setInterval> = setInterval(() => {
     if (!heartbeatInFlight && pendingHeartbeats < MAX_PENDING_HEARTBEATS) {
       heartbeatInFlight = true;
+      const measurement = leaseRenewalDiagnostics?.start(pendingHeartbeats);
       pendingHeartbeats += 1;
       const attempt = ++heartbeatAttempt;
       // One renewal stuck acquiring a connection must not hold the slot until
       // the lease lapses, so a later tick retries while it settles. Only one
       // retry may overlap it, or a stalled pool would fill with renewals.
       const releaseStuckHeartbeat = setTimeout(() => {
+        measurement?.deadlineReached();
         if (heartbeatAttempt === attempt) heartbeatInFlight = false;
       }, HEARTBEAT_ATTEMPT_DEADLINE_MS);
       (options?.executionLease
@@ -1927,6 +1944,9 @@ export function startRun(
         : updateRunHeartbeat(runId).then(() => true)
       )
         .then((livenessConfirmed) => {
+          measurement?.settle(
+            livenessConfirmed ? "renewed" : "fence_unavailable",
+          );
           consecutiveHeartbeatFailures = 0;
           if (livenessConfirmed && !livenessResolved) {
             livenessResolved = true;
@@ -1934,6 +1954,10 @@ export function startRun(
           }
         })
         .catch((error) => {
+          measurement?.settle(
+            error instanceof StaleExecutionFenceError ? "fence_lost" : "error",
+            error,
+          );
           if (error instanceof StaleExecutionFenceError) {
             if (!completionInProgress) return abortForRevokedLease();
             return;
@@ -2099,18 +2123,18 @@ export function startRun(
         : runEvent;
     if (
       runEvent.event.omitFromPersistedHistory === true &&
-      runEvent.event.type === "text" &&
-      runEvent.event.text.trim().length > 0
-    ) {
-      privateAssistantTextSequences.add(runEvent.seq);
-    }
-    if (
-      runEvent.event.omitFromPersistedHistory === true &&
       runEvent.event.type === "tool_done" &&
       (runEvent.event.chatUI !== undefined ||
         runEvent.event.mcpApp !== undefined)
     ) {
-      privateCompletedUiTools.add(runEvent.seq);
+      retainedPrivateCompletedUiTools.add(retainedEvent.event);
+    }
+    if (
+      runEvent.event.omitFromPersistedHistory === true &&
+      runEvent.event.type === "text" &&
+      runEvent.event.text.trim().length > 0
+    ) {
+      retainedPrivateRepliesWithText.add(retainedEvent.event);
     }
     run.events.push(retainedEvent);
     for (const subscriber of run.subscribers) {
@@ -2298,7 +2322,10 @@ export function startRun(
         await inspectSqlAbortState(false);
         consecutiveAbortCheckFailures = 0;
         if (isRunAborted()) return;
-        await runFn(send, runControl.chunkSignal, runControl);
+        const runBody = () => runFn(send, runControl.chunkSignal, runControl);
+        await (leaseRenewalDiagnostics
+          ? leaseRenewalDiagnostics.run(runBody)
+          : runBody());
       });
       return;
     }
@@ -2542,17 +2569,6 @@ export function startRun(
               ? "truncated"
               : "completed";
       run.status = finalStatus;
-      const runForCompletionChecks: ActiveRun = privateTurn
-        ? {
-            ...run,
-            events: run.events.map((runEvent) =>
-              privateAssistantTextSequences.has(runEvent.seq) &&
-              runEvent.event.type === "text"
-                ? { ...runEvent, event: { ...runEvent.event, text: "..." } }
-                : runEvent,
-            ),
-          }
-        : run;
       const shouldAutoContinueAfterUnfinishedTurn =
         finalStatus === "completed" &&
         !checkpointStatusReadFailed &&
@@ -2561,11 +2577,8 @@ export function startRun(
           terminalEventForCompletion?.event.type === "done" &&
           terminalEventForCompletion.event.reason === "action_settled"
         ) &&
-        (endsAfterToolResultWithoutAssistantFinal(
-          runForCompletionChecks,
-          privateCompletedUiTools,
-        ) ||
-          endsDuringActionPreparation(runForCompletionChecks)) &&
+        (endsAfterToolResultWithoutAssistantFinal(run) ||
+          endsDuringActionPreparation(run)) &&
         (!terminalEventForCompletion ||
           (terminalEventForCompletion.event.type === "done" &&
             terminalEventForCompletion.event.reason !== "user"));
@@ -2603,18 +2616,10 @@ export function startRun(
       );
       const terminalStatusOptions = {
         ...(threadProjectionPending ? { threadProjectionPending: true } : {}),
-        ...(checkpointBoundaryStarted || persistedStatus === "truncated"
-          ? { terminalReason }
-          : {}),
+        terminalReason,
       };
       const persistTerminalStatus = () =>
-        Object.keys(terminalStatusOptions).length === 0
-          ? updateRunStatusIfRunning(runId, persistedStatus)
-          : updateRunStatusIfRunning(
-              runId,
-              persistedStatus,
-              terminalStatusOptions,
-            );
+        updateRunStatusIfRunning(runId, persistedStatus, terminalStatusOptions);
       const persistOwnTerminalState = async (
         persist: () => Promise<boolean>,
       ) => {
@@ -2691,6 +2696,10 @@ export function startRun(
             source: "agent-run-manager",
             phase: "terminal-status-persistence",
             errorCode: "run_terminal_status_persistence_failed",
+            terminalErrorKind:
+              error instanceof StaleExecutionFenceError
+                ? "stale_execution_fence"
+                : "unclassified",
           },
           extra: { runId, threadId, turnId: run.turnId },
         });
@@ -2883,11 +2892,6 @@ export function startRun(
               reportTerminalStatusPersistenceError(error);
             }
             if (statusUpdated) {
-              if (!checkpointBoundaryStarted) {
-                await withWorkerFence(() =>
-                  setRunTerminalReason(runId, terminalReason),
-                );
-              }
               terminalPersistenceEstablished = !terminalPersistenceError;
             } else {
               terminalPersistenceEstablished = await reconcileTerminalRun();
@@ -3023,14 +3027,17 @@ export function startRun(
           const fence = await executionFencePromise;
           if (fence) await releaseTurnExecutionLease(fence);
         } catch (error) {
-          captureError(error, {
+          captureError(safeRunError(error), {
             route: "/_agent-native/agent-chat",
             aiTraceId: runId,
             tags: {
               source: "agent-run-manager",
               phase: "execution-lease-release",
-              errorCode:
-                error instanceof Error && "code" in error
+              errorCode: privateTurn
+                ? error instanceof StaleExecutionFenceError
+                  ? "stale_execution_fence"
+                  : "execution_lease_release_failed"
+                : error instanceof Error && "code" in error
                   ? String((error as Error & { code?: unknown }).code)
                   : "execution_lease_release_failed",
             },

@@ -7,10 +7,16 @@ import { askGrantedDispatchMcpApp } from "../server/lib/mcp-gateway.js";
 
 export default defineAction({
   description:
-    "Route a natural-language request to any app granted through this existing Dispatch MCP connection; do not require a separate app MCP connection. Call list_apps first to see which apps are granted.",
+    "Send a natural-language request to an app accessible through this Dispatch connection. Accepts a granted `app` id (such as those returned by `list_apps`) and routes the message to that app's agent.",
   schema: z.object({
     app: z.string().describe("Granted app id, e.g. mail or calendar."),
     message: z.string().describe("The request to send to that app's agent."),
+    viewportMode: z
+      .enum(["foreground", "background"])
+      .optional()
+      .describe(
+        'Viewport targeting mode; "background" keeps the current foreground pane unchanged.',
+      ),
     async: z
       .boolean()
       .optional()
@@ -22,10 +28,11 @@ export default defineAction({
       .optional()
       .describe("Maximum inline wait in milliseconds."),
   }),
-  run: async ({ app, message, async, maxWaitMs }, ctx) => {
+  run: async ({ app, message, viewportMode, async, maxWaitMs }, ctx) => {
     const result = await askGrantedDispatchMcpApp(app, message, {
       async,
       maxWaitMs,
+      ...(viewportMode ? { viewportMode } : {}),
     });
     track(
       "a2a_delegated",

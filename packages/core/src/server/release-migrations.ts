@@ -2,6 +2,7 @@ import { getAppConfig } from "../app-config/index.js";
 import { getDatabaseUrl } from "../db/client.js";
 import { withStoreMigrationLock } from "../db/store-registry.js";
 import { ensureSharingAccessIndexes } from "../sharing/indexes.js";
+import { ensureSharesTableColumns } from "../sharing/share-columns.js";
 import { recordDatabaseIdentity } from "./database-identity.js";
 import { runFrameworkSchemaEnsures } from "./release-schema.js";
 
@@ -85,6 +86,7 @@ export async function runFrameworkReleaseMigrations(
       await recordDatabaseIdentity();
       // Last, so the framework's own share and owner tables exist. An app's tables
       // are indexed by the release after the one that creates them.
+      await ensureSharesTableColumns();
       await ensureSharingAccessIndexes();
     });
   } catch (err) {

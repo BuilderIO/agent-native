@@ -125,7 +125,7 @@ test("editing a color token recolors its users live, saves the override on the d
     app
       .node("swatch")
       .evaluate((element, name) => getComputedStyle(element)[name], property);
-  await page.getByRole("button", { name: "Tokens", exact: true }).click();
+  await page.getByRole("tab", { name: "Library", exact: true }).click();
   await expect(
     page.getByText("E2e Accent Color", { exact: true }),
   ).toBeVisible();

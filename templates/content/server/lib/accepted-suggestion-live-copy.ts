@@ -11,6 +11,10 @@ import {
 } from "@tiptap/y-tiptap";
 import * as Y from "yjs";
 
+import {
+  BLOCK_IDENTITY_ATTR,
+  blockIdentityIdOf,
+} from "../../shared/block-identity-ids.js";
 import { docToNfm, type PMNode } from "../../shared/nfm.js";
 import {
   parseSuggestionPlacement,
@@ -51,6 +55,34 @@ function readLiveCopy(
     // coercion-ok: a live copy this schema can't read takes the stored result.
     return null;
   }
+}
+
+function withoutBlockIds(node: ProseMirrorNode): ProseMirrorNode {
+  if (node.isText) return node;
+  const children: ProseMirrorNode[] = [];
+  node.forEach((child) => children.push(withoutBlockIds(child)));
+  const kept = children.every((child, index) => child === node.child(index));
+  const id = blockIdentityIdOf(node);
+  if (!id && kept) return node;
+  return node.type.create(
+    id ? { ...node.attrs, [BLOCK_IDENTITY_ATTR]: null } : node.attrs,
+    kept ? node.content : Fragment.fromArray(children),
+    node.marks,
+  );
+}
+
+function withBlockIdOf(
+  held: ProseMirrorNode | null,
+  node: ProseMirrorNode,
+): ProseMirrorNode {
+  const id = held && blockIdentityIdOf(held);
+  return id
+    ? node.type.create(
+        { ...node.attrs, [BLOCK_IDENTITY_ATTR]: id },
+        node.content,
+        node.marks,
+      )
+    : node;
 }
 
 function storedChange(
@@ -526,7 +558,8 @@ function writeWhereUnchanged(
   after: ProseMirrorNode,
   change: StoredChange,
 ): boolean {
-  const unchanged = live.eq(before);
+  const seen = withoutBlockIds(live);
+  const unchanged = seen.eq(before);
   const $start = before.resolve(change.start);
   const $end = before.resolve(change.endBefore);
   const $next = after.resolve(change.start);
@@ -545,14 +578,18 @@ function writeWhereUnchanged(
       ? $start.before()
       : uniqueTextblock(before, stored) === null
         ? null
-        : uniqueTextblock(live, stored);
+        : uniqueTextblock(seen, stored);
     if (position === null) return false;
     const element = liveElementAt(fragment, live, position);
     if (!element) return false;
     const target = live.replace(
       position,
       position + stored.nodeSize,
-      new Slice(Fragment.from(next), 0, 0),
+      new Slice(
+        Fragment.from(withBlockIdOf(live.nodeAt(position), next)),
+        0,
+        0,
+      ),
     );
     doc.transact(() => {
       const [text] = element.toArray();
@@ -590,12 +627,18 @@ function writeWhereUnchanged(
   const offset = unchanged
     ? first
     : storedRunIsUnique(before, first, end)
-      ? liveBlockRun(live, before, first, end)
+      ? liveBlockRun(seen, before, first, end)
       : null;
   if (offset === null) return false;
   const blocks: ProseMirrorNode[] = [];
-  for (let index = first; index < nextEnd; index += 1)
-    blocks.push(after.child(index));
+  const sameCount = nextEnd === end;
+  for (let index = first; index < nextEnd; index += 1) {
+    const next = after.child(index);
+    const held = sameCount ? live.child(offset + index - first) : null;
+    blocks.push(
+      held && held.type === next.type ? withBlockIdOf(held, next) : next,
+    );
+  }
   let target: ProseMirrorNode;
   try {
     target = live.replace(
@@ -673,7 +716,7 @@ export function liveCopyMarkdown(
   stored: { content: string; document: ProseMirrorNode },
 ): string {
   const live = readLiveCopy(doc.getXmlFragment("default"), schema);
-  return !live || live.eq(stored.document)
+  return !live || withoutBlockIds(live).eq(stored.document)
     ? stored.content
     : docToNfm(live.toJSON() as PMNode);
 }

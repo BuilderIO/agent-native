@@ -127,6 +127,7 @@ import {
   contentDatabaseItemsContainingDocumentFilter,
   contentDatabaseNavigationQueryFilter,
   invalidateContentDatabaseNavigationQueries,
+  isContentDatabaseUnavailable,
   removeOptimisticItemFromContentDatabase,
   removeTrashedPagesFromCachedCollections,
   useRestoreContentDatabase,
@@ -477,7 +478,7 @@ export function patchDocumentInDatabaseCache<
   documentId: string,
   patch: Partial<Document>,
 ): T | undefined {
-  if (!current) return current;
+  if (!current || isContentDatabaseUnavailable(current)) return current;
   let changed = false;
   const items = current.items.map((item) => {
     if (!("document" in item)) {
@@ -2292,6 +2293,20 @@ function moveDocumentInCachedPaths(
     );
     if (stale) query.invalidate();
   }
+}
+
+export function cachedPathParentId(
+  queryClient: QueryClient,
+  activeDocumentId: string,
+  documentId: string,
+): string | null | undefined {
+  return queryClient
+    .getQueryData<ContentNavigationContext>([
+      "action",
+      "get-content-navigation-context",
+      { id: activeDocumentId },
+    ])
+    ?.path.find((entry) => entry.id === documentId)?.parentId;
 }
 
 export function useMoveDocument() {

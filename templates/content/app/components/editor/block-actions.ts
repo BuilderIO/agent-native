@@ -3,6 +3,10 @@ import {
   duplicateBlockTransaction,
 } from "@agent-native/toolkit/editor";
 import {
+  CLIP_EMBED_BLOCK_TYPE,
+  clipEmbedOriginFromRaw,
+} from "@shared/clip-embed-block";
+import {
   Fragment,
   type Node as ProseMirrorNode,
   type NodeType,
@@ -16,7 +20,10 @@ import {
   toggleTitleNode,
 } from "./extensions/NotionExtensions";
 import { isSourceComponentNode } from "./extensions/registryBlocks";
-import { isSuggestingEdits } from "./suggestions/read-only-blocks";
+import {
+  isSuggestingEdits,
+  SUGGESTING_REFUSAL_PROBE,
+} from "./suggestions/read-only-blocks";
 
 export const TURN_INTO_TARGETS = [
   "text",
@@ -245,9 +252,15 @@ export function blockCommentRange(node: ProseMirrorNode, pos: number) {
 }
 
 /** Why the page refuses an action on a block, when it does. */
-export type BlockLock = "source" | "suggesting" | "page";
+export type BlockLock =
+  | "source"
+  | "suggesting"
+  | "page"
+  | "collection"
+  | "uploadedClip";
 
 function refuses(state: EditorState, tr: Transaction) {
+  tr.setMeta(SUGGESTING_REFUSAL_PROBE, true);
   return state.plugins.some(
     (plugin) =>
       plugin.spec.filterTransaction &&
@@ -255,14 +268,42 @@ function refuses(state: EditorState, tr: Transaction) {
   );
 }
 
-function containsSourceComponent(node: ProseMirrorNode) {
-  if (isSourceComponentNode(node)) return true;
+function contains(
+  node: ProseMirrorNode,
+  test: (node: ProseMirrorNode) => boolean,
+) {
+  if (test(node)) return true;
   let found = false;
   node.descendants((child) => {
-    found ||= isSourceComponentNode(child);
+    found ||= test(child);
     return !found;
   });
   return found;
+}
+
+function containsSourceComponent(node: ProseMirrorNode) {
+  return contains(node, isSourceComponentNode);
+}
+
+function isInlineCollection(node: ProseMirrorNode) {
+  return (
+    node.type.name === "registryBlock" &&
+    node.attrs.blockType === "inline-database"
+  );
+}
+
+function isUploadedClip(node: ProseMirrorNode) {
+  return (
+    node.type.name === "registryBlock" &&
+    node.attrs.blockType === CLIP_EMBED_BLOCK_TYPE &&
+    clipEmbedOriginFromRaw(node.attrs.__raw) === "upload"
+  );
+}
+
+function moveLock(node: ProseMirrorNode): BlockLock | null {
+  if (contains(node, isInlineCollection)) return "collection";
+  if (contains(node, isUploadedClip)) return "uploadedClip";
+  return null;
 }
 
 /**
@@ -274,7 +315,11 @@ export function blockActionLocks(
   state: EditorState,
   pos: number,
   node: ProseMirrorNode,
-): { duplicate: BlockLock | null; remove: BlockLock | null } {
+): {
+  duplicate: BlockLock | null;
+  remove: BlockLock | null;
+  move: BlockLock | null;
+} {
   const duplicate = duplicateBlockTransaction(state, pos, node);
   const remove = deleteBlockTransaction(state, pos, node);
   const lock = containsSourceComponent(node)
@@ -282,8 +327,10 @@ export function blockActionLocks(
     : isSuggestingEdits(state)
       ? "suggesting"
       : "page";
+  const removeLock = refuses(state, remove) ? lock : null;
   return {
     duplicate: !duplicate || refuses(state, duplicate) ? lock : null,
-    remove: refuses(state, remove) ? lock : null,
+    remove: removeLock,
+    move: removeLock ?? moveLock(node),
   };
 }

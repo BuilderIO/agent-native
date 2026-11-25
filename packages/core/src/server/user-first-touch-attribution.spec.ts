@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../db/client.js", () => ({ getDbExec: () => ({ execute: vi.fn() }) }));
+vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
+  getDbExec: () => ({ execute: vi.fn() }),
+}));
 
 const { persistUserFirstTouchAttribution, userFirstTouchColumnValues } =
   await import("./user-first-touch-attribution.js");

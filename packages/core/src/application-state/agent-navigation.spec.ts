@@ -13,6 +13,7 @@ vi.mock("./store.js", () => ({
 }));
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: vi.fn() }),
   isLocalDatabase: () => true,
 }));
@@ -53,7 +54,13 @@ describe("agent navigation keeps the user's view", () => {
       inTab(() =>
         navigateAfterWrite({ path: "/tasks/t1" }, { ctx: { caller: "mcp" } }),
       ),
-    ).resolves.toEqual({ navigated: false, reason: "agent-keeps-view" });
+    ).resolves.toMatchObject({
+      navigated: false,
+      kept: true,
+      reason: "navigation-mode-keep",
+      tabId: "tab-1",
+      resolvedUrl: "/tasks/t1",
+    });
     expect(navigatedPaths()).toEqual([]);
 
     await expect(
@@ -63,7 +70,13 @@ describe("agent navigation keeps the user's view", () => {
           { ctx: { caller: "mcp" }, intent: "open" },
         ),
       ),
-    ).resolves.toEqual({ navigated: true });
+    ).resolves.toEqual({
+      navigated: true,
+      kept: false,
+      tabId: "tab-1",
+      resolvedUrl: "/tasks/t1",
+      writeId: expect.any(String),
+    });
     await expect(
       inTab(() =>
         navigateAfterWrite(
@@ -71,7 +84,13 @@ describe("agent navigation keeps the user's view", () => {
           { ctx: { caller: "frontend" } },
         ),
       ),
-    ).resolves.toEqual({ navigated: true });
+    ).resolves.toEqual({
+      navigated: true,
+      kept: false,
+      tabId: "tab-1",
+      resolvedUrl: "/tasks/t2",
+      writeId: expect.any(String),
+    });
     expect(navigatedPaths()).toEqual(["/tasks/t1", "/tasks/t2"]);
   });
 
@@ -91,7 +110,13 @@ describe("agent navigation keeps the user's view", () => {
           { ctx: { caller: "frontend" } },
         ),
     );
-    expect(unavailableResult).toEqual({ navigated: false, reason: "no-tab" });
+    expect(unavailableResult).toEqual({
+      navigated: false,
+      kept: true,
+      reason: "no-tab",
+      tabId: null,
+      resolvedUrl: "/tasks/t1",
+    });
 
     const noSlotResult = await runWithRequestContext(
       { userEmail: "person@example.com" },
@@ -101,7 +126,13 @@ describe("agent navigation keeps the user's view", () => {
           { ctx: { caller: "a2a" }, intent: "open" },
         ),
     );
-    expect(noSlotResult).toEqual({ navigated: false, reason: "no-tab" });
+    expect(noSlotResult).toEqual({
+      navigated: false,
+      kept: true,
+      reason: "no-tab",
+      tabId: null,
+      resolvedUrl: "/tasks/t1",
+    });
     expect(navigatedPaths()).toEqual([]);
   });
 

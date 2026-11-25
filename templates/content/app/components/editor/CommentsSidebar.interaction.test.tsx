@@ -97,12 +97,19 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useFormatters: () => ({
     formatDate: (date: Date | string) => new Date(date).toISOString(),
   }),
-  useT: () => (key: string, params?: { count?: number; name?: string }) =>
-    key === "comments.proposalEditCount"
-      ? `${key}:${params?.count}`
-      : key === "comments.aiAttribution"
-        ? `${key}:${params?.name}`
-        : key,
+  useT:
+    () =>
+    (
+      key: string,
+      params?: { count?: number; name?: string; old?: string; new?: string },
+    ) =>
+      key === "comments.proposalEditCount"
+        ? `${key}:${params?.count}`
+        : key === "comments.aiAttribution"
+          ? `${key}:${params?.name}`
+          : key === "comments.suggestionReplaceWith"
+            ? `${key}: “${params?.old}” → “${params?.new}”`
+            : key,
 }));
 vi.mock("@agent-native/toolkit/app/review", async (importOriginal) => ({
   ...(await importOriginal<
@@ -181,6 +188,11 @@ function PanelProbe() {
   return null;
 }
 
+function ReplyDraftsProbe({ documentId }: { documentId: string }) {
+  replyState = useCommentReplyDrafts(documentId, "reviewer@example.test");
+  return null;
+}
+
 function SidebarOwner({
   selected,
   threads,
@@ -204,6 +216,7 @@ function SidebarOwner({
     decidingSuggestion?: (suggestionId: string) => boolean;
     activeSuggestionId?: string;
     unplaceableSuggestionRevisions?: ReadonlyMap<string, number>;
+    anchoredSuggestionIds?: string[] | null;
     alignToAnchors?: boolean;
     scrollContainer?: HTMLDivElement;
     onDecideSuggestionProposal?: (
@@ -212,6 +225,7 @@ function SidebarOwner({
       members: ResourceSuggestion[],
       exactMembers?: boolean,
     ) => void;
+    onStepThreadSuggestion?: (threadId: string, suggestionId: string) => void;
   };
 }) {
   const replies = useCommentReplyDrafts("fixture", "reviewer@example.test");
@@ -240,6 +254,7 @@ function SidebarOwner({
       onRetrySuggestionRead={options.onRetrySuggestionRead}
       activeSuggestionId={options.activeSuggestionId}
       unplaceableSuggestionRevisions={options.unplaceableSuggestionRevisions}
+      anchoredSuggestionIds={options.anchoredSuggestionIds}
       selectedThreadId={selected}
       currentUserEmail="reviewer@example.test"
       currentUserName="Rae Viewer"
@@ -253,6 +268,7 @@ function SidebarOwner({
           : undefined
       }
       onDecideSuggestionProposal={options.onDecideSuggestionProposal}
+      onStepThreadSuggestion={options.onStepThreadSuggestion}
       decidingSuggestion={options.decidingSuggestion}
       forceVisible
       presentation={presentation}
@@ -312,6 +328,7 @@ describe("comment review interactions", () => {
       decidingSuggestion?: (suggestionId: string) => boolean;
       activeSuggestionId?: string;
       unplaceableSuggestionRevisions?: ReadonlyMap<string, number>;
+      anchoredSuggestionIds?: string[] | null;
       alignToAnchors?: boolean;
       scrollContainer?: HTMLDivElement;
       onDecideSuggestionProposal?: (
@@ -320,6 +337,7 @@ describe("comment review interactions", () => {
         members: ResourceSuggestion[],
         exactMembers?: boolean,
       ) => void;
+      onStepThreadSuggestion?: (threadId: string, suggestionId: string) => void;
     } = {},
   ) {
     if (!container) {
@@ -431,8 +449,13 @@ describe("comment review interactions", () => {
   });
   describe("review units", () => {
     const source = "Teh team will recieve the files.";
-    const piece = (id: string, reviewUnit: string, find: string) => {
-      const from = source.indexOf(find);
+    const piece = (
+      id: string,
+      reviewUnit: string,
+      find: string,
+      text = source,
+    ) => {
+      const from = text.indexOf(find);
       return {
         ...proposalSuggestion(id),
         metadata: { reviewUnit },
@@ -440,9 +463,9 @@ describe("comment review interactions", () => {
           {
             id: `operation-${id}`,
             kind: "replace_text",
-            before: { markdown: source, changedText: find },
+            before: { markdown: text, changedText: find },
             after: {
-              markdown: source.replace(find, find.toUpperCase()),
+              markdown: text.replace(find, find.toUpperCase()),
               changedText: find.toUpperCase(),
             },
             anchor: { from, to: from + find.length },
@@ -581,16 +604,19 @@ describe("comment review interactions", () => {
         onDecideSuggestionProposal: vi.fn(),
       });
       const card = container.querySelector("[data-suggestion-id='one']");
-      expect(card?.textContent).toContain("comments.suggestionWith: “TEH”");
-      expect(card?.textContent).toContain("comments.suggestionReplace: “Teh”");
+      expect(card?.textContent).toContain(
+        "comments.suggestionReplaceWith: “Teh” → “TEH”",
+      );
     });
 
     it("opens a unit's card when a later piece is commented on", () => {
+      const long =
+        "Teh team that looks after the shared drive will, once the quarterly review is finished and signed off by everyone, recieve the files.";
       render(null, [], "inline", {
         suggestions: [
-          piece("one", "k:0", "Teh"),
-          piece("two", "k:0", "recieve"),
-          piece("three", "k:1", "files"),
+          piece("one", "k:0", "Teh", long),
+          piece("two", "k:0", "recieve", long),
+          piece("three", "k:1", "files", long),
         ],
         activeSuggestionId: "one",
         alignToAnchors: false,
@@ -774,6 +800,19 @@ describe("comment review interactions", () => {
       expect(container.querySelector("[data-suggestion-reason]")).toBeNull();
     },
   );
+  it("keeps a pending suggestion the page can't draw in the margin, labeled", () => {
+    render(null, [], "inline", {
+      suggestions: [
+        { ...proposalSuggestion("drawn"), proposalId: "drawn" },
+        { ...proposalSuggestion("divider"), proposalId: "divider" },
+      ],
+      anchoredSuggestionIds: ["drawn"],
+    });
+    const card = (id: string) =>
+      container.querySelector(`[data-suggestion-id='${id}']`);
+    expect(card("drawn")?.textContent).not.toContain("comments.unanchored");
+    expect(card("divider")?.textContent).toContain("comments.unanchored");
+  });
   it("drops the conflict alert once an unplaceable suggestion is amended", () => {
     const conflictAlert = () =>
       [
@@ -875,7 +914,10 @@ describe("comment review interactions", () => {
     expect(badge("one")?.textContent).toContain("Codex");
     expect(
       badge("one")?.querySelector("[aria-label]")?.getAttribute("aria-label"),
-    ).toContain("comments.aiAttribution:writer.");
+    ).toContain("comments.aiAttribution:Writer.");
+    expect(
+      container.querySelector("[data-suggestion-id='one']")?.textContent,
+    ).toContain("Writer");
     expect(badge("two")?.getAttribute("data-comment-ai-attribution")).toBe(
       "agent",
     );
@@ -1117,33 +1159,31 @@ describe("comment review interactions", () => {
   const suggestedCommentAi = (suggestionId: string) =>
     commentAiWithRequests([suggestedRequest(suggestionId)]);
 
-  describe("Accept and resolve", () => {
+  describe("Accept, then Resolve", () => {
     const asked = (id: string, status: ResourceSuggestion["status"]) => ({
       ...proposalSuggestion(id, status),
       metadata: { sourceThreadId: "one", commentAiRequestId: "request-one" },
     });
-    let deciding = false;
-    const decide = vi.fn(() => {
-      deciding = true;
-    });
+    const decide = vi.fn();
     const show = (status: ResourceSuggestion["status"]) =>
       render("one", [thread("one")], "inline", {
         suggestions: [asked("first", status), asked("second", status)],
         onDecideSuggestionProposal: decide,
-        decidingSuggestion: () => deciding,
       });
-    beforeEach(() => {
-      deciding = false;
-    });
-
-    it("resolves the thread once every edit it asked for is accepted", () => {
-      show("pending");
-      const button = container.querySelector<HTMLButtonElement>(
-        "[data-suggestion-accept-resolve]",
+    const resolveButtons = () =>
+      container.querySelectorAll<HTMLButtonElement>(
+        "[data-thread-suggestion-resolve] button",
       );
-      if (!button) throw new Error("The proposal has no Accept and resolve");
-      expect(button.textContent).toBe("comments.acceptAllAndResolve");
-      act(() => button.click());
+
+    it("accepts the edits and leaves the thread open", () => {
+      show("pending");
+      const accept = container.querySelector<HTMLButtonElement>(
+        "[data-suggestion-proposal-decision='accepted']",
+      );
+      if (!accept) throw new Error("The proposal has no Accept");
+      expect(accept.textContent).toBe("comments.acceptEdits");
+      expect(resolveButtons()).toHaveLength(0);
+      act(() => accept.click());
       expect(decide).toHaveBeenCalledWith(
         "proposal",
         "accepted",
@@ -1152,50 +1192,28 @@ describe("comment review interactions", () => {
           expect.objectContaining({ id: "second" }),
         ]),
       );
-      // Resolving now would send the pending edits out to their own cards.
-      expect(actions.resolve).not.toHaveBeenCalled();
-      // The edits show accepted before the server answers.
-      show("accepted");
-      expect(actions.resolve).not.toHaveBeenCalled();
 
-      deciding = false;
       show("accepted");
+      expect(actions.resolve).not.toHaveBeenCalled();
+      expect(
+        container.querySelector("[data-thread-suggestion-decided]"),
+      ).not.toBeNull();
+      expect(container.textContent).toContain("comments.replyToKeepGoing");
+    });
+
+    it("resolves the thread from its own Resolve once the edits are decided", () => {
+      show("accepted");
+      const resolve = container.querySelector<HTMLButtonElement>(
+        "[data-thread-suggestion-resolve] button",
+      );
+      if (!resolve) throw new Error("The decided group has no Resolve");
+      act(() => resolve.click());
       expect(actions.resolve).toHaveBeenCalledWith(
         expect.objectContaining({ id: "one-root", resolved: true }),
       );
     });
 
-    it("leaves the thread open when the accept does not land", () => {
-      show("pending");
-      const button = container.querySelector<HTMLButtonElement>(
-        "[data-suggestion-accept-resolve]",
-      );
-      if (!button) throw new Error("The proposal has no Accept and resolve");
-      act(() => button.click());
-      show("accepted");
-      deciding = false;
-      show("pending");
-      show("accepted");
-      expect(actions.resolve).not.toHaveBeenCalled();
-    });
-
-    it("leaves the thread open when an edit it asked for ends rejected", () => {
-      show("pending");
-      const button = container.querySelector<HTMLButtonElement>(
-        "[data-suggestion-accept-resolve]",
-      );
-      if (!button) throw new Error("The proposal has no Accept and resolve");
-      act(() => button.click());
-      deciding = false;
-      render("one", [thread("one")], "inline", {
-        suggestions: [asked("first", "accepted"), asked("second", "rejected")],
-        onDecideSuggestionProposal: decide,
-        decidingSuggestion: () => deciding,
-      });
-      expect(actions.resolve).not.toHaveBeenCalled();
-    });
-
-    it("offers to resolve only on the last group with pending edits", () => {
+    it("offers one Resolve, once no group in the thread is pending", () => {
       const later = (status: ResourceSuggestion["status"]) => ({
         ...asked("third", status),
         proposalId: null,
@@ -1203,31 +1221,28 @@ describe("comment review interactions", () => {
       const showBoth = (status: ResourceSuggestion["status"]) =>
         render("one", [thread("one")], "inline", {
           suggestions: [
-            asked("first", "pending"),
-            asked("second", "pending"),
+            asked("first", "accepted"),
+            asked("second", "accepted"),
             later(status),
           ],
           onDecideSuggestionProposal: decide,
-          decidingSuggestion: () => deciding,
         });
 
       showBoth("pending");
-      expect(
-        container.querySelector("[data-suggestion-accept-resolve]"),
-      ).toBeNull();
+      expect(resolveButtons()).toHaveLength(0);
 
       showBoth("rejected");
-      expect(
-        container.querySelectorAll("[data-suggestion-accept-resolve]"),
-      ).toHaveLength(1);
+      expect(resolveButtons()).toHaveLength(1);
     });
 
-    it("offers no resolve while its AI's newer edit is still loading", () => {
+    it("offers no Resolve while its AI's newer edit is still loading", () => {
       const showLoading = (awaited: ReadonlySet<string>) =>
         render("one", [thread("one")], "inline", {
-          suggestions: [asked("first", "pending"), asked("second", "pending")],
+          suggestions: [
+            asked("first", "accepted"),
+            asked("second", "accepted"),
+          ],
           onDecideSuggestionProposal: decide,
-          decidingSuggestion: () => deciding,
           commentAi: suggestedCommentAi("fresh"),
           awaitedSuggestionIds: awaited,
         });
@@ -1236,14 +1251,218 @@ describe("comment review interactions", () => {
       expect(
         container.querySelector("[data-thread-suggestion-placeholder]"),
       ).not.toBeNull();
-      expect(
-        container.querySelector("[data-suggestion-accept-resolve]"),
-      ).toBeNull();
+      expect(resolveButtons()).toHaveLength(0);
 
       showLoading(new Set());
+      expect(resolveButtons()).toHaveLength(1);
+    });
+
+    it("offers no Resolve until Accept has saved", () => {
+      const showSaving = (saving: boolean) =>
+        render("one", [thread("one")], "inline", {
+          suggestions: [
+            asked("first", "accepted"),
+            asked("second", "accepted"),
+          ],
+          onDecideSuggestionProposal: decide,
+          decidingSuggestion: (id) => saving && id === "first",
+        });
+
+      showSaving(true);
       expect(
-        container.querySelector("[data-suggestion-accept-resolve]"),
+        container.querySelector("[data-thread-suggestion-decided]"),
       ).not.toBeNull();
+      expect(resolveButtons()).toHaveLength(0);
+
+      showSaving(false);
+      expect(resolveButtons()).toHaveLength(1);
+    });
+
+    it("marks each edit it steps to on the page", () => {
+      const onStepThreadSuggestion = vi.fn();
+      render("one", [thread("one")], "inline", {
+        suggestions: ["first", "second", "third", "fourth"].map((id) =>
+          asked(id, "pending"),
+        ),
+        onDecideSuggestionProposal: decide,
+        onStepThreadSuggestion,
+      });
+
+      const shown = () =>
+        [...container.querySelectorAll("[data-thread-suggestion]")].map(
+          (edit) => edit.getAttribute("data-thread-suggestion"),
+        );
+      const [first] = shown();
+      expect(shown()).toHaveLength(1);
+      act(() =>
+        container
+          .querySelector<HTMLButtonElement>('[data-suggestion-step="next"]')
+          ?.click(),
+      );
+      const [next] = shown();
+      expect(next).not.toBe(first);
+      expect(onStepThreadSuggestion).toHaveBeenCalledWith("one", next);
+    });
+
+    it("selects the thread a step comes from and marks its edit, without moving focus to Reply", async () => {
+      const onActivateThread = vi.fn();
+      const onStepThreadSuggestion = vi.fn();
+      const askedInTwo = (id: string) => ({
+        ...proposalSuggestion(id),
+        metadata: { sourceThreadId: "two", commentAiRequestId: "request-two" },
+      });
+      render("one", [thread("one"), thread("two")], "inline", {
+        suggestions: ["first", "second", "third", "fourth"].map(askedInTwo),
+        onDecideSuggestionProposal: decide,
+        onActivateThread,
+        onStepThreadSuggestion,
+      });
+      const next = container.querySelector<HTMLButtonElement>(
+        '[data-thread-card="two"] [data-suggestion-step="next"]',
+      );
+      if (!next) throw new Error("Thread two has no Next");
+
+      next.focus();
+      act(() => next.click());
+      render("two", [thread("one"), thread("two")], "inline", {
+        suggestions: ["first", "second", "third", "fourth"].map(askedInTwo),
+        onDecideSuggestionProposal: decide,
+        onActivateThread,
+        onStepThreadSuggestion,
+      });
+      await act(() => new Promise((resolve) => setTimeout(resolve, 80)));
+
+      expect(onActivateThread).toHaveBeenCalledWith("two");
+      const shown = container.querySelector(
+        '[data-thread-card="two"] [data-thread-suggestion]',
+      );
+      expect(onStepThreadSuggestion).toHaveBeenCalledWith(
+        "two",
+        shown?.getAttribute("data-thread-suggestion"),
+      );
+      expect(document.activeElement).toBe(next);
+    });
+
+    describe("Arrivals in an open card", () => {
+      const entry = (id: string) => {
+        const root = thread("one").comments.find(
+          (comment) => comment.id === "one-root",
+        );
+        if (!root) throw new Error("The fixture thread has no comment");
+        return { ...root, id, parent_id: "one-root", content: `Entry ${id}` };
+      };
+      const withEntries = (...ids: string[]): CommentThread[] => [
+        {
+          ...thread("one"),
+          comments: [...thread("one").comments, ...ids.map(entry)],
+        },
+      ];
+      const entryTops: Record<string, number> = { "one-root": 0 };
+      const GROUP = { top: 500, bottom: 800 };
+      const BODY_HEIGHT = 384;
+      const DECISION_HEIGHT = 48;
+      let restoreRect = () => {};
+      beforeEach(() => {
+        const rect = vi
+          .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+          .mockImplementation(function (this: HTMLElement) {
+            const body = this.closest<HTMLElement>(
+              "[data-comment-thread-body]",
+            );
+            const scrolled = body?.scrollTop ?? 0;
+            const at = (top: number, bottom = top) =>
+              DOMRect.fromRect({
+                x: 0,
+                y: top,
+                width: 0,
+                height: bottom - top,
+              });
+            if (this.hasAttribute("data-comment-thread-body"))
+              return at(0, BODY_HEIGHT);
+            const entryId = this.getAttribute("data-comment-entry");
+            if (entryId) return at((entryTops[entryId] ?? 0) - scrolled);
+            if (this.hasAttribute("data-suggestion-proposal"))
+              return at(GROUP.top - scrolled, GROUP.bottom - scrolled);
+            if (this.hasAttribute("data-suggestion-group-decision")) {
+              const top = Math.min(
+                GROUP.bottom - 8 - scrolled,
+                BODY_HEIGHT - DECISION_HEIGHT,
+              );
+              return at(top, top + DECISION_HEIGHT);
+            }
+            return at(0);
+          });
+        restoreRect = () => rect.mockRestore();
+      });
+      afterEach(() => restoreRect());
+      const pendingIn = (ids: string[]) =>
+        ids.map((id) => asked(id, "pending"));
+      const body = () => {
+        const found = container.querySelector<HTMLElement>(
+          '[data-thread-card="one"] [data-comment-thread-body]',
+        );
+        if (!found) throw new Error("Thread one has no body");
+        Object.defineProperty(found, "scrollHeight", {
+          configurable: true,
+          value: 1200,
+        });
+        Object.defineProperty(found, "clientHeight", {
+          configurable: true,
+          value: BODY_HEIGHT,
+        });
+        return found;
+      };
+
+      it("shows the pending group of an entry that just arrived, not the entry's start", () => {
+        render("one", withEntries(), "inline", {
+          onDecideSuggestionProposal: decide,
+        });
+        const scroller = body();
+        const scrollTo = vi.fn();
+        scroller.scrollTo = scrollTo;
+
+        entryTops.answer = 450;
+        render("one", withEntries("answer"), "inline", {
+          suggestions: pendingIn(["first", "second", "third", "fourth"]),
+          onDecideSuggestionProposal: decide,
+        });
+
+        expect(scrollTo).not.toHaveBeenCalled();
+        expect(scroller.scrollTop).toBe(
+          GROUP.bottom - (BODY_HEIGHT - DECISION_HEIGHT),
+        );
+      });
+
+      it("leaves a reader who scrolled alone until something new arrives", () => {
+        render("one", withEntries(), "inline", {
+          suggestions: pendingIn(["first", "second", "third", "fourth"]),
+          onDecideSuggestionProposal: decide,
+        });
+        const scroller = body();
+        scroller.dispatchEvent(new WheelEvent("wheel", { bubbles: true }));
+        scroller.scrollTop = 100;
+
+        render("one", withEntries(), "inline", {
+          suggestions: [
+            ...pendingIn(["first", "second", "third", "fourth"]),
+            { ...asked("later", "pending"), proposalId: null },
+          ],
+          onDecideSuggestionProposal: decide,
+        });
+        expect(scroller.scrollTop).toBe(100);
+
+        entryTops.answer = 450;
+        render("one", withEntries("answer"), "inline", {
+          suggestions: [
+            ...pendingIn(["first", "second", "third", "fourth"]),
+            { ...asked("later", "pending"), proposalId: null },
+          ],
+          onDecideSuggestionProposal: decide,
+        });
+        expect(scroller.scrollTop).toBe(
+          GROUP.bottom - (BODY_HEIGHT - DECISION_HEIGHT),
+        );
+      });
     });
 
     it("offers no resolve while an earlier request's edit is still loading", () => {
@@ -1253,9 +1472,11 @@ describe("comment review interactions", () => {
         unreadable: ReadonlySet<string> = new Set(),
       ) =>
         render("one", [thread("one")], "inline", {
-          suggestions: [asked("first", "pending"), asked("second", "pending")],
+          suggestions: [
+            asked("first", "accepted"),
+            asked("second", "accepted"),
+          ],
           onDecideSuggestionProposal: decide,
-          decidingSuggestion: () => deciding,
           commentAi: commentAiWithRequests([
             suggestedRequest(
               "earlier",
@@ -1270,9 +1491,7 @@ describe("comment review interactions", () => {
         });
 
       showEarlier(new Set(["earlier"]));
-      expect(
-        container.querySelector("[data-suggestion-accept-resolve]"),
-      ).toBeNull();
+      expect(resolveButtons()).toHaveLength(0);
       expect(
         container.querySelector("[data-thread-suggestion-placeholder]"),
       ).not.toBeNull();
@@ -1289,48 +1508,64 @@ describe("comment review interactions", () => {
       expect(
         container.querySelector("[data-thread-suggestion-placeholder]"),
       ).toBeNull();
-      expect(
-        container.querySelector("[data-suggestion-accept-resolve]"),
-      ).not.toBeNull();
+      expect(resolveButtons()).toHaveLength(1);
+    });
+  });
+
+  describe("Reply focus on opening a thread", () => {
+    it("opens a thread from a link without putting focus in its empty Reply", () => {
+      render(null, [thread("one")]);
+      replyState.markLinkedThread("one");
+      render("one", [thread("one")]);
+
+      expect(replyState.openReply?.threadId).toBe("one");
+      expect(replyState.focus.current).toBeNull();
+      expect(replyState.linkedThread.current).toBeNull();
     });
 
-    it("leaves the thread open when its AI adds an edit during the accept", () => {
-      show("pending");
-      const button = container.querySelector<HTMLButtonElement>(
-        "[data-suggestion-accept-resolve]",
-      );
-      if (!button) throw new Error("The proposal has no Accept and resolve");
-      act(() => button.click());
-      deciding = false;
-      render("one", [thread("one")], "inline", {
-        suggestions: [
-          asked("first", "accepted"),
-          asked("second", "accepted"),
-          { ...asked("third", "pending"), proposalId: null },
-        ],
-        onDecideSuggestionProposal: decide,
-        decidingSuggestion: () => deciding,
-      });
-      expect(actions.resolve).not.toHaveBeenCalled();
+    it("focuses a linked thread's Reply that already has words in it", () => {
+      render(null, [thread("one")]);
+      act(() => replyState.setText("one", "Half a thought"));
+      replyState.markLinkedThread("one");
+      render("one", [thread("one")]);
+
+      expect(replyState.focus.current?.threadId).toBe("one");
     });
 
-    it("leaves the thread open while its AI's new edit is still loading", () => {
-      show("pending");
-      const button = container.querySelector<HTMLButtonElement>(
-        "[data-suggestion-accept-resolve]",
-      );
-      if (!button) throw new Error("The proposal has no Accept and resolve");
-      act(() => button.click());
-      deciding = false;
-      render("one", [thread("one")], "inline", {
-        suggestions: [asked("first", "accepted"), asked("second", "accepted")],
-        onDecideSuggestionProposal: decide,
-        decidingSuggestion: () => deciding,
-        commentAi: suggestedCommentAi("fresh"),
-        awaitedSuggestionIds: new Set(["fresh"]),
-      });
-      expect(actions.resolve).not.toHaveBeenCalled();
+    it("focuses Reply when someone opens the thread themselves", () => {
+      render(null, [thread("one")]);
+      render("one", [thread("one")]);
+
+      expect(replyState.focus.current?.threadId).toBe("one");
     });
+
+    it.each([
+      ["drops", "", null],
+      ["keeps", "Half a thought", "one"],
+    ])(
+      "%s a Reply's focus record when the page changes, with %j in it",
+      (_, text, kept) => {
+        const show = (documentId: string) =>
+          act(() =>
+            root.render(
+              <CommentDraftProvider
+                documentId="fixture"
+                currentUserEmail="reviewer@example.test"
+              >
+                <ReplyDraftsProbe documentId={documentId} />
+              </CommentDraftProvider>,
+            ),
+          );
+        const focusedThreadId = () =>
+          replyState.focus.current?.threadId ?? null;
+        show("fixture");
+        if (text) act(() => replyState.setText("one", text));
+        replyState.focus.current = { documentId: "fixture", threadId: "one" };
+        show("other");
+
+        expect(focusedThreadId()).toBe(kept);
+      },
+    );
   });
 
   it("holds a suggested request's place until its suggestion loads", () => {

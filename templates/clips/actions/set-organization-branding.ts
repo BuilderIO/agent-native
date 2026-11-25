@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { organizations } from "@agent-native/core/org";
 import { eq } from "drizzle-orm";
@@ -36,7 +36,15 @@ export default defineAction({
     defaultVisibility: VisibilityEnum.optional().describe(
       "Default visibility for new recordings",
     ),
+    enforceDefaultVisibility: z
+      .boolean()
+      .optional()
+      .describe(
+        "When true, members cannot set a personal default visibility that overrides the organization default. Members can still change visibility on an individual recording.",
+      ),
   }),
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async (args) => {
     const { organizationId } = await requireOrganizationAccess(
       args.organizationId,
@@ -77,6 +85,9 @@ export default defineAction({
     if (typeof args.defaultVisibility === "string") {
       updates.defaultVisibility = args.defaultVisibility;
     }
+    if (typeof args.enforceDefaultVisibility === "boolean") {
+      updates.enforceDefaultVisibility = args.enforceDefaultVisibility;
+    }
 
     if (Object.keys(updates).length) {
       await db
@@ -91,6 +102,8 @@ export default defineAction({
         brandColor: schema.organizationSettings.brandColor,
         brandLogoUrl: schema.organizationSettings.brandLogoUrl,
         defaultVisibility: schema.organizationSettings.defaultVisibility,
+        enforceDefaultVisibility:
+          schema.organizationSettings.enforceDefaultVisibility,
         updatedAt: schema.organizationSettings.updatedAt,
       })
       .from(schema.organizationSettings)
@@ -107,6 +120,7 @@ export default defineAction({
       brandColor: row?.brandColor ?? "#18181B",
       brandLogoUrl: row?.brandLogoUrl ?? null,
       defaultVisibility: row?.defaultVisibility ?? "public",
+      enforceDefaultVisibility: row.enforceDefaultVisibility,
       updatedAt: row?.updatedAt ?? nowIso,
     };
   },

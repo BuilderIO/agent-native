@@ -56,6 +56,7 @@ const suggestion = {
 };
 
 vi.mock("../../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => client,
   isProductionServerlessFunctionRuntime: () => false,
 }));
@@ -152,7 +153,7 @@ function expectNoReviewWrites() {
 
 describe("suggestion action access", () => {
   beforeEach(async () => {
-    pglite = await createTestPglite();
+    pglite = await createTestPglite({ reuseEmptyBootstrap: true });
     vi.clearAllMocks();
     validateProposal.mockReset();
     applySuggestion.mockReset();

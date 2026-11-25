@@ -17,6 +17,7 @@ export default defineAction({
   schema: z.object({
     id: z.string().describe("calendar_accounts.id"),
   }),
+  mcpTool: false,
   run: async (args) => {
     await assertAccess("calendar-account", args.id, "admin");
     const db = getDb();

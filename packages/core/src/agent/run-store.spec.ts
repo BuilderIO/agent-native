@@ -355,6 +355,7 @@ mockTxDb.execute = mockDb.execute;
 const mockCaptureError = vi.fn();
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => mockDb,
   getScopedDbExec: () => undefined,
   getScopedTransactionDbExec: () => undefined,
@@ -413,6 +414,7 @@ const {
   getCurrentTurnEventsForThread,
   getCurrentTurnRunIdsForThread,
   __resetNoRunningRunsProbeForTests,
+  hasRunningRuns,
   describeStaleReap,
   staleWindowMsForRow,
   BACKGROUND_PROCESSING_RUN_STALE_MS,
@@ -516,6 +518,14 @@ describe("run store", () => {
       () => reconcileTerminalRunFromEvents(runId),
     );
   }
+
+  it("re-probes for running runs when a caller asks for a fresh answer", async () => {
+    await expect(hasRunningRuns()).resolves.toBe(false);
+    staleSelectRows = [{ id: "run-started-since" }];
+
+    await expect(hasRunningRuns()).resolves.toBe(false);
+    await expect(hasRunningRuns({ fresh: true })).resolves.toBe(true);
+  });
 
   it("does not mark replayed provider auth failures recoverable", () => {
     const resolved = resolveErroredRunTerminalEvent({

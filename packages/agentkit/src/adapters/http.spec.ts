@@ -606,6 +606,55 @@ describe("AgentKit HTTP adapter", () => {
     );
   });
 
+  it("streams an omission range as a contiguous cursor jump and skips another run's events", async () => {
+    const base = {
+      threadId: "thread-1",
+      occurredAt: "2026-08-29T00:00:00.000Z",
+    };
+    const handler = createAgentKitHttpHandler({
+      transport: {
+        async startRun() {
+          return { runId: "run-1" };
+        },
+        async *subscribeToRun() {
+          yield {
+            ...base,
+            id: "omitted",
+            runId: "run-1",
+            sequence: 1,
+            type: "x-agent-native.persisted-event-omission-range",
+            payload: { lastSequence: 200 },
+          } as AgentEvent;
+          yield {
+            ...base,
+            id: "stale",
+            runId: "run-old",
+            sequence: 3,
+            type: "run.started",
+          } as AgentEvent;
+          yield {
+            ...base,
+            id: "done",
+            runId: "run-1",
+            sequence: 201,
+            type: "run.completed",
+          } as AgentEvent;
+        },
+        async cancelRun() {},
+      },
+    });
+
+    const response = await handler(
+      new Request(
+        "https://agentkit.test/agentkit/runs/run-1/events?threadId=thread-1",
+      ),
+    );
+    const text = await response.text();
+    expect(text).toContain("id: 1\n");
+    expect(text).toContain("id: 201\n");
+    expect(text).not.toContain("run-old");
+  });
+
   it("propagates one correlation id through request envelopes, headers, and errors", async () => {
     const transport = createAgentKitHttpTransport({
       baseUrl: "https://agentkit.test/agentkit",

@@ -10,7 +10,7 @@ vi.mock("../server/lib/hosted-apps-settings.js", () => ({
 }));
 
 vi.mock("../server/lib/mcp-gateway.js", () => ({
-  listGrantedDispatchMcpApps: mocks.listGrantedApps,
+  listGrantedDispatchMcpAppsWithStatus: mocks.listGrantedApps,
 }));
 
 import listApps from "./list_apps.js";
@@ -18,20 +18,23 @@ import listApps from "./list_apps.js";
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.hideHostedAppsWhenOff.mockImplementation(async (apps) => apps);
-  mocks.listGrantedApps.mockResolvedValue([
-    {
-      id: "slides",
-      name: "Slides",
-      description: "Create presentations",
-      url: "https://slides.example.test",
-    },
-    {
-      id: "analytics",
-      name: "Analytics",
-      description: "Answer data questions",
-      url: "https://analytics.example.test",
-    },
-  ]);
+  mocks.listGrantedApps.mockResolvedValue({
+    degradedSources: [],
+    apps: [
+      {
+        id: "slides",
+        name: "Slides",
+        description: "Create presentations",
+        url: "https://slides.example.test",
+      },
+      {
+        id: "analytics",
+        name: "Analytics",
+        description: "Answer data questions",
+        url: "https://analytics.example.test",
+      },
+    ],
+  });
 });
 
 describe("list_apps", () => {
@@ -66,15 +69,48 @@ describe("list_apps", () => {
     ]);
   });
 
-  it("lists only what the gateway discovered, so disabled built-ins never appear", async () => {
-    mocks.listGrantedApps.mockResolvedValue([
+  it("exposes degraded sources to structured and compact MCP clients", async () => {
+    const degradedSources = [
       {
-        id: "crm",
-        name: "CRM",
-        description: "Workspace app",
-        url: "https://workspace.example.test/crm",
+        source: "workspace-directory",
+        status: "unavailable",
+        usingCache: true,
       },
-    ]);
+    ];
+    mocks.listGrantedApps.mockResolvedValue({
+      degradedSources,
+      apps: [
+        {
+          id: "workspace/fleet",
+          name: "Fleet",
+          aliases: ["Delivery desk"],
+          url: "https://workspace.example.test/fleet",
+        },
+      ],
+    });
+
+    const result = await listApps.run({});
+    expect(result.degradedSources).toEqual(degradedSources);
+    expect(JSON.parse(result.message)).toEqual({
+      apps: [
+        { id: "workspace/fleet", name: "Fleet", aliases: ["Delivery desk"] },
+      ],
+      degradedSources,
+    });
+  });
+
+  it("lists only what the gateway discovered, so disabled built-ins never appear", async () => {
+    mocks.listGrantedApps.mockResolvedValue({
+      degradedSources: [],
+      apps: [
+        {
+          id: "crm",
+          name: "CRM",
+          description: "Workspace app",
+          url: "https://workspace.example.test/crm",
+        },
+      ],
+    });
 
     const result = await listApps.run({});
 

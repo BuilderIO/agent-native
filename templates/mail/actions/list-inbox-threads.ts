@@ -10,7 +10,6 @@ import { readGmailCooldown } from "../server/lib/gmail-quota.js";
 import { hasGmailScope } from "../server/lib/gmail-scope.js";
 import { statusFromRow } from "../server/lib/inbox-status.js";
 import {
-  aiImportantLabelIds,
   inboxRowToItem,
   readCachedLabels,
   readInboxTabWindows,
@@ -19,7 +18,6 @@ import {
   readSyncAccounts,
   type InboxTabWindows,
   type InboxThreadRow,
-  type SyncAccountRow,
 } from "../server/lib/inbox-store.js";
 import {
   buildLocalInboxItems,
@@ -55,33 +53,6 @@ const SQL_TAB_KINDS: ReadonlySet<InboxTabKind> = new Set([
 
 type CachedTabCount = { total: number; unread: number };
 
-function cachedInboxCount(
-  accounts: SyncAccountRow[],
-  accountEmails: string[],
-): CachedTabCount | undefined {
-  const selected = new Set(accountEmails.map((email) => email.toLowerCase()));
-  if (selected.size === 0) return undefined;
-  let total = 0;
-  let unread = 0;
-  for (const account of accounts) {
-    if (!selected.has(account.accountEmail.toLowerCase())) continue;
-    selected.delete(account.accountEmail.toLowerCase());
-    const inbox = account.labels?.find(
-      (label) => label.id.toUpperCase() === "INBOX",
-    );
-    if (inbox?.threadsTotal == null || inbox.threadsUnread == null)
-      return undefined;
-    const accountTotal = Number(inbox.threadsTotal);
-    const accountUnread = Number(inbox.threadsUnread);
-    if (!Number.isFinite(accountTotal) || !Number.isFinite(accountUnread))
-      return undefined;
-    total += accountTotal;
-    unread += accountUnread;
-  }
-  if (selected.size > 0) return undefined;
-  return { total, unread };
-}
-
 type InboxResultWindow = {
   tabs: ResolvedInboxTab[];
   activeTabId: string;
@@ -97,10 +68,10 @@ type InboxResultWindow = {
   syncing: boolean;
   accounts: InboxSyncAccountStatus[];
   backfillIncomplete: boolean;
+  hasLegacyClassification: boolean;
   // The sync stopped at the cap while Gmail has more: the visible pool is a
   // lower bound even when nothing is syncing.
   syncCapped?: boolean;
-  cachedInboxTotal?: CachedTabCount;
 };
 
 function buildInboxResult(window: InboxResultWindow): ListInboxThreadsResult {
@@ -113,17 +84,13 @@ function buildInboxResult(window: InboxResultWindow): ListInboxThreadsResult {
     (Boolean(window.syncCapped) && !olderRows);
   const resultTabs: InboxTab[] = window.tabs.map((tab) => {
     const count = window.counts.get(tab.id) ?? { total: 0, unread: 0 };
-    const cachedCount =
-      window.backfillIncomplete && (tab.kind === "inbox" || tab.kind === "all")
-        ? window.cachedInboxTotal
-        : undefined;
     return {
       id: tab.id,
       kind: tab.kind,
       name: tab.name,
       query: tab.query,
-      total: cachedCount?.total ?? count.total,
-      unread: cachedCount?.unread ?? count.unread,
+      total: count.total,
+      unread: count.unread,
       ...(window.backfillIncomplete ? { totalIsLowerBound: true } : {}),
     };
   });
@@ -143,6 +110,7 @@ function buildInboxResult(window: InboxResultWindow): ListInboxThreadsResult {
       window.offset + window.pageItems.length >= window.activePoolLength &&
       window.activePoolLength >= (activeTab?.total ?? 0),
     hasMore: olderRows && !reachedCap,
+    hasLegacyClassification: window.hasLegacyClassification,
     reachedCap,
     syncing: window.syncing,
     accounts: window.accounts,
@@ -161,7 +129,6 @@ function buildWindowedResult(
     accounts: InboxSyncAccountStatus[];
     backfillIncomplete: boolean;
     syncCapped?: boolean;
-    cachedInboxTotal?: CachedTabCount;
     rowToItem: (row: InboxThreadRow) => InboxThreadItem;
   },
 ): ListInboxThreadsResult {
@@ -190,9 +157,9 @@ function buildWindowedResult(
     labels: input.labels,
     syncing: input.syncing,
     accounts: input.accounts,
-    backfillIncomplete: input.backfillIncomplete,
+    backfillIncomplete: input.backfillIncomplete || windows.hasUnclassified,
+    hasLegacyClassification: windows.hasLegacyClassification,
     syncCapped: input.syncCapped,
-    cachedInboxTotal: input.cachedInboxTotal,
   });
 }
 
@@ -206,7 +173,6 @@ function paginateIntoResult(
   syncing: boolean,
   accounts: InboxSyncAccountStatus[],
   backfillIncomplete = false,
-  cachedInboxTotal?: CachedTabCount,
   syncCapped = false,
 ): ListInboxThreadsResult {
   const tabs = resolveInboxTabs(config, labelNameById);
@@ -246,9 +212,12 @@ function paginateIntoResult(
     labels,
     syncing,
     accounts,
-    backfillIncomplete,
+    backfillIncomplete:
+      backfillIncomplete || items.some((item) => item.isAutomated === null),
+    hasLegacyClassification: items.some(
+      (item) => item.classificationNeedsRefresh === true,
+    ),
     syncCapped,
-    cachedInboxTotal,
   });
 }
 
@@ -302,6 +271,7 @@ export default defineAction({
       view: "inbox",
     };
   },
+  mcpTool: "search",
   run: async (args): Promise<ListInboxThreadsResult> => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
@@ -349,7 +319,7 @@ export default defineAction({
       const labels = Array.isArray((localSetting as any)?.labels)
         ? ((localSetting as any).labels as Label[])
         : [];
-      const items = buildLocalInboxItems(emails);
+      const items = buildLocalInboxItems(emails, ownerEmail);
       const config: InboxTabConfig = {
         pinnedLabels: resolvePinnedLabels(settings.pinnedLabels, false),
         savedFilters: settings.savedFilters ?? [],
@@ -396,12 +366,6 @@ export default defineAction({
             ownerEmail,
             accountEmails: connectedAccounts,
             tabs,
-            aiLabelIdsByAccount: new Map(
-              connectedAccounts.map((accountEmail) => [
-                accountEmail,
-                aiImportantLabelIds(labelMapByAccount.get(accountEmail)),
-              ]),
-            ),
             pageTabId: activeTabId,
             pageOffset: page.offset,
             pageLimit: page.limit,
@@ -456,10 +420,6 @@ export default defineAction({
           status.backfillPending ||
           status.degraded,
       );
-    const cachedAllInboxCount = cachedInboxCount(
-      syncAccounts,
-      connectedAccounts,
-    );
     const now = Date.now();
     const cooldown = await readGmailCooldown(connectedAccounts, now);
     const syncedTimes = statuses.map((status) => status.lastSyncedAt);
@@ -480,7 +440,6 @@ export default defineAction({
             accounts: statuses,
             backfillIncomplete,
             syncCapped,
-            cachedInboxTotal: cachedAllInboxCount,
             rowToItem,
           })
         : paginateIntoResult(
@@ -492,7 +451,6 @@ export default defineAction({
             syncing,
             statuses,
             backfillIncomplete,
-            cachedAllInboxCount,
             syncCapped,
           );
     return {

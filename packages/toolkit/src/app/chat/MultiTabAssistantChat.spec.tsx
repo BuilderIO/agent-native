@@ -5027,20 +5027,25 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(chat?.getAttribute("data-selected-engine")).toBe("builder");
   });
 
-  it("treats a blank submitted engine as absent rather than as a value", () => {
-    act(() => {
-      dispatchSubmitChat({
-        message: "Generate design for hi page",
-        submit: true,
-        model: "gpt-5-6-luna",
-        engine: "",
-      });
-    });
+  // oracle-change: the three keyed-context tests and the blank-engine test became it.each tables and the model-without-engine test is covered by the blank-engine rows asserting the selected model; every case keeps its assertions
 
-    const chat = container.querySelector("[data-testid='assistant-chat']");
-    expect(chat?.getAttribute("data-selected-model")).toBe("gpt-5-6-luna");
-    expect(chat?.getAttribute("data-selected-engine")).toBeNull();
-  });
+  it.each(["", undefined])(
+    "treats a submitted engine of %j as absent rather than as a value",
+    (engine) => {
+      act(() => {
+        dispatchSubmitChat({
+          message: "Generate design for hi page",
+          submit: true,
+          model: "gpt-5-6-luna",
+          engine,
+        });
+      });
+
+      const chat = container.querySelector("[data-testid='assistant-chat']");
+      expect(chat?.getAttribute("data-selected-model")).toBe("gpt-5-6-luna");
+      expect(chat?.getAttribute("data-selected-engine")).toBeNull();
+    },
+  );
 
   it("resolves an engine from the catalog when the submit carries none", async () => {
     const view = await mountWithCatalog(ANTHROPIC_ENGINES, [
@@ -5364,22 +5369,6 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
         .querySelector("[data-testid='assistant-chat']")
         ?.getAttribute("data-model-options"),
     ).toBe("model-on-selected-account");
-  });
-
-  it("applies a submitted model override sent without an engine", () => {
-    act(() => {
-      dispatchSubmitChat({
-        message: "Generate design for hi page",
-        submit: true,
-        model: "claude-opus-4-8",
-      });
-    });
-
-    expect(
-      container
-        .querySelector("[data-testid='assistant-chat']")
-        ?.getAttribute("data-selected-model"),
-    ).toBe("claude-opus-4-8");
   });
 
   it("adopts model changes persisted by another shared chat surface", async () => {
@@ -5738,109 +5727,54 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     );
   });
 
-  it("adds keyed context to the active composer without prefill or submit", () => {
-    const dispatchEventSpy = vi.spyOn(window, "dispatchEvent");
-    act(() => {
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          data: {
-            type: "agentNative.setChatContext",
+  it.each([
+    ["by default", {}, true, true],
+    ["quietly when openSidebar is false", { openSidebar: false }, false, true],
+    [
+      "without focus when focus is false",
+      { openSidebar: false, focus: false },
+      false,
+      false,
+    ],
+  ])(
+    "adds keyed context to the active composer %s, without prefill or submit",
+    (_name, options, opensPanel, focuses) => {
+      const dispatchEventSpy = vi.spyOn(window, "dispatchEvent");
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
             data: {
-              key: "selected-element",
-              title: "Selected Element",
-              context: "<button>Buy</button>",
+              type: "agentNative.setChatContext",
+              data: {
+                key: "selected-element",
+                title: "Selected Element",
+                context: "<button>Buy</button>",
+                ...options,
+              },
             },
-          },
-          origin: window.location.origin,
-        }),
+            origin: window.location.origin,
+          }),
+        );
+      });
+
+      expect(
+        dispatchEventSpy.mock.calls.some(
+          ([event]) => event.type === "agent-panel:open",
+        ),
+      ).toBe(opensPanel);
+      expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith(
+        {
+          key: "selected-element",
+          title: "Selected Element",
+          context: "<button>Buy</button>",
+        },
+        { focus: focuses },
       );
-    });
-
-    expect(
-      dispatchEventSpy.mock.calls.some(
-        ([event]) => event.type === "agent-panel:open",
-      ),
-    ).toBe(true);
-    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith(
-      {
-        key: "selected-element",
-        title: "Selected Element",
-        context: "<button>Buy</button>",
-      },
-      { focus: true },
-    );
-    expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
-    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
-    dispatchEventSpy.mockRestore();
-  });
-
-  it("stages keyed context quietly when openSidebar is false", () => {
-    const dispatchEventSpy = vi.spyOn(window, "dispatchEvent");
-    act(() => {
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          data: {
-            type: "agentNative.setChatContext",
-            data: {
-              key: "selected-element",
-              title: "Selected Element",
-              context: "<button>Buy</button>",
-              openSidebar: false,
-            },
-          },
-          origin: window.location.origin,
-        }),
-      );
-    });
-
-    expect(
-      dispatchEventSpy.mock.calls.some(
-        ([event]) => event.type === "agent-panel:open",
-      ),
-    ).toBe(false);
-    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith(
-      {
-        key: "selected-element",
-        title: "Selected Element",
-        context: "<button>Buy</button>",
-      },
-      { focus: true },
-    );
-    expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
-    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
-    dispatchEventSpy.mockRestore();
-  });
-
-  it("stages keyed context without focus when focus is false", () => {
-    act(() => {
-      window.dispatchEvent(
-        new MessageEvent("message", {
-          data: {
-            type: "agentNative.setChatContext",
-            data: {
-              key: "selected-element",
-              title: "Selected Element",
-              context: "<button>Buy</button>",
-              openSidebar: false,
-              focus: false,
-            },
-          },
-          origin: window.location.origin,
-        }),
-      );
-    });
-
-    expect(chatHandleMocks.setComposerContextItem).toHaveBeenCalledWith(
-      {
-        key: "selected-element",
-        title: "Selected Element",
-        context: "<button>Buy</button>",
-      },
-      { focus: false },
-    );
-    expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
-    expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
-  });
+      expect(chatHandleMocks.sendMessage).not.toHaveBeenCalled();
+      expect(chatHandleMocks.prefillMessage).not.toHaveBeenCalled();
+      dispatchEventSpy.mockRestore();
+    },
+  );
 
   it("removes keyed context from the active composer", () => {
     act(() => {

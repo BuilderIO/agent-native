@@ -1,3 +1,9 @@
+import type { i18n as I18nInstance } from "i18next";
+import { I18nContext } from "react-i18next";
+
+import { ActionError, actionTransportError } from "./action-error.js";
+export { ActionError } from "./action-error.js";
+
 import {
   hashKey,
   CancelledError,
@@ -61,6 +67,7 @@ import { fetchActionGet } from "./action-get-batch.js";
 import { trustedActionQueryCacheBindingPendingContext } from "./action-query-cache-context.js";
 import {
   advanceMutationEpoch,
+  readMutationEpoch,
   requestActionCacheFlush,
 } from "./action-query-cache-mutation.js";
 import {
@@ -72,6 +79,7 @@ import {
 } from "./action-query-foreground.js";
 import {
   ACTION_RESOURCES_META_KEY,
+  ACTION_SELF_REFRESHING_META_KEY,
   actionQueryAffectedByResources,
   type ActionScopedQuery,
 } from "./action-query-scope.js";
@@ -151,7 +159,9 @@ export function defaultActionQueryRetry(
   if (isNetworkLevelFailure(error)) return failureCount < 1;
 
   const status = actionErrorStatus(error);
-  if (status === undefined) return failureCount < 3;
+  if (status === undefined) {
+    return !(error instanceof ActionError) && failureCount < 3;
+  }
 
   return isRetryableActionStatus(status) && failureCount < 3;
 }
@@ -160,6 +170,8 @@ export function defaultActionQueryRetry(
 export const shouldRetryActionQueryForError = defaultActionQueryRetry;
 
 function isBrowserResourceExhaustion(error: unknown): boolean {
+  if (error instanceof ActionError)
+    return isBrowserResourceExhaustion(error.cause);
   const message =
     error instanceof Error
       ? error.message
@@ -171,11 +183,16 @@ function isBrowserResourceExhaustion(error: unknown): boolean {
 
 /** @internal shared with `classifyWriteFailure` */
 export function isNetworkLevelFailure(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    (error as { status?: unknown }).status === undefined &&
-    /^Action .+ failed: /.test(error.message)
-  );
+  if (!(error instanceof Error)) return false;
+  const status = (error as { status?: unknown }).status;
+  if (error instanceof ActionError) {
+    return (
+      error.code === "network_error" &&
+      (status === undefined ||
+        (typeof status === "number" && status >= 200 && status < 300))
+    );
+  }
+  return status === undefined && /^Action .+ failed: /.test(error.message);
 }
 
 /**
@@ -195,10 +212,16 @@ export function defaultActionQueryRetryDelay(failureCount: number): number {
   return Math.round(step / 2 + (Math.random() * step) / 2);
 }
 
-export function actionErrorMessage(error: unknown): string | undefined {
+export function actionErrorMessage(error: unknown, fallback: string): string;
+export function actionErrorMessage(error: unknown): string | undefined;
+export function actionErrorMessage(
+  error: unknown,
+  fallback?: string,
+): string | undefined {
+  if (error instanceof ActionError) return error.catalogMessage ?? fallback;
   const value = (error as { actionMessage?: unknown } | undefined)
     ?.actionMessage;
-  return typeof value === "string" ? value : undefined;
+  return typeof value === "string" ? value : fallback;
 }
 
 // ---------------------------------------------------------------------------
@@ -236,6 +259,8 @@ type ActionParams<T extends string> = T extends keyof ActionRegistry
 export type ClientActionMethod = "GET" | "POST" | "PUT" | "DELETE";
 
 export interface ClientActionCallOptions {
+  /** Bind imperative calls to an isolated app catalog; hooks bind their provider automatically. */
+  errorI18n?: I18nInstance | undefined;
   method?: ClientActionMethod;
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -292,6 +317,7 @@ function appendActionQueryParam(
 export const KEEPALIVE_BODY_LIMIT_BYTES = 60 * 1024;
 
 export interface ActionFetchOptions {
+  errorI18n?: I18nInstance | undefined;
   signal?: AbortSignal;
   timeoutMs?: number;
   keepalive?: boolean;
@@ -313,6 +339,7 @@ type InternalActionFetchOptions = ActionFetchOptions & {
   uiCapabilityRetry?: boolean;
   /** A GET that may share one request with the other GETs in its tick. */
   batch?: boolean;
+  batchGroup?: string;
   /** Internal: never retain a private request body beyond transport handoff. */
   privateInput?: boolean;
   /** Internal: this read was already re-sent with the method the action declared. */
@@ -329,16 +356,6 @@ const UI_CAPABILITY_MINT_TIMEOUT_MS = 10_000;
 let uiCapabilityRequest: Promise<void> | undefined;
 let uiCapabilityRequestIdentity: string | null | undefined;
 let abortUiCapabilityRequest: (() => void) | undefined;
-
-/** A caller asked to share a mint another identity's session is waiting on. */
-class UiCapabilityIdentityError extends Error {
-  constructor() {
-    super(
-      "A UI capability for a different user is still being established; retry once it settles.",
-    );
-    this.name = "UiCapabilityIdentityError";
-  }
-}
 
 // The capability is the Set-Cookie header, so the mint is answered by its
 // status. Its body must still be read, or the request stays open and the page
@@ -445,6 +462,34 @@ function abandonUiCapabilityMint(): void {
   uiCapabilityRequest = undefined;
 }
 
+class UiCapabilityIdentityError extends Error {
+  constructor() {
+    super("The signed-in session changed while waiting for the UI capability.");
+    this.name = "UiCapabilityIdentityError";
+  }
+}
+
+function waitForUiCapabilityMint(
+  request: Promise<void>,
+  signal?: AbortSignal,
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      signal?.removeEventListener("abort", onAbort);
+      reject(signal?.reason);
+    };
+    if (signal?.aborted) return reject(signal.reason);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    void request
+      .then(
+        () => undefined,
+        () => undefined,
+      )
+      .then(resolve)
+      .finally(() => signal?.removeEventListener("abort", onAbort));
+  });
+}
+
 // The mint is shared by concurrent callers, so one caller's abort rejects only
 // its own wait and never cancels the request the others are waiting on.
 function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
@@ -453,7 +498,13 @@ function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
   // A pending mint was sent with the cookies of the session that started it.
   // Another identity waiting on it would act under that session's capability.
   if (uiCapabilityRequest && uiCapabilityRequestIdentity !== identity) {
-    return Promise.reject(new UiCapabilityIdentityError());
+    const scope = currentSessionScope();
+    return waitForUiCapabilityMint(uiCapabilityRequest, signal).then(() => {
+      if (currentSessionScope() !== scope) {
+        throw new UiCapabilityIdentityError();
+      }
+      return ensureUiActionCapability(signal);
+    });
   }
   if (!uiCapabilityRequest) {
     uiCapabilityRequestIdentity = identity;
@@ -476,17 +527,24 @@ function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
       credentials: "same-origin",
       cache: "no-store",
       signal: controller?.signal,
-    }).then((res) => {
-      releaseMintBody(res);
-      if (!res.ok) {
-        throw new Error("Could not establish the browser UI capability.");
-      }
-      if (generation !== uiCapabilityGeneration) return;
-      uiCapability = { identity, at: Date.now() };
-      if (typeof identity === "string") {
-        rememberUiCapability(identity, uiCapability.at);
-      }
-    });
+    })
+      .catch((error: unknown) => {
+        throw actionTransportError(error);
+      })
+      .then((res) => {
+        releaseMintBody(res);
+        if (!res.ok) {
+          throw actionTransportError(
+            new Error("Could not establish the browser UI capability."),
+            res,
+          );
+        }
+        if (generation !== uiCapabilityGeneration) return;
+        uiCapability = { identity, at: Date.now() };
+        if (typeof identity === "string") {
+          rememberUiCapability(identity, uiCapability.at);
+        }
+      });
     const settled: Promise<void> = Promise.race([response, timedOut]).finally(
       () => {
         clearTimeout(timer);
@@ -571,6 +629,7 @@ function presentUiCapability(
   signal: AbortSignal | undefined,
 ): Promise<void> | undefined {
   const identity = currentSessionIdentity();
+  const scope = currentSessionScope();
   const headers = new Headers(options?.headers);
   const interactiveRead =
     method === "GET" && headers.get("x-agent-native-interactive") === "1";
@@ -591,14 +650,16 @@ function presentUiCapability(
     return undefined;
   } else {
     pending = ensureUiActionCapability(signal).catch((error) => {
-      if (signal?.aborted || error instanceof UiCapabilityIdentityError)
-        throw error;
+      if (signal?.aborted) throw error;
     });
   }
   // The request leaves only after the mint, using the browser’s current
   // cookies. Never send it under an identity that changed while waiting.
   return pending.then(() => {
-    if (currentSessionIdentity() !== identity) {
+    if (
+      currentSessionIdentity() !== identity ||
+      currentSessionScope() !== scope
+    ) {
       throw new Error(
         "The signed-in user changed before this action was sent.",
       );
@@ -635,12 +696,20 @@ function utf8ByteLength(value: string): number {
  * refused where its GETs would pass, so an embed keeps one request per call.
  */
 function canBatchActionGet(options?: InternalActionFetchOptions): boolean {
-  return (
-    options?.batch === true &&
-    options.responseType !== "blob" &&
-    options.headers === undefined &&
-    !isEmbedAuthActive()
-  );
+  if (options?.batch !== true) return false;
+  if (options.responseType === "blob") {
+    console.debug(
+      "[agent-native] Skipping action-GET batching: responseType is blob",
+    );
+    return false;
+  }
+  if (isEmbedAuthActive()) {
+    console.debug(
+      "[agent-native] Skipping action-GET batching: embed auth is active",
+    );
+    return false;
+  }
+  return true;
 }
 
 function waitForActionSend(
@@ -791,10 +860,15 @@ async function performActionFetch<T>(
               init,
               headers,
               batchUrl: `${actionPrefix()}/${ACTION_BATCH_ACTION_NAME}`,
+              ...(options?.batchGroup
+                ? { batchGroup: options.batchGroup }
+                : {}),
             })
           : (() => {
               try {
-                return fetch(url, init);
+                return fetch(url, init).catch((error: unknown) => {
+                  throw actionTransportError(error);
+                });
               } finally {
                 if (options?.privateInput) delete init.body;
               }
@@ -819,7 +893,26 @@ async function performActionFetch<T>(
       if (timedOut) throwTimeout();
       if (outerSignal?.aborted || isCancelledError(err)) throw err;
       const cause = err instanceof Error ? err.message : String(err);
-      throw new Error(`Action ${name} failed: ${cause}`);
+      const source = err as {
+        code?: unknown;
+        status?: unknown;
+        requestId?: unknown;
+        retryAfterMs?: unknown;
+      } | null;
+      const code = source?.code;
+      const failure = Object.assign(
+        new Error(`Action ${name} failed: ${cause}`, { cause: err }),
+        {
+          code: typeof code === "string" ? code : "request_failed",
+        },
+      );
+      if (typeof source?.status === "number")
+        Object.assign(failure, { status: source.status });
+      if (typeof source?.retryAfterMs === "number")
+        Object.assign(failure, { retryAfterMs: source.retryAfterMs });
+      if (typeof source?.requestId === "string")
+        Object.assign(failure, { requestId: source.requestId });
+      throw failure;
     }
 
     throwIfAborted(outerSignal);
@@ -1002,11 +1095,13 @@ async function performActionFetch<T>(
   if (readFailed) {
     const cause =
       readError instanceof Error ? readError.message : String(readError);
-    const error = new Error(
-      `Action ${name} returned ${res.status} but the body could not be read: ${cause}`,
+    throw actionTransportError(
+      new Error(
+        `Action ${name} returned ${res.status} but the body could not be read: ${cause}`,
+        { cause: readError },
+      ),
+      res,
     );
-    (error as any).status = res.status;
-    throw error;
   }
 
   if (options?.responseType === "blob") {
@@ -1161,8 +1256,11 @@ async function actionFetch<T>(
       },
     });
   } catch (caught) {
-    error = caught;
-    throw caught;
+    error =
+      isAbortError(caught) || caught instanceof ActionError
+        ? caught
+        : new ActionError(caught, options?.errorI18n);
+    throw error;
   } finally {
     try {
       recordActionEnd({ error, response, signal: options?.signal });
@@ -1276,6 +1374,7 @@ export function callAction<
   type R = TResult extends undefined ? ActionResult<TName> : TResult;
   return actionFetch<R>(actionName, options.method ?? "POST", params, {
     signal: options.signal,
+    errorI18n: options.errorI18n,
     timeoutMs: options.timeoutMs,
     includeRequestSource: false,
     headers: options.headers,
@@ -1294,6 +1393,7 @@ export function callActionBlob<TName extends ActionName = ActionName>(
 ): Promise<Blob> {
   return actionFetch<Blob>(actionName, options.method ?? "POST", params, {
     signal: options.signal,
+    errorI18n: options.errorI18n,
     timeoutMs: options.timeoutMs,
     includeRequestSource: false,
     headers: options.headers,
@@ -1445,6 +1545,8 @@ export function tryCallActionKeepalive<
 
   const completion = actionFetch<R>(actionName, method, params, {
     signal: options.signal,
+    headers: options.headers,
+    errorI18n: options.errorI18n,
     timeoutMs: options.timeoutMs,
     keepalive: true,
     serializedBody,
@@ -1818,6 +1920,7 @@ export function useActionQuery<
      * than waiting on the other reads in their batch.
      */
     batchRefetches?: boolean;
+    batchInitial?: boolean;
     /** Captures a local projection fence before the authorized read starts. */
     onRequestStart?: () => unknown;
     /** Receives canonical responses only, never optimistic query-cache writes. */
@@ -1838,6 +1941,7 @@ export function useActionQuery<
     queryKeyScope,
     resources,
     batchRefetches,
+    batchInitial,
     onRequestStart,
     onServerResult,
     onServerError,
@@ -1849,6 +1953,9 @@ export function useActionQuery<
   } = options ?? {};
   const queryKey = ["action", actionName, params, ...(queryKeyScope ?? [])];
   const queryClient = useQueryClient();
+  const errorI18n = (
+    useContext(I18nContext) as { i18n: I18nInstance } | undefined
+  )?.i18n;
   useEffect(() => retainFallbackToolDoneRefresh(queryClient), [queryClient]);
   const canFetch = useActionQueryCanFetch(queryKey);
   const circuitKey = () => hashKey(queryKey);
@@ -1894,6 +2001,8 @@ export function useActionQuery<
     queryFn: async ({ signal, client }) => {
       const key = circuitKey();
       const query = client.getQueryCache().find({ queryKey, exact: true });
+      const initialBatch =
+        batchInitial === true && query?.state.data === undefined;
       if (!restOptions.refetchIntervalInBackground && isSurfaceHidden())
         throw new CancelledError({ revert: true });
       const foreground =
@@ -1916,6 +2025,7 @@ export function useActionQuery<
           (onResponse) =>
             actionFetch<R>(actionName, method, params, {
               signal,
+              errorI18n,
               ...(foreground
                 ? { headers: { "X-Agent-Native-Interactive": "1" } }
                 : {}),
@@ -1923,7 +2033,10 @@ export function useActionQuery<
               visibleOnly: !restOptions.refetchIntervalInBackground,
               uiOnly: uiOnly || interactive,
               ...(retryUiCapability === undefined ? {} : { retryUiCapability }),
-              batch: method === "GET" && canBatchActionQueryFetch(query),
+              batch:
+                method === "GET" &&
+                (initialBatch || canBatchActionQueryFetch(query)),
+              ...(initialBatch ? { batchGroup: "initial" } : {}),
               onResponse: (response) => {
                 lastResponse = response;
                 onResponse(response);
@@ -2016,13 +2129,47 @@ export function useActionQuery<
       ),
     [queryClient, queryHash],
   );
-  if (!interactive || !foregroundRefetch) return result;
-  // Proxy, not spread: React Query tracks which result fields a component reads.
+
+  const readState = (target: typeof result): ActionReadState<R> => {
+    if (target.isError)
+      return {
+        status: "failed",
+        error: target.error,
+        data: target.data,
+        retry: foregroundRefetchFn,
+      };
+    if (target.isSuccess) return { status: "ready", data: target.data };
+    return { status: "pending" };
+  };
+
   return new Proxy(result, {
-    get: (target, key) =>
-      key === "refetch" ? foregroundRefetchFn : Reflect.get(target, key),
-  });
+    get: (target, key) => {
+      if (key === "readState") return readState(target);
+      return key === "refetch" && interactive && foregroundRefetch
+        ? foregroundRefetchFn
+        : Reflect.get(target, key);
+    },
+    has: (target, key) => key === "readState" || Reflect.has(target, key),
+    ownKeys: (target) => {
+      const keys = Reflect.ownKeys(target);
+      return keys.includes("readState") ? keys : [...keys, "readState"];
+    },
+    getOwnPropertyDescriptor: (target, key) =>
+      key === "readState"
+        ? { configurable: true, enumerable: true, get: () => readState(target) }
+        : Reflect.getOwnPropertyDescriptor(target, key),
+  }) as typeof result & { readonly readState: ActionReadState<R> };
 }
+
+export type ActionReadState<T> =
+  | { status: "pending" }
+  | {
+      status: "failed";
+      error: Error;
+      data?: T | undefined;
+      retry: () => Promise<unknown>;
+    }
+  | { status: "ready"; data: T };
 
 /**
  * A write that names its resources refreshes only the action queries tagged for
@@ -2030,7 +2177,12 @@ export function useActionQuery<
  * refreshes every action query.
  */
 function actionQueryInvalidation(resources: readonly string[] | undefined) {
-  if (!resources?.length) return { queryKey: ["action"] };
+  if (!resources?.length)
+    return {
+      queryKey: ["action"],
+      predicate: (query: ActionScopedQuery) =>
+        query.meta?.[ACTION_SELF_REFRESHING_META_KEY] !== true,
+    };
   const changed = new Set(resources);
   return {
     predicate: (query: ActionScopedQuery) =>
@@ -2398,9 +2550,10 @@ function usePrivateInputMutation<V>(
         window.dispatchEvent(new Event("agentNative:syncActivity"));
       if (!valid()) throw privateMutationError(true);
       let refetched: Promise<void> | undefined;
+      let ownEpoch: string | null | undefined;
       if (!opts.skipActionQueryInvalidation || outcome.markerFailed) {
-        if (!advanceMutationEpoch())
-          revokeActionQueryCacheForClient(queryClient);
+        if (advanceMutationEpoch()) ownEpoch = readMutationEpoch();
+        else revokeActionQueryCacheForClient(queryClient);
         refetched = queryClient.invalidateQueries(
           actionQueryInvalidation(opts.resources),
         );
@@ -2408,7 +2561,9 @@ function usePrivateInputMutation<V>(
       if (!valid()) throw privateMutationError(true);
       await opts.onSuccess?.();
       if (!valid()) throw privateMutationError(true);
-      void Promise.allSettled([refetched]).then(requestActionCacheFlush);
+      void Promise.allSettled([refetched]).then(() =>
+        requestActionCacheFlush(ownEpoch),
+      );
       setState({ status: "success", error: null });
     } catch {
       const isCurrent = valid();
@@ -2519,6 +2674,9 @@ function useNormalActionMutation<
   TVariables extends undefined ? ActionParams<TName> : TVariables
 > {
   const queryClient = useQueryClient();
+  const errorI18n = (
+    useContext(I18nContext) as { i18n: I18nInstance } | undefined
+  )?.i18n;
   const {
     method: methodOpt,
     onSuccess,
@@ -2593,6 +2751,7 @@ function useNormalActionMutation<
         params as Record<string, any>,
         {
           timeoutMs,
+          errorI18n,
           uiOnly,
           retryUiCapability,
           headers: interactive
@@ -2674,9 +2833,10 @@ function useNormalActionMutation<
         console.warn("Action mutation projection observer failed");
       }
       let refetched: Promise<void> | undefined;
+      let ownEpoch: string | null | undefined;
       if (!skipActionQueryInvalidation) {
-        if (!advanceMutationEpoch())
-          revokeActionQueryCacheForClient(queryClient);
+        if (advanceMutationEpoch()) ownEpoch = readMutationEpoch();
+        else revokeActionQueryCacheForClient(queryClient);
         refetched = invalidateForegroundActionQueries(
           queryClient,
           actionQueryInvalidation(resources),
@@ -2684,8 +2844,8 @@ function useNormalActionMutation<
         );
       }
       const result = (onSuccess as Function | undefined)?.(...args);
-      void Promise.allSettled([result, refetched]).then(
-        requestActionCacheFlush,
+      void Promise.allSettled([result, refetched]).then(() =>
+        requestActionCacheFlush(ownEpoch),
       );
       return result;
     },

@@ -26,6 +26,7 @@ import {
   type RefusedTurnRetryContext,
 } from "../shared/agent-chat-run-not-started.js";
 import { parseBase64DataUrl } from "../shared/data-url.js";
+import { PRIVATE_SNAPSHOT_IDENTITY_FIELDS } from "../shared/private-snapshot.js";
 import {
   toolInputFingerprint,
   toolInputsMatch,
@@ -1498,6 +1499,7 @@ function assistantReplayContent(
 
 export interface ThreadDataToEngineMessagesOptions {
   includeToolCalls?: boolean;
+  excludeSubmittedTurnId?: string;
 }
 
 export function threadDataToEngineMessages(
@@ -1537,6 +1539,12 @@ export function threadDataToEngineMessages(
   for (const [index, entry] of entries.entries()) {
     const m = entry?.message ?? entry;
     if (!m || (m.role !== "user" && m.role !== "assistant")) continue;
+    if (
+      m.role === "user" &&
+      options.excludeSubmittedTurnId &&
+      m.metadata?.custom?.submittedTurnId === options.excludeSubmittedTurnId
+    )
+      continue;
     if (m.omitFromPersistedHistory === true) {
       messages.push({
         role: m.role,
@@ -1612,9 +1620,16 @@ function boundedHistoryWindow(
 
 export function recoverThreadHistoryForRequest(
   threadData: string | Record<string, unknown> | null | undefined,
-  limits?: { maxMessages?: number; maxChars?: number },
+  limits?: {
+    maxMessages?: number;
+    maxChars?: number;
+    excludeSubmittedTurnId?: string;
+  },
 ): EngineMessage[] {
-  return boundedHistoryWindow(threadDataToEngineMessages(threadData), limits);
+  return boundedHistoryWindow(
+    threadDataToEngineMessages(threadData, limits),
+    limits,
+  );
 }
 
 /**
@@ -4379,57 +4394,6 @@ function pruneClaimedQueuedMessages(repo: any): any {
   };
 }
 
-const PRIVATE_SNAPSHOT_IDENTITY_FIELDS = new Set([
-  "id",
-  "type",
-  "role",
-  "status",
-  "runId",
-  "threadId",
-  "messageId",
-  "activeMessageId",
-  "toolCallId",
-  "invocationId",
-  "sequence",
-  "lastSequence",
-  "occurredAt",
-  "createdAt",
-  "startedAt",
-  "completedAt",
-  "updatedAt",
-  "parentId",
-  "turnId",
-  "isError",
-  "approvalPause",
-  "completedSideEffect",
-  "durationMs",
-  "elapsedSeconds",
-  "progress",
-  "size",
-  "mediaType",
-  "format",
-  "version",
-  "sequenceByRun",
-  "activeRunIds",
-  "parentTaskId",
-  "assignedAgentId",
-  "agentId",
-  "agentCallId",
-  "taskId",
-  "widgetId",
-  "itemId",
-  "approvalId",
-  "optionId",
-  "expiresAt",
-  "count",
-  "inputTokens",
-  "outputTokens",
-  "totalTokens",
-  "cost",
-  "currency",
-  "omitFromPersistedHistory",
-]);
-
 function privateActionName(
   record: Record<string, unknown>,
   names: ReadonlySet<string>,
@@ -4620,10 +4584,26 @@ function collectPrivateSnapshotContextForRepos(
       privateMessageIds,
       foundPrivateContent,
     );
-    const agentKit = (candidate as { agentKit?: unknown } | null | undefined)
-      ?.agentKit;
-    for (const [messageId, runId] of snapshotMessageRunIds(agentKit)) {
+  }
+  for (const candidate of repos) {
+    const record = candidate as {
+      agentKit?: unknown;
+      messages?: unknown;
+    } | null;
+    for (const [messageId, runId] of snapshotMessageRunIds(record?.agentKit)) {
       if (privateRunIds.has(runId)) privateMessageIds.add(messageId);
+    }
+    for (const entry of Array.isArray(record?.messages)
+      ? record.messages
+      : []) {
+      const message = entry?.message ?? entry;
+      if (
+        message?.role === "assistant" &&
+        typeof message.id === "string" &&
+        foldedRunIdsOf(message).some((id) => privateRunIds.has(id))
+      ) {
+        privateMessageIds.add(message.id);
+      }
     }
   }
   return {
@@ -4678,6 +4658,10 @@ export function hasPrivateRunProjections(
         ? messageRuns.get(message.id)
         : undefined);
     if (typeof runId === "string") projected.add(runId);
+    if (typeof message.id === "string") {
+      for (const foldedRunId of foldedRunIdsOf(message))
+        projected.add(foldedRunId);
+    }
   }
   return privateRunIds.every((id) => projected.has(id));
 }

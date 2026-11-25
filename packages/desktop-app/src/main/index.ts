@@ -247,6 +247,16 @@ import {
   SwiftDesktopHelperClient,
 } from "./computer-control";
 import { contentFilesWebviewDenialReason } from "./content-files-webview-access.js";
+import {
+  ContentFileRestoreError,
+  putClaimedContentFileBack,
+  waitForContentFileHandlesToClose,
+} from "./content-files/file-handles";
+import {
+  contentFilesIdKey,
+  legacyContentFilesGrantId,
+  persistentContentFilesGrantId,
+} from "./content-files/grant-ids";
 import { deriveContentFilesRepositoryIdentity } from "./content-files/local-identity";
 import { readCookieHeaderForUrl } from "./cookie-header.js";
 import { DesktopDesignPreviewManager } from "./design-preview-manager";
@@ -341,7 +351,10 @@ import {
   createOAuthPopupCloser,
   watchOAuthSystemBrowserReturnForContents,
 } from "./oauth-popup-close";
-import { routeOAuthToBoundSession } from "./oauth-session";
+import {
+  isTrustedBuilderConnectUrl,
+  routeOAuthToBoundSession,
+} from "./oauth-session";
 import { registerOnboardingIdentityIpc } from "./onboarding-identity.js";
 import {
   isQuickPromptActive,
@@ -362,6 +375,11 @@ import {
 } from "./webview-background-throttling.js";
 import { installWebviewNavigationListeners } from "./webview-navigation";
 import { installWindowDragController } from "./window-drag";
+import {
+  createWindowStateStore,
+  installWindowStateTracker,
+  resolveInitialWindowBounds,
+} from "./window-state";
 import { loadDesktopWorkspaceApps } from "./workspace-apps.js";
 
 initializeDesktopStartup({
@@ -1920,9 +1938,24 @@ function createWindow(): BrowserWindow {
 
   const isMac = process.platform === "darwin";
 
+  const windowStateStore = createWindowStateStore(
+    path.join(app.getPath("userData"), "window-state.json"),
+  );
+  const savedWindowState = windowStateStore.read();
+  if (savedWindowState.status === "unreadable") {
+    console.warn(
+      "[window-state] ignoring unreadable saved window state:",
+      savedWindowState.reason,
+    );
+  }
+  const initialBounds = resolveInitialWindowBounds(
+    savedWindowState.status === "ok" ? savedWindowState.state : null,
+    screen.getAllDisplays().map((display) => display.workArea),
+    { width: 1280, height: 800, minWidth: 960, minHeight: 600 },
+  );
+
   const win = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    ...initialBounds,
     minWidth: 960,
     minHeight: 600,
 
@@ -1953,7 +1986,19 @@ function createWindow(): BrowserWindow {
   desktopDesignPreviewManager?.destroy();
   desktopDesignPreviewManager = new DesktopDesignPreviewManager(win);
 
-  win.once("ready-to-show", () => win.show());
+  installWindowStateTracker(win, windowStateStore, (error) => {
+    console.warn(
+      "[window-state] could not save window state:",
+      error instanceof Error ? error.message : "unknown error",
+    );
+  });
+  win.once("ready-to-show", () => {
+    if (savedWindowState.status === "ok") {
+      if (savedWindowState.state.isMaximized) win.maximize();
+      if (savedWindowState.state.isFullScreen) win.setFullScreen(true);
+    }
+    win.show();
+  });
   win.webContents.on("will-navigate", (event, url) => {
     if (IS_DEV || isDesktopRendererEntryUrl(url)) return;
     let protocol: string;
@@ -9595,10 +9640,6 @@ function resolveUsableContentFolder(value: unknown): string | null {
   }
 }
 
-function contentFilesGrantId(folder: string): string {
-  return `folder-${Buffer.from(path.resolve(folder)).toString("base64url")}`;
-}
-
 function contentFilesSourcePrefixBase(name: string): string {
   const prefix = name
     .replace(/[\\/]/g, "-")
@@ -9635,7 +9676,8 @@ function normalizeContentFilesGrant(
   if (!storedPath || storedPath.includes("\0")) return null;
   const folder = path.resolve(expandPathCandidate(storedPath) ?? storedPath);
   if (isFilesystemRoot(folder)) return null;
-  const id = firstStringValue(value.id)?.trim() || contentFilesGrantId(folder);
+  const id =
+    firstStringValue(value.id)?.trim() || legacyContentFilesGrantId(folder);
   const existing = grants[id];
   const prefixBase = contentFilesSourcePrefixBase(
     path.basename(folder) || folder,
@@ -9821,7 +9863,11 @@ function setContentFilesGrant(folder: string): {
 } {
   const store = loadContentFilesStore();
   const grants = { ...(store.grants ?? {}) };
-  const id = contentFilesGrantId(folder);
+  const id = persistentContentFilesGrantId(
+    folder,
+    grants,
+    contentFilesIdKey(app.getPath("userData")),
+  );
   const existing = grants[id];
   const prefixBase = contentFilesSourcePrefixBase(
     path.basename(folder) || folder,
@@ -10250,27 +10296,31 @@ async function writeContentSourceFile(
     await fs.promises.chmod(temporary, existingStat.mode);
     await fs.promises.rename(target, backup);
     if (!(await waitForContentFileHandlesToClose(backup))) {
-      await fs.promises.rename(backup, target);
+      const keptPreviousAt = await putClaimedContentFileBack(backup, target);
       throw new ContentFilesRevisionConflict(
         normalized,
         expectedRevision,
         await contentSourceFileRevision(target),
+        keptPreviousAt,
       );
     }
     const claimedRevision = await contentSourceFileRevision(backup);
     if (claimedRevision !== expectedRevision) {
-      await fs.promises.rename(backup, target);
+      const keptPreviousAt = await putClaimedContentFileBack(backup, target);
       throw new ContentFilesRevisionConflict(
         normalized,
         expectedRevision,
         claimedRevision,
+        keptPreviousAt,
       );
     }
     try {
       await fs.promises.link(temporary, target);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-        await fs.promises.rename(backup, target).catch(() => undefined);
+        if (await putClaimedContentFileBack(backup, target, error)) {
+          throw new ContentFileRestoreError(target, backup, error, undefined);
+        }
         throw error;
       }
       const competingRevision = await contentSourceFileRevision(target);
@@ -10288,26 +10338,18 @@ async function writeContentSourceFile(
   return normalized;
 }
 
-async function waitForContentFileHandlesToClose(filePath: string) {
-  if (process.platform !== "darwin") return false;
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const handles = spawnSync("lsof", ["-t", "--", filePath], {
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
-    });
-    if (handles.status !== 0 || !handles.stdout.trim()) return true;
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  return false;
-}
-
 class ContentFilesRevisionConflict extends Error {
   constructor(
     readonly filePath: string,
     readonly expectedRevision: string | null,
     readonly actualRevision?: string,
+    readonly keptPreviousAt?: string,
   ) {
-    super("The local file changed before Content could save it.");
+    super(
+      keptPreviousAt
+        ? `The local file changed before Content could save it. Its previous version is at ${keptPreviousAt}.`
+        : "The local file changed before Content could save it.",
+    );
   }
 }
 
@@ -10331,20 +10373,22 @@ async function deleteContentSourceFile(
   const claimed = `${target}.${randomUUID()}.delete-claim`;
   await fs.promises.rename(target, claimed);
   if (!(await waitForContentFileHandlesToClose(claimed))) {
-    await fs.promises.rename(claimed, target);
+    const keptPreviousAt = await putClaimedContentFileBack(claimed, target);
     throw new ContentFilesRevisionConflict(
       normalized,
       expectedRevision,
       await contentSourceFileRevision(target),
+      keptPreviousAt,
     );
   }
   const claimedRevision = await contentSourceFileRevision(claimed);
   if (claimedRevision !== expectedRevision) {
-    await fs.promises.rename(claimed, target);
+    const keptPreviousAt = await putClaimedContentFileBack(claimed, target);
     throw new ContentFilesRevisionConflict(
       normalized,
       expectedRevision,
       claimedRevision,
+      keptPreviousAt,
     );
   }
   const competingRevision = await contentSourceFileRevision(target);
@@ -13159,14 +13203,9 @@ const OAUTH_PROVIDERS: OAuthProvider[] = [
   },
   {
     name: "builder",
-    matches: (u) => {
+    matches: (u, context) => {
       const host = u.hostname.toLowerCase();
-      const isLocalhost =
-        host === "localhost" || host === "127.0.0.1" || host === "[::1]";
-      if (
-        isLocalhost &&
-        u.pathname.endsWith("/_agent-native/builder/connect")
-      ) {
+      if (isTrustedBuilderConnectUrl(u, context?.sourceUrl)) {
         return true;
       }
       return isBuilderAppHost(host) && u.pathname.startsWith("/cli-auth");
@@ -13706,6 +13745,16 @@ function handleWindowOpenForContents(
     !mainWindow.webContents.isDestroyed() &&
     contents.id === mainWindow.webContents.id,
   );
+  const appId = desktopWebviewAppIds.get(contents) ?? null;
+  if (
+    contents.getType() === "webview" &&
+    appId === "decks-2" &&
+    url === "about:blank" &&
+    isTrustedPermissionRequest(contents, appId)
+  ) {
+    return { action: "allow" as const };
+  }
+
   if (isTrustedShell && handleDesktopProtocolUrl(url)) {
     return { action: "deny" as const };
   }
@@ -13820,6 +13869,12 @@ app.on("web-contents-created", (_event, contents) => {
   installDesktopWebviewHealthLogging(contents);
   installWebviewReloadGuard(contents);
   installWebviewOAuthNavigationHandler(contents);
+
+  contents.on("did-create-window", (child, details) => {
+    if (details.url !== "about:blank") return;
+    child.webContents.on("will-navigate", (event) => event.preventDefault());
+    child.webContents.on("will-redirect", (event) => event.preventDefault());
+  });
 
   contents.setWindowOpenHandler(({ url }) => {
     return handleWindowOpenForContents(contents, url);

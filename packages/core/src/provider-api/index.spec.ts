@@ -4644,8 +4644,8 @@ describe("provider API runtime", () => {
   it("explains an out-of-scope credential instead of reporting it missing", async () => {
     resolveCredential.mockResolvedValue(null);
     describeCredentialScopeGap.mockResolvedValue(
-      'A "HUBSPOT_ACCESS_TOKEN" key is saved in this workspace with Personal scope. ' +
-        "It needs Workspace or Organization scope instead.",
+      "Ask an organization owner or admin to save it with Workspace or " +
+        "Organization scope. This workspace has it only as a Personal key.",
     );
     const runtime = createProviderApiRuntime({
       appId: "analytics",
@@ -4660,13 +4660,90 @@ describe("provider API runtime", () => {
         (err: Error) => err,
       );
 
-    expect(error?.message).toContain("hubspot credential not configured");
-    expect(error?.message).toContain("with Personal scope");
-    expect(error?.message).toContain("Workspace or Organization scope");
+    expect(error?.message).toMatch(
+      /^hubspot credential not configured\. Ask an organization owner or admin to save it .* Personal key\. Tried: \S/,
+    );
     expect(describeCredentialScopeGap).toHaveBeenCalledWith(
       expect.arrayContaining(["HUBSPOT_ACCESS_TOKEN"]),
       credentialContext,
     );
+  });
+
+  it("puts a single required key after the explanation, as the any-key error does", async () => {
+    resolveCredential.mockResolvedValue(null);
+    describeCredentialScopeGap.mockResolvedValue(
+      "Save it in this organization, or switch your active organization " +
+        'to "Builder.io", where it\'s saved.',
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["apollo"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const error = await runtime
+      .executeRequest({ provider: "apollo", path: "/v1/auth/health" })
+      .then(
+        () => null,
+        (err: Error) => err,
+      );
+
+    expect(error?.message).toBe(
+      "apollo credential not configured. Save it in this organization, or " +
+        'switch your active organization to "Builder.io", where it\'s saved. ' +
+        "Tried: APOLLO_API_KEY",
+    );
+  });
+
+  it("names a single required key alone when there's nothing to explain", async () => {
+    resolveCredential.mockResolvedValue(null);
+    describeCredentialScopeGap.mockResolvedValue(null);
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["apollo"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const error = await runtime
+      .executeRequest({ provider: "apollo", path: "/v1/auth/health" })
+      .then(
+        () => null,
+        (err: Error) => err,
+      );
+
+    expect(error?.message).toBe("APOLLO_API_KEY not configured");
+  });
+
+  it("gives no shared-key advice when the selected connection lacks the key", async () => {
+    describeCredentialScopeGap.mockResolvedValue("SAVE A SHARED KEY");
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: { id: "conn-a", label: "A", scopes: [] },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const runtime = createProviderApiRuntime({
+      appId: "headless",
+      providerIds: ["github"],
+      getCredentialContext: () => credentialContext,
+      resolveCredential: async () => null,
+    });
+    const request = (connectionId?: string) =>
+      runtime
+        .executeRequest({ provider: "github", path: "/user", connectionId })
+        .then(
+          () => null,
+          (err: Error) => err,
+        );
+
+    expect((await request())?.message).toContain("SAVE A SHARED KEY");
+    describeCredentialScopeGap.mockClear();
+
+    const error = await request("conn-a");
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error?.message).not.toContain("SAVE A SHARED KEY");
+    expect(describeCredentialScopeGap).not.toHaveBeenCalled();
   });
 
   it("requests a workspace connection when no credential or scope gap exists", async () => {

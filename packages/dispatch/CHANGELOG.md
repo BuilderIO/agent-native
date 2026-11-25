@@ -1,5 +1,126 @@
 # @agent-native/dispatch
 
+## 0.43.1
+
+### Patch Changes
+
+- 969523d: Show readable suggested action details and open an existing workspace app when creation finds it.
+- 88e0754: Take the sidebar toggle from the visible workspace app after another app was kept alive, so a retained app's hidden frame no longer shadows the one on screen.
+- 7188162: Make an embedded app's chat rail on `/dispatch/apps/:appId` send the app frame's own browser tab id instead of Dispatch's, so asking the app chat to open something navigates the app frame instead of bouncing Dispatch to its overview.
+- f3ff142: Fix workspace app chat session routing for cross-origin mounted apps.
+- 98cd62f: Use a caller's scoped remote MCP OAuth connection for app actions and provide an authorization link when a target requires a connection.
+- 6cd1113: Allow embedded workspace apps and browser pages to request fullscreen.
+- df6374d: Route email and message requests to Mail before matching service pointers, while routing GitHub issues and pull requests to Tasks.
+- Release all public npm packages with a patch version bump.
+- b1197d4: Fix A2A browser tab and viewport mode propagation, add turn-scoped foreground viewport lock and early open_app pane commit, upgrade AppCapabilityManifest to v2 with route template validation, and add rendered screen verification receipts.
+- Updated dependencies [6f4b56e]
+- Updated dependencies [a57a58f]
+- Updated dependencies [c71955a]
+- Updated dependencies [a57a58f]
+- Updated dependencies [a57a58f]
+- Updated dependencies [7c866e8]
+- Updated dependencies [6f84c01]
+- Updated dependencies [a57a58f]
+- Updated dependencies [a57a58f]
+- Updated dependencies [c541b37]
+- Updated dependencies
+- Updated dependencies [a57a58f]
+- Updated dependencies [c3bcccd]
+- Updated dependencies [bb20dd7]
+- Updated dependencies [2a7cf8c]
+- Updated dependencies [4b68858]
+- Updated dependencies [b755252]
+- Updated dependencies [87dfdb6]
+- Updated dependencies [a57a58f]
+  - @agent-native/toolkit@0.233.0
+  - @agent-native/agentkit@0.233.0
+
+## 0.43.0
+
+### Minor Changes
+
+- f76439b: Add saved pointers: remember-pointer stores a name for an object in a workspace app (for example "todo list" for a doc), resolve-pointer looks one up over MCP, and route-app-intent opens a matching pointer's object before it asks the model. The route-app-intent cache key moves to v2 because pointers are now part of its input.
+
+### Patch Changes
+
+- 3a066b3: Open the app pane for a new chat's first message as soon as the send names its thread, instead of waiting for the chat URL to settle. The routed app now appears at route latency rather than after the chat route's loader returns.
+- 8ed972b: Skip restoring a previous session's saved app pane on a new chat so routed prompts do not flash an old app before opening the routed pane.
+- b578994: Chat-first Dispatch asks its app route which app a sent message is about while the agent's turn starts, and opens that app's pane as soon as the route answers instead of waiting for the agent to open it. It starts the app's embed session right away. If the agent then opens the same app, that pane moves to the agent's page; if it opens a different app, that app replaces it. Nothing opens for a chat-only, failed, unconfigured or late answer. Nothing opens either when the answer arrives after a newer message, after a send was rejected, after the agent or the person changed the pane, or after the person left that chat. `@agent-native/core/client/agent-chat` exports `reportAgentChatComposerSubmit`, `withdrawAgentChatComposerSubmit`, `subscribeAgentChatComposerSubmit` and `agentChatPreviousTurnText`; the toolkit chat reports each visible send through them.
+- 205f078: Open apps connected from another workspace beside the chat, the same way first-party hosted apps open.
+- 6454dfb: Keep requests about the current app's data in context when choosing a workspace app, including when a saved pointer matches another app.
+- 563035a: A Dispatch app action that the app refuses before running (invalid parameters, an action the app doesn't have, a call that was never sent) now reports that nothing was changed, instead of "write outcome may be unknown". One mistyped call no longer stops the rest of the turn's app actions, reads included, in every app.
+- 1faef32: Dispatch now shows the app beside the chat when the agent works in it. An app opened beside a chat is visible instead of sitting in a hidden panel, the panel keeps its width when the width utility is missing, an open requested before a new chat has an id is kept until it has one, and delegating to an app's agent opens that app. The agent is told to open the screen for show and open requests and to send follow-ups on an open app to that app's own agent.
+- 7279520: Expose enabled direct app action tools in the Dispatch MCP connector catalog.
+- 032c910: A saved Dream memory proposal is now marked applied and audited even when copying it to the shared memory directory falls behind; the delay is reported afterwards.
+- 505f39c: Include verified first-party MCP claims when minting document embed sessions for canonical and SSO-registered workspace targets.
+- baf0f51: `open_app` takes an `intent` in the user's words and picks the app itself when `app` is not given. An explicit `app` still wins, and a request that routes to no app returns a clear error instead of opening anything.
+- 4163448: Require confident chat-first routing and disambiguate workspace apps by installation identity.
+- b2299d0: Dispatch now prefers the workspace app that owns a domain over a connected third-party tool for the same domain, sends requests to create or draft something to the owning app's agent so the item opens beside the chat as an unsaved draft, and opens its own screens with navigate before summarizing them.
+- b2299d0: An app opened beside a Dispatch chat now fills the side panel. The app's own chat rail is only added when the app takes the main area; beside the chat it took the whole panel and left the app frame 0 pixels wide.
+- bac2e7e: Allow new Slack channel scopes to retry after temporary sender or conversation lookup failures without changing existing scope policies.
+- f7bcd0f: Prevent a late thread snapshot save or stale thread URL sync from navigating back to `/chat/<threadId>` after the user or agent has already navigated away from `/chat` (for example to `/apps`).
+- Release all public npm packages with a patch version bump.
+- 862e5bf: Starting or continuing a coding run on a paired computer asks for approval each time.
+- 1a0a9db: Every action core shares with all apps now decides its MCP exposure. Review comments, suggestions, version history, sharing reads, Creative Context, user groups, `upload-image`, `manage-automations`, `navigate` (in Dispatch too) and `view-screen` are served to outside agents with `mcpTool: "search"`: `tool-search` finds them and `call-tool` runs them, but they stay out of `tools/list`. Credential, account-connection, workspace-settings, staged-dataset, personal-preference and admin-review actions are `mcpTool: false`, and so is Dispatch's `view-screen`, which summarizes its run-debugging, vault and audit screens. It and the `view-screen`s of Calendar, Clips, Content and Forms now declare `readOnly: true`. Deleting someone else's review comment, deciding a suggestion or proposal, restoring a version, unsharing, Creative Context imports, purges, memberships and governance, archiving a context pack, and user-group writes now ask outside agents (MCP, HTTP, CLI, A2A and automation calls) for approval through `isOutsideAgentCall`, which `@agent-native/core/action` now re-exports. The app's UI and its own agent don't ask, though the agent calls those actions directly rather than from sandbox code or parallel batches. An action marked `"search"` stays listed where an app's `mcp.connectorCatalog` or `mcpApp.compactCatalog` already lists it.
+- d799e8b: Add shared preview and interaction checks for generated workspace apps and extensions, and improve workspace app creation guidance.
+- Updated dependencies [bfea22b]
+- Updated dependencies [bf07e40]
+- Updated dependencies [062955d]
+- Updated dependencies [05d86d4]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [5be6e23]
+- Updated dependencies [830feff]
+- Updated dependencies [b578994]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [6facea0]
+- Updated dependencies [234a3ba]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [fbab2ca]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [7e639f5]
+- Updated dependencies [6d231e9]
+- Updated dependencies [d4e0116]
+- Updated dependencies [226913b]
+- Updated dependencies [4163448]
+- Updated dependencies [1faef32]
+- Updated dependencies [f7bcd0f]
+- Updated dependencies [0eeea8c]
+- Updated dependencies [e0eaf3f]
+- Updated dependencies [75c90a5]
+- Updated dependencies [c8d851d]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [ac21d0b]
+- Updated dependencies
+- Updated dependencies [554a6aa]
+- Updated dependencies [798b8b1]
+- Updated dependencies [75c90a5]
+- Updated dependencies [ca69494]
+- Updated dependencies [2308970]
+- Updated dependencies [56ca9e7]
+- Updated dependencies [8815d89]
+- Updated dependencies [786235c]
+- Updated dependencies [caec4be]
+- Updated dependencies [b879e94]
+- Updated dependencies [626773e]
+- Updated dependencies [e675278]
+- Updated dependencies [bc7c1b3]
+- Updated dependencies [4b67d85]
+- Updated dependencies [862e5bf]
+- Updated dependencies [6938e7c]
+- Updated dependencies [eb5c241]
+- Updated dependencies [66de1ad]
+- Updated dependencies [99491ba]
+- Updated dependencies [e01adee]
+- Updated dependencies [ac21d0b]
+- Updated dependencies [88dad0f]
+- Updated dependencies [3ed4a65]
+- Updated dependencies [5f3dacf]
+- Updated dependencies [d7de14c]
+- Updated dependencies [a911ca6]
+- Updated dependencies [bb6eb2c]
+  - @agent-native/toolkit@0.232.0
+  - @agent-native/agentkit@0.232.0
+
 ## 0.42.10
 
 ### Patch Changes
@@ -1597,27 +1718,5 @@
 - Release all public npm packages with a patch version bump.
 - Updated dependencies
   - @agent-native/toolkit@0.16.12
-
-## 0.31.16
-
-### Patch Changes
-
-- 36c79f9: Use the authenticated workspace app registry for hosted Dispatch app lists so inaccessible apps do not get an Open app action.
-
-## 0.31.15
-
-### Patch Changes
-
-- c595519: Automations page now writes the selected automation into a `?automationId=` URL param instead of untracked local state, so a selected row can be linked, reloaded, and reached with browser Back on both `/automations` and `/admin/automations`.
-- c595519: Fix a workspace app opened from Dispatch chat-first mode on a narrow viewport mounting its own full-screen agent chat rail on top of the already full-screen side surface panel.
-- c595519: Fix the chat-first side surface panel's close toggle being stacked beneath the panel it controls on viewports at or below 767px, which made the panel undismissable.
-- d74aff9: Keep Dispatch's Feedback, Search, and Collapse controls flush with the bottom of the left sidebar.
-- af1b3bb: Derive the chat model selection localStorage key through one exported helper, `chatModelSelectionStorageKey`. `useChatModels` takes the raw key while `MultiTabAssistantChat` takes only the namespace suffix, so a hero composer that passed the same string to both wrote to a different key than the chat beside it and never saw its model picks.
-- Updated dependencies [6c2e431]
-- Updated dependencies [af1b3bb]
-- Updated dependencies [c595519]
-- Updated dependencies [9735e4d]
-- Updated dependencies [15b86eb]
-  - @agent-native/toolkit@0.16.11
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

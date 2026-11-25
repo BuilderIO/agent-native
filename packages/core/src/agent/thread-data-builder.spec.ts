@@ -19,11 +19,48 @@ import {
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
   sanitizeThreadDataForPrivateActions,
+  recoverThreadHistoryForRequest,
   threadDataToEngineMessages,
   upsertAssistantMessage,
   upsertUserMessage,
 } from "./thread-data-builder.js";
 import type { RunEvent } from "./types.js";
+
+describe("recovered history for inline fallback", () => {
+  it("excludes only the stored current submission, including attachment-only prompts", () => {
+    const prior = [
+      { role: "user", content: [{ type: "text", text: "Same prompt" }] },
+      { role: "assistant", content: [{ type: "text", text: "Prior reply" }] },
+    ];
+    const current = {
+      role: "user",
+      content: [{ type: "text", text: "Same prompt" }],
+      metadata: { custom: { submittedTurnId: "current" } },
+    };
+    const expected = [
+      { role: "user", content: [{ type: "text", text: "Same prompt" }] },
+      { role: "assistant", content: [{ type: "text", text: "Prior reply" }] },
+    ];
+    expect(
+      recoverThreadHistoryForRequest(
+        { messages: [...prior, current] },
+        { excludeSubmittedTurnId: "current" },
+      ),
+    ).toEqual(expected);
+    expect(
+      recoverThreadHistoryForRequest(
+        { messages: [...prior, { ...current, content: [] }] },
+        { excludeSubmittedTurnId: "current" },
+      ),
+    ).toEqual(expected);
+    expect(
+      recoverThreadHistoryForRequest(
+        { messages: prior },
+        { excludeSubmittedTurnId: "current" },
+      ),
+    ).toEqual(expected);
+  });
+});
 
 describe("foldUnstartedTurnFailure", () => {
   it("answers a refused turn with a typed notice and a failed run, once", () => {
@@ -7389,6 +7426,30 @@ describe("live-client marker", () => {
 });
 
 describe("private run projections survive snapshot sanitizing", () => {
+  it("recognizes a folded private run and redacts the entire combined reply", () => {
+    const repo = {
+      messages: [
+        {
+          message: {
+            id: "folded",
+            role: "assistant",
+            content: [{ type: "text", text: "private reply" }],
+            metadata: {
+              runId: "later-run",
+              custom: { foldedRunIds: ["private-run", "later-run"] },
+            },
+          },
+        },
+      ],
+    };
+    expect(hasPrivateRunProjections(repo, ["private-run"])).toBe(true);
+    expect(hasPrivateRunProjections(repo, ["unknown-run"])).toBe(false);
+    const sanitized = sanitizeThreadDataForPrivateActions(repo, new Set(), [
+      { runId: "private-run", omitFromPersistedHistory: true },
+    ]);
+    expect(JSON.stringify(sanitized)).not.toContain("private reply");
+  });
+
   it("still attributes a redacted server-projected reply to its private run", () => {
     const message = buildAssistantMessage(
       [

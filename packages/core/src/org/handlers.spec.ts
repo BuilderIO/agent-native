@@ -61,6 +61,7 @@ vi.mock("../a2a/server.js", () => ({
 }));
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: mockExecute, transaction: mockTransaction }),
 }));
 
@@ -1558,6 +1559,33 @@ describe("org handlers", () => {
         "pg_advisory_xact_lock",
       );
       expect(mockTransaction).toHaveBeenCalledTimes(1);
+    });
+
+    it("rejects setting a domain when the caller's email is unverified", async () => {
+      mockGetSession.mockResolvedValue({
+        email: "owner@example.test",
+        emailVerified: false,
+      });
+
+      await expect(
+        setDomainHandler(
+          makeEvent("/_agent-native/org/domain", { domain: "example.test" }),
+        ),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(mockExecute).not.toHaveBeenCalled();
+    });
+
+    it("lets an unverified owner clear the domain", async () => {
+      mockGetSession.mockResolvedValue({
+        email: "owner@example.test",
+        emailVerified: false,
+      });
+
+      await expect(
+        setDomainHandler(
+          makeEvent("/_agent-native/org/domain", { domain: null }),
+        ),
+      ).resolves.toEqual({ domain: null });
     });
 
     it("rejects a member", async () => {

@@ -995,6 +995,8 @@ export type MultiTabAssistantChatProps = Omit<
    * preserves the existing behaviour for every caller.
    */
   historyShowNewChat?: boolean;
+  /** Title shown for a chat that has no name yet. */
+  newChatTitle?: string;
   /** Group the switcher's chats under date headings (Today, Yesterday, …). */
   historyGroupByDate?: boolean;
   /** Show one history entry per edited chat lineage. Defaults to false. */
@@ -1056,6 +1058,7 @@ export function MultiTabAssistantChat({
   showTabBar = true,
   renderHeader,
   renderOverlay,
+  newChatTitle,
   contentHidden = false,
   apiUrl = agentNativePath("/_agent-native/agent-chat"),
   storageKey,
@@ -2141,6 +2144,7 @@ export function MultiTabAssistantChat({
 
     const now = Date.now();
     const isStale = (id: string) => {
+      if (id === urlThreadIdRef.current) return false;
       const thread = threadMap.get(id);
       return thread && !(id === activeThreadId && id === requestedThreadId)
         ? now - thread.updatedAt > STALE_THREAD_THRESHOLD_MS
@@ -2202,6 +2206,7 @@ export function MultiTabAssistantChat({
     if (
       activeThread &&
       activeThreadId !== requestedThreadId &&
+      activeThreadId !== urlThreadIdRef.current &&
       Date.now() - activeThread.updatedAt > STALE_THREAD_THRESHOLD_MS
     ) {
       return;
@@ -3858,7 +3863,8 @@ export function MultiTabAssistantChat({
       );
       return {
         id,
-        label: t?.title || translate("agentChat.tabs.newChat"),
+        label:
+          t?.title || (newChatTitle ?? translate("agentChat.tabs.newChat")),
         status:
           agentTeamStatus ??
           (runningThreads.has(id)
@@ -3880,7 +3886,7 @@ export function MultiTabAssistantChat({
           subAgentNames[id] ||
           (parentMap[id]
             ? translate("agentChat.tabs.subAgent")
-            : translate("agentChat.tabs.newChat")),
+            : (newChatTitle ?? translate("agentChat.tabs.newChat"))),
         status:
           chatTabStatusFromAgentTeamStatus(subAgentStatuses[id]) ??
           ("running" as const),

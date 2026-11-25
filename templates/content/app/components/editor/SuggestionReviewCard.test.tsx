@@ -137,6 +137,12 @@ const button = (label: string, index = 0): HTMLButtonElement | undefined =>
       entry.textContent === label || entry.getAttribute("aria-label") === label,
   )[index];
 
+const requiredButton = (label: string, index = 0) => {
+  const found = button(label, index);
+  if (!found) throw new Error(`No button named ${label}`);
+  return found;
+};
+
 const decisionButtons = () =>
   host.querySelectorAll(
     "[data-suggestion-decision], [data-suggestion-proposal-decision]",
@@ -153,7 +159,7 @@ describe("SuggestionReviewCard", () => {
 
     expect(host.querySelector("h1")?.textContent).toBe("Launch notes");
     expect(shownEdits()).toEqual(["edit-0", "edit-1"]);
-    await act(async () => button("comments.acceptAll")!.click());
+    await act(async () => requiredButton("comments.acceptEdits").click());
 
     expect(review.decideProposal).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -182,9 +188,9 @@ describe("SuggestionReviewCard", () => {
     ] as ResourceSuggestion[];
     render(["edit-1"]);
 
-    expect(button("comments.acceptRemaining")?.disabled).toBe(true);
-    expect(button("editor.acceptSuggestion")?.disabled).toBe(true);
-    await act(async () => button("editor.rejectSuggestion")?.click());
+    expect(button("comments.acceptEdits")?.disabled).toBe(true);
+    expect(button("comments.acceptEdit")?.disabled).toBe(true);
+    await act(async () => button("comments.rejectEdit")?.click());
 
     expect(review.decideProposal).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -213,7 +219,7 @@ describe("SuggestionReviewCard", () => {
     render(["edit-0"]);
 
     expect(shownEdits()).toEqual(["edit-0", "edit-2"]);
-    await act(async () => button("editor.acceptSuggestion")?.click());
+    await act(async () => button("comments.acceptEdit")?.click());
 
     expect(review.decideProposal).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -231,7 +237,7 @@ describe("SuggestionReviewCard", () => {
   it("decides one edit against the revision the card showed", async () => {
     render();
 
-    await act(async () => button("editor.rejectSuggestion", 1)!.click());
+    await act(async () => requiredButton("comments.rejectEdit", 1).click());
 
     expect(review.decide).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -248,7 +254,7 @@ describe("SuggestionReviewCard", () => {
     review.decide.mockRejectedValue({ errorCode: "suggestion_stale" });
     render();
 
-    await act(async () => button("editor.acceptSuggestion")!.click());
+    await act(async () => requiredButton("comments.acceptEdit").click());
 
     expect(host.querySelector('[role="alert"]')?.textContent).toBe(
       "editor.toolbar.conflict",
@@ -258,8 +264,8 @@ describe("SuggestionReviewCard", () => {
         (alert) => alert.textContent,
       ),
     ).toContain("editor.suggestionUnplaceable");
-    expect(button("editor.acceptSuggestion")!.disabled).toBe(true);
-    expect(button("editor.rejectSuggestion")!.disabled).toBe(false);
+    expect(requiredButton("comments.acceptEdit").disabled).toBe(true);
+    expect(requiredButton("comments.rejectEdit").disabled).toBe(false);
   });
 
   it("turns off Accept on a unit the server refused, and leaves the rest", async () => {
@@ -280,17 +286,17 @@ describe("SuggestionReviewCard", () => {
     });
     render(["edit-0"]);
 
-    await act(async () => button("editor.acceptSuggestion")?.click());
+    await act(async () => button("comments.acceptEdit")?.click());
 
     expect(
       [...host.querySelectorAll('[role="alert"]')].map(
         (alert) => alert.textContent,
       ),
     ).toContain("editor.suggestionUnplaceable");
-    expect(button("editor.acceptSuggestion", 0)?.disabled).toBe(true);
-    expect(button("editor.rejectSuggestion", 0)?.disabled).toBe(false);
-    expect(button("editor.acceptSuggestion", 1)?.disabled).toBe(false);
-    expect(button("comments.acceptAll")?.disabled).toBe(true);
+    expect(button("comments.acceptEdit", 0)?.disabled).toBe(true);
+    expect(button("comments.rejectEdit", 0)?.disabled).toBe(false);
+    expect(button("comments.acceptEdit", 1)?.disabled).toBe(false);
+    expect(button("comments.acceptEdits")?.disabled).toBe(true);
   });
 
   it("doesn't blame any one unit when a whole group is refused", async () => {
@@ -310,21 +316,21 @@ describe("SuggestionReviewCard", () => {
     });
     render(["edit-0"]);
 
-    await act(async () => button("comments.acceptAll")?.click());
+    await act(async () => button("comments.acceptEdits")?.click());
 
     expect(
       [...host.querySelectorAll('[role="alert"]')].map(
         (alert) => alert.textContent,
       ),
     ).toContain("editor.proposalUnplaceable");
-    expect(button("editor.acceptSuggestion", 0)?.disabled).toBe(false);
-    expect(button("editor.acceptSuggestion", 1)?.disabled).toBe(false);
+    expect(button("comments.acceptEdit", 0)?.disabled).toBe(false);
+    expect(button("comments.acceptEdit", 1)?.disabled).toBe(false);
   });
 
   it("drops the conflict once the changed edit is rejected", async () => {
     review.decide.mockRejectedValueOnce({ errorCode: "suggestion_stale" });
     render();
-    await act(async () => button("editor.acceptSuggestion")!.click());
+    await act(async () => requiredButton("comments.acceptEdit").click());
 
     review.decide.mockResolvedValueOnce({});
     review.refetch.mockImplementation(async () => {
@@ -334,7 +340,7 @@ describe("SuggestionReviewCard", () => {
       ];
       return { data: { suggestions: review.suggestions } };
     });
-    await act(async () => button("editor.rejectSuggestion")!.click());
+    await act(async () => requiredButton("comments.rejectEdit").click());
     render();
 
     expect(host.textContent).not.toContain("editor.toolbar.conflict");
@@ -357,12 +363,12 @@ describe("SuggestionReviewCard", () => {
     });
     render();
 
-    await act(async () => button("editor.acceptSuggestion")!.click());
+    await act(async () => requiredButton("comments.acceptEdit").click());
     render();
 
     expect(host.querySelector('[role="alert"]')).toBeNull();
     expect(host.querySelector('[role="status"]')?.textContent).toBe(
-      "comments.accepted",
+      "comments.editsAccepted",
     );
     expect(decisionButtons()).toHaveLength(0);
   });
@@ -374,7 +380,7 @@ describe("SuggestionReviewCard", () => {
     });
     render();
 
-    await act(async () => button("editor.acceptSuggestion")!.click());
+    await act(async () => requiredButton("comments.acceptEdit").click());
 
     expect(host.querySelector('[role="alert"]')?.textContent).toBe(
       "The page is busy. Try again.",
@@ -387,6 +393,7 @@ describe("SuggestionReviewCard", () => {
 
     expect(shownEdits()).toEqual(["edit-0", "edit-1"]);
     expect(decisionButtons()).toHaveLength(0);
+    expect(host.textContent).toContain("comments.waitingForEditor");
     expect(host.textContent).toContain("comments.suggestionReviewReadOnly");
   });
 

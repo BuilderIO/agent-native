@@ -11,8 +11,8 @@ import {
   databasePropertyValuesSchema,
 } from "./_database-property-input.js";
 import {
-  databaseMutationAgentTargetSchema,
   databaseMutationEnvelopeSchema,
+  databaseMutationTargetInputSchema,
   upsertDatabaseRow,
 } from "./_database-row-mutation.js";
 
@@ -32,7 +32,7 @@ const schema = databaseMutationEnvelopeSchema.extend({
   ),
 });
 const agentSchema = schema
-  .extend({ target: databaseMutationAgentTargetSchema.strict() })
+  .extend({ target: databaseMutationTargetInputSchema.strict() })
   .omit({ propertyValues: true })
   .strict();
 

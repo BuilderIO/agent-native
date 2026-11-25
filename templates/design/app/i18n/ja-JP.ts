@@ -1,4 +1,8 @@
 export default {
+  responseGuard: {
+    noDesignChangesSaved:
+      "このターンではデザインの変更は保存されませんでした。",
+  },
   journeyCanvas: {
     observedSessionReference: "観測されたセッションの参照",
     sessionsOfAll: "{count} セッション · 全体の {percent}",
@@ -260,7 +264,7 @@ export default {
     pageHelpDescription:
       "選択した内容のタイポグラフィ、間隔、サイズ、境界線、塗りつぶしを編集します。ページのデフォルトは以下です。",
     sections: {
-      page: "画面",
+      page: "ページ",
       canvas: "キャンバス",
       typography: "タイポグラフィ",
       autoLayout: "オートレイアウト",
@@ -363,6 +367,8 @@ export default {
       blur: "ブラー",
       spread: "スプレッド",
       rotation3d: "3D 回転",
+      constraints: "制約",
+      absolutePosition: "絶対位置",
       rotationX: "X 軸回転",
       rotationY: "Y 軸回転",
       perspective: "パースペクティブ",
@@ -416,7 +422,7 @@ export default {
       addRecordRow: "{{item}}を追加",
       recordRowLabel: "{{item}} {{index}}",
       removeRecordRow: "{{item}} {{index}}を削除",
-      selectElementFirst: "まず画面上の要素を選択してください",
+      selectElementFirst: "先にページ上の要素を選択してください",
       selectCanvasElementFirst: "まずキャンバス上の要素を選択してください",
       saveFailed: "シェーダーを保存できませんでした",
       custom: "カスタム",
@@ -839,11 +845,11 @@ export default {
     screenSource: {
       title: "ソース",
       url: "URL",
-      urlLabel: "画面 URL",
+      urlLabel: "ページの URL",
       urlPlaceholder: "/plans または http://localhost:5173/plans",
       update: "更新",
       chooseLocalApp: "ローカルアプリを選択",
-      remove: "画面を削除",
+      remove: "ページを削除",
     },
     borderStyleOptions: {
       none: "なし",
@@ -924,7 +930,7 @@ export default {
       original: "元のページを試す",
     },
 
-    sourceLoadFailed: "この画面を読み込めませんでした。",
+    sourceLoadFailed: "このページを読み込めませんでした。",
     selectionPublishFailed:
       "エージェントが最新の選択範囲を認識していない可能性があります。もう一度選択してください。",
     liveCollaboration: {
@@ -1039,6 +1045,19 @@ export default {
       collapse: "サイドバーを折りたたむ",
       expand: "サイドバーを展開",
     },
+    leftTabs: {
+      label: "サイドパネル",
+      agent: "エージェント",
+      file: "ファイル",
+      library: "ライブラリ",
+    },
+    columnHead: {
+      comments: "コメント",
+      unreadComments: "未読のコメント",
+      resizeLeftPanel: "左パネルのサイズを変更",
+      resizeInspector: "インスペクターのサイズを変更",
+      whatsNew: "新機能",
+    },
     breakpointBar: {
       base: "ベース",
       editBaseWidth: "ベース幅を編集",
@@ -1070,7 +1089,7 @@ export default {
         "このデザインにはダークスタイルがありません。「ダーク」を選ぶと、エージェントに追加を依頼できます。",
       themeSystem: "システム",
       themeSystemHint: "デザインを作成時のまま表示します（システム設定を使用）",
-      screen: "画面",
+      screen: "ページ",
       back: "戻る",
       forward: "進む",
       reload: "プレビューを再読み込み",
@@ -1081,8 +1100,8 @@ export default {
       zoomFit: "キャンバスに合わせて拡大縮小",
       zoomFitOption: "フィット",
       exit: "レスポンシブプレビューを終了",
-      noScreens: "このデザインにはプレビューできる画面がありません。",
-      unknownScreen: "その画面はこのデザインに含まれていません。",
+      noScreens: "このデザインにはプレビューできるページがありません。",
+      unknownScreen: "そのページはこのデザインに含まれていません。",
     },
     applyToSource: "ソースに適用",
     applyToSourcePath: "ソースに適用（{{path}}）",
@@ -1140,10 +1159,16 @@ export default {
         opacity: "不透明度",
       },
       editColor: "{{name}} のカラーを編集",
+      field: {
+        open: "トークン",
+        detach: "トークンを切り離す",
+        primitives: "{{group}}のプリミティブ",
+        loading: "トークンを読み込み中…",
+      },
     },
     import: {
       description:
-        "Figma のクリップボード HTML または単体 HTML を Design の画面として取り込みます。",
+        "Figma のクリップボード HTML や単体の HTML を Design のページとして取り込みます。",
       figmaUrlLabel: "Figma フレームまたはファイル URL",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
       figmaTokenLabel: "Figma アクセストークン",
@@ -1208,10 +1233,10 @@ export default {
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
       htmlDescription:
-        "単体 HTML を貼り付けるかアップロードします。Design はこのエディター UI に注入せず、新しい画面として保存します。",
+        "単体の HTML を貼り付けるかアップロードします。Design はこのエディター UI に挿入せず、新しいページとして保存します。",
       allSupportedFiles: "対応しているすべてのファイル",
       githubDescription:
-        "近日対応: リポジトリから画面とコンポーネントを直接インポートします。",
+        "近日公開: リポジトリからページとコンポーネントを直接インポートできます。",
       localDescription:
         "/visual-edit で任意の実行中ローカル app に接続します。",
       warningsToast: "警告付きでインポートが完了しました",
@@ -1227,7 +1252,7 @@ export default {
         "保存を確認できず、表示されなくなる可能性のある画像: {{count}}",
       pasteNeedsEditAccess: "このデザインに貼り付けるには編集権限が必要です。",
       pastePartialImport:
-        "貼り付けに失敗しました。一部の画面が作成された可能性があります。画面を確認してください。",
+        "貼り付けに失敗し、一部のページが作成された可能性があります。ページを確認してください。",
       figmaSuccess: "Figma 貼り付けをインポートしました",
       htmlSuccess: "HTML をインポートしました",
       uploadSuccess: "ファイルをインポートしました",
@@ -1278,16 +1303,17 @@ export default {
     retryAccessCheck: "再試行",
     saveAsTemplate: "テンプレートとして保存…",
     saveTemplateDescription:
-      "現在の画面、寸法、既定値、ロックされたレイヤーを再利用可能な開始点として保存します。",
+      "現在のページ、サイズ、デフォルト、ロックされたレイヤーを再利用できる出発点として保存します。",
     templateName: "テンプレート名",
     templateDescription: "説明",
     templateCategory: "カテゴリー",
     templateSnapshotSummary:
-      "{{screens}} 画面 · {{locks}} 個のロックされたレイヤーを保持します",
+      "{{screens}} ページ · {{locks}} 個のロックされたレイヤーが保持されます",
     saveTemplate: "テンプレートを保存",
     templateSaved: "テンプレートをライブラリに保存しました",
     templateSaveFailed: "このテンプレートを保存できませんでした",
     appMenu: {
+      backToDashboard: "ダッシュボードに戻る",
       file: "ファイル",
       preferences: "環境設定",
       newDesign: "新規デザイン",
@@ -1333,7 +1359,7 @@ export default {
       comment: "コメント",
       edit: "編集",
       interact: "Interact",
-      screens: "画面",
+      screens: "ページ",
     },
     topBar: {
       modeDesign: "デザイン",
@@ -1344,7 +1370,7 @@ export default {
     tools: {
       move: "Move",
       frame: "Frame",
-      screen: "Screen",
+      screen: "ページ",
       shapes: "シェイプ",
       rect: "Rectangle",
       line: "線",
@@ -1367,7 +1393,7 @@ export default {
       categoriesLabel: "ショートカットのカテゴリ",
       empty: "「{{query}}」に一致するショートカットはありません",
       codeContext: "コード",
-      screenContext: "画面",
+      screenContext: "ページ",
       nudgeAmount: {
         title: "移動量",
         small: "小さい移動量",
@@ -1453,8 +1479,8 @@ export default {
         enterSelection: "選択",
         nextSibling: "選択 →",
         previousSibling: "← 選択",
-        nextScreen: "画面 →",
-        previousScreen: "← 画面",
+        nextScreen: "次のページ",
+        previousScreen: "前のページ",
         toggleLayoutGrids: "レイアウトグリッドの表示を切り替え",
         toggleRulers: "定規の表示を切り替え",
         nudge: "Move",
@@ -1507,10 +1533,10 @@ export default {
     duplicate: "Duplicate",
     delete: "Delete",
     view: "View",
-    returnToCurrentScreen: "現在の画面に戻る",
-    openScreenOverview: "画面概要を開く",
-    currentScreen: "現在の画面",
-    screenOverview: "画面概要",
+    returnToCurrentScreen: "現在のページに戻る",
+    openScreenOverview: "ページの概要を開く",
+    currentScreen: "現在のページ",
+    screenOverview: "ページの概要",
     devicePreview: "デバイスプレビュー",
     devices: {
       responsive: "レスポンシブ",
@@ -1540,7 +1566,7 @@ export default {
     downloadSvg: "SVG をダウンロード",
     downloadFigmaSvg: "Figma 用にダウンロード（SVG）",
     downloadZip: "ZIP をダウンロード",
-    downloadPdfAllScreens: "PDFをダウンロード（すべての画面）",
+    downloadPdfAllScreens: "PDF をダウンロード（全ページ）",
     publishApp: "アプリを公開",
     exportOptions: "エクスポートオプション",
     exportHtml: "エクスポート HTML",
@@ -1610,13 +1636,14 @@ export default {
       verified: "ソース書き込み確認済み、ロールバック可能",
       rollback: "戻す",
       keep: "保持",
-      selectorMissing: "選択した要素はこの画面に存在しません。",
+      selectorMissing:
+        "選択した要素には、このページのソース内に編集可能な対応箇所がありません。コンポーネントが描画している場合は、エージェントで変更を適用してください。",
       noRenderedBox:
         "選択したレイヤーには描画されたボックスがないため、スタイル変更は適用されませんでした。",
       clientRenderedShell:
-        "この画面はクライアント側でレンダリングされるため、配信される HTML にはパッチ可能なアプリのマークアップが含まれていません。エージェントに、この変更をコンポーネントのソースへ適用するよう依頼してください。",
+        "このページはクライアントで描画されるため、配信される HTML にはパッチを当てるアプリのマークアップがありません。コンポーネントのソースにこの変更を適用するようエージェントに依頼してください。",
       snapshotNotLoaded:
-        "この画面のソースはまだ読み込まれていないため、編集内容は書き込まれませんでした。画面の読み込みが完了してから、もう一度お試しください。",
+        "このページのソースがまだ読み込まれていないため、編集は書き込まれませんでした。ページの読み込みが終わるまで待ってから、もう一度お試しください。",
       selectorAmbiguous:
         "この要素はソース内にある {{count}} 個の同一インスタンスの 1 つであるため、変更は書き込まれませんでした。エージェントに、このインスタンスだけを対象にするよう依頼してください。",
       status: {
@@ -1672,18 +1699,18 @@ export default {
       leave: "適用せずに離れる",
     },
     addLocalhostScreen: {
-      title: "アプリから画面を追加",
+      title: "アプリからページを追加",
       description:
         "新しいフレームとして追加するルートを選ぶか、パスを入力してください。",
       searchPlaceholder: "ルートを検索…",
       noRoutes: "一致するルートがありません",
       noDiscoveredRoutes:
-        "このアプリでルートが見つかりません。画面を追加するにはパスを入力してください。",
+        "このアプリでルートが見つかりませんでした。パスを入力してページを追加してください。",
       useCustomPath: "「{{path}}」を追加",
       viewportDesktop: "デスクトップ",
       viewportMobile: "モバイル",
-      added: "画面を追加しました",
-      addFailed: "画面を追加できませんでした",
+      added: "ページを追加しました",
+      addFailed: "ページを追加できませんでした",
     },
     localhostConsent: {
       approvedTitle: "承認済み — 編集をもう一度実行してください",
@@ -1762,7 +1789,7 @@ export default {
       zipCreateError: "ZIP ダウンロードを作成できませんでした",
       zipDownloaded: "ZIP をダウンロードしました",
       zipExportError: "ZIP をエクスポートできませんでした",
-      openScreenPng: "PNG をエクスポートする前に画面を開いてください",
+      openScreenPng: "PNG をエクスポートする前にページを開いてください",
       pngCreateError: "PNG ダウンロードを作成できませんでした",
       pngDownloaded: "PNG をダウンロードしました",
       pngCopied: "PNG をクリップボードにコピーしました",
@@ -1789,8 +1816,8 @@ export default {
         "レンダラーを起動できないため、エクスポートを利用できません。しばらくしてからもう一度お試しください。",
       pdfExportError: "PDF をエクスポートできませんでした",
       pdfDownloaded: "PDF をダウンロードしました",
-      pdfAllScreensDownloaded: "PDFがダウンロードされました（すべての画面）",
-      openScreenSvg: "SVG をエクスポートする前に画面を開いてください",
+      pdfAllScreensDownloaded: "PDF をダウンロードしました（全ページ）",
+      openScreenSvg: "SVG をエクスポートする前にページを開いてください",
       svgDownloaded: "SVG をダウンロードしました",
       svgExportError: "SVG をエクスポートできませんでした",
       figmaSvgCopied: "Figma SVG としてコピーしました",
@@ -1802,16 +1829,16 @@ export default {
       figmaSvgWriteError: "SVG をクリップボードにコピーできませんでした",
       figmaSvgRenderError: "Figma SVG を作成できませんでした",
       figmaSvgExportError: "Figma SVG をエクスポートできませんでした",
-      screenDuplicated: "画面を複製しました",
-      screenDuplicateError: "画面を複製できません",
+      screenDuplicated: "ページを複製しました",
+      screenDuplicateError: "ページを複製できませんでした",
       copied: "Copied",
       pasted: "Pasted",
       deleted: "Deleted",
       propsCopied: "プロパティをコピーしました",
       propsPasted: "プロパティを貼り付けました",
-      primitiveInsertFailed: "そのレイヤーを画面に追加できませんでした",
+      primitiveInsertFailed: "そのレイヤーをページに追加できませんでした",
       designStateLiveScreen:
-        "ライブ画面ではデザイン状態をプレビューできません。その内容はドキュメントではなく実行中のアプリです。",
+        "ライブページではデザイン状態をプレビューできません。その内容はドキュメントではなく、実行中のアプリです。",
       layerMoveFailed: "そのレイヤーを移動できませんでした",
       groupFillApplyFailed:
         "この塗りをグループ内のすべてのレイヤーに適用できませんでした。",
@@ -1838,12 +1865,10 @@ export default {
       redoSkippedConcurrentEdit:
         "やり直し操作をスキップしました — 他のユーザーがそれを移動しました",
       saveConflict:
-        "この画面は別の場所で変更されました。最後の編集は保存されませんでした。",
-      versionHistoryUnavailable:
-        "このデザインではバージョン履歴を利用できません。編集内容は保存されました。",
+        "このページは別の場所で変更されました。最後の編集は保存されませんでした。",
       removeAutoLayoutFailed: "オートレイアウトを削除できませんでした",
       autoLayoutScreensUnsupported:
-        "オートレイアウトの追加は画面には適用されません",
+        "オートレイアウトの追加はページには適用されません",
       booleanSubtractUnsupported:
         "減算するには、隣接する単色塗りの長方形または楕円を選択してください。",
       booleanSubtractFailed: "選択したレイヤーを減算できませんでした。",
@@ -1853,8 +1878,8 @@ export default {
         "このアプリはエディターにソース位置を提供していないため、このレイヤーを行にひも付けできません。エージェントに変更を依頼してください。",
       sourceLocationSnapshotFailed:
         "このプレビューのソース位置を確認できませんでした。",
-      screenSourceUpdated: "画面ソースを更新しました",
-      screenSourceUpdateFailed: "画面ソースを更新できませんでした",
+      screenSourceUpdated: "ページのソースを更新しました",
+      screenSourceUpdateFailed: "ページのソースを更新できませんでした",
       vectorEditUnsupported:
         "この形状または変形はベクター編集に対応していません。",
       imageUploading: "画像をアップロード中…",
@@ -1868,7 +1893,7 @@ export default {
       swapFillStrokeLayeredFill:
         "複数の塗りや画像の塗りはまだ線に移動できません",
       alignNeedsTwoLayers: "整列するには2つ以上のレイヤーを選択してください",
-      alignNeedsTwoScreens: "整列するには2つ以上の画面を選択してください",
+      alignNeedsTwoScreens: "整列するには 2つ以上のページを選択してください",
       layoutUnmeasurable:
         "選択したレイヤーを測定できませんでした。キャンバス上に表示されていることを確認して、もう一度お試しください。",
       layoutAutoLayoutChildren:
@@ -1917,11 +1942,10 @@ export default {
   },
   layersPanel: {
     title: "レイヤー",
-    screens: "画面",
-    resizeScreens: "画面セクションのサイズを変更",
-    allScreens: "すべての画面",
+    screens: "ページ",
+    resizeScreens: "ページセクションのサイズを変更",
     thumbnail: "サムネイル",
-    addScreen: "画面を追加",
+    addScreen: "ページを追加",
     searchPlaceholder: "レイヤーを検索",
     empty: "レイヤーがありません",
     noMatches: "一致するレイヤーがありません",
@@ -1970,7 +1994,7 @@ export default {
         "数回試行しましたが、ライブエディターブリッジから確認応答がありませんでした。",
       connectionNotConfirmed:
         "ライブエディターブリッジが接続を確認できませんでした。ローカル開発サーバーはまだ実行中ですか？",
-      permissionPromptTitle: "ローカル画面を接続",
+      permissionPromptTitle: "ローカルページを接続",
       permissionPromptDescription:
         "ライブ編集を有効にするには、Chrome のプロンプトで「許可」を選択してください。",
       permissionPromptNoPrompt: "Chrome のプロンプトが表示されませんか？",
@@ -1980,15 +2004,15 @@ export default {
       previewCredentialsUnavailableTitle:
         "ローカルプレビューの認証情報を利用できません",
       previewCredentialsUnavailableDescription:
-        "インスペクターでこの画面の localhost 接続を再接続してから、もう一度お試しください。",
+        "インスペクターでこのページの localhost 接続を再接続してから、もう一度お試しください。",
       publicPreviewUnavailableDescription:
-        "localhost のプレビューは公開ユーザーには共有されません。この画面を見るには、共同編集者としてこのデザインを開いてください。",
+        "localhost のプレビューは公開閲覧者には共有されません。このページを表示するには、共同編集者としてこの Design を開いてください。",
       previewCredentialsRetry: "認証情報を再取得",
     },
   },
   multiScreenCanvas: {
     addBreakpointToAllScreens:
-      "すべての画面に {{label}} ブレークポイント（{{width}}px）を追加",
+      "すべてのページに {{label}} ブレークポイント（{{width}}px）を追加",
     preparingLiveEditor: "ライブエディターを準備しています…",
     duplicate: "複製",
     fork: "分岐",
@@ -2526,10 +2550,10 @@ export default {
     openDesign: "Design を開く",
     templatesCta: "テンプレートを見る",
     previewLabel: "ローカルプレビュー",
-    layoutLabel: "保存できる画面レイアウト",
+    layoutLabel: "ページのレイアウトを保存できます",
   },
   templatesPage: {
-    previewEmpty: "このテンプレートにはプレビューできる画面がありません。",
+    previewEmpty: "このテンプレートにはプレビューできるページがありません。",
     loading: "テンプレートを読み込み中",
     title: "テンプレート",
     description:
@@ -2593,8 +2617,8 @@ export default {
     commentsTab: "コメント · {{count}}",
     commentsTitle: "レビューコメント",
     commentNumber: "レビューコメント {{count}}",
-    thisScreen: "この画面",
-    allScreens: "すべての画面",
+    thisScreen: "このページ",
+    allScreens: "すべてのページ",
     signInToComment: "コメントするにはサインイン",
     panelTitle: "フィードバック",
     placeholder: "フィードバックを入力…",
@@ -2737,7 +2761,7 @@ export default {
         permission: "編集権限がなくなりました",
         threadUnavailable: "このスレッドはもう開けません",
         targetChanged: "エージェントの作業中にデザインが変更されました",
-        applyUnavailable: "エージェントはこの画面を編集できません",
+        applyUnavailable: "エージェントはこのページを編集できません",
         applyIncomplete:
           "デザインは編集されましたが、スレッドは解決されませんでした。変更を確認してください。",
         cancelledAfterEdit:

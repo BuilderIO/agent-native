@@ -1,10 +1,17 @@
 import type { AgentActionScope } from "../agent/types.js";
+import { registerViewportModeProbe } from "../application-state/navigate-write-guard.js";
 import type { TrackingEventScope } from "../observability/tracing.js";
 import { registerBackgroundWorkerProbe } from "../provider-api/interactive-scope.js";
 import type { ContextStatus } from "../shared/context-status.js";
 import type { FirstRunBuilderCreditsV2RequestAssignment } from "../shared/first-run-builder-credits-experiment.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
+import {
+  normalizeViewportMode,
+  type ViewportMode,
+} from "../shared/viewport-mode.js";
 import type { SignupAttributionContext } from "./attribution.js";
+
+export { normalizeViewportMode, type ViewportMode };
 
 type AsyncLocalStorageLike<T> = {
   getStore(): T | undefined;
@@ -64,9 +71,11 @@ function processEnv(name: string): string | undefined {
 
 /**
  * The tab a request from no browser tab acts on for tab-scoped app state:
- * the tab of this app the user used last, or none used recently.
+ * a tab explicitly requested by `x-agent-native-browser-tab`, the tab of this
+ * app the user used last, or none used recently.
  */
 export type BrowserTabTarget =
+  | { kind: "requested"; tabId: string }
   | { kind: "last-used"; tabId: string; usedAt: number }
   | { kind: "unavailable" };
 
@@ -83,13 +92,17 @@ export interface RequestRunContext {
   /** The browser tab the request came from. */
   browserTabId?: string;
   /**
-   * For an MCP tool call by a signed-in user, which came from no tab: the tab
-   * whose tab-scoped app state (navigation, navigate commands, selection) the
-   * call reads and writes. Unlike `browserTabId`, it doesn't make the call
-   * that tab's own, so the tab still sees the call's changes as someone
-   * else's.
+   * For an MCP or A2A call from no tab: the tab whose tab-scoped app state
+   * (navigation, navigate commands, selection) the call reads and writes.
+   * Unlike `browserTabId`, it doesn't make the call that tab's own, so the tab
+   * still sees the call's changes as someone else's.
    */
   browserTabTarget?: BrowserTabTargetSlot;
+  /**
+   * Whether a cross-app request is acting on the visible foreground viewport
+   * or running a background lookup that must not hijack foreground navigation.
+   */
+  viewportMode?: ViewportMode;
   chatScope?: {
     type: string;
     id: string;
@@ -153,6 +166,11 @@ export interface RequestRunContext {
 export interface RequestContext {
   /** Set by the action HTTP boundary after cookie-session and UI-capability proof. */
   provenUiRequest?: boolean;
+  /**
+   * Set by the action HTTP boundary when the app's own page sent the request,
+   * proven or not. For analytics labels only; it never authorizes anything.
+   */
+  appPageRequest?: boolean;
   /**
    * The id the server stamps on this request's response, so a failure captured
    * anywhere in the request names the id the person sees on screen.
@@ -773,3 +791,4 @@ export function ensureRequestRunContext(): RequestRunContext | undefined {
 registerBackgroundWorkerProbe(
   () => getRequestRunContext()?.isBackgroundWorker === true,
 );
+registerViewportModeProbe(() => getRequestRunContext()?.viewportMode);

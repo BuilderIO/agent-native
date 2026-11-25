@@ -25,6 +25,7 @@ type NotionPage = {
   object?: string;
   id: string;
   url?: string;
+  created_time?: string;
   last_edited_time?: string;
   properties?: Record<string, NotionProperty>;
 };
@@ -124,6 +125,7 @@ export async function readNotionDatabaseSource(args: {
   limit: number;
   offset: number;
   fullRefresh?: boolean;
+  continueFrom?: string | undefined;
 }): Promise<ContentDatabaseSourceReadResult> {
   if (args.offset !== 0) {
     throw new Error(
@@ -157,6 +159,7 @@ export async function readNotionDatabaseSource(args: {
   const entries: BuilderCmsSourceEntry[] = [];
   let cursor: string | undefined;
   let hasMore = false;
+  let lastCreatedTime: string | undefined;
   const maxPages = args.fullRefresh ? NOTION_SOURCE_MAX_PAGES : 1;
   for (let page = 0; page < maxPages; page++) {
     const response = await notionFetch<{
@@ -169,12 +172,25 @@ export async function readNotionDatabaseSource(args: {
       {
         method: "POST",
         body: JSON.stringify({
-          page_size: Math.min(NOTION_SOURCE_PAGE_SIZE, args.limit),
+          page_size: Math.min(
+            NOTION_SOURCE_PAGE_SIZE,
+            args.limit - entries.length,
+          ),
+          sorts: [{ timestamp: "created_time", direction: "ascending" }],
+          ...(args.continueFrom
+            ? {
+                filter: {
+                  timestamp: "created_time",
+                  created_time: { on_or_after: args.continueFrom },
+                },
+              }
+            : {}),
           ...(cursor ? { start_cursor: cursor } : {}),
         }),
       },
     );
     for (const result of response.results ?? []) {
+      if (result.created_time) lastCreatedTime = result.created_time;
       if (result.object && result.object !== "page") continue;
       const properties = result.properties ?? {};
       entries.push({
@@ -211,6 +227,7 @@ export async function readNotionDatabaseSource(args: {
       dataSourceName: plainText(dataSource.title) || "Notion database",
       hasMore,
       nextCursor: cursor ?? null,
+      lastCreatedTime: lastCreatedTime ?? null,
       fetchedRowCount: Math.min(entries.length, args.limit),
       unsupportedPropertyCount: fields.filter((field) =>
         field.type.startsWith("unsupported:"),

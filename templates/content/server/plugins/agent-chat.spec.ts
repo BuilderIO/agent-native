@@ -60,6 +60,19 @@ describe("Content agent chat plugin", () => {
     );
   });
 
+  it("keeps quiet alt text and column fill chats out of the chat history", async () => {
+    await import("./agent-chat.js");
+
+    expect(mocks.createAgentChatPlugin).toHaveBeenCalledWith(
+      expect.objectContaining({
+        historyHiddenScopeTypes: [
+          "content-image-alt-text",
+          "content-column-fill",
+        ],
+      }),
+    );
+  });
+
   it("checks every reply links the Pages its turn created", async () => {
     await import("./agent-chat.js");
     const { requireCreatedPageLinks } =
@@ -92,6 +105,7 @@ describe("Content agent chat plugin", () => {
       expect.objectContaining({
         appId: "content",
         mcp: expect.objectContaining({
+          skills: ["content"],
           externalAgents: { writes: "allowlisted" },
           instructions: expect.stringContaining(
             "delete-document moves pages and sub-pages to recoverable Trash",

@@ -2,6 +2,8 @@ import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js"
 
 export default {
   common: {
+    calendarRateLimited:
+      "O Google Agenda limitou as solicitações. Os eventos salvos podem estar desatualizados.",
     connect: "Conectar",
     connected: "Conectado",
     connecting: "Conectando...",
@@ -159,6 +161,10 @@ export default {
     googleCalendarSettings: "Configurações do Google Calendar",
     hideCalendar: "Ocultar calendário",
     myCalendars: "Meus calendários",
+    calendarDescription: "Descrição",
+    calendarDescriptionPlaceholder: "Para que serve este calendário?",
+    calendarDescriptionHint:
+      "Os agentes leem isto para escolher o calendário certo.",
     feedsGroup: "Feeds",
     managePeerAvailability: "Gerenciar disponibilidade compartilhada",
     nextYear: "Próximo ano",
@@ -569,11 +575,26 @@ export default {
     connectZoom: "Conecte Zoom",
     copyBookingLink: "Copiar link de reserva",
     copyLink: "Copiar link",
+    copySingleUseLink: "Copiar link de uso único",
+    singleUseLinkCopied:
+      "Link de uso único copiado. Ele vale para uma reserva.",
+    singleUseLinkReady: "Link de uso único pronto",
+    singleUseLinkCreateFailed: "Não foi possível criar o link de uso único",
+    singleUseLinkUsed: "Este link já foi usado",
+    singleUseLinkInvalid: "Este link não funciona mais",
+    singleUseLinkAskForNew:
+      "Ele foi criado para uma única reserva. Peça um novo link a quem o enviou.",
     createFirstLink: "Crie seu primeiro link",
     createLink: "Criar link",
     custom: "Personalizado",
     customLink: "Link personalizado",
     customLinkDescription: "Cole qualquer reunião URL",
+    reminderEmail: "E-mail de lembrete",
+    reminderEmailDescription:
+      "Enviado para quem reservou e para os convidados que essa pessoa adicionou.",
+    reminderOff: "Sem lembrete",
+    reminderOneHour: "1 hora antes",
+    reminderOneDay: "1 dia antes",
     date: "Data",
     dateAndTime: "Data e hora",
     dateSelection: "seleção de data",

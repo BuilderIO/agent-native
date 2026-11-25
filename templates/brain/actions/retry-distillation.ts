@@ -20,7 +20,10 @@ import {
 } from "../server/lib/brain.js";
 import { redactSensitiveText } from "../server/lib/search.js";
 import { personalGoogleSourceFilter } from "../server/lib/source-access.js";
-import { intelligenceDistillationInstructions } from "../shared/intelligence-distillation.js";
+import {
+  intelligenceDistillationInstructions,
+  KNOWLEDGE_UPDATE_INSTRUCTIONS,
+} from "../shared/intelligence-distillation.js";
 import { stringArrayCliSchema } from "./_schemas.js";
 
 const STALE_PROCESSING_MS = 15 * 60 * 1000;
@@ -67,8 +70,9 @@ async function writeDistillationRequest(values: {
       `validation, extract only durable company knowledge with exact ` +
       `evidence quotes. ` +
       intelligenceDistillationInstructions(values.captureId) +
-      `Call write-knowledge for other supported durable entries, ` +
-      `then call mark-capture-distilled when finished. If the ` +
+      `Call write-knowledge for other supported durable entries. ` +
+      KNOWLEDGE_UPDATE_INSTRUCTIONS +
+      `Call mark-capture-distilled when finished. If the ` +
       `capture is personal or out of scope, call mark-capture-distilled with ` +
       `status ignored.`,
   });

@@ -43,6 +43,7 @@ interface Row {
 }
 
 const mocks = vi.hoisted(() => {
+  const resourceWrites: Row[] = [];
   const col = (table: string, name: string) => ({ table, name });
   const table = (name: string, columns: string[]) =>
     Object.fromEntries([
@@ -103,6 +104,7 @@ const mocks = vi.hoisted(() => {
       "tagsJson",
       "entitiesJson",
       "evidenceJson",
+      "provenanceJson",
       "publishedResourcePath",
       "supersedesId",
       "supersededById",
@@ -253,6 +255,16 @@ const mocks = vi.hoisted(() => {
     execute: vi.fn(async ({ sql, args }: { sql: string; args: unknown[] }) => {
       if (sql.includes("FROM resources WHERE owner = ? AND path = ?")) {
         const [, path] = args as string[];
+        if (sql.startsWith("SELECT content")) {
+          const latest = resourceWrites
+            .filter((write) => write.path === path)
+            .pop();
+          return {
+            rows:
+              latest && !latest.deleted ? [{ content: latest.content }] : [],
+            rowsAffected: 0,
+          };
+        }
         return { rows: [{ id: path }], rowsAffected: 0 };
       }
       if (sql.includes("FROM organizations")) {
@@ -588,6 +600,11 @@ const mocks = vi.hoisted(() => {
           : undefined;
       if (!existingSensitivityEvent) tableRows(tableRef).push({ ...row });
       return {
+        onConflictDoNothing: vi.fn(() => ({
+          returning: vi.fn(async () =>
+            existingSensitivityEvent ? [] : [{ id: row.id }],
+          ),
+        })),
         onConflictDoUpdate: vi.fn(async ({ set }: { set: Row }) => {
           const existing =
             existingSensitivityEvent ??
@@ -616,8 +633,8 @@ const mocks = vi.hoisted(() => {
         return Object.assign(
           Promise.resolve({ rowsAffected: changed.length }),
           {
-            returning: vi.fn(async () =>
-              changed.map((row) => ({ id: row.id })),
+            returning: vi.fn(async (fields?: Row) =>
+              changed.map((row) => (fields ? { id: row.id } : { ...row })),
             ),
           },
         );
@@ -678,7 +695,7 @@ const mocks = vi.hoisted(() => {
       publicChannelExclusionPatterns: [] as string[],
     },
     orgSettings: new Map<string, Record<string, unknown>>(),
-    resourceWrites: [] as Row[],
+    resourceWrites,
   };
 });
 
@@ -955,6 +972,10 @@ vi.mock("@agent-native/core/sharing", () => ({
   }),
 }));
 
+import {
+  deletePrivateBlob,
+  putPrivateBlob,
+} from "@agent-native/core/private-blob";
 import { getOrgSetting, mutateOrgSetting } from "@agent-native/core/settings";
 import { assertAccess } from "@agent-native/core/sharing";
 
@@ -1255,6 +1276,62 @@ describe("Brain knowledge quality gates", () => {
     });
   });
 
+  it("lists signed ingest availability without exposing source keys or token hashes", async () => {
+    seedSource({
+      id: "column-key",
+      provider: "clips",
+      sourceKey: "column-private-key",
+      ingestTokenHash: "column-private-hash",
+      configJson: JSON.stringify({
+        sourceKey: "old-private-key",
+        ingestTokenHash: "old-private-hash",
+      }),
+    });
+    seedSource({
+      id: "legacy-key",
+      provider: "generic",
+      sourceKey: "  ",
+      configJson: JSON.stringify({
+        sourceKey: " legacy-private-key ",
+        ingestTokenHash: "legacy-private-hash",
+      }),
+    });
+    seedSource({
+      id: "no-key",
+      provider: "generic",
+      configJson: JSON.stringify({ sourceKey: "  " }),
+    });
+    seedSource({
+      id: "other-provider",
+      provider: "slack",
+      sourceKey: "slack-private-key",
+    });
+
+    const result = await listSourcesAction.run({ includeArchived: false });
+    expect(
+      Object.fromEntries(
+        result.sources.map((source) => [source.id, source.hasIngestSourceKey]),
+      ),
+    ).toEqual({
+      "column-key": true,
+      "legacy-key": true,
+      "no-key": false,
+      "other-provider": false,
+    });
+    const encoded = JSON.stringify(result);
+    for (const secret of [
+      "column-private-key",
+      "old-private-key",
+      "legacy-private-key",
+      "slack-private-key",
+      "column-private-hash",
+      "old-private-hash",
+      "legacy-private-hash",
+    ]) {
+      expect(encoded).not.toContain(secret);
+    }
+  });
+
   it("counts only allowed captures in audiences accessible to the caller", async () => {
     seedSource();
     seedCapture({ id: "accessible-capture" });
@@ -1400,6 +1477,94 @@ describe("Brain knowledge quality gates", () => {
       distillationQueue: {
         error: "Failed for [redacted]",
       },
+    });
+  });
+
+  it("hides partial capture external IDs on list and raw or redacted reads without changing the stored locator", async () => {
+    seedSource();
+    const externalId = "https://example.test/private-transcript";
+    const stored = seedCapture({
+      kind: "transcript",
+      externalId,
+      metadataJson: JSON.stringify({
+        passageQuarantine: { version: 1, withheldPassages: 1 },
+        sourceUrl: externalId,
+        nested: { original: externalId },
+      }),
+    });
+    const list = await listCapturesAction.run({
+      sourceId: "source-1",
+      includePreview: false,
+      previewLength: 220,
+    });
+    expect(list.captures[0]).toMatchObject({
+      externalId: null,
+      sourceUrl: null,
+      withheldPassages: 1,
+    });
+    for (const includeRawContent of [false, true]) {
+      const result = await getCaptureAction.run({
+        id: "capture-1",
+        includeRawContent,
+      });
+      expect(result.capture).toMatchObject({
+        externalId: null,
+        withheldPassages: 1,
+        metadata: { passageQuarantine: { version: 1, withheldPassages: 1 } },
+      });
+      expect(JSON.stringify(result.capture?.metadata)).not.toContain(
+        externalId,
+      );
+    }
+    expect(stored.externalId).toBe(externalId);
+  });
+
+  it.each([
+    { id: "https://example.test/original", title: "Planning" },
+    { id: "source-1", title: "https://example.test/original" },
+  ])(
+    "blocks a restricted transcript without changing an unsafe source identity %#",
+    async (identity) => {
+      const source = seedSource(identity);
+      const before = { ...source };
+      await expect(
+        createCapture({
+          sourceId: identity.id,
+          title: "Planning",
+          kind: "transcript",
+          privacyClassifier: "deterministic",
+          content:
+            "Roadmap launch is ready.\nHer salary increase is approved.\nThe customer launch is Friday.",
+        }),
+      ).rejects.toBeInstanceOf(BrainCaptureBlockedError);
+      expect(mocks.rows.captures).toHaveLength(0);
+      expect(source).toEqual(before);
+    },
+  );
+
+  it("deduplicates partial transcripts using the internal external ID", async () => {
+    seedSource();
+    const input = {
+      sourceId: "source-1",
+      externalId: "https://example.test/private-transcript",
+      title: "Planning",
+      kind: "transcript" as const,
+      privacyClassifier: "deterministic" as const,
+      content:
+        "Roadmap launch is ready.\nProduct planning is on track.\nHer salary increase is approved.\nThe API project is next.\nThe customer launch is Friday.",
+    };
+    const first = await createCapture(input);
+    const second = await createCapture(input);
+    expect(second.id).toBe(first.id);
+    expect(mocks.rows.captures).toHaveLength(1);
+    expect(mocks.rows.captures[0]?.externalId).toBe(input.externalId);
+    const result = await getCaptureAction.run({
+      id: first.id,
+      includeRawContent: true,
+    });
+    expect(result.capture).toMatchObject({
+      externalId: null,
+      withheldPassages: 1,
     });
   });
 
@@ -1720,6 +1885,40 @@ describe("Brain knowledge quality gates", () => {
     ).toMatchObject({
       sourceUrl: "https://docs.example.test/new",
     });
+  });
+
+  it("deletes a new quarantine blob when the blocked event cannot be written", async () => {
+    const source = seedSource({ provider: "generic" });
+    vi.mocked(putPrivateBlob).mockResolvedValueOnce({
+      id: "blob-new",
+    } as never);
+    mocks.insertControls.error = new Error("database unavailable");
+
+    await expect(
+      recordBlockedCapture({
+        id: "blocked-capture-blob",
+        existing: null,
+        source: source as never,
+        values: {
+          sourceId: "source-1",
+          externalId: "blocked-external-blob",
+          title: "Blocked capture blob",
+          kind: "note" as const,
+          content: "Ambiguous company note for a persistence test.",
+        },
+        decision: {
+          disposition: "quarantined" as const,
+          categories: [],
+          confidenceBand: "uncertain" as const,
+          policyVersion: "test-policy-v1",
+          safeSegments: [],
+          safeContent: "",
+          classifier: "deterministic" as const,
+        },
+        retentionHours: 72,
+      }),
+    ).rejects.toThrow("database unavailable");
+    expect(deletePrivateBlob).toHaveBeenCalledWith({ id: "blob-new" });
   });
 
   it("persists and updates classifier failure reasons on blocked events", async () => {
@@ -2069,7 +2268,32 @@ describe("Brain knowledge quality gates", () => {
     });
   });
 
-  it("returns the raced-in capture when source/external unique insert conflicts", async () => {
+  it("does not report a competing same-path insert as the requested capture", async () => {
+    seedSource();
+    mocks.insertControls.error = Object.assign(new Error("insert failed"), {
+      code: "23505",
+    });
+    mocks.insertControls.beforeThrow = (_tableRef, row) => {
+      mocks.rows.captures.push({
+        ...row,
+        id: "competing-capture",
+        kind: "document",
+        content: "different content",
+      });
+    };
+    await expect(
+      createCapture({
+        sourceId: "source-1",
+        externalId: "external-1",
+        title: "Planning transcript",
+        kind: "transcript",
+        content: "Decision: ship the beta on May 20.",
+      }),
+    ).rejects.toThrow(/concurrent|retry/i);
+  });
+
+  // oracle-change: a conflicting insert is not proof that this capture was saved.
+  it("rejects source/external unique insert conflicts for retry", async () => {
     seedSource();
     mocks.insertControls.error = new Error(
       "UNIQUE constraint failed: brain_raw_captures.source_id, brain_raw_captures.external_id",
@@ -2078,15 +2302,15 @@ describe("Brain knowledge quality gates", () => {
       mocks.rows.captures.push({ ...row, id: "capture-from-race" });
     };
 
-    const capture = await createCapture({
-      sourceId: "source-1",
-      externalId: "external-1",
-      title: "Planning note",
-      kind: "note",
-      content: "Decision: ship the beta on May 20.",
-    });
-
-    expect(capture.id).toBe("capture-from-race");
+    await expect(
+      createCapture({
+        sourceId: "source-1",
+        externalId: "external-1",
+        title: "Planning note",
+        kind: "note",
+        content: "Decision: ship the beta on May 20.",
+      }),
+    ).rejects.toThrow(/concurrent.*retry/i);
     expect(mocks.rows.captures).toHaveLength(1);
   });
 
@@ -2099,15 +2323,15 @@ describe("Brain knowledge quality gates", () => {
       mocks.rows.captures.push({ ...row, id: "capture-from-postgres-race" });
     };
 
-    const capture = await createCapture({
-      sourceId: "source-1",
-      externalId: "external-1",
-      title: "Planning note",
-      kind: "note",
-      content: "Decision: ship the beta on May 20.",
-    });
-
-    expect(capture.id).toBe("capture-from-postgres-race");
+    await expect(
+      createCapture({
+        sourceId: "source-1",
+        externalId: "external-1",
+        title: "Planning note",
+        kind: "note",
+        content: "Decision: ship the beta on May 20.",
+      }),
+    ).rejects.toThrow(/concurrent.*retry/i);
     expect(mocks.rows.captures).toHaveLength(1);
   });
 
@@ -2360,6 +2584,7 @@ describe("Brain knowledge quality gates", () => {
     const published = await setKnowledgeCanonicalResource(
       result.knowledge!.id,
       true,
+      result.knowledge.revision,
     );
     expect(published.publishedResourcePath).toMatch(
       /^context\/company-brain\/beta-date-/,
@@ -2374,6 +2599,7 @@ describe("Brain knowledge quality gates", () => {
     const unpublished = await setKnowledgeCanonicalResource(
       result.knowledge!.id,
       false,
+      published.revision,
     );
     expect(unpublished.publishedResourcePath).toBeNull();
     expect(mocks.resourceWrites[mocks.resourceWrites.length - 1]).toMatchObject(
@@ -2383,6 +2609,133 @@ describe("Brain knowledge quality gates", () => {
         deleted: true,
       },
     );
+  });
+
+  it("refuses to publish a newer body than the revision that was previewed", async () => {
+    seedSource();
+    seedCapture({
+      content: "Decision: ship the beta on May 20.",
+    });
+    const evidence = [
+      {
+        captureId: "capture-1",
+        quote: "Decision: ship the beta on May 20.",
+      },
+    ];
+    const created = await writeKnowledgeRecord({
+      title: "Beta date",
+      body: "The team decided to ship the beta on May 20.",
+      evidence,
+      publishTier: "company",
+    });
+    const previewed = created.knowledge.revision;
+    const edited = await writeKnowledgeRecord({
+      knowledgeId: created.knowledge.id,
+      expectedRevision: previewed,
+      title: "Beta date",
+      body: "The team moved the beta to May 27.",
+      evidence,
+      publishTier: "company",
+    });
+    const writes = mocks.resourceWrites.length;
+    await expect(
+      setKnowledgeCanonicalResource(edited.knowledge.id, true, previewed),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      statusCode: 409,
+      details: {
+        current: {
+          id: edited.knowledge.id,
+          body: "The team moved the beta to May 27.",
+        },
+        currentRevision: edited.knowledge.revision,
+      },
+    });
+    expect(mocks.resourceWrites).toHaveLength(writes);
+  });
+
+  it("refuses a publish from an older preview even when the newer body is already published", async () => {
+    seedSource();
+    seedCapture({
+      content: "Decision: ship the beta on May 20.",
+    });
+    const evidence = [
+      {
+        captureId: "capture-1",
+        quote: "Decision: ship the beta on May 20.",
+      },
+    ];
+    const created = await writeKnowledgeRecord({
+      title: "Beta date",
+      body: "The team decided to ship the beta on May 20.",
+      evidence,
+      publishTier: "company",
+    });
+    const previewed = created.knowledge.revision;
+    const edited = await writeKnowledgeRecord({
+      knowledgeId: created.knowledge.id,
+      expectedRevision: previewed,
+      title: "Beta date",
+      body: "The team moved the beta to May 27.",
+      evidence,
+      publishTier: "company",
+    });
+    const published = await setKnowledgeCanonicalResource(
+      edited.knowledge.id,
+      true,
+      edited.knowledge.revision,
+    );
+    const writes = mocks.resourceWrites.length;
+    await expect(
+      setKnowledgeCanonicalResource(edited.knowledge.id, true, previewed),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      statusCode: 409,
+      details: {
+        current: {
+          id: edited.knowledge.id,
+          body: "The team moved the beta to May 27.",
+          publishedResourcePath: published.publishedResourcePath,
+        },
+        currentRevision: published.revision,
+      },
+    });
+    expect(mocks.resourceWrites).toHaveLength(writes);
+  });
+
+  it("refuses to publish again once the audience can't be published, even with its copy in place", async () => {
+    seedSource();
+    seedCapture({
+      content: "Decision: ship the beta on May 20.",
+    });
+    const created = await writeKnowledgeRecord({
+      title: "Beta date",
+      body: "The team decided to ship the beta on May 20.",
+      evidence: [
+        {
+          captureId: "capture-1",
+          quote: "Decision: ship the beta on May 20.",
+        },
+      ],
+      publishTier: "company",
+    });
+    const published = await setKnowledgeCanonicalResource(
+      created.knowledge.id,
+      true,
+      created.knowledge.revision,
+    );
+    const audience = mocks.rows.audiences.find((row) => row.id === "aud_org");
+    expect(audience).toBeDefined();
+    if (audience) audience.kind = "source";
+    const writes = mocks.resourceWrites.length;
+    await expect(
+      setKnowledgeCanonicalResource(
+        created.knowledge.id,
+        true,
+        published.revision,
+      ),
+    ).rejects.toThrow(/Audience-restricted Brain knowledge/);
+    expect(mocks.resourceWrites).toHaveLength(writes);
   });
 
   it("previews the same canonical Markdown that publishing writes", async () => {
@@ -2428,7 +2781,11 @@ describe("Brain knowledge quality gates", () => {
       '1. Planning note (https://example.test/source/beta): "Decision: ship the beta on May 20."',
     );
 
-    await setKnowledgeCanonicalResource(result.knowledge!.id, true);
+    await setKnowledgeCanonicalResource(
+      result.knowledge.id,
+      true,
+      preview.revision,
+    );
     expect(mocks.resourceWrites[mocks.resourceWrites.length - 1]).toMatchObject(
       {
         path: preview.path,
@@ -2454,6 +2811,7 @@ describe("Brain knowledge quality gates", () => {
 
     const updated = await writeKnowledgeRecord({
       knowledgeId: created.knowledge!.id,
+      expectedRevision: created.knowledge.revision,
       title: "Updated beta date",
       body: "The updated beta plan still ships May 20.",
       evidence: [],
@@ -2494,6 +2852,7 @@ describe("Brain knowledge quality gates", () => {
 
     const updated = await writeKnowledgeRecord({
       knowledgeId: created.knowledge!.id,
+      expectedRevision: created.knowledge.revision,
       title: "Beta launch date",
       body: "The beta launch still ships May 20.",
       evidence: [],
@@ -2607,7 +2966,11 @@ describe("Brain knowledge quality gates", () => {
     expect(result.mode).toBe("knowledge");
 
     await expect(
-      setKnowledgeCanonicalResource(result.knowledge!.id, true),
+      setKnowledgeCanonicalResource(
+        result.knowledge.id,
+        true,
+        result.knowledge.revision,
+      ),
     ).rejects.toThrow(/Only published Brain knowledge/);
   });
 
@@ -5755,6 +6118,51 @@ describe("Brain connector smoke coverage", () => {
     expect(mocks.rows.captures).toHaveLength(0);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  it("imports configured string items as transcript captures", async () => {
+    const source = seedSource({
+      id: "configured-string",
+      provider: "clips",
+      configJson: JSON.stringify({
+        transcripts: ["Decision: ship the product launch."],
+      }),
+    });
+    const result = await runConnectorSync(source as never);
+    expect(result.captures).toMatchObject([
+      { kind: "transcript", content: "Decision: ship the product launch." },
+    ]);
+  });
+
+  it.each([
+    "Roadmap launch.\nProduct planning.\npassword: fake-example\nAPI work.\nCustomer launch.",
+    {
+      title: "Planning",
+      kind: "transcript",
+      content:
+        "Roadmap launch.\nProduct planning.\npassword: fake-example\nAPI work.\nCustomer launch.",
+    },
+  ])(
+    "does not store a partial configured Clips transcript while its original remains in source config",
+    async (item) => {
+      const config = { transcripts: [item] };
+      const source = seedSource({
+        id: "clips-configured",
+        provider: "clips",
+        configJson: JSON.stringify(config),
+      });
+      const result = await runConnectorSync(source as never);
+      expect(result).toMatchObject({
+        status: "success",
+        capturesCreated: 0,
+        captures: [],
+      });
+      expect(mocks.rows.captures).toHaveLength(0);
+      expect(JSON.stringify(serializeSource(source as never).config)).toContain(
+        "password: fake-example",
+      );
+      expect(source.configJson).toBe(JSON.stringify(config));
+    },
+  );
 
   it("normalizes configured Granola notes into note captures with connector metadata", async () => {
     const fetchSpy = vi.fn();

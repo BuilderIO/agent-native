@@ -27,6 +27,9 @@ export const organizationSettings = table("organization_settings", {
   })
     .notNull()
     .default("public"),
+  enforceDefaultVisibility: boolean("enforce_default_visibility")
+    .notNull()
+    .default(false),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });
@@ -195,8 +198,18 @@ export const recordings = table("recordings", {
   failureReason: text("failure_reason"),
   failureCode: text("failure_code"),
   recordingPlatform: text("recording_platform", {
-    enum: ["web", "desktop", "extension", "mobile", "import", "unknown"],
+    enum: [
+      "web",
+      "desktop",
+      "extension",
+      "mobile",
+      "import",
+      "agent",
+      "unknown",
+    ],
   }),
+  madeBy: text("made_by", { enum: ["person", "agent"] }),
+  madeByAgent: text("made_by_agent"),
   // Hex SHA-256 of the uploaded file's first megabyte (shared/source-fingerprint),
   // so an automatic retry of a file the owner already uploaded gets that clip
   // back instead of a second copy. Null for live recordings.
@@ -690,6 +703,7 @@ export const calendarAccounts = table("calendar_accounts", {
   })
     .notNull()
     .default("connected"),
+  enabledCalendarIdsJson: text("enabled_calendar_ids_json"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   ...ownableColumns(),
@@ -703,6 +717,7 @@ export const calendarEvents = table("calendar_events", {
   id: text("id").primaryKey(),
   calendarAccountId: text("calendar_account_id").notNull(),
   externalId: text("external_id").notNull(),
+  calendarId: text("calendar_id"),
   title: text("title").notNull().default(""),
   description: text("description").notNull().default(""),
   start: text("start").notNull(),

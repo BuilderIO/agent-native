@@ -53,6 +53,7 @@ import {
   syncPrivateIconReference,
   verifyPrivateIconAssignment,
 } from "../server/lib/private-icon-references.js";
+import { isLocalSourceDirectoryId } from "../shared/local-source-directory.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { observeRecoveryDocumentCreate } from "./_content-save-outcomes.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
@@ -421,6 +422,9 @@ export default defineAction({
   schema: z.object({
     id: z
       .string()
+      .refine((id) => !isLocalSourceDirectoryId(id), {
+        message: "That ID is reserved for linked folder rows.",
+      })
       .optional()
       .describe(
         "Optional pre-generated document ID for optimistic UI. When replaying a create result with creativeContextProjectionStatus pending, use its returned id and the same arguments.",

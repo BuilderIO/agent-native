@@ -108,32 +108,99 @@ const database = {
   githubDetailFolder: "Ordner",
   githubDetailBranch: "Branch",
   githubDetailVersion: "Version",
-  githubDetailUpdated: "Aktualisiert",
-  githubCheckForUpdates: "Auf Aktualisierungen prüfen",
+  sourceDetailUpdated: "Aktualisiert",
   githubOpenFolder: "In GitHub öffnen",
-  githubUnlinkFolder: "Verknüpfung mit Ordner aufheben…",
   githubUnlinkTitle: "Verknüpfung mit diesem GitHub-Ordner aufheben?",
   githubUnlinkBodyOne:
     "Die Seite bleibt hier und wird zu einer normalen Seite, die du bearbeiten kannst. Änderungen auf GitHub kommen dann nicht mehr an. Um diesen Ordner später wieder zu verknüpfen, nimmst du eine neue Sammlung.",
   githubUnlinkBody:
     "Die {{count}} Seiten bleiben hier und werden zu normalen Seiten, die du bearbeiten kannst. Änderungen auf GitHub kommen dann nicht mehr an. Um diesen Ordner später wieder zu verknüpfen, nimmst du eine neue Sammlung.",
-  githubUnlink: "Verknüpfung aufheben",
-  githubUnlinking: "Verknüpfung wird aufgehoben…",
-  githubUnlinkedToast:
+  sourceUnlinkConfirm: "Verknüpfung aufheben",
+  sourceUnlinking: "Verknüpfung wird aufgehoben…",
+  sourceUnlinkedToast:
     "Verknüpfung aufgehoben. Deine Seiten bleiben erhalten, und du kannst sie jetzt bearbeiten.",
-  githubUnlinkFailed:
-    "Die Verknüpfung mit dem Ordner konnte nicht aufgehoben werden",
+  sourceSyncNow: "Jetzt synchronisieren",
+  sourceUnlink: "Verknüpfung aufheben…",
+  sourceUnlinkFailed: "Verknüpfung konnte nicht aufgehoben werden",
+  sourceFromBuilderModel: "Aus dem Modell {{name}} in Builder",
+  sourceDetailsFromBuilderModel: "Details aus dem Modell {{name}} in Builder",
+  sourceDetailsFromNotionDatabase:
+    "Details aus der Datenbank {{name}} in Notion",
+  sourceDetailModel: "Modell",
+  sourceDetailDatabase: "Datenbank",
+  sourceUnlinkBuilderTitle: "Verknüpfung mit diesem Builder-Modell aufheben?",
+  sourceUnlinkBuilderBodyOne:
+    "Die Seite bleibt hier und wird zu einer normalen Seite, die du bearbeiten kannst. Änderungen in Builder kommen dann nicht mehr an.",
+  sourceUnlinkBuilderBody:
+    "Die {{count}} Seiten bleiben hier und werden zu normalen Seiten, die du bearbeiten kannst. Änderungen in Builder kommen dann nicht mehr an.",
+  sourceUnlinkNotionTitle: "Verknüpfung mit dieser Notion-Datenbank aufheben?",
+  sourceUnlinkNotionBodyOne:
+    "Die Seite bleibt hier, und du kannst sie weiter bearbeiten. Details aus Notion kommen dann nicht mehr an.",
+  sourceUnlinkNotionBody:
+    "Die {{count}} Seiten bleiben hier, und du kannst sie weiter bearbeiten. Details aus Notion kommen dann nicht mehr an.",
+  sourceProblemNotion: "Aktualisierung aus Notion fehlgeschlagen.",
+  sourceProblemBuilder: "Aktualisierung aus Builder fehlgeschlagen.",
+  sourceShowingDetailsAsOf: "Stand der Details: {{time}}.",
+  notionSyncedToast: "Aus Notion aktualisiert.",
   githubFromFolder: "Aus dem Ordner {{folder}} auf GitHub",
   githubFromRepo: "Aus {{repo}} auf GitHub",
-  githubUpdatedAgo: "Aktualisiert {{time}}",
-  githubJustNow: "gerade eben",
-  githubNotUpdatedYet: "Noch nicht aktualisiert",
+  sourceUpdatedAgo: "Aktualisiert {{time}}",
+  sourceJustNow: "gerade eben",
+  sourceNotUpdatedYet: "Noch nicht aktualisiert",
   githubEditOnGitHub: "Auf GitHub bearbeiten",
-  githubDetails: "Details",
+  sourceDetails: "Details",
   githubNotShownOne: "1 Datei nicht angezeigt",
   githubNotShown: "{{count}} Dateien nicht angezeigt",
   githubNotShownHeading: "Nicht angezeigt",
-  githubShowingAsOf: "Stand der Seiten: {{time}}.",
+  sourceShowingPagesAsOf: "Stand der Seiten: {{time}}.",
+  sourcePanelFromGitHubFolder:
+    "Die Seiten kommen aus dem Ordner {{folder}} in {{repo}}.",
+  sourcePanelFromGitHubRepo: "Die Seiten kommen aus {{repo}}.",
+  sourcePanelFromBuilderModel: "Die Seiten kommen aus dem Modell {{name}}.",
+  sourcePanelDetailsFromBuilderModel:
+    "Details kommen aus dem Modell {{name}} und werden hier zu passenden Seiten hinzugefügt.",
+  sourcePanelDetailsFromNotionDatabase:
+    "Details kommen aus der Datenbank {{name}} und werden hier zu passenden Seiten hinzugefügt.",
+  sourceUpToDate: "Aktuell · geprüft {{time}}",
+  sourceNoDetailsChosen: "Noch keine Details ausgewählt.",
+  sourceLoadingPageContent:
+    "Seiteninhalte werden geladen: {{done}} von {{total}}",
+  sourceEditingGitHub:
+    "Du kannst diese Seiten hier nicht bearbeiten. Bearbeite sie auf GitHub.",
+  sourceEditingNotion:
+    "Du kannst die Details aus Notion hier nicht bearbeiten. Bearbeite sie in Notion.",
+  sourceEditingBuilderDetails:
+    "Du kannst die Details aus Builder hier nicht bearbeiten. Bearbeite sie in Builder.",
+  sourceEditingBuilderReadOnly:
+    "Änderungen hier werden nicht an Builder gesendet.",
+  sourceEditingBuilderStageOnly:
+    "Änderungen hier werden zur Prüfung in Builder gespeichert, nicht veröffentlicht.",
+  sourceEditingBuilderPublish:
+    "Änderungen hier ändern nach der Prüfung die Live-Website.",
+  sourceNoChangesWaiting: "Keine Änderungen ausstehend",
+  sourcePagesChangedOne: "1 Seite geändert",
+  sourcePagesChanged: "{{count}} Seiten geändert",
+  sourceChangesCheckFailed: "Änderungen konnten nicht geprüft werden.",
+  sourceReviewAndSend: "Prüfen und senden",
+  sourceMore: "Mehr",
+  sourceBuilderEditsHeading: "Was mit meinen Änderungen passiert",
+  sourceBuilderEditsDontSend: "Nicht senden",
+  sourceBuilderEditsSaveForReview: "Zur Prüfung in Builder speichern",
+  sourceBuilderEditsPublish: "Auf der Live-Website veröffentlichen",
+  sourceBuilderPublishConfirmTitle:
+    "Änderungen auf der Live-Website veröffentlichen?",
+  sourceBuilderPublishConfirmBody:
+    "Änderungen, die du nach der Prüfung von hier sendest, ändern die Live-Website sofort.",
+  sourceMatchedOn: "Seiten werden über {{field}} zugeordnet.",
+  sourceMatchedOnIgnoringCase:
+    "Seiten werden über {{field}} zugeordnet, ohne Groß- und Kleinschreibung zu beachten.",
+  sourceMatchedOnCustom:
+    "Seiten werden über {{field}} mit einer eigenen Regel zugeordnet.",
+  sourceUnlinkKeepsPages:
+    "Die Seiten bleiben hier, und du kannst sie dann selbst bearbeiten.",
+  sourceUnlinkKeepsDetailPages:
+    "Die Seiten bleiben hier, und du kannst sie weiter bearbeiten.",
+  sourceChooseDetails: "Details auswählen",
   githubSyncingProgress:
     "Änderungen werden geholt: {{done}} von {{total}} Dateien",
   githubPicturesWaiting:
@@ -368,7 +435,6 @@ const database = {
   addProperty: "Eigenschaft hinzufügen",
   back: "Zurück",
   builderSpace: "Builder-Bereich",
-  connectNotionFirst: "Zuerst Notion verbinden",
   connected: "Verbunden",
   builderBulkUpdateNotStaged:
     "Builder-Massenaktualisierung nicht bereitgestellt",
@@ -377,8 +443,6 @@ const database = {
   builderWriteModeWasNotChanged: "Builder-Schreibmodus wurde nicht geändert",
   closeDatabaseSettings: "Sammlungseinstellungen schließen",
   closeSearch: "Suche schließen",
-  databaseRowsAndLocalPropertiesWereKeptIntact:
-    "Sammlungszeilen und lokale Eigenschaften wurden beibehalten.",
   failedToAttachSource: "Quelle konnte nicht angehängt werden",
   failedToCreateRow: "Zeile konnte nicht erstellt werden",
   pageCreatedCollectionRefreshFailed:
@@ -411,16 +475,19 @@ const database = {
   failedToSavePagePreview: "Seitenvorschau konnte nicht gespeichert werden",
   failedToSaveView: "Ansicht konnte nicht gespeichert werden",
   failedToUpdateCheckbox: "Kontrollkästchen konnte nicht aktualisiert werden",
+  undoPropertyChangedSince:
+    "Nicht rückgängig gemacht: Diese Eigenschaft wurde nach deiner Änderung geändert",
+  redoPropertyChangedSince:
+    "Nicht wiederhergestellt: Diese Eigenschaft wurde nach dem Rückgängigmachen geändert",
+  undoPropertyFailed:
+    "Die Änderung der Eigenschaft konnte nicht rückgängig gemacht werden",
+  redoPropertyFailed:
+    "Die Änderung der Eigenschaft konnte nicht wiederhergestellt werden",
   failedToUpdateEverySelectedRow:
     "Nicht jede ausgewählte Zeile konnte aktualisiert werden",
   filter: "Filter",
-  filterBy: "Filtern nach...",
-  addAdvancedFilter: "Erweiterten Filter hinzufugen",
-  addFilterRule: "Filterregel hinzufugen",
-  addFilterGroup: "Filtergruppe hinzufugen",
   nestedFilterGroupUnavailable:
     "Verschachtelte Filtergruppen brauchen ein Datenmodell-Update",
-  deleteFilter: "Filter loschen",
   where: "Wo",
   sortBy: "Sortieren nach...",
   group: "Gruppe",
@@ -428,8 +495,6 @@ const database = {
   hideEmptyGroups: "Leere Gruppen ausblenden",
   layout: "Layout",
   matchExistingItemsToDetails: "Vorhandene Elemente mit Details abgleichen",
-  moveFilterDown: "Nach unten verschieben",
-  moveFilterUp: "Nach oben verschieben",
   name: "Name",
   nameColumnMenu: "Menü der Namensspalte",
   newBoardGroupName: "Name der neuen Board-Gruppe",
@@ -456,6 +521,7 @@ const database = {
   resizeNameColumn: "Namensspalte anpassen",
   search: "Suchen",
   saveForEveryone: "Für alle speichern",
+  filterRows: "Zeilen",
   searchBuilderModels: "Builder-Modelle suchen",
   searchGroupProperties: "Gruppeneigenschaften suchen",
   searchModels: "Modelle suchen",
@@ -464,8 +530,6 @@ const database = {
   searchProperties: "Eigenschaften suchen",
   somethingWentWrong: "Etwas ist schiefgelaufen",
   sort: "Sortieren",
-  sourceDisconnected: "Quelle getrennt",
-  sourceWasNotDisconnected: "Quelle wurde nicht getrennt",
   sources: "Quellen",
   table: "Tabelle",
   tryAgain: "Erneut versuchen.",
@@ -479,65 +543,71 @@ const database = {
   unfreezeColumns: "Spaltenfixierung aufheben",
   selectAllLoadedRows: "Alle geladenen Zeilen auswählen",
   clearSelectedRows: "Zeilenauswahl aufheben",
-  filterOperatorContains: "Enthält",
-  filterOperatorDoesNotContain: "Enthält nicht",
-  filterOperatorStartsWith: "Beginnt mit",
-  filterOperatorEndsWith: "Endet mit",
-  filterOperatorIs: "Ist",
-  filterOperatorIsNot: "Ist nicht",
-  filterOperatorGreaterThan: "Größer als",
-  filterOperatorLessThan: "Kleiner als",
-  filterOperatorGreaterThanOrEqual: "Größer oder gleich",
-  filterOperatorLessThanOrEqual: "Kleiner oder gleich",
-  filterOperatorBefore: "Vor",
-  filterOperatorAfter: "Nach",
-  filterOperatorOnOrBefore: "Am oder vor",
-  filterOperatorOnOrAfter: "Am oder nach",
-  filterOperatorBetween: "Zwischen",
-  filterOperatorIsWithin: "Liegt im Zeitraum",
-  filterOperatorIsEmpty: "Ist leer",
-  filterOperatorIsNotEmpty: "Ist nicht leer",
-  filterOperatorChecked: "Aktiviert",
-  filterOperatorUnchecked: "Nicht aktiviert",
-  filterDateExact: "Genaues Datum",
-  filterDateToday: "Heute",
-  filterDateTomorrow: "Morgen",
-  filterDateYesterday: "Gestern",
-  filterDatePast: "Letzte",
-  filterDateThis: "Aktuell",
-  filterDateNext: "Nächste",
-  filterDateDays_zero: "Tage",
-  filterDateDays_one: "Tag",
-  filterDateDays_two: "Tage",
-  filterDateDays_few: "Tage",
-  filterDateDays_many: "Tage",
-  filterDateDays_other: "Tage",
-  filterDateWeeks_zero: "Wochen",
-  filterDateWeeks_one: "Woche",
-  filterDateWeeks_two: "Wochen",
-  filterDateWeeks_few: "Wochen",
-  filterDateWeeks_many: "Wochen",
-  filterDateWeeks_other: "Wochen",
-  filterDateMonths_zero: "Monate",
-  filterDateMonths_one: "Monat",
-  filterDateMonths_two: "Monate",
-  filterDateMonths_few: "Monate",
-  filterDateMonths_many: "Monate",
-  filterDateMonths_other: "Monate",
-  filterDateYears_zero: "Jahre",
-  filterDateYears_one: "Jahr",
-  filterDateYears_two: "Jahre",
-  filterDateYears_few: "Jahre",
-  filterDateYears_many: "Jahre",
-  filterDateYears_other: "Jahre",
-  filterDatePastRange: "Letzte {{count}} {{unit}}",
-  filterDateNextRange: "Nächste {{count}} {{unit}}",
-  filterDateThisWeek: "Diese Woche",
-  filterDateThisMonth: "Dieser Monat",
-  filterDateThisYear: "Dieses Jahr",
-  filterDateRangeValue: "{{start}} bis {{end}}",
-  filterChooseDates: "Daten auswählen",
-  filterChooseOption: "Option auswählen",
+  fillWithAi: "Mit KI ausfüllen",
+  fillWithAiTitle: "{{name}} mit KI ausfüllen",
+  fillWithAiDescription:
+    "Jede Zeile bekommt ihren eigenen KI-Durchlauf, der die Seite dieser Zeile liest und nur die Zelle dieser Zeile schreibt.",
+  fillWithAiDescriptionOptions:
+    "Jede Zeile bekommt ihren eigenen KI-Durchlauf, der die Seite dieser Zeile liest und aus den Optionen dieser Spalte wählt.",
+  fillWithAiInstructionLabel: "Was soll in jede Zelle?",
+  fillWithAiInstructionPlaceholder:
+    "Zum Beispiel: eine Beschreibung der Seite in einem Satz für Suchergebnisse",
+  fillWithAiRewrite: "Auch Zellen mit einem Wert neu schreiben",
+  fillWithAiCount_zero: "Füllt {{count}} leere Zellen in dieser Ansicht",
+  fillWithAiCount_one: "Füllt {{count}} leere Zelle in dieser Ansicht",
+  fillWithAiCount_two: "Füllt {{count}} leere Zellen in dieser Ansicht",
+  fillWithAiCount_few: "Füllt {{count}} leere Zellen in dieser Ansicht",
+  fillWithAiCount_many: "Füllt {{count}} leere Zellen in dieser Ansicht",
+  fillWithAiCount_other: "Füllt {{count}} leere Zellen in dieser Ansicht",
+  fillWithAiRewriteCount_zero: "Füllt {{count}} Zellen in dieser Ansicht",
+  fillWithAiRewriteCount_one: "Füllt {{count}} Zelle in dieser Ansicht",
+  fillWithAiRewriteCount_two: "Füllt {{count}} Zellen in dieser Ansicht",
+  fillWithAiRewriteCount_few: "Füllt {{count}} Zellen in dieser Ansicht",
+  fillWithAiRewriteCount_many: "Füllt {{count}} Zellen in dieser Ansicht",
+  fillWithAiRewriteCount_other: "Füllt {{count}} Zellen in dieser Ansicht",
+  fillWithAiNothingEmpty:
+    "Jede Zelle in dieser Ansicht hat bereits einen Wert.",
+  fillWithAiNoRows: "In dieser Ansicht gibt es keine Zeilen zum Ausfüllen.",
+  fillWithAiTooMany:
+    "Mit KI ausfüllen füllt bis zu {{max}} Zellen auf einmal. Filtern Sie die Ansicht auf weniger Zeilen.",
+  fillWithAiLoadedOnly: "Nur die bisher geladenen Zeilen sind enthalten.",
+  fillWithAiAlreadyRunning: "Diese Spalte wird bereits ausgefüllt.",
+  fillWithAiNeedsSetup: "Richten Sie KI ein, um Zellen auszufüllen.",
+  fillWithAiSetUp: "KI einrichten",
+  fillWithAiStart: "Ausfüllen",
+  fillWithAiStartFailed: "Das Ausfüllen konnte nicht gestartet werden.",
+  fillProgress: "{{done}} von {{total}} werden ausgefüllt",
+  fillStopping: "Wird angehalten…",
+  fillStop: "Anhalten",
+  fillStopLabel: "Ausfüllen von {{name}} anhalten",
+  fillStopFailed: "Das Ausfüllen konnte nicht angehalten werden.",
+  fillCellWaiting: "Wartet",
+  fillCellRunning: "Wird ausgefüllt…",
+  fillCellFailed: "Konnte nicht ausgefüllt werden",
+  fillTryAgain: "Erneut versuchen",
+  fillRetryFailed: "Der erneute Versuch ist fehlgeschlagen.",
+  fillOpenChat: "Chat öffnen",
+  fillEditInChat: "Im Chat bearbeiten",
+  fillStarted_zero: "{{count}} Zellen in {{name}} werden ausgefüllt.",
+  fillStarted_one: "{{count}} Zelle in {{name}} wird ausgefüllt.",
+  fillStarted_two: "{{count}} Zellen in {{name}} werden ausgefüllt.",
+  fillStarted_few: "{{count}} Zellen in {{name}} werden ausgefüllt.",
+  fillStarted_many: "{{count}} Zellen in {{name}} werden ausgefüllt.",
+  fillStarted_other: "{{count}} Zellen in {{name}} werden ausgefüllt.",
+  fillFinished: "{{name}} ist ausgefüllt.",
+  fillFinishedWithFailures_zero:
+    "{{name}} ist ausgefüllt. {{count}} Zellen konnten nicht ausgefüllt werden.",
+  fillFinishedWithFailures_one:
+    "{{name}} ist ausgefüllt. {{count}} Zelle konnte nicht ausgefüllt werden.",
+  fillFinishedWithFailures_two:
+    "{{name}} ist ausgefüllt. {{count}} Zellen konnten nicht ausgefüllt werden.",
+  fillFinishedWithFailures_few:
+    "{{name}} ist ausgefüllt. {{count}} Zellen konnten nicht ausgefüllt werden.",
+  fillFinishedWithFailures_many:
+    "{{name}} ist ausgefüllt. {{count}} Zellen konnten nicht ausgefüllt werden.",
+  fillFinishedWithFailures_other:
+    "{{name}} ist ausgefüllt. {{count}} Zellen konnten nicht ausgefüllt werden.",
+  fillStoppedAnnouncement: "Ausfüllen von {{name}} angehalten.",
 };
 
 const databaseExactEnglish = {
@@ -720,6 +790,18 @@ const editor = {
   githubSourceReadOnly:
     "Nur Ansicht. Diese Seite folgt einer Datei in GitHub und wird nach jedem Push aktualisiert.",
   githubSourceOpenFile: "In GitHub öffnen",
+  syncedPageBuilder: "Diese Seite stammt aus dem Modell {{name}} in Builder.",
+  syncedPageBuilderReadOnly:
+    "Änderungen hier werden nicht an Builder gesendet.",
+  syncedPageBuilderStageOnly:
+    "Änderungen hier können nach einer Prüfung in Builder gespeichert, aber nie veröffentlicht werden.",
+  syncedPageBuilderPublish:
+    "Änderungen hier können nach einer Prüfung in Builder veröffentlicht werden.",
+  syncedPageNotion:
+    "Einige Details auf dieser Seite stammen aus der Datenbank {{name}} in Notion und können hier nur angesehen werden.",
+  syncedPageSourceUnreadable:
+    "Es konnte nicht geprüft werden, woher diese Seite stammt.",
+  syncedPageCheckAgain: "Erneut versuchen",
   textColor: "Textfarbe",
   resizeColumns: "Spaltenbreite ändern",
   backgroundColor: "Hintergrundfarbe",
@@ -747,6 +829,8 @@ const editor = {
     delete: "Löschen",
     insertBelow: "Block darunter einfügen",
     insertAbove: "Block darüber einfügen",
+    turnIntoCollection: "In Sammlung umwandeln",
+    turnIntoTable: "In Tabelle umwandeln",
     askAgent: "Agent fragen",
     columns: "Spalten",
     syncedBlock: "Synchronisierter Block",
@@ -767,6 +851,32 @@ const editor = {
     lockedSuggesting:
       "Vorschläge können diese Art von Block nicht hinzufügen oder entfernen.",
     lockedPage: "Diese Seite lässt diese Änderung nicht zu.",
+    lockedCollection: "Eine Sammlung bleibt auf der Seite, zu der sie gehört.",
+    lockedUploadedClip:
+      "Ein auf diese Seite hochgeladener Clip bleibt hier, weil die Seite bestimmt, wer ihn ansehen kann.",
+    moveTo: "Verschieben nach",
+    moveToTitle: "Block verschieben nach",
+    movingTo: "Wird nach {{title}} verschoben…",
+    movedTo: "Nach {{title}} verschoben",
+    copiedTo:
+      "Nach {{title}} kopiert. Der Block hat sich beim Verschieben geändert und bleibt deshalb auch hier.",
+    copiedPageClosed:
+      "Nach {{title}} kopiert. Die Ursprungsseite wurde geschlossen, bevor das Verschieben fertig war, daher ist der Block auch dort noch.",
+    moveChanged:
+      "Der Block hat sich geändert, bevor er verschoben werden konnte. Nichts wurde verschoben.",
+    moveFailed: "Der Block konnte nicht nach {{title}} verschoben werden",
+    openPage: "Öffnen",
+    copyLink: "Link kopieren",
+    linkCopied: "Link kopiert",
+    copyLinkFailed: "Der Link konnte nicht kopiert werden",
+    linkNotReady:
+      "Der Link zu diesem Block ist noch nicht bereit. Versuche es gleich noch einmal.",
+    linkedBlockDeleted:
+      "Der Block, auf den dieser Link verweist, wurde gelöscht.",
+    linkedBlockMissing:
+      "Der Block, auf den dieser Link verweist, wurde nicht gefunden.",
+    linkedBlockLookupFailed:
+      "Der Block, auf den dieser Link verweist, konnte nicht geöffnet werden. Lade die Seite neu, um es noch einmal zu versuchen.",
   },
   noDocumentSelected: "Kein Dokument ausgewählt",
   registryBlockLoadError:
@@ -799,9 +909,37 @@ const editor = {
   creatingDatabase: "Inline-Sammlung wird erstellt...",
   databaseCreated: "Sammlung erstellt",
   emptyBlockPlaceholder: "Drücke „/“ für Befehle",
+  newPagePlaceholder: "Schreib los",
+  newPageLine: "Schreib los, {{draft}} oder {{import}}",
+  newPageLineWithoutImport: "Schreib los oder {{draft}}",
+  newPageLineDraft: "entwirf sie mit dem Agenten",
+  newPageLineImport: "importiere Markdown",
+  newPageDraftPrompt: "Entwirf diese Seite über ",
+  newPageDraftPromptTitled: "Entwirf diese Seite über {{title}}",
+  newPageAgentContextLabel: "Diese Seite",
   describeWhatToGenerate: "Beschreiben Sie, was generiert werden soll ...",
   enterToSubmit: "Zum Absenden eintreten",
   failedToCreateDatabase: "Inline-Sammlung konnte nicht erstellt werden",
+  turningIntoCollection: "Tabelle wird in eine Sammlung umgewandelt...",
+  turnedIntoCollection: "Tabelle in eine Sammlung umgewandelt",
+  failedToTurnIntoCollection:
+    "Die Tabelle konnte nicht in eine Sammlung umgewandelt werden",
+  tableChangedWhileTurning:
+    "Die Tabelle hat sich während der Umwandlung geändert und bleibt daher, wie sie ist. Versuche es erneut.",
+  tableTooBigForCollection:
+    "Eine Sammlung kann eine Tabelle mit bis zu 500 Zeilen und 50 Spalten aufnehmen.",
+  tableTextTooLongForCollection:
+    "In einer Sammlung darf der Name einer Zeile (die erste Spalte der Tabelle) bis zu 500 Zeichen lang sein, andere Zellen bis zu 20.000. Kürze die langen Zellen und versuche es erneut.",
+  turningIntoTable: "Sammlung wird in eine Tabelle umgewandelt...",
+  turnedIntoTable: "Sammlung in eine Tabelle umgewandelt",
+  failedToTurnIntoTable:
+    "Die Sammlung konnte nicht in eine Tabelle umgewandelt werden",
+  collectionChangedWhileTurning:
+    "Die Sammlung hat sich während der Umwandlung geändert und bleibt daher, wie sie ist. Versuche es erneut.",
+  collectionTooBigForTable:
+    "Eine Tabelle kann eine Ansicht mit bis zu 500 Zeilen und 50 Spalten aufnehmen. Filtere die Ansicht oder blende einige Eigenschaften aus und versuche es erneut.",
+  collectionStillLoading:
+    "Die Sammlung wird noch geladen. Versuche es gleich noch einmal.",
   generateWithAi: "Generieren Sie mit KI",
   untitledDatabase: "Unbenannte Sammlung",
   media: {
@@ -811,8 +949,9 @@ const editor = {
     addImage: "Fügen Sie ein Bild hinzu",
     addVideo: "Fügen Sie ein Video hinzu",
     altText: "Alt-Text",
-    altTextGenerationFailed:
-      "Die Alternativtextgenerierung konnte nicht gestartet werden.",
+    altTextAdded: "Alternativtext hinzugefügt.",
+    altTextGenerationFailed: "Alternativtext konnte nicht geschrieben werden.",
+    altTextNeedsAiSetup: "Richten Sie KI ein, um Alternativtext zu schreiben.",
     assets: "Vermögenswerte",
     assetsCopyFailed:
       "Dieses Bild konnte nicht aus Assets kopiert werden. Versuche es erneut oder lade stattdessen die Datei hoch.",
@@ -847,10 +986,12 @@ const editor = {
       "Das aktuelle Dokument konnte nicht gefunden werden.",
     delete: "Löschen",
     describeThisImage: "Beschreiben Sie dieses Bild",
+    dismissAltTextStatus: "Schließen",
     download: "Herunterladen",
     downloadAudio: "Audio herunterladen",
     downloadImage: "Bild herunterladen",
     downloadVideo: "Video herunterladen",
+    editAltTextInChat: "Im Chat bearbeiten",
     embedAudio: "Audio einbetten",
     embedImage: "Bild einbetten",
     embedVideo: "Video einbetten",
@@ -859,7 +1000,7 @@ const editor = {
     expandImage: "Bild vergrößern",
     expandVideo: "Video erweitern",
     generateAltText: "Alternativtext generieren",
-    generatingAltText: "Alternativtext wird generiert...",
+    generatingAltText: "Alternativtext wird geschrieben…",
     image: "Bild",
     imageAdded: "Bild hinzugefügt",
     imagesAdded: "Bilder hinzugefügt",
@@ -873,12 +1014,17 @@ const editor = {
     imageUploadsFailed:
       "{{failed}} von {{total}} Bildern konnten nicht hochgeladen werden.",
     imageView: "Bildansicht",
+    imagePosition: "{{current}} von {{total}}",
+    nextImage: "Nächstes Bild",
+    previousImage: "Vorheriges Bild",
+    keptYourAltText: "Ihr Alternativtext wurde beibehalten.",
     link: "Link [de-DE]",
     loadingAssetsPicker: "Assets-Auswahl wird geladen",
     more: "Mehr",
     moreAudioActions: "Weitere Audioaktionen",
     moreImageActions: "Weitere Bildaktionen",
     moreVideoActions: "Weitere Videoaktionen",
+    openChat: "Chat öffnen",
     openedAudioInNewTab: "Audio in einem neuen Tab geöffnet.",
     openedImageInNewTab: "Bild in einem neuen Tab geöffnet.",
     openedVideoInNewTab: "Video in einem neuen Tab geöffnet.",
@@ -906,6 +1052,7 @@ const editor = {
     transcript: "Transkript",
     transcriptBlockFailed: "Es konnte kein Transkriptblock hinzugefügt werden.",
     transcriptionStarted: "Die Transkription hat begonnen.",
+    tryAgain: "Erneut versuchen",
     upload: "Hochladen",
     uploadFile: "Datei hochladen",
     uploadingAudio: "Audio wird hochgeladen...",
@@ -928,6 +1075,8 @@ const editor = {
     addOption: "Option hinzufügen",
     addProperty: "Eigenschaft hinzufügen",
     addPropertyFailed: "Eigenschaft konnte nicht hinzugefügt werden.",
+    addPropertyTypeUnsupported:
+      "Diese Sammlung kann keine {{type}}-Eigenschaften aufnehmen.",
     addPropertyLink: "{{name}}-Link hinzufügen",
     addPropertyPerson: "{{name}}-Person hinzufügen",
     addPropertyType: "{{type}}-Eigenschaft hinzufügen",
@@ -1428,10 +1577,11 @@ const comments = {
   openRowComments_other: "{{count}} offene Kommentare zu {{title}}",
   openRow: "Zeile öffnen",
   suggestions: "Vorschläge",
-  suggestionAdd: "Hinzufügen",
-  suggestionDelete: "Löschen",
-  suggestionWith: "durch",
-  suggestionReplace: "Ersetzen",
+  suggestionReplaceWith: "„{{old}}“ durch „{{new}}“ ersetzen",
+  suggestionAddText: "„{{text}}“ hinzufügen",
+  suggestionRemoveText: "„{{text}}“ entfernen",
+  suggestionAddParagraph: "Absatz „{{text}}“ hinzufügen",
+  suggestionRemoveParagraph: "Absatz „{{text}}“ entfernen",
   suggestionDetails: "Vorschlagsdetails",
   proposalEditCount_one: "{{count}} Änderung",
   proposalEditCount_other: "{{count}} Änderungen",
@@ -1720,6 +1870,27 @@ const overrides = {
     builderReviewShowMore: "Mehr anzeigen",
     builderReviewRemainingBatches:
       "Nach diesem Stapel erneut überprüfen, um die restlichen Builder-Änderungen vorzubereiten.",
+    builderReviewLoadingMorePagesOne:
+      "Änderungen für 1 weitere Seite werden geladen…",
+    builderReviewLoadingMorePages:
+      "Änderungen für {{count}} weitere Seiten werden geladen…",
+    builderReviewConfirmingBodiesOne:
+      "1 Textänderung wird mit Builder abgeglichen…",
+    builderReviewConfirmingBodies:
+      "{{count}} Textänderungen werden mit Builder abgeglichen…",
+    builderReviewFindingPages: "Seiten mit Änderungen werden gesucht…",
+    builderReviewRowsMatchBuilderOne:
+      "1 Seite stimmt nach der Umwandlung ihres Texts bereits mit Builder überein und ist daher nicht enthalten.",
+    builderReviewRowsMatchBuilder:
+      "{{count}} Seiten stimmen nach der Umwandlung ihrer Texte bereits mit Builder überein und sind daher nicht enthalten.",
+    builderReviewLoadFailed:
+      "Einige Änderungen wurden nicht geladen: {{message}}",
+    bodyDiffAdded: "Hinzugefügt:",
+    bodyDiffRemoved: "Entfernt:",
+    bodyDiffMoreLinesOne: "1 weitere geänderte Zeile",
+    bodyDiffMoreLines: "{{count}} weitere geänderte Zeilen",
+    bodyDiffMoreChangesOne: "1 weitere Änderung nicht angezeigt",
+    bodyDiffMoreChanges: "{{count}} weitere Änderungen nicht angezeigt",
     builderBodiesSyncingProgress:
       "{{hydrated}} von {{total}} Texten werden synchronisiert.",
     builderBodiesSyncFinishedWithFailures:
@@ -1735,8 +1906,6 @@ const overrides = {
     builderRowsLoadingBackground:
       "Builder lädt weiterhin Zeilen im Hintergrund.",
     attachingReadOnly: "Wird angehängt · schreibgeschützt",
-    builderRowsLoadingHitSnag:
-      "Beim Laden der Builder-Zeilen ist ein Problem aufgetreten.",
     opening: "Wird geöffnet...",
   },
   localFiles: localFiles,
@@ -1759,6 +1928,16 @@ const overrides = {
     searchAnyDate: "Beliebiges Datum",
     searchPastWeek: "Letzte Woche",
     searchPastMonth: "Letzter Monat",
+    searchEditor: "Zuletzt bearbeitet von",
+    searchAnyEditor: "Beliebige Person",
+    searchEditedByMe: "Von mir bearbeitet",
+    searchEditedBy: "Bearbeitet von {{name}}",
+    searchMe: "Ich",
+    searchPeoplePlaceholder: "Personen suchen oder E-Mail eingeben",
+    searchNoPeople: "Keine Personen gefunden",
+    searchMorePeople: "Mehr laden",
+    searchPeopleUnavailable:
+      "Personen konnten nicht geladen werden. Du kannst trotzdem eine E-Mail-Adresse eingeben.",
     searchPrevious: "Vorherige Ergebnisse",
     searchNext: "Nächste Ergebnisse",
     searchRetry: "Erneut versuchen",
@@ -1999,8 +2178,24 @@ const overrides = {
     mentionAgents: "Agenten",
     identityPerson: "Person",
     identityEffort: "Denkaufwand",
-    acceptAllAndResolve: "Alle annehmen und erledigen",
-    acceptAndResolve: "Annehmen und erledigen",
+    acceptEdits_one: "{{count}} Änderung annehmen",
+    acceptEdits_other: "{{count}} Änderungen annehmen",
+    acceptRemainingEdits_one: "{{count}} verbleibende annehmen",
+    acceptRemainingEdits_other: "{{count}} verbleibende annehmen",
+    rejectEdits: "Ablehnen",
+    acceptEdit: "Diese Änderung annehmen",
+    rejectEdit: "Diese Änderung ablehnen",
+    editPosition: "Änderung {{index}} von {{total}}",
+    previousEdit: "Vorherige Änderung",
+    nextEdit: "Nächste Änderung",
+    editsAccepted_one: "{{count}} Änderung angenommen",
+    editsAccepted_other: "{{count}} Änderungen angenommen",
+    editsRejected_one: "{{count}} Änderung abgelehnt",
+    editsRejected_other: "{{count}} Änderungen abgelehnt",
+    showEdits: "Anzeigen",
+    hideEdits: "Ausblenden",
+    replyToKeepGoing: "oder antworten, um weiterzumachen",
+    waitingForEditor: "Wartet auf jemanden, der bearbeiten darf.",
     suggestionLoadFailed: "Dieser Vorschlag konnte nicht geladen werden",
     identityRan: "Ausgeführt",
     identityNotRecorded: "Nicht erfasst",
@@ -2026,7 +2221,9 @@ const overrides = {
     aiResponseMode: "Antwort",
     aiChooseSendMode: "KI-Sendemodus auswählen",
     aiSuggestChanges: "Änderungen vorschlagen",
-    aiUnavailable: "Nicht verfügbar",
+    aiModelNotConnected:
+      "{{model}} ist nicht verbunden. Klicken Sie auf den Namen, um ein anderes Modell zu wählen.",
+    aiModelNotConnectedAlone: "{{model}} ist nicht verbunden.",
     aiReplyInThread: "Im Thread antworten",
     aiApplyAndResolve: "Änderungen anwenden und erledigen",
     aiPromptSuggest: "Schlage Änderungen für diesen Kommentar vor.",
@@ -2096,6 +2293,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "Dadurch werden die ausstehende Erstellung und alle ungespeicherten Entwürfe gelöscht. Falls die Seite bereits gespeichert wurde, bleibt sie in deinem Arbeitsbereich erhalten.",
     failedDeletePage: "Seite konnte nicht gelöscht werden",
+    workspaceReferenceProtected:
+      "Arbeitsbereichsreferenzen sind geschützt und können nicht als Seiten geändert werden.",
     failedPermanentDeletePage: "Seite konnte nicht dauerhaft gelöscht werden",
     failedRestorePage: "Seite konnte nicht wiederhergestellt werden",
     failedMovePage: "Seite konnte nicht verschoben werden",

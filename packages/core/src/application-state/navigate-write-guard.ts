@@ -9,7 +9,18 @@ import {
   insideWriteAction,
   isStandaloneNavigateAction,
 } from "../action-frame.js";
+import { getAppConfig } from "../app-config/index.js";
 import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
+import type { ViewportMode } from "../shared/viewport-mode.js";
+
+let viewportModeProbe: (() => ViewportMode | undefined) | undefined;
+
+/** Registers a runtime probe that reports the current request's viewport mode without importing server modules into browser bundles. */
+export function registerViewportModeProbe(
+  probe: () => ViewportMode | undefined,
+): void {
+  viewportModeProbe = probe;
+}
 
 /**
  * The one intent that lets an agent open a view: the user asked to see it.
@@ -21,7 +32,9 @@ export type NavigationIntent = typeof NAVIGATION_OPEN_INTENT;
 
 export type AgentNavigationKeptReason =
   | "detail-requires-open-intent"
-  | "write-keeps-view";
+  | "write-keeps-view"
+  | "navigation-mode-keep"
+  | "background-viewport-locked";
 
 export type AgentNavigationRefusalReason =
   | "read-only-action"
@@ -113,7 +126,9 @@ export function buildAgentNavigationKeptResult(
   const detailClause =
     reason === "write-keeps-view"
       ? "after agent writes"
-      : "instead of opening the item";
+      : reason === "background-viewport-locked"
+        ? "during a background viewport request"
+        : "instead of opening the item";
   return {
     kept: true,
     navigated: false,
@@ -171,7 +186,29 @@ function hasNonEmptyIdValue(value: unknown): boolean {
   return typeof value === "number" && Number.isFinite(value);
 }
 
-function isDetailPath(path: string): boolean {
+function matchesDetailRoutePattern(
+  segments: readonly string[],
+  pattern: string,
+): boolean {
+  const patternSegments = pattern.trim().split("/").filter(Boolean);
+  if (patternSegments.length === 0) return false;
+  for (let i = 0; i < patternSegments.length; i += 1) {
+    const part = patternSegments[i];
+    if (!part) return false;
+    if (part === "*") {
+      return true;
+    }
+    if (i >= segments.length) return false;
+    if (part.startsWith(":")) {
+      if (!segments[i]) return false;
+      continue;
+    }
+    if (segments[i] !== part) return false;
+  }
+  return segments.length === patternSegments.length;
+}
+
+function isDetailPath(path: string, detailRoutes?: readonly string[]): boolean {
   const trimmed = path.trim();
   if (!trimmed) return false;
   const hashIdx = trimmed.indexOf("#");
@@ -185,28 +222,35 @@ function isDetailPath(path: string): boolean {
     }
   }
   const segments = pathname.split("/").filter(Boolean);
-  if (segments.length < 2) return false;
-  const [first, second] = segments;
-  if (!first || first === "settings" || first.startsWith("_")) return false;
-  if (first === "admin") {
-    return segments.length >= 3 && second !== "integrations";
+  const configuredRoutes = detailRoutes ?? getAppConfig().agent.detailRoutes;
+  if (configuredRoutes !== undefined) {
+    return configuredRoutes.some((pattern) =>
+      matchesDetailRoutePattern(segments, pattern),
+    );
   }
+  if (segments.length < 2) return false;
+  const [first] = segments;
+  if (!first || first === "settings" || first.startsWith("_")) return false;
   return true;
 }
 
 /**
  * Default detail-view detector for navigate payloads: true when the command
- * targets a specific item (`id`, `*Id`, `*_id`, a detail query param, a nested
- * `/<section>/<item>` path outside `/settings`, or a nested item path under
- * `/admin/<section>/<id>` outside `/admin/integrations`).
+ * targets a specific item (`id`, `*Id`, `*_id`, a detail query param, a route
+ * matching the app's declared `agent.detailRoutes`, or—when none are declared—
+ * a nested `/<section>/<item>` path outside `/settings`).
  */
 export function isDefaultDetailNavigation(
   navigation: Record<string, unknown>,
+  options?: { detailRoutes?: readonly string[] },
 ): boolean {
   for (const [key, val] of Object.entries(navigation)) {
     if (isDetailKey(key) && hasNonEmptyIdValue(val)) return true;
   }
-  return typeof navigation.path === "string" && isDetailPath(navigation.path);
+  return (
+    typeof navigation.path === "string" &&
+    isDetailPath(navigation.path, options?.detailRoutes)
+  );
 }
 
 function isNavigateKey(key: string): boolean {
@@ -228,6 +272,12 @@ export function navigationKeyForCommandKey(key: string): string | null {
   }
   return null;
 }
+
+const BACKGROUND_VIEWPORT_REFUSAL: AgentNavigationRefusal = {
+  reason: "background-viewport-locked",
+  message:
+    "Refused: background viewport requests cannot navigate the foreground app view.",
+};
 
 const READ_ONLY_REFUSAL: AgentNavigationRefusal = {
   reason: "read-only-action",
@@ -268,17 +318,31 @@ export function evaluateAgentNavigationPolicy(
     isSetUrl?: boolean | undefined;
   } = {},
 ): AgentNavigationRefusal | null {
-  const originCaller = currentActionOriginCaller() ?? options.caller;
-  if (!isAgentCaller(originCaller)) return null;
-  if (options.isSetUrl && isFrameworkUrlToolAuthorized()) return null;
-  if (insideReadOnlyAction()) {
-    return READ_ONLY_REFUSAL;
+  if (viewportModeProbe?.() === "background") {
+    return BACKGROUND_VIEWPORT_REFUSAL;
   }
-  const intent = options.intent ?? currentActionNavigationIntent();
+  const originCaller = currentActionOriginCaller() ?? options.caller;
+  const mode =
+    options.intent ??
+    navigation?.navigationMode ??
+    currentActionNavigationIntent();
+  if (options.isSetUrl && isFrameworkUrlToolAuthorized() && mode !== "keep")
+    return null;
+  if (isAgentCaller(originCaller) && insideReadOnlyAction())
+    return READ_ONLY_REFUSAL;
+  if (mode === "keep") {
+    return {
+      reason: "navigation-mode-keep",
+      message: "Kept the current view as requested.",
+    };
+  }
+  if (!isAgentCaller(originCaller)) return null;
+
   if (
     isAgentNavigationAuthorized() ||
     currentActionAllowsAgentNavigation() ||
-    intent === NAVIGATION_OPEN_INTENT
+    mode === NAVIGATION_OPEN_INTENT ||
+    mode === "reveal"
   ) {
     return null;
   }

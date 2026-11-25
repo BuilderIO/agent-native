@@ -746,12 +746,39 @@ describe("SuggestionHighlight", () => {
     );
   });
 
+  it("marks the active inserted words over an insertion's resting look", () => {
+    const css = readFileSync(resolve(process.cwd(), "app/global.css"), {
+      encoding: "utf8",
+    });
+    const resting = css.match(
+      /\.content-editor \.suggestion-insert\[data-suggestion-widget\],[\s\S]*?\{([^}]*)\}/,
+    )?.[1];
+    const active = css.match(
+      /\.content-editor\s+\.suggestion-insert\.suggestion-inline-widget\.suggestion-highlight--active\[data-suggestion-widget\],[\s\S]*?\{([^}]*)\}/,
+    )?.[1];
+
+    expect(resting).toContain("background: hsl(var(--suggestion) / 0.12);");
+    expect(active).toContain("background: hsl(var(--suggestion) / 0.16);");
+    expect(active).toContain(
+      "box-shadow: inset 0 -2px hsl(var(--suggestion));",
+    );
+    expect(css).not.toMatch(
+      /\.suggestion-insert\.suggestion-highlight--active/,
+    );
+    expect(css).toMatch(
+      /\.content-editor\s+\.suggestion-block-widget\.suggestion-highlight--active\[data-suggestion-widget\]\s*\{\s*box-shadow: inset 3px 0 hsl\(var\(--suggestion\)\);/,
+    );
+    expect(css).toMatch(
+      /\.content-editor\s+\.suggestion-block-widget\.suggestion-highlight--active\[data-suggestion-widget\]:not\(\s*\.suggestion-delete-widget\s*\)\s*\{\s*text-decoration: none;\s*\}/,
+    );
+  });
+
   it("sets new words apart from the whole words they replace", () => {
     const css = readFileSync(resolve(process.cwd(), "app/global.css"), {
       encoding: "utf8",
     });
     expect(css).toMatch(
-      /\.content-editor\s+\.suggestion-inline-widget\.suggestion-insert--spaced\[data-suggestion-widget\]\s*\{[^}]*margin-inline-start: 0\.3em;/,
+      /\.content-editor\s+\.suggestion-inline-widget\.suggestion-insert--spaced\[data-suggestion-widget\]\s*\{[^}]*margin-inline-start: 0\.55em;/,
     );
 
     const text = "Clips keeps the recording you already made. Colour";

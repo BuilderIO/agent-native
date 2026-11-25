@@ -1,0 +1,175 @@
+/*
+ * Part: switch
+ *
+ *   <span class="switch" role="switch"              Base UI Switch.Root
+ *         data-variant="surface|soft"
+ *         [data-color="accent|gray|danger|warning|success|info"]
+ *         [data-high-contrast] [data-radius] [data-checked] [data-unchecked]
+ *         [data-invalid] [data-disabled]>
+ *     <span class="switch-thumb" [data-checked]>    Switch.Thumb
+ *   <input type="checkbox" hidden>                  carries id, name
+ *
+ * Radix Themes' switch on the system's scale: a 16 by 28px track that sits
+ * in a 24px control, with a hit area 2px taller on both edges. Checked fills the track with the nearest color's track step.
+ * Surface's unchecked track is gray step a10, solid where Radix tints it, so
+ * the off state keeps a 3:1 contrast against the page; soft tints both
+ * states. A pill unless `radius` sets the control shape.
+ */
+
+@layer components {
+  .switch {
+    --_height: var(--switch-height, 16px);
+    --_width: var(--switch-width, 28px);
+    --_inset: var(--switch-inset, 2px);
+    --_radius: var(--switch-radius, var(--radius-full));
+
+    position: relative;
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    box-sizing: border-box;
+    width: var(--_width);
+    height: var(--_height);
+    padding: var(--_inset);
+    background-color: var(--_track-color, transparent);
+    border-radius: calc(var(--_radius) * var(--corner-scale, 1));
+    corner-shape: var(--corner-shape, round);
+    vertical-align: top;
+    cursor: pointer;
+    outline-style: none;
+    transition-property: background-color, box-shadow;
+    transition-duration: var(--duration-2);
+    transition-timing-function: var(--ease-standard);
+  }
+
+  .switch::after {
+    content: "";
+    position: absolute;
+    inset: -2px 0;
+  }
+
+  .switch[data-radius] {
+    --_radius: var(--switch-radius, var(--shape-control));
+  }
+
+  .switch-thumb {
+    --_thumb-color: var(--switch-thumb-color, var(--surface-raised));
+    --_thumb-shadow: var(--switch-thumb-shadow, var(--shadow-2));
+
+    display: block;
+    width: calc(var(--_height) - 2 * var(--_inset));
+    height: calc(var(--_height) - 2 * var(--_inset));
+    border-radius: calc(
+      max(0px, var(--_radius) - var(--_inset)) * var(--corner-scale, 1)
+    );
+    corner-shape: var(--corner-shape, round);
+    background-color: var(--_thumb-color);
+    box-shadow: var(--_thumb-shadow);
+    pointer-events: none;
+    transition: translate var(--duration-2) var(--ease-standard);
+  }
+
+  .switch-thumb[data-checked] {
+    translate: calc(
+      (var(--_width) - var(--_height)) * var(--_inline-direction, 1)
+    );
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .switch-thumb {
+      transition: none;
+    }
+  }
+
+  /* ---- sizes ---- */
+
+  /* ---- variants ---- */
+
+  .switch[data-variant="surface"] {
+    --_track-color: var(--switch-surface-track-color, var(--gray-a10));
+  }
+
+  .switch[data-variant="surface"]:where([data-checked]) {
+    --_track-color: var(
+      --switch-surface-track-color-checked,
+      var(--accent-track)
+    );
+  }
+
+  .switch[data-variant="soft"] {
+    --_track-color: var(--switch-soft-track-color, var(--gray-a4));
+  }
+
+  .switch[data-variant="soft"]:where([data-checked]) {
+    --_track-color: var(--switch-soft-track-color-checked, var(--accent-a6));
+  }
+
+  .switch[data-high-contrast]:where([data-checked]) {
+    --_track-color: var(
+      --switch-high-contrast-track-color-checked,
+      var(--accent-12)
+    );
+  }
+
+  .switch[data-invalid][data-unchecked] {
+    --_invalid-ring-color: var(--switch-invalid-ring-color, var(--fill-danger));
+    box-shadow: inset 0 0 0 1px var(--_invalid-ring-color);
+  }
+
+  .switch:focus-visible {
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: var(--focus-ring-offset);
+  }
+
+  /* ---- disabled ---- */
+
+  .switch[data-disabled][data-variant] {
+    --_track-color: var(--switch-disabled-track-color, var(--gray-a3));
+    --_disabled-ring-color: var(--switch-disabled-ring-color, var(--gray-a6));
+
+    cursor: not-allowed;
+    box-shadow: inset 0 0 0 1px var(--_disabled-ring-color);
+  }
+
+  .switch[data-disabled] .switch-thumb {
+    --_thumb-color: var(--switch-disabled-thumb-color, var(--gray-2));
+    --_thumb-shadow: 0 0 0 1px var(--_disabled-ring-color);
+  }
+
+  @media (forced-colors: active) {
+    .switch[data-variant] {
+      forced-color-adjust: none;
+      border: 1px solid ButtonText;
+      padding: calc(var(--_inset) - 1px);
+      background-color: Canvas;
+      box-shadow: none;
+    }
+    .switch-thumb {
+      background-color: ButtonText;
+      box-shadow: none;
+    }
+    .switch[data-variant][data-checked] {
+      background-color: Highlight;
+      border-color: Highlight;
+    }
+    .switch[data-checked] .switch-thumb {
+      background-color: HighlightText;
+    }
+    .switch[data-disabled][data-variant] {
+      background-color: Canvas;
+      border-color: GrayText;
+      box-shadow: none;
+    }
+    .switch[data-disabled] .switch-thumb {
+      background-color: GrayText;
+      box-shadow: none;
+    }
+    .switch[data-invalid][data-unchecked] {
+      border-style: dashed;
+      box-shadow: none;
+    }
+    .switch:focus-visible {
+      outline-color: Highlight;
+    }
+  }
+}

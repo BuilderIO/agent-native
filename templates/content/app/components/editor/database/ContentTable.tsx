@@ -277,7 +277,7 @@ export const ContentTableToolbarButton = forwardRef<
   Omit<ComponentProps<typeof Button>, "children"> & {
     label: string;
     active?: boolean;
-    count?: number;
+    count?: number | undefined;
     children: ReactNode;
   }
 >(function ContentTableToolbarButton(

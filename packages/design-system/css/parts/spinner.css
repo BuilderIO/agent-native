@@ -1,0 +1,43 @@
+/*
+ * Part: spinner
+ *
+ *   <span class="spinner">
+ *
+ * A turning ring the size of a control icon (12, 16 or 20px), in the
+ * current text color. Under reduced motion it pulses instead.
+ */
+
+@layer components {
+  .spinner,
+  :is(.button, .icon-button)[data-loading]::after {
+    display: inline-block;
+    flex-shrink: 0;
+    box-sizing: border-box;
+    width: var(--control-icon-size-3);
+    height: var(--control-icon-size-3);
+    border: 2px solid currentColor;
+    border-inline-end-color: transparent;
+    border-radius: var(--radius-full);
+    opacity: 0.8;
+    animation: spinner-turn 0.7s linear infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spinner,
+    :is(.button, .icon-button)[data-loading]::after {
+      animation: spinner-pulse 1.4s var(--ease-standard) infinite;
+    }
+  }
+}
+
+@keyframes spinner-turn {
+  to {
+    rotate: 360deg;
+  }
+}
+
+@keyframes spinner-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}

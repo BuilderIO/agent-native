@@ -12,7 +12,6 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Command,
-  CommandEmpty,
   CommandGroup,
   CommandInput,
   CommandItem,
@@ -28,11 +27,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   filesNavigationPageParams,
+  filesNavigationQueryKey,
   isFilesRowCreationPending,
   useFilesNavigationPage,
 } from "@/lib/files-navigation";
 
-import { SidebarRowIcon } from "./SidebarNavigationRow";
+import { SidebarRowIcon, SidebarRowsSkeleton } from "./SidebarNavigationRow";
 
 export interface MovePageTarget {
   documentId: string;
@@ -52,12 +52,287 @@ export interface MovePageDestination {
   parentId: string | null;
 }
 
-type Destination = {
-  id: string;
-  title: string;
-  icon: string | null;
-  context: string | null;
-};
+function MovePageDestinationList({
+  databaseId,
+  excludedId,
+  choose,
+}: {
+  databaseId: string;
+  excludedId: string | undefined;
+  choose: (parentId: string | null) => void;
+}) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [unavailable, setUnavailable] = useState(false);
+  const [generation, setGeneration] = useState(0);
+  function restart() {
+    setUnavailable(false);
+    setGeneration((value) => value + 1);
+    void queryClient.invalidateQueries({
+      queryKey: filesNavigationQueryKey(
+        filesNavigationPageParams({
+          databaseId,
+          parentId: null,
+          pagesOnly: true,
+        }),
+      ),
+      exact: true,
+      refetchType: "none",
+    });
+  }
+  return (
+    <>
+      <CommandItem value="__top-level__" onSelect={() => choose(null)}>
+        <IconCornerDownRight className="me-2 size-4 text-muted-foreground" />
+        {t("sidebar.topLevel")}
+      </CommandItem>
+      {unavailable ? (
+        <CommandItem value="__unavailable__" onSelect={restart}>
+          {t("empty.genericError")} {t("root.searchRetry")}
+        </CommandItem>
+      ) : (
+        <MovePageDestinations
+          key={generation}
+          databaseId={databaseId}
+          excludedId={excludedId}
+          choose={choose}
+          precedingIds={new Set()}
+          onUnavailable={() => setUnavailable(true)}
+        />
+      )}
+    </>
+  );
+}
+
+function MovePageDestinations({
+  databaseId,
+  excludedId,
+  choose,
+  precedingIds,
+  cursor,
+  onUnavailable,
+}: {
+  databaseId: string;
+  excludedId: string | undefined;
+  choose: (parentId: string | null) => void;
+  precedingIds: ReadonlySet<string>;
+  cursor?: string;
+  onUnavailable: () => void;
+}) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [showNext, setShowNext] = useState(false);
+  const result = useFilesNavigationPage(
+    filesNavigationPageParams({
+      databaseId,
+      parentId: null,
+      pagesOnly: true,
+      ...(cursor === undefined ? {} : { cursor }),
+    }),
+    undefined,
+    { refetchOnMount: "always" },
+  );
+  const unavailable = Boolean(result.data && "available" in result.data);
+  const invalidCursor = Boolean(
+    cursor &&
+    (result.error as { errorCode?: unknown } | null)?.errorCode ===
+      "invalid_navigation_cursor",
+  );
+  useEffect(() => {
+    if ((unavailable && !result.isFetching) || invalidCursor) onUnavailable();
+  }, [unavailable, invalidCursor, result.isFetching, onUnavailable]);
+  if (invalidCursor) return null;
+  if (result.isError) {
+    return (
+      <CommandItem
+        value={`__retry-${cursor ?? "first"}__`}
+        onSelect={() => void result.refetch()}
+      >
+        {t("empty.genericError")} {t("root.searchRetry")}
+      </CommandItem>
+    );
+  }
+  if (result.isFetching || !result.data || "available" in result.data)
+    return <SidebarRowsSkeleton rows={3} framed={false} />;
+  const items = result.data.items.filter(
+    (item) =>
+      item.type === "page" &&
+      item.documentId !== excludedId &&
+      !precedingIds.has(item.documentId) &&
+      !isFilesRowCreationPending(queryClient, item.documentId),
+  );
+  const seen = new Set([
+    ...precedingIds,
+    ...items.map((item) => item.documentId),
+  ]);
+  const nextCursor = result.data.pagination.hasMore
+    ? result.data.pagination.nextCursor
+    : null;
+  return (
+    <>
+      {items.map((item) => (
+        <CommandItem
+          key={item.documentId}
+          value={item.documentId}
+          onSelect={() => choose(item.documentId)}
+          className="gap-2"
+        >
+          <SidebarRowIcon
+            icon={
+              item.icon || (
+                <IconFileText className="size-4 text-muted-foreground" />
+              )
+            }
+          />
+          <span className="min-w-0 flex-1 truncate">
+            {item.title || t("sidebar.untitled")}
+          </span>
+        </CommandItem>
+      ))}
+      {nextCursor ? (
+        showNext ? (
+          <MovePageDestinations
+            key={nextCursor}
+            databaseId={databaseId}
+            excludedId={excludedId}
+            choose={choose}
+            precedingIds={seen}
+            cursor={nextCursor}
+            onUnavailable={onUnavailable}
+          />
+        ) : (
+          <CommandItem
+            value={`__more-${nextCursor}__`}
+            onSelect={() => setShowNext(true)}
+            className="justify-center text-muted-foreground"
+          >
+            {t("sidebar.showMore")}
+          </CommandItem>
+        )
+      ) : null}
+    </>
+  );
+}
+
+function SearchMovePageDestinations({
+  query,
+  spaceId,
+  excludedId,
+  choose,
+  precedingIds,
+  offset = 0,
+}: {
+  query: string;
+  spaceId: string;
+  excludedId: string;
+  choose: (parentId: string | null) => void;
+  precedingIds: ReadonlySet<string>;
+  offset?: number;
+}) {
+  const t = useT();
+  const [showNext, setShowNext] = useState(false);
+  const result = useActionQuery(
+    "search-documents",
+    {
+      query,
+      spaceId,
+      searchFields: "title",
+      documentType: "page",
+      excludeSubtreeOf: excludedId,
+      limit: 20,
+      offset,
+    },
+    { refetchOnMount: "always" },
+  );
+  if (result.isError) {
+    return (
+      <CommandItem
+        value={`__retry-search-${offset}__`}
+        onSelect={() => void result.refetch()}
+      >
+        {t("empty.genericError")} {t("root.searchRetry")}
+      </CommandItem>
+    );
+  }
+  const data = result.data as
+    | {
+        documents: Array<{
+          id: string;
+          title: string;
+          icon: string | null;
+          parentTitle: string | null;
+          sourceKind: string | null;
+        }>;
+        pagination: { hasMore: boolean; nextOffset: number | null };
+      }
+    | undefined;
+  if (result.isFetching || !data)
+    return <SidebarRowsSkeleton rows={3} framed={false} />;
+  const choices = data.documents.filter(
+    (item) =>
+      item.id !== excludedId &&
+      item.sourceKind !== "folder" &&
+      !precedingIds.has(item.id),
+  );
+  const seen = new Set([...precedingIds, ...choices.map((item) => item.id)]);
+  const nextOffset = data.pagination.hasMore
+    ? data.pagination.nextOffset
+    : null;
+  return (
+    <>
+      {offset === 0 && choices.length === 0 && nextOffset === null ? (
+        <div className="py-6 text-center text-sm">
+          {t("sidebar.noMatchingPages")}
+        </div>
+      ) : null}
+      {choices.map((destination) => (
+        <CommandItem
+          key={destination.id}
+          value={destination.id}
+          onSelect={() => choose(destination.id)}
+          className="gap-2"
+        >
+          <SidebarRowIcon
+            icon={
+              destination.icon || (
+                <IconFileText className="size-4 text-muted-foreground" />
+              )
+            }
+          />
+          <span className="min-w-0 flex-1 truncate">
+            {destination.title || t("sidebar.untitled")}
+          </span>
+          {destination.parentTitle ? (
+            <span className="max-w-[40%] truncate text-xs text-muted-foreground">
+              {destination.parentTitle}
+            </span>
+          ) : null}
+        </CommandItem>
+      ))}
+      {nextOffset !== null ? (
+        showNext ? (
+          <SearchMovePageDestinations
+            key={nextOffset}
+            query={query}
+            spaceId={spaceId}
+            excludedId={excludedId}
+            choose={choose}
+            precedingIds={seen}
+            offset={nextOffset}
+          />
+        ) : (
+          <CommandItem
+            value={`__more-search-${nextOffset}__`}
+            onSelect={() => setShowNext(true)}
+            className="justify-center text-muted-foreground"
+          >
+            {t("sidebar.showMore")}
+          </CommandItem>
+        )
+      ) : null}
+    </>
+  );
+}
 
 export function MovePageDialog({
   page,
@@ -71,7 +346,6 @@ export function MovePageDialog({
   onMove: (page: MovePageTarget, destination: MovePageDestination) => void;
 }) {
   const t = useT();
-  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
@@ -96,67 +370,6 @@ export function MovePageDialog({
     spaces.find((candidate) => candidate.id === targetSpaceId) ?? null;
   const crossSpace = Boolean(space && page && space.id !== page.spaceId);
   const open = page !== null && space !== null;
-
-  const roots = useFilesNavigationPage(
-    filesNavigationPageParams({
-      databaseId: space?.filesDatabaseId ?? "",
-      parentId: null,
-    }),
-    undefined,
-    { enabled: open && query === "" },
-  );
-  const results = useActionQuery(
-    "search-documents",
-    {
-      query,
-      spaceId: space?.id,
-      searchFields: "title",
-      documentType: "page",
-      excludeSubtreeOf: page?.documentId,
-      limit: 20,
-    },
-    { enabled: open && query !== "" },
-  );
-
-  const destinations: Destination[] =
-    query === ""
-      ? (roots.data && !("available" in roots.data) ? roots.data.items : [])
-          // A page still being created can't take children until the server
-          // has it.
-          .filter(
-            (item) =>
-              item.type === "page" &&
-              !isFilesRowCreationPending(queryClient, item.documentId),
-          )
-          .map((item) => ({
-            id: item.documentId,
-            title: item.title,
-            icon: item.icon,
-            context: null,
-          }))
-      : (
-          (
-            results.data as
-              | {
-                  documents?: Array<{
-                    id: string;
-                    title: string;
-                    icon: string | null;
-                    parentTitle: string | null;
-                  }>;
-                }
-              | undefined
-          )?.documents ?? []
-        ).map((document) => ({
-          id: document.id,
-          title: document.title,
-          icon: document.icon,
-          context: document.parentTitle,
-        }));
-  const loading = query === "" ? roots.isLoading : results.isLoading;
-  const choices = destinations.filter(
-    (destination) => destination.id !== page?.documentId,
-  );
 
   function move(parentId: string | null) {
     if (!page || !space) return;
@@ -267,43 +480,25 @@ export function MovePageDialog({
               aria-label={t("sidebar.searchPages")}
             />
             <CommandList className="max-h-80">
-              {!loading ? (
-                <CommandEmpty>{t("sidebar.noMatchingPages")}</CommandEmpty>
-              ) : null}
               <CommandGroup>
-                {query === "" ? (
-                  <CommandItem
-                    value="__top-level__"
-                    onSelect={() => choose(null)}
-                  >
-                    <IconCornerDownRight className="me-2 size-4 text-muted-foreground" />
-                    {t("sidebar.topLevel")}
-                  </CommandItem>
+                {open && query === "" && search.trim() === query ? (
+                  <MovePageDestinationList
+                    key={space.id}
+                    databaseId={space.filesDatabaseId}
+                    excludedId={page.documentId}
+                    choose={choose}
+                  />
                 ) : null}
-                {choices.map((destination) => (
-                  <CommandItem
-                    key={destination.id}
-                    value={destination.id}
-                    onSelect={() => choose(destination.id)}
-                    className="gap-2"
-                  >
-                    <SidebarRowIcon
-                      icon={
-                        destination.icon || (
-                          <IconFileText className="size-4 text-muted-foreground" />
-                        )
-                      }
-                    />
-                    <span className="min-w-0 flex-1 truncate">
-                      {destination.title || t("sidebar.untitled")}
-                    </span>
-                    {destination.context ? (
-                      <span className="max-w-[40%] truncate text-xs text-muted-foreground">
-                        {destination.context}
-                      </span>
-                    ) : null}
-                  </CommandItem>
-                ))}
+                {open && query !== "" && search.trim() === query ? (
+                  <SearchMovePageDestinations
+                    key={`${space.id}:${query}`}
+                    query={query}
+                    spaceId={space.id}
+                    excludedId={page.documentId}
+                    choose={choose}
+                    precedingIds={new Set()}
+                  />
+                ) : null}
               </CommandGroup>
             </CommandList>
           </Command>

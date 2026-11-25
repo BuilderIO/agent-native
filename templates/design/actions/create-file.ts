@@ -11,10 +11,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { designChangeResource } from "../server/lib/design-change-resource.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import { trackDesign } from "../server/lib/design-tracking.js";
-import {
-  checkpointSkippedResultField,
-  snapshotDesignBeforeAgentEdit,
-} from "../server/lib/design-versions.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import { readDesignDataForUpdate } from "../server/lib/screen-frame-type-store.js";
 import { screenRestoreContentHashes } from "../server/lib/screen-restore-claims.js";
 import {
@@ -220,10 +217,7 @@ export default defineAction({
       filename,
     });
 
-    const checkpoint = await snapshotDesignBeforeAgentEdit(designId, context, {
-      allowCheckpointFailureSkip: true,
-    });
-    const checkpointField = checkpointSkippedResultField(checkpoint);
+    await snapshotDesignBeforeAgentEdit(designId, context);
 
     const requestedId = nanoid();
     const now = new Date().toISOString();
@@ -734,7 +728,6 @@ export default defineAction({
       ...(advisory.length > 0
         ? { warnings: advisory.map(describeDesignHtmlIntegrityIssue) }
         : {}),
-      ...checkpointField,
     };
   },
   changeResource: (p, result) => designChangeResource(p.designId, result),

@@ -1,4 +1,9 @@
-import type { Settings, AvailabilityConfig, BookingLink } from "@shared/api";
+import type {
+  Settings,
+  AvailabilityConfig,
+  BookingLink,
+  PublicSingleUseLinkStatus,
+} from "@shared/api";
 import { useQuery } from "@tanstack/react-query";
 
 import { appApiPath } from "@/lib/api-path";
@@ -31,12 +36,23 @@ export function usePublicAvailability(slug?: string, username?: string) {
   });
 }
 
-export function usePublicBookingLink(slug?: string, username?: string) {
-  return useQuery<BookingLink & { redirect?: string; redirectPath?: string }>({
-    queryKey: ["public-booking-link", slug, username],
+export function usePublicBookingLink(
+  slug?: string,
+  username?: string,
+  singleUseToken?: string,
+) {
+  return useQuery<
+    BookingLink & {
+      redirect?: string;
+      redirectPath?: string;
+      singleUse?: { status: PublicSingleUseLinkStatus };
+    }
+  >({
+    queryKey: ["public-booking-link", slug, username, singleUseToken],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (username) params.set("username", username);
+      if (singleUseToken !== undefined) params.set("once", singleUseToken);
       const path = params.size
         ? `/api/public/booking-links/${slug}?${params}`
         : `/api/public/booking-links/${slug}`;

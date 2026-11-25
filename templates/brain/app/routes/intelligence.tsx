@@ -93,6 +93,7 @@ function Failure({ error }: { error: unknown }) {
 
 function Evidence({ evidence }: { evidence: IntelligenceItem["evidence"] }) {
   const t = useT();
+  const format = useFormatters();
   return (
     <details className="mt-3 text-sm">
       <summary className="cursor-pointer text-muted-foreground">
@@ -121,6 +122,17 @@ function Evidence({ evidence }: { evidence: IntelligenceItem["evidence"] }) {
                 {item.captureTitle}
               </Link>
             )}
+            {item.capturedAt && !Number.isNaN(Date.parse(item.capturedAt)) ? (
+              <time
+                className="ms-2 text-muted-foreground"
+                dateTime={item.capturedAt}
+              >
+                {format.formatDate(item.capturedAt, {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                })}
+              </time>
+            ) : null}
             <blockquote className="mt-1 whitespace-pre-wrap text-muted-foreground">
               {item.quote}
             </blockquote>

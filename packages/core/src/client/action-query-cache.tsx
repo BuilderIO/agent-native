@@ -30,6 +30,7 @@ import { actionErrorStatus } from "./action-failure-circuit.js";
 import { trustedActionQueryCacheBindingPendingContext } from "./action-query-cache-context.js";
 import {
   ACTION_CACHE_FLUSH_EVENT,
+  type ActionCacheFlushDetail,
   readMutationEpoch,
 } from "./action-query-cache-mutation.js";
 import { clientBuildId } from "./build-compatibility.js";
@@ -410,8 +411,7 @@ function scopedPersister(scope: string, cacheEpoch: string): ScopedPersister {
   let restoreAccepted = false;
   let restoreBlocked = false;
   let restoreRevision = 0;
-  // Never adopt a later epoch: another tab may have written data this client has not read.
-  const mutationEpoch = readMutationEpoch();
+  let mutationEpoch = readMutationEpoch();
   const writesInFlight = new Set<Promise<void>>();
 
   const clearRestoredState = () => {
@@ -467,7 +467,25 @@ function scopedPersister(scope: string, cacheEpoch: string): ScopedPersister {
     typeof window.addEventListener === "function"
       ? window
       : undefined;
-  const flushPending = () => {
+  const flushPending = (event?: Event) => {
+    const settledEpoch =
+      event instanceof CustomEvent
+        ? (event.detail as ActionCacheFlushDetail).settledEpoch
+        : undefined;
+    if (
+      typeof settledEpoch === "string" &&
+      settledEpoch !== mutationEpoch &&
+      readMutationEpoch() === settledEpoch
+    ) {
+      mutationEpoch = settledEpoch;
+      if (latest) {
+        const restamped: PersistedClient & { mutationEpoch: string } = {
+          ...latest,
+          mutationEpoch,
+        };
+        latest = restamped;
+      }
+    }
     if (timer === undefined) return;
     clearTimeout(timer);
     flush();

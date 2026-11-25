@@ -2514,13 +2514,18 @@ const AgentKitAssistantChatBody = forwardRef<
             persistenceKey,
             threadData: snapshot.threadData,
           };
-          try {
-            props.onThreadSnapshotPersisted?.(threadId, snapshot.messageCount);
-          } catch (error) {
-            console.error(
-              "Failed to report the saved chat thread snapshot.",
-              error,
-            );
+          if (!isUnmountingRef.current) {
+            try {
+              props.onThreadSnapshotPersisted?.(
+                threadId,
+                snapshot.messageCount,
+              );
+            } catch (error) {
+              console.error(
+                "Failed to report the saved chat thread snapshot.",
+                error,
+              );
+            }
           }
           if (retryThreadSaveTimerRef.current !== null) {
             window.clearTimeout(retryThreadSaveTimerRef.current);
@@ -4040,20 +4045,20 @@ const AgentKitAssistantChatBody = forwardRef<
       );
       const announced = announceComposerSubmit(text, runWasActiveAtSubmit);
       setContinueSubmissionFailed(false);
-      const release = await acquireSubmission();
-      if (!release) {
-        withdrawAgentChatComposerSubmit(announced);
-        throw new Error(t("agentChat.recovery.deferredSubmissionFailed"));
-      }
-      noticeAttempt.promote();
       const pending =
         !runWasActiveAtSubmit && !composerOptions.submissionId
           ? beginSubmittedMessage(text, files)
           : undefined;
-      if (pending) {
-        composerOptions = { ...composerOptions, submissionId: pending.id };
-      }
+      let release: (() => void) | null = null;
       try {
+        release = await acquireSubmission();
+        if (!release) {
+          throw new Error(t("agentChat.recovery.deferredSubmissionFailed"));
+        }
+        noticeAttempt.promote();
+        if (pending) {
+          composerOptions = { ...composerOptions, submissionId: pending.id };
+        }
         const preparedOptions = prepare
           ? { ...(await prepare()), submissionId: composerOptions.submissionId }
           : composerOptions;
@@ -7083,14 +7088,22 @@ function AgentKitRunFailure({
           () => sendContinueRequest(surface, retryRequest, runId),
           setContinueFailed,
         );
+  const genericFailure =
+    error.code === "runtime_error" ||
+    error.code === "provider_internal_error" ||
+    /^http_5\d\d$/.test(error.code);
   const info: RunErrorInfo = {
     message: canRetryWithoutAttachment
       ? t("agentChat.errorMessages.invalidAttachmentNamed", {
           name: failedAttachmentNames.join(", "),
         })
-      : formatAgentKitErrorText(error, t),
+      : genericFailure
+        ? t("actionErrors.failed")
+        : formatAgentKitErrorText(error, t),
     errorCode: error.code,
-    details: formatErrorDetails(error.details),
+    details:
+      formatErrorDetails(error.details) ||
+      (genericFailure ? error.message : undefined),
     runId,
     recoverable: error.retryable,
   };

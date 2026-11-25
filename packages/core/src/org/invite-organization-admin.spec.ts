@@ -98,8 +98,8 @@ beforeEach(() => {
   });
 });
 describe("public authenticated admin invitation", () => {
-  it("exports a callable supported helper", () =>
-    expect(inviteOrganizationAdmin).toBeTypeOf("function"));
+  // oracle-change: removed the typeof-function export check; every test below calls inviteOrganizationAdmin through invoke(), which fails if the export is missing
+
   it("uses actual membership, actor org/name, canonical email and fixed admin with one audit", async () => {
     const result = await invoke(input);
     expect(result).toMatchObject({
@@ -230,6 +230,19 @@ describe("public authenticated admin invitation", () => {
       name: "AuditAttributionError",
     });
     effectsAbsent();
+  });
+  it("does not report a suppressed send as delivered", async () => {
+    seam.send.mockResolvedValueOnce({
+      status: "suppressed",
+      reason: "test-identity",
+    });
+    await expect(invoke(input)).resolves.toMatchObject({
+      status: "pending",
+      emailSent: false,
+      emailError: "The invitation email was not delivered",
+    });
+    expect(writes()).toHaveLength(1);
+    expect(seam.record).toHaveBeenCalledTimes(1);
   });
   it("preserves shared transport failure semantics and audits the created pending invitation once", async () => {
     seam.send.mockRejectedValueOnce(new Error("synthetic SMTP failure"));

@@ -97,7 +97,7 @@ const seedScenarios = [
 it.each(seedScenarios)(
   "does not overwrite a peer $kind seed committed after its absent-state read",
   async ({ kind, staleValue, peerValue, expectedSnapshot, expectedValue }) => {
-    const pglite = await createTestPglite();
+    const pglite = await createTestPglite({ reuseEmptyBootstrap: true });
     const readPaused = createDeferred();
     const releaseRead = createDeferred();
     const gate = {
@@ -121,7 +121,10 @@ it.each(seedScenarios)(
         updated_at TEXT NOT NULL DEFAULT NOW()::text
       )
     `);
-      vi.doMock("../db/client.js", () => ({ getDbExec: () => exec }));
+      vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
+        getDbExec: () => exec,
+      }));
       vi.doMock("../db/ddl-guard.js", () => ({
         ensureColumnExists: vi.fn().mockResolvedValue(undefined),
         ensureTableExists: vi.fn().mockResolvedValue(undefined),
@@ -188,7 +191,7 @@ it.each([
 ] as const)(
   "fills an existing empty $kind state row instead of treating it as seeded",
   async ({ kind, source, snapshot }) => {
-    const pglite = await createTestPglite();
+    const pglite = await createTestPglite({ reuseEmptyBootstrap: true });
     const docId = `empty-seed:${kind}`;
     try {
       await pglite.exec(`
@@ -210,7 +213,10 @@ it.each([
         paused: false,
         onMissingRead: async () => {},
       });
-      vi.doMock("../db/client.js", () => ({ getDbExec: () => exec }));
+      vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
+        getDbExec: () => exec,
+      }));
       vi.doMock("../db/ddl-guard.js", () => ({
         ensureColumnExists: vi.fn().mockResolvedValue(undefined),
         ensureTableExists: vi.fn().mockResolvedValue(undefined),
@@ -245,7 +251,7 @@ it.each([
 );
 
 it("invalidates a cached empty doc after a client-backed seed before a write", async () => {
-  const pglite = await createTestPglite();
+  const pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   const docId = "empty-seed:transaction-write";
   try {
     await pglite.exec(`
@@ -267,7 +273,10 @@ it("invalidates a cached empty doc after a client-backed seed before a write", a
       paused: false,
       onMissingRead: async () => {},
     });
-    vi.doMock("../db/client.js", () => ({ getDbExec: () => exec }));
+    vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
+      getDbExec: () => exec,
+    }));
     vi.doMock("../db/ddl-guard.js", () => ({
       ensureColumnExists: vi.fn().mockResolvedValue(undefined),
       ensureTableExists: vi.fn().mockResolvedValue(undefined),
@@ -294,7 +303,7 @@ it("invalidates a cached empty doc after a client-backed seed before a write", a
 });
 
 it("accepts one initial XmlFragment seed across independent manager instances", async () => {
-  const pglite = await createTestPglite();
+  const pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   const docId = "xml-seed:concurrent";
   const readPaused = createDeferred();
   const releaseRead = createDeferred();
@@ -319,7 +328,10 @@ it("accepts one initial XmlFragment seed across independent manager instances", 
         updated_at TEXT NOT NULL DEFAULT NOW()::text
       )
     `);
-    vi.doMock("../db/client.js", () => ({ getDbExec: () => exec }));
+    vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
+      getDbExec: () => exec,
+    }));
     vi.doMock("../db/ddl-guard.js", () => ({
       ensureColumnExists: vi.fn().mockResolvedValue(undefined),
       ensureTableExists: vi.fn().mockResolvedValue(undefined),
@@ -381,7 +393,7 @@ it.each([
 ] as const)(
   "does not reseed a marked live document after deletion leaves an %s",
   async (shape, expectedBody) => {
-    const pglite = await createTestPglite();
+    const pglite = await createTestPglite({ reuseEmptyBootstrap: true });
     const docId = "xml-seed:cleared-marked-body";
     const emit = vi.fn();
     let manager: typeof import("./ydoc-manager.js") | null = null;
@@ -401,7 +413,10 @@ it.each([
         paused: false,
         onMissingRead: async () => {},
       });
-      vi.doMock("../db/client.js", () => ({ getDbExec: () => exec }));
+      vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
+        getDbExec: () => exec,
+      }));
       vi.doMock("../db/ddl-guard.js", () => ({
         ensureColumnExists: vi.fn().mockResolvedValue(undefined),
         ensureTableExists: vi.fn().mockResolvedValue(undefined),
@@ -453,7 +468,7 @@ it.each([
 );
 
 it("replaces only an empty paragraph filler and broadcasts its removal", async () => {
-  const pglite = await createTestPglite();
+  const pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   const docId = "xml-seed:empty-paragraph";
   const filler = new Y.Doc();
   filler.getXmlFragment("default").insert(0, [new Y.XmlElement("paragraph")]);
@@ -480,7 +495,10 @@ it("replaces only an empty paragraph filler and broadcasts its removal", async (
       paused: false,
       onMissingRead: async () => {},
     });
-    vi.doMock("../db/client.js", () => ({ getDbExec: () => exec }));
+    vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
+      getDbExec: () => exec,
+    }));
     vi.doMock("../db/ddl-guard.js", () => ({
       ensureColumnExists: vi.fn().mockResolvedValue(undefined),
       ensureTableExists: vi.fn().mockResolvedValue(undefined),
