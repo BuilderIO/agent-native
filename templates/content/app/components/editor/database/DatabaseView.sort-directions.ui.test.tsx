@@ -15,11 +15,10 @@ vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   useSession: () => ({ session: null }),
 }));
 
+import { DatabaseSortWords, SortMenu } from "./DatabaseSortMenu";
 import {
   ColumnHeaderMenuContent,
-  DatabaseActiveConstraintsBar,
   databaseColumnHeaderStateLabel,
-  SortMenu,
 } from "./DatabaseView";
 import type { DatabaseSort } from "./types";
 
@@ -107,54 +106,80 @@ describe("sort directions named for the column", () => {
     ]);
   });
 
-  it("names a checkbox sort chip's direction in its label and its menu", async () => {
+  it("names a checkbox sort's direction in the Sort menu and its hint", async () => {
     const latest: { sorts: DatabaseSort[] } = {
       sorts: [{ key: "done", label: "Done", direction: "asc" }],
     };
 
-    function Bar() {
+    function Menu() {
       const [sorts, setSorts] = useState(latest.sorts);
-      const [openSortIndex, setOpenSortIndex] = useState<number | null>(null);
       latest.sorts = sorts;
       return (
-        <DatabaseActiveConstraintsBar
-          searchQuery=""
-          sorts={sorts}
-          filters={[]}
+        <SortMenu
           properties={properties}
-          filterFields={[]}
-          filterState={{ mode: "and", items: [], pinned: {} }}
-          constraintCount={sorts.length}
-          forceShow
-          openSortIndex={openSortIndex}
-          hasPersonalQueryChanges={false}
-          savePending={false}
-          onSortOpenIndexChange={setOpenSortIndex}
-          onClearSearch={() => {}}
-          onRemoveSort={() => {}}
+          sorts={sorts}
           onSortsChange={setSorts}
-          onFilterStateChange={() => {}}
-          onClearAll={() => {}}
-          onResetPersonalChanges={() => {}}
-          onSaveForEveryone={() => {}}
         />
       );
     }
 
-    renderUi(<Bar />);
+    renderUi(<Menu />);
 
-    // The arrow icon is hidden; the chip's text carries the direction.
-    await click(button("Done, Unchecked → checked"));
-    await click(menuItem("Unchecked → checked"));
-    expect(menuItemTexts()).toEqual(
-      expect.arrayContaining(["Unchecked → checked", "Checked → unchecked"]),
-    );
-
-    await click(menuItem("Checked → unchecked"));
+    await click(byLabel("1 active sorts"));
+    await click(button("Unchecked → checked"));
     expect(latest.sorts).toEqual([
       { key: "done", label: "Done", direction: "desc" },
     ]);
-    expect(button("Done, Checked → unchecked")).toBeDefined();
+    expect(button("Checked → unchecked")).toBeDefined();
+  });
+
+  it("lists the sorts in words for the Sort button's hint", () => {
+    const view = renderUi(
+      <DatabaseSortWords
+        properties={properties}
+        sorts={[
+          { key: "done", label: "Done", direction: "desc" },
+          { key: "due", label: "Due", direction: "asc" },
+        ]}
+      />,
+    );
+    expect(
+      [...view.container.querySelectorAll("li")].map((item) =>
+        item.textContent.trim(),
+      ),
+    ).toEqual(["Done, Checked → unchecked", "Due, Old → new"]);
+  });
+
+  it("removes a sort line and clears every sort from the Sort menu", async () => {
+    const latest: { sorts: DatabaseSort[] } = {
+      sorts: [
+        { key: "estimate", label: "Estimate", direction: "asc" },
+        { key: "due", label: "Due", direction: "desc" },
+      ],
+    };
+
+    function Menu() {
+      const [sorts, setSorts] = useState(latest.sorts);
+      latest.sorts = sorts;
+      return (
+        <SortMenu
+          properties={properties}
+          sorts={sorts}
+          onSortsChange={setSorts}
+        />
+      );
+    }
+
+    renderUi(<Menu />);
+
+    await click(byLabel("2 active sorts"));
+    expect(document.body.textContent).not.toContain("then by");
+    await click(byLabel("Remove sort: Estimate"));
+    expect(latest.sorts).toEqual([
+      { key: "due", label: "Due", direction: "desc" },
+    ]);
+    await click(button("Clear sorts"));
+    expect(latest.sorts).toEqual([]);
   });
 
   it("toggles a number sort between low and high in the Sort menu", async () => {

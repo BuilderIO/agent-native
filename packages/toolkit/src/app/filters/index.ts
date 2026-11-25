@@ -28,6 +28,7 @@ export {
   findFilterGroup,
   findFilterRule,
   hasIncompleteFilterRules,
+  incompleteFilterRuleIds,
   isDefaultFilterState,
   isFilterOperator,
   isFilterRuleComplete,
@@ -92,6 +93,11 @@ export {
 export { searchFilterFields, type FilterSearchResult } from "./search.js";
 export { useFilterText, type FilterText } from "./text.js";
 export { FilterBar, type FilterBarProps } from "./FilterBar.js";
+export {
+  FilterFieldPicker,
+  FilterOperatorSelect,
+  FilterRuleEditor,
+} from "./FilterEditors.js";
 export {
   FilterButton,
   FilterPanel,

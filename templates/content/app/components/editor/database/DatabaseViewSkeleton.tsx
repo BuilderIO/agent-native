@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 export const DATABASE_VIEW_CLASS_NAME = "mt-4 min-w-0 w-full max-w-full";
 
 export const DATABASE_VIEW_TABS_ROW_CLASS_NAME =
-  "mb-1 flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 pb-1";
+  "mb-1 flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 pb-1 sm:flex-nowrap";
 
 export const DATABASE_VIEW_CONSTRAINTS_ROW_CLASS_NAME =
   "min-h-8 gap-1 py-0.5 text-muted-foreground";
