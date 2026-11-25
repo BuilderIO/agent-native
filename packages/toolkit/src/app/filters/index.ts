@@ -61,6 +61,22 @@ export {
   type FilterState,
 } from "./model.js";
 export {
+  duplicateFilterLine,
+  FILTER_GROUP_LEVELS,
+  filterGroupLevel,
+  filterJoinIsWhole,
+  filterLineJoin,
+  filterLineParent,
+  groupFilterLineWith,
+  joinFilterLine,
+  moveFilterLine,
+  takeFilterLineOut,
+  ungroupFilterLine,
+  type FilterJoinResult,
+  type FilterLineOptions,
+  type FilterLinePlace,
+} from "./lines.js";
+export {
   filterSearchKey,
   filterStateKey,
   filterStateToParams,
