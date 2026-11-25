@@ -224,7 +224,7 @@ function row(id: string): HTMLElement {
 
 function anchored(id: string): HTMLElement {
   const element = container.querySelector<HTMLElement>(
-    `[id="${id}"][data-row-id]`,
+    `[id="${id}"][data-rid]`,
   );
   if (!element) throw new Error(`model row ${id} is missing`);
   return element;
