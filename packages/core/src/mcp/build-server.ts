@@ -166,17 +166,22 @@ import {
 } from "./embed-redaction.js";
 import {
   MCP_ACTION_APPROVAL_TTL_SECONDS,
+  MCP_CONNECTION_REQUIRED_TTL_SECONDS,
   type EmbedCredentialGuard,
   type McpActionApprovalState,
   type McpActionCallContext,
   type McpActionCallEffect,
   type McpActionCallOutcome,
+  type McpActionConnectionState,
+  type McpActionRequestState,
   type McpApprovalReview,
+  type McpConnectionRequiredDetails,
   canonicalJson,
   executeMcpActionCall,
   isActionVisibleForOAuthScope,
   mcpActionErrorCode,
   redactEmbedCredentials,
+  resolveTrustedMcpConnectUrl,
   sha256Base64Url,
   UnreadableResultError,
   type UpstreamStatus,
@@ -426,6 +431,7 @@ export function hasVerifiedMcpUserIdentity(
 }
 
 export const MCP_ACTION_APPROVAL_INPUT_KEY = "actionApproval";
+export const MCP_ACTION_CONNECTION_INPUT_KEY = "connectionRequired";
 
 /**
  * The approval prompt a client that offers both kinds gets. A form answers in
@@ -3891,9 +3897,11 @@ export async function createMCPServerForRequest(
       entry.mcpNeedsApproval !== undefined ||
       actionUserTurn(entry) === "approval",
   );
-  const approvalOrgId = hasApprovalActions ? await orgIdPromise : undefined;
+  const hasCallableActions =
+    hasApprovalActions || Object.keys(actions).length > 0;
+  const approvalOrgId = hasCallableActions ? await orgIdPromise : undefined;
   const approvalAppId = mcpApprovalAppId(config);
-  const approvalPrincipal = hasApprovalActions
+  const requestStatePrincipal = hasCallableActions
     ? mcpApprovalPrincipal(
         approvalAppId,
         effectiveIdentity,
@@ -3901,24 +3909,25 @@ export async function createMCPServerForRequest(
         requestMeta,
       )
     : undefined;
-  const approvalCallerKey = approvalPrincipal
-    ? await sha256Base64Url(approvalPrincipal)
-    : undefined;
-  let approvalCodec: RequestStateCodec<McpActionApprovalState> | undefined;
+  const approvalCallerKey =
+    hasApprovalActions && requestStatePrincipal
+      ? await sha256Base64Url(requestStatePrincipal)
+      : undefined;
+  let approvalCodec: RequestStateCodec<McpActionRequestState> | undefined;
   let approvalConfigurationError = false;
-  if (hasApprovalActions && approvalPrincipal) {
+  if (hasCallableActions && requestStatePrincipal) {
     try {
       const { getAuthSecret } =
         await import("../server/better-auth-instance.js");
-      approvalCodec = createRequestStateCodec<McpActionApprovalState>({
+      approvalCodec = createRequestStateCodec<McpActionRequestState>({
         key: getAuthSecret(),
         // A page decision can grant another full use window near the review
         // deadline. The store still enforces expiry and one-use consumption.
         ttlSeconds: MCP_ACTION_APPROVAL_TTL_SECONDS * 2,
-        bind: (ctx) => `${ctx.mcpReq.method}\0${approvalPrincipal}`,
+        bind: (ctx) => `${ctx.mcpReq.method}\0${requestStatePrincipal}`,
       });
     } catch {
-      approvalConfigurationError = true;
+      if (hasApprovalActions) approvalConfigurationError = true;
     }
   }
   const supportsMcpApps =
@@ -4202,6 +4211,57 @@ export async function createMCPServerForRequest(
             },
             required: ["decision"],
           },
+        }),
+      },
+      requestState,
+    });
+  }
+
+  async function requestMcpActionConnection(
+    name: string,
+    args: unknown,
+    connection: McpConnectionRequiredDetails,
+    ctx: ServerContext,
+  ): Promise<InputRequiredResult | undefined> {
+    const codec = approvalCodec;
+    if (!codec) return undefined;
+    const envelope = ctx.mcpReq.envelope as
+      | Record<string, ClientCapabilities | undefined>
+      | undefined;
+    const elicitation = (
+      envelope
+        ? envelope[CLIENT_CAPABILITIES_META_KEY]
+        : server.getClientCapabilities()
+    )?.elicitation;
+    if (elicitation?.url === undefined) return undefined;
+    const trustedUrl = resolveTrustedMcpConnectUrl(
+      connection.connectUrl,
+      requestMeta,
+    );
+    if (!trustedUrl) return undefined;
+    let argumentsHash: string;
+    try {
+      // coercion-ok: a call that omits `arguments` passes no arguments, which is an empty object.
+      argumentsHash = await sha256Base64Url(canonicalJson(args ?? {}));
+    } catch {
+      // coercion-ok: non-JSON arguments cannot be bound into signed requestState; fall back without URL elicitation.
+      return undefined;
+    }
+    const connectionState: McpActionConnectionState = {
+      kind: "connection_required",
+      version: 1,
+      nonce: globalThis.crypto.randomUUID(),
+      actionName: name,
+      argumentsHash,
+      provider: connection.provider,
+      expiresAt: Date.now() + MCP_CONNECTION_REQUIRED_TTL_SECONDS * 1000,
+    };
+    const requestState = await codec.mint(connectionState, ctx);
+    return inputRequired({
+      inputRequests: {
+        [MCP_ACTION_CONNECTION_INPUT_KEY]: inputRequired.elicitUrl({
+          message: connection.message,
+          url: trustedUrl,
         }),
       },
       requestState,
@@ -4513,6 +4573,7 @@ export async function createMCPServerForRequest(
     acceptedContent,
     inputResponse,
     requestMcpActionApproval,
+    requestMcpActionConnection,
   });
 
   // A script reaches only what this caller could call directly: an action a
