@@ -4,7 +4,7 @@ import { defineAction } from "../../action.js";
 import { getDbExec } from "../../db/client.js";
 import { requireOrgMember } from "../actions.js";
 import {
-  currentWorkspaceAppIdsForAccessList,
+  currentWorkspaceAppInventoryForAccessList,
   listConfiguredWorkspaceApps,
   unbuiltWorkspaceAppIds,
 } from "../workspace-app-access.js";
@@ -16,10 +16,13 @@ export default defineAction({
   schema: z.object({}),
   run: async (_args, ctx) => {
     const caller = await requireOrgMember(ctx, true);
-    const activeAppIds = await currentWorkspaceAppIdsForAccessList({
+    const activeApps = await currentWorkspaceAppInventoryForAccessList({
       email: ctx?.userEmail ?? "",
       orgId: caller.orgId,
     });
+    const activeAppIds = activeApps
+      ? new Set(activeApps.map((app) => app.id))
+      : null;
     const result = await getDbExec().execute({
       sql: `SELECT id, name, description, path, visibility, org_enabled
             FROM workspace_apps
@@ -74,6 +77,12 @@ export default defineAction({
         path: configured.path,
         mode: "all",
       });
+    }
+    // The authenticated registry can include post-startup apps absent from
+    // both this organization's DB rows and the deployment's startup manifest.
+    for (const mounted of activeApps ?? []) {
+      if (apps.has(mounted.id)) continue;
+      apps.set(mounted.id, { ...mounted, mode: "all" });
     }
     return {
       apps: [...apps.values()].sort((a, b) =>
