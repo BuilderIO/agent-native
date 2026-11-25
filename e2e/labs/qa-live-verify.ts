@@ -82,7 +82,7 @@ const host = (process.env.QA_HOST?.trim() || "labs.agent-native.com").replace(
 );
 const origin = `https://${host}`;
 const appBase = `${origin}/${target.app}`;
-const ref = target.ref ?? process.env.QA_REF?.trim() ?? target.app;
+const ref = target.ref || process.env.QA_REF?.trim() || target.app;
 const outDir = path.resolve(
   process.env.QA_OUT_DIR?.trim() || "artifacts/qa-live-verify",
 );

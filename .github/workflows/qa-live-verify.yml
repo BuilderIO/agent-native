@@ -1,4 +1,5 @@
 name: QA live verify
+run-name: QA live verify ${{ inputs.ref || inputs.target || 'forms-seeded' }}
 on:
   workflow_dispatch:
     inputs:
@@ -13,16 +14,14 @@ on:
       slot:
         description: "QA user slot (1-5)"
         default: "1"
+      ref:
+        description: "Label for the receipt and run name, e.g. a PR or job ref"
+        default: ""
       host:
         description: "Target host"
         default: "labs.agent-native.com"
-  push:
-    branches: [job/j-20261124-1653-343]
-    paths: [.github/workflows/qa-live-verify.yml, e2e/labs/qa-live-verify.ts]
 permissions:
   contents: read
-concurrency:
-  group: qa-live-verify-${{ github.run_id }}
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -35,6 +34,7 @@ jobs:
       QA_PROVIDER: ${{ inputs.provider || 'browserbase' }}
       QA_SLOT: ${{ inputs.slot || '1' }}
       QA_HOST: ${{ inputs.host || 'labs.agent-native.com' }}
+      QA_REF: ${{ inputs.ref }}
       QA_OUT_DIR: artifacts/qa-live-verify
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
