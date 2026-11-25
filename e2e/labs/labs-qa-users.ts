@@ -1,9 +1,9 @@
-import { createHmac } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
 
 import {
   verificationLinkFor,
   waitForVerificationEmail,
-  type MailosaurMessage,
 } from "../signup/lib/mailosaur.ts";
 
 const host = (process.env.QA_HOST?.trim() || "labs.agent-native.com").replace(
@@ -17,6 +17,7 @@ const slots = (process.env.QA_SLOTS?.trim() || "1,2,3,4,5")
   .map((s) => s.trim())
   .filter(Boolean);
 const probeOnly = process.env.QA_PROBE === "1";
+const fresh = process.env.QA_FRESH === "1";
 
 const apiKey = process.env.MAILOSAUR_API_KEY?.trim() ?? "";
 const serverId = process.env.MAILOSAUR_SERVER_ID?.trim() ?? "";
@@ -89,11 +90,7 @@ function fail(step: string, r: { status: number; text: string }): never {
 async function sessionEmail(jar: Jar): Promise<string | undefined> {
   const r = await call(jar, "GET", `${authBase}/session`);
   if (r.status !== 200) return undefined;
-  try {
-    return (JSON.parse(r.text) as { email?: string }).email?.toLowerCase();
-  } catch {
-    return undefined;
-  }
+  return (JSON.parse(r.text) as { email?: string }).email?.toLowerCase();
 }
 
 async function signIn(jar: Jar, email: string, password: string) {
@@ -122,25 +119,52 @@ async function followLink(jar: Jar, link: string) {
   return 0;
 }
 
-function resetToken(message: MailosaurMessage): string {
-  const bodies = [message.html?.body, message.text?.body].filter(Boolean);
-  const urls = [
-    ...(message.html?.links ?? []),
-    ...(message.text?.links ?? []),
-  ].map((l) => l.href ?? "");
-  for (const b of bodies) urls.push(...(b!.match(/https?:\/\/[^\s"'<>]+/g) ?? []));
-  for (const raw of urls) {
-    try {
-      const u = new URL(raw.replace(/&amp;/g, "&"));
-      const q = u.searchParams.get("token");
-      if (q) return q;
-      const m = u.pathname.match(/reset-password\/([^/?]+)/);
-      if (m) return decodeURIComponent(m[1]);
-    } catch {
-      // not a url
-    }
+interface Receipt {
+  at: string;
+  host: string;
+  served_sha: string;
+  mailosaur_message_id: string;
+  signup_status: number;
+  verify_status: number;
+  signin_status: number;
+  readback: string;
+}
+
+async function servedSha(): Promise<string> {
+  const res = await fetch(`${origin}/${probeApp}/`, {
+    signal: AbortSignal.timeout(45_000),
+  });
+  return res.headers.get("x-agent-native-build-sha") ?? "absent";
+}
+
+async function signUpAndVerify(
+  jar: Jar,
+  email: string,
+  password: string,
+): Promise<
+  Pick<Receipt, "mailosaur_message_id" | "signup_status" | "verify_status">
+> {
+  const requestedAt = Date.now() - 5_000;
+  const up = await call(jar, "POST", ba("/sign-up/email"), {
+    email,
+    password,
+    name: "QA Fleet",
+  });
+  if (up.status !== 200) fail("sign-up", up);
+  if ((await sessionEmail(jar)) === email) {
+    return {
+      mailosaur_message_id: "none",
+      signup_status: up.status,
+      verify_status: 0,
+    };
   }
-  throw new StepError("password-reset: no token in reset email");
+  const msg = await waitForVerificationEmail(email, requestedAt);
+  const verifyStatus = await followLink(jar, verificationLinkFor(msg, origin));
+  return {
+    mailosaur_message_id: msg.id,
+    signup_status: up.status,
+    verify_status: verifyStatus,
+  };
 }
 
 async function ensureUser(slot: string): Promise<Jar> {
@@ -149,57 +173,36 @@ async function ensureUser(slot: string): Promise<Jar> {
   const password = derive(user);
   const jar: Jar = new Map();
 
-  let attempt = await signIn(jar, email, password);
-  if (attempt.ok) {
-    log(`USER qa-fleet-${slot}: existing, signed in`);
+  if ((await signIn(jar, email, password)).ok) {
+    log(`USER ${user}: existing, signed in`);
     return jar;
   }
 
-  const requestedAt = Date.now() - 5_000;
-  const up = await call(jar, "POST", ba("/sign-up/email"), {
-    email,
-    password,
-    name: "QA Fleet",
-  });
-  if (up.status !== 200) {
-    if (up.status >= 500) fail("sign-up", up);
-    // Account exists but the password did not match: key rotation.
-    const rr = Date.now() - 5_000;
-    const req = await call(jar, "POST", ba("/request-password-reset"), {
-      email,
-      redirectTo: `${origin}/${probeApp}/`,
-    });
-    if (req.status !== 200) fail("request-password-reset", req);
-    const msg = await waitForVerificationEmailOrReset(email, rr);
-    const token = resetToken(msg);
-    const reset = await call(jar, "POST", ba("/reset-password"), {
-      newPassword: password,
-      token,
-    });
-    if (reset.status !== 200) fail("reset-password", reset);
-    console.log(`::warning::password-reset qa-fleet-${slot}`);
-    attempt = await signIn(jar, email, password);
-    if (!attempt.ok) fail("sign-in after reset", attempt.r);
-    return jar;
-  }
-
-  if ((await sessionEmail(jar)) !== email) {
-    const msg = await waitForVerificationEmail(email, requestedAt);
-    const link = verificationLinkFor(msg, origin);
-    const status = await followLink(jar, link);
-    log(`USER qa-fleet-${slot}: verification link followed (HTTP ${status})`);
-  }
-  attempt = await signIn(jar, email, password);
+  await signUpAndVerify(jar, email, password);
+  const attempt = await signIn(jar, email, password);
   if (!attempt.ok) fail("sign-in after verification", attempt.r);
-  log(`USER qa-fleet-${slot}: created and verified`);
+  log(`USER ${user}: created and verified`);
   return jar;
 }
 
-async function waitForVerificationEmailOrReset(email: string, after: number) {
-  const { waitForVerificationEmail: wait } = await import(
-    "../signup/lib/mailosaur.ts"
-  );
-  return wait(email, after);
+async function freshReceipt(): Promise<Receipt> {
+  const user = `qa-tmp-${(process.env.GITHUB_RUN_ID ?? "local").replace(/\W/g, "")}-${randomUUID().slice(0, 8)}`;
+  const email = `${user}@${serverId}.mailosaur.net`.toLowerCase();
+  const password = derive(user);
+  const jar: Jar = new Map();
+
+  const signup = await signUpAndVerify(jar, email, password);
+  const attempt = await signIn(jar, email, password);
+  if (!attempt.ok) fail("sign-in after verification", attempt.r);
+  const seeded = await seedAndReadBack(jar, "fresh");
+  return {
+    at: new Date().toISOString(),
+    host,
+    served_sha: await servedSha(),
+    ...signup,
+    signin_status: attempt.r.status,
+    readback: `ok ${seeded.name}`,
+  };
 }
 
 async function action(
@@ -232,6 +235,23 @@ async function seedAndReadBack(jar: Jar, slot: string) {
 }
 
 async function main() {
+  if (fresh) {
+    try {
+      const receipt = await freshReceipt();
+      mkdirSync("artifacts", { recursive: true });
+      writeFileSync(
+        "artifacts/labs-qa-receipt.json",
+        JSON.stringify(receipt, null, 2),
+      );
+      log(`PROBE: PASS ${JSON.stringify(receipt)}`);
+    } catch (err) {
+      log(
+        `PROBE: FAIL fresh signup ${err instanceof Error ? err.message : String(err)}`,
+      );
+      process.exit(1);
+    }
+    return;
+  }
   const failed: string[] = [];
   let ok = 0;
   for (const slot of slots) {

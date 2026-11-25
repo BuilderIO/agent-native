@@ -433,6 +433,24 @@ store them only as GitHub Actions secrets. See `e2e/signup/README.md`.
 | `SIGNUP_E2E_APPS`         | Comma-separated app ids, or `all`, for the full email signup canary.                          |
 | `SIGNUP_E2E_ENVIRONMENTS` | Comma-separated `beta` and/or `production` environments for the canary.                       |
 
+### Labs QA identities
+
+Read by `.github/workflows/labs-qa-probe.yml`, `.github/workflows/labs-qa-identities.yml`,
+and `e2e/labs/`, never by application runtime code. The workflows reuse the
+`MAILOSAUR_*` secrets above and derive each `qa-fleet-N` password from them.
+
+| Variable       | Purpose                                                                                                        |
+| -------------- | -------------------------------------------------------------------------------------------------------------- |
+| `QA_HOST`      | Host the QA user script signs up and signs in against. Defaults to `labs.agent-native.com`.                    |
+| `QA_SLOTS`     | Comma-separated `qa-fleet-N` slots the QA user script creates or signs in. Defaults to `1,2,3,4,5`.            |
+| `QA_PROBE`     | Set to `1` to seed, read back, and delete a `qa-tmp-` record after each sign-in.                               |
+| `QA_PROBE_APP` | Labs app whose auth and actions the QA user script exercises. Defaults to `forms-2`.                           |
+| `QA_FRESH`     | Set to `1` to sign up one new `qa-tmp-` Mailosaur address end to end and write a receipt without any password. |
+| `LABS_APP`     | Labs app the signed-in smoke test opens. Workflow-internal.                                                    |
+| `LABS_HOST`    | Host the signed-in smoke test targets. Defaults to `labs.agent-native.com`.                                    |
+| `QA_SLOT`      | Slot of the `qa-fleet-N` identity a smoke matrix entry uses. Workflow-internal.                                |
+| `INPUT_APPS`   | Apps input passed to the smoke matrix builder. Workflow-internal.                                              |
+
 ### Deploy-path check
 
 Read by `scripts/qa-deploy-paths.ts`, `scripts/reap-deploy-paths.ts`, and
