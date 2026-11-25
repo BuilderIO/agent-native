@@ -11025,7 +11025,7 @@ export function DatabaseNoMatchingPages({
   return (
     <div
       className={cn(
-        "flex min-h-16 flex-wrap items-center justify-between gap-2 px-2 py-3 text-sm text-muted-foreground",
+        "flex min-h-16 flex-wrap items-center gap-x-4 gap-y-2 px-2 py-3 text-sm text-muted-foreground",
         className,
       )}
     >
