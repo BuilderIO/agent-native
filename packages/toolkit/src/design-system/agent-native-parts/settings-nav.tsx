@@ -93,7 +93,7 @@ const SettingsNavGroup: PartComponent = ({ row, children }) => {
       role="group"
       aria-labelledby={labelId}
     >
-      <NavigationMenuGroupLabel id={labelId} data-row-label="">
+      <NavigationMenuGroupLabel id={labelId} data-rid-label="">
         {row.label}
       </NavigationMenuGroupLabel>
       <NavigationMenuList>{children}</NavigationMenuList>
@@ -131,7 +131,7 @@ const SettingsNavItem: PartComponent = ({ row }) => {
             run?.();
           }}
         >
-          <span data-row-label="">{row.label}</span>
+          <span data-rid-label="">{row.label}</span>
         </NavigationMenuLink>
       </NavigationMenuItem>
     );
@@ -150,7 +150,7 @@ const SettingsNavItem: PartComponent = ({ row }) => {
             if (disabled) event.preventDefault();
           }}
         >
-          <span data-row-label="">{row.label}</span>
+          <span data-rid-label="">{row.label}</span>
         </NavigationMenuLink>
       </NavigationMenuItem>
     );
@@ -164,7 +164,7 @@ const SettingsNavItem: PartComponent = ({ row }) => {
         leading={leading}
         onClick={run}
       >
-        <span data-row-label="">{row.label}</span>
+        <span data-rid-label="">{row.label}</span>
       </NavigationMenuLink>
     </NavigationMenuItem>
   );

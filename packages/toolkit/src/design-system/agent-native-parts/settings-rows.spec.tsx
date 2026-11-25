@@ -96,7 +96,7 @@ describe("settings row parts", () => {
       true,
     );
     expect(
-      toggleRow?.querySelector(".item-title [data-row-label]")?.textContent,
+      toggleRow?.querySelector(".item-title [data-rid-label]")?.textContent,
     ).toBe("Error emails");
     expect(toggleRow?.querySelector(".item-description")?.textContent).toBe(
       "Email me when a query fails.",
@@ -328,13 +328,13 @@ describe("settings row parts", () => {
       "Read the docs",
     );
     expect(row?.textContent).not.toContain("Plain description");
-    const badge = row?.querySelector(".item-title [data-row-label] + *");
+    const badge = row?.querySelector(".item-title [data-rid-label] + *");
     expect(badge?.classList.contains("badge")).toBe(true);
     expect(badge?.getAttribute("data-variant")).toBe("outline");
     expect(badge?.getAttribute("data-color")).toBe("gray");
     expect(badge?.textContent).toBe("Default");
     expect(
-      row?.querySelector(".item-title [data-row-label] + .badge + span")
+      row?.querySelector(".item-title [data-rid-label] + .badge + span")
         ?.textContent,
     ).toBe("Workspace");
     expect(
@@ -385,7 +385,7 @@ describe("settings row parts", () => {
     );
     expect(captureRows(document)[0]?.name).toBe("OPENAI_API_KEY");
     expect(
-      document.querySelector(".item-title [data-row-label] > code"),
+      document.querySelector(".item-title [data-rid-label] > code"),
     ).not.toBeNull();
   });
 
@@ -457,7 +457,7 @@ describe("settings row parts", () => {
       />,
     );
     const body = document.querySelector(
-      "[data-row-id='settings.keys.group'] > .item-group",
+      "[data-rid='settings.keys.group'] > .item-group",
     );
     expect(
       [...(body?.children ?? [])].map((child) => child.tagName.toLowerCase()),
@@ -499,7 +499,7 @@ describe("settings row parts", () => {
       />,
     );
     const notice = document.querySelector(
-      "[data-row-id='settings.usage.load-error']",
+      "[data-rid='settings.usage.load-error']",
     );
     expect(notice?.classList.contains("callout")).toBe(true);
     expect(notice?.getAttribute("data-color")).toBe("warning");
@@ -508,10 +508,10 @@ describe("settings row parts", () => {
       notice?.querySelector(".callout-icon")?.getAttribute("aria-hidden"),
     ).toBe("true");
     expect(
-      notice?.querySelector(".callout-text [data-row-label]")?.textContent,
+      notice?.querySelector(".callout-text [data-rid-label]")?.textContent,
     ).toBe("Usage couldn't load.");
     expect(
-      notice?.querySelector(".callout-actions [data-row-id$='.retry']"),
+      notice?.querySelector(".callout-actions [data-rid$='.retry']"),
     ).not.toBeNull();
     act(() => screen.getByRole("button", { name: "Retry" }).click());
     expect(retry).toHaveBeenCalledOnce();

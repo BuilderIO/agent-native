@@ -44,7 +44,7 @@ describe("settings report part", () => {
     const section = document.getElementById("usage-alerts");
     const header = section?.querySelector(":scope > .item-group-header");
     expect(
-      header?.querySelector(".item-group-label[data-row-label]")?.textContent,
+      header?.querySelector(".item-group-label[data-rid-label]")?.textContent,
     ).toBe("Your alerts");
     expect(header?.querySelector("button")?.textContent).toBe("Add alert");
     const list = section?.querySelector(":scope > .item-group");

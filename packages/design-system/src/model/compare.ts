@@ -52,7 +52,7 @@ const FIELDS: readonly RowField[] = [
 function indexById(rows: readonly RowSnapshot[], side: string) {
   const byId = new Map<string, RowSnapshot>();
   for (const row of rows) {
-    if (!row.id) throw new Error(`A ${side} row has no data-row-id value`);
+    if (!row.id) throw new Error(`A ${side} row has no data-rid value`);
     if (byId.has(row.id)) {
       throw new Error(
         `Row ${row.id} is rendered twice by the ${side} part set`,

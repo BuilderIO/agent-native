@@ -28,18 +28,18 @@ describe("applyRowLocators", () => {
       missing: ["sidebar.nav.drafts"],
       ambiguous: ["sidebar.nav.any"],
     });
-    expect(document.querySelectorAll("[data-row-id]")).toHaveLength(1);
+    expect(document.querySelectorAll("[data-rid]")).toHaveLength(1);
   });
 });
 
 describe("compareRowStyles", () => {
   it("compares a target with its source row by row", () => {
     document.body.innerHTML = `
-      <div data-row-id="sidebar.nav.inbox" style="height: 28px; color: rgb(10, 10, 10)">Inbox</div>
-      <div data-row-id="sidebar.nav.sent" style="height: 28px">Sent</div>`;
+      <div data-rid="sidebar.nav.inbox" style="height: 28px; color: rgb(10, 10, 10)">Inbox</div>
+      <div data-rid="sidebar.nav.sent" style="height: 28px">Sent</div>`;
     const source = captureRowStyles(document);
     document.body.innerHTML = `
-      <div data-row-id="sidebar.nav.inbox" style="height: 32px; color: rgb(10, 10, 10)">Inbox</div>`;
+      <div data-rid="sidebar.nav.inbox" style="height: 32px; color: rgb(10, 10, 10)">Inbox</div>`;
     const target = captureRowStyles(document);
 
     const report = compareRowStyles(source, target, ["height", "color"]);
@@ -57,8 +57,8 @@ describe("compareRowStyles", () => {
 
   it("refuses a capture that renders a row twice", () => {
     document.body.innerHTML = `
-      <div data-row-id="sidebar.nav.inbox"></div>
-      <div data-row-id="sidebar.nav.inbox"></div>`;
+      <div data-rid="sidebar.nav.inbox"></div>
+      <div data-rid="sidebar.nav.inbox"></div>`;
     expect(() => captureRowStyles(document)).toThrow(/rendered twice/);
   });
 });

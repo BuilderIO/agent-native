@@ -17,7 +17,7 @@ function SettingsReportPart({ row, children }: PartProps) {
   return (
     <section {...rowAttributes(row)}>
       <ItemGroupHeader>
-        <ItemGroupLabel data-row-label="">{row.label}</ItemGroupLabel>
+        <ItemGroupLabel data-rid-label="">{row.label}</ItemGroupLabel>
         {action}
       </ItemGroupHeader>
       {body === null ? (

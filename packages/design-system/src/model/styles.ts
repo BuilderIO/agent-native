@@ -153,7 +153,7 @@ export function diffStyles(
 }
 
 /**
- * Where a row lives in a source rendering that has no `data-row-id`, such as a
+ * Where a row lives in a source rendering that has no `data-rid`, such as a
  * screen drawn before it had a model. One selector per row id.
  */
 export interface RowLocator {
@@ -170,7 +170,7 @@ export interface LocatorReport {
 }
 
 /**
- * Writes `data-row-id` onto the elements the locators find, so a source
+ * Writes `data-rid` onto the elements the locators find, so a source
  * rendering can be captured with the same keys as the part sets. A selector that
  * matches nothing or several elements is reported, never guessed.
  */
@@ -184,7 +184,7 @@ export function applyRowLocators(
     if (matches.length === 0) report.missing.push(rowId);
     else if (matches.length > 1) report.ambiguous.push(rowId);
     else {
-      matches[0]?.setAttribute("data-row-id", rowId);
+      matches[0]?.setAttribute("data-rid", rowId);
       report.tagged.push(rowId);
     }
   }
@@ -196,8 +196,8 @@ export function captureRowStyles(
   root: ParentNode,
 ): Record<string, CapturedStyles> {
   const captured: Record<string, CapturedStyles> = {};
-  for (const element of root.querySelectorAll("[data-row-id]")) {
-    const rowId = element.getAttribute("data-row-id");
+  for (const element of root.querySelectorAll("[data-rid]")) {
+    const rowId = element.getAttribute("data-rid");
     if (!rowId) continue;
     if (rowId in captured) {
       throw new Error(`Row ${rowId} is rendered twice`);

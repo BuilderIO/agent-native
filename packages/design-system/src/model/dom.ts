@@ -9,15 +9,15 @@ import type { ModelRow, RowBadge, RowEffect } from "./types.js";
  * has no state for.
  */
 export interface RowAttributes {
-  "data-row-id": string;
+  "data-rid": string;
   "data-part": string;
-  "data-row-kind"?: string;
-  "data-row-effect"?: string;
-  "data-row-badge"?: string;
-  "data-row-slot"?: string;
-  "data-row-regions"?: string;
-  "data-row-hosts"?: string;
-  "data-row-complete"?: "true";
+  "data-rid-kind"?: string;
+  "data-rid-effect"?: string;
+  "data-rid-badge"?: string;
+  "data-rid-slot"?: string;
+  "data-rid-regions"?: string;
+  "data-rid-hosts"?: string;
+  "data-rid-complete"?: "true";
   id?: string;
 }
 
@@ -57,23 +57,23 @@ export function encodeRegions(
 
 export function rowAttributes(row: ModelRow): RowAttributes {
   const attributes: RowAttributes = {
-    "data-row-id": row.id,
+    "data-rid": row.id,
     "data-part": row.part,
   };
-  if (row.kind) attributes["data-row-kind"] = row.kind;
-  if (row.effect) attributes["data-row-effect"] = encodeEffect(row.effect);
+  if (row.kind) attributes["data-rid-kind"] = row.kind;
+  if (row.effect) attributes["data-rid-effect"] = encodeEffect(row.effect);
   if (row.state?.badge) {
-    attributes["data-row-badge"] = encodeBadge(row.state.badge);
+    attributes["data-rid-badge"] = encodeBadge(row.state.badge);
   }
-  if (row.slot) attributes["data-row-slot"] = row.slot;
+  if (row.slot) attributes["data-rid-slot"] = row.slot;
   if (row.hosts === "any") {
-    attributes["data-row-hosts"] = "any";
+    attributes["data-rid-hosts"] = "any";
   } else if (row.hosts && row.hosts.length > 0) {
-    attributes["data-row-hosts"] = row.hosts.join(" ");
+    attributes["data-rid-hosts"] = row.hosts.join(" ");
   }
-  if (row.state?.complete) attributes["data-row-complete"] = "true";
+  if (row.state?.complete) attributes["data-rid-complete"] = "true";
   if (row.regions && Object.keys(row.regions).length > 0) {
-    attributes["data-row-regions"] = encodeRegions(row.regions);
+    attributes["data-rid-regions"] = encodeRegions(row.regions);
   }
   if (row.anchor) attributes.id = row.anchor;
   return attributes;
@@ -102,7 +102,7 @@ export interface RowSnapshot {
   complete: boolean;
 }
 
-const ROW_SELECTOR = "[data-row-id]";
+const ROW_SELECTOR = "[data-rid]";
 const CONTROL_SELECTOR =
   "input,select,textarea,button,[role=switch],[role=checkbox],[role=radio],[role=option],[role=menuitem],[role=menuitemcheckbox],[role=menuitemradio],[role=tab],[role=treeitem],a[href]";
 
@@ -146,7 +146,7 @@ function rowControl(row: Element): Element {
 
 /**
  * The accessible name, in the order assistive technology resolves the common
- * cases: aria-label, aria-labelledby, an explicit `[data-row-label]`, then
+ * cases: aria-label, aria-labelledby, an explicit `[data-rid-label]`, then
  * the row's own text.
  */
 export function rowName(row: Element): string {
@@ -157,7 +157,7 @@ export function rowName(row: Element): string {
     const labelledBy = labelledByText(element);
     if (labelledBy) return labelledBy;
   }
-  const explicit = row.querySelector("[data-row-label]");
+  const explicit = row.querySelector("[data-rid-label]");
   if (explicit && explicit.closest(ROW_SELECTOR) === row) {
     return normalizeSpace(explicit.textContent);
   }
@@ -213,11 +213,11 @@ function snapshotRow(row: Element, position: number): RowSnapshot {
 
   const parent = row.parentElement?.closest(ROW_SELECTOR) ?? null;
   return {
-    id: row.getAttribute("data-row-id") ?? "",
+    id: row.getAttribute("data-rid") ?? "",
     part: row.getAttribute("data-part") ?? "",
-    parentId: parent?.getAttribute("data-row-id") ?? null,
+    parentId: parent?.getAttribute("data-rid") ?? null,
     position,
-    kind: row.getAttribute("data-row-kind"),
+    kind: row.getAttribute("data-rid-kind"),
     name: rowName(row),
     selected,
     checked: checked === null ? null : checked,
@@ -227,12 +227,12 @@ function snapshotRow(row: Element, position: number): RowSnapshot {
       (element) => element.getAttribute("aria-busy") === "true",
     ),
     value,
-    effect: row.getAttribute("data-row-effect"),
-    badge: row.getAttribute("data-row-badge"),
-    slot: row.getAttribute("data-row-slot"),
-    regions: row.getAttribute("data-row-regions"),
-    hosts: row.getAttribute("data-row-hosts"),
-    complete: row.getAttribute("data-row-complete") === "true",
+    effect: row.getAttribute("data-rid-effect"),
+    badge: row.getAttribute("data-rid-badge"),
+    slot: row.getAttribute("data-rid-slot"),
+    regions: row.getAttribute("data-rid-regions"),
+    hosts: row.getAttribute("data-rid-hosts"),
+    complete: row.getAttribute("data-rid-complete") === "true",
   };
 }
 
@@ -244,7 +244,7 @@ export function captureRows(root: ParentNode): RowSnapshot[] {
   const positions = new Map<string | null, number>();
   return [...root.querySelectorAll(ROW_SELECTOR)].map((row) => {
     const parentId =
-      row.parentElement?.closest(ROW_SELECTOR)?.getAttribute("data-row-id") ??
+      row.parentElement?.closest(ROW_SELECTOR)?.getAttribute("data-rid") ??
       null;
     const position = positions.get(parentId) ?? 0;
     positions.set(parentId, position + 1);

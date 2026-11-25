@@ -158,9 +158,9 @@ describe("rowAttributes", () => {
         },
       }),
     ).toMatchObject({
-      "data-row-hosts": "settings.panel.llm.provider settings.panel.llm.key",
-      "data-row-complete": "true",
-      "data-row-badge": "label-attention:Required",
+      "data-rid-hosts": "settings.panel.llm.provider settings.panel.llm.key",
+      "data-rid-complete": "true",
+      "data-rid-badge": "label-attention:Required",
     });
   });
 
@@ -171,7 +171,7 @@ describe("rowAttributes", () => {
         part: "settings.row",
         label: "Default model",
         regions: { status: "model-source", detail: "model-picker" },
-      })["data-row-regions"],
+      })["data-rid-regions"],
     ).toBe("detail:model-picker status:model-source");
   });
 
@@ -179,11 +179,11 @@ describe("rowAttributes", () => {
     const inbox = navigation.rows[0]?.rows?.[0];
     if (!inbox) throw new Error("fixture row missing");
     expect(rowAttributes(inbox)).toEqual({
-      "data-row-id": "sidebar.nav.inbox",
+      "data-rid": "sidebar.nav.inbox",
       "data-part": "sidebar.item",
-      "data-row-kind": "destination",
-      "data-row-effect": "navigate:/inbox",
-      "data-row-badge": "count:19",
+      "data-rid-kind": "destination",
+      "data-rid-effect": "navigate:/inbox",
+      "data-rid-badge": "count:19",
     });
   });
 });
@@ -242,11 +242,11 @@ describe("captureRows", () => {
 
   it("reads native control state for toggles and fields", () => {
     document.body.innerHTML = `
-      <div data-row-id="settings.email.digest" data-part="settings.row" data-row-kind="toggle">
-        <span data-row-label>Daily digest</span>
+      <div data-rid="settings.email.digest" data-part="settings.row" data-rid-kind="toggle">
+        <span data-rid-label>Daily digest</span>
         <input type="checkbox" checked disabled>
       </div>
-      <div data-row-id="settings.email.address" data-part="settings.row" data-row-kind="field">
+      <div data-rid="settings.email.address" data-part="settings.row" data-rid-kind="field">
         <label for="address">Address</label>
         <input id="address" aria-label="Address" value="team@example.test">
       </div>`;

@@ -132,7 +132,10 @@ degrades silently.
 
 A part receives `{ row, children }` and must:
 
-1. spread `rowAttributes(row)` on the element that represents the row;
+1. spread `rowAttributes(row)` on the element that represents the row. It
+   writes `data-rid` (the row id), `data-part` and `data-rid-*` for the rest,
+   the same names the shell frames and toolkit's settings rows write; never
+   `data-row`, which tables and grids use for their own cells;
 2. expose state through ARIA or native state: `aria-current` or
    `aria-selected` for selected, `aria-checked` or a checked input,
    `aria-expanded`, `disabled` or `aria-disabled`, `aria-busy` for pending;

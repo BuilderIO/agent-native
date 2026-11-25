@@ -39,7 +39,7 @@ function SettingsGroupPart({ row, children }: PartProps) {
   return (
     <section {...rowAttributes(row)}>
       <ItemGroupLabel
-        data-row-label=""
+        data-rid-label=""
         visuallyHidden={row.labelHidden === true}
       >
         {row.label}
@@ -108,7 +108,7 @@ function SettingsRowPart({ row, children }: PartProps) {
       ) : null}
       <ItemContent>
         <ItemTitle>
-          <span data-row-label="">{regions.label ?? row.label}</span>
+          <span data-rid-label="">{regions.label ?? row.label}</span>
           {row.state?.badge ? (
             <RowBadgeView rowId={row.id} badge={row.state.badge} />
           ) : null}
@@ -136,7 +136,7 @@ function SettingsNoticePart({ row, children }: PartProps) {
         {row.icon ? <Glyph icon={row.icon} /> : <IconAlertTriangle />}
       </CalloutIcon>
       <CalloutText>
-        <span data-row-label="">{row.label}</span>
+        <span data-rid-label="">{row.label}</span>
       </CalloutText>
       {slot || children ? (
         <CalloutActions>

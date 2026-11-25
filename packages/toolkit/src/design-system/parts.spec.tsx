@@ -112,7 +112,7 @@ describe("part sets", () => {
       </DesignSystemContext.Provider>,
     );
     const inbox = screen.getByRole("link", { name: "Inbox" });
-    expect(inbox.dataset.rowId).toBe("sidebar.nav.inbox");
+    expect(inbox.dataset.rid).toBe("sidebar.nav.inbox");
     expect(inbox.getAttribute("aria-current")).toBe("page");
     expect(inbox.closest("nav")?.dataset.part).toBe("sidebar.section");
   });
@@ -249,7 +249,7 @@ describe("part sets", () => {
       </DesignSystemContext.Provider>,
     );
     expect(
-      screen.getByLabelText("Clip").closest("[data-row-slot]"),
+      screen.getByLabelText("Clip").closest("[data-rid-slot]"),
     ).not.toBeNull();
     cleanup();
     expect(() =>

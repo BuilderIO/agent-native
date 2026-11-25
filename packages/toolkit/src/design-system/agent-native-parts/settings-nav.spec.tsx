@@ -135,7 +135,7 @@ describe("settings nav parts", () => {
   it("draws the nav, group label and items with the nav's own hooks", () => {
     renderNav();
     const nav = screen.getByRole("navigation", { name: "Settings" });
-    expect(nav.dataset.rowId).toBe("settings.nav");
+    expect(nav.dataset.rid).toBe("settings.nav");
     expect(nav.classList).toContain("navigation-menu");
     expect(nav.classList).toContain("sidebar-content");
     const group = screen.getByRole("group", { name: "Account" });

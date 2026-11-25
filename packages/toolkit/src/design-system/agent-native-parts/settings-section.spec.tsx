@@ -60,7 +60,7 @@ describe("settings section part", () => {
     expect(button.querySelector(".collapsible-chevron")).not.toBeNull();
     expect(
       document
-        .querySelector("[data-row-id='settings.panel.email']")
+        .querySelector("[data-rid='settings.panel.email']")
         ?.classList.contains("collapsible"),
     ).toBe(true);
     expect(screen.queryByText("Email form")).toBeNull();
@@ -114,7 +114,7 @@ describe("settings section part", () => {
     const section = document.getElementById("settings-email");
     const heading = screen.getByRole("heading", { name: /Email/ });
     expect(heading.classList).toContain("item-group-label");
-    expect(heading.querySelector("[data-row-label]")?.textContent).toBe(
+    expect(heading.querySelector("[data-rid-label]")?.textContent).toBe(
       "Email",
     );
     const badge = heading.querySelector(".badge");
@@ -157,7 +157,7 @@ describe("settings section part", () => {
     expect(section?.querySelector("h2")).toBeNull();
     expect(section?.querySelector(".item-group")).toBeNull();
     expect(section?.querySelector(":scope > p")?.textContent).toBe("Limits");
-    expect(section?.getAttribute("data-row-complete")).toBe("true");
+    expect(section?.getAttribute("data-rid-complete")).toBe("true");
   });
 
   it("draws a body region without the list on a page", () => {

@@ -106,7 +106,7 @@ function SettingsSectionPart({ row, children }: PartProps) {
           ) : null}
           <ItemContent>
             <ItemTitle>
-              <span data-row-label="">{row.label}</span>
+              <span data-rid-label="">{row.label}</span>
             </ItemTitle>
           </ItemContent>
           <ItemActions>
@@ -127,7 +127,7 @@ function SettingsSectionPart({ row, children }: PartProps) {
       {grouped ? null : (
         <>
           <ItemGroupLabel>
-            <span data-row-label="">{row.label}</span>
+            <span data-rid-label="">{row.label}</span>
             {row.state?.complete || row.state?.badge ? (
               <>
                 {" "}
