@@ -1,5 +1,7 @@
 import { at } from "./at.js";
+import { COMPONENTS_FILE, readSwitchComponent } from "./component-inputs.js";
 import { flattenTokens, TokenError, TokenReader } from "./dtcg.js";
+import componentsFile from "./files/components.tokens.json" with { type: "json" };
 import foundationsFile from "./files/foundations.tokens.json" with { type: "json" };
 import paletteFile from "./files/palette.tokens.json" with { type: "json" };
 import textStylesFile from "./files/text-styles.tokens.json" with { type: "json" };
@@ -48,6 +50,7 @@ export type TokenFiles = Readonly<Record<string, unknown>>;
 export const TOKEN_FILES: TokenFiles = {
   "foundations.tokens.json": foundationsFile,
   "palette.tokens.json": paletteFile,
+  [COMPONENTS_FILE]: componentsFile,
   "text-styles.tokens.json": textStylesFile,
   "themes/agent-native.light.tokens.json": agentNativeLight,
   "themes/agent-native.dark.tokens.json": agentNativeDark,
@@ -361,6 +364,7 @@ export function readTokenFiles(files: TokenFiles) {
   const foundations = readFoundations(files);
   return {
     foundations,
+    switchCssInputs: readSwitchComponent(file(files, COMPONENTS_FILE)).inputs,
     textStyles: readTextStyles(
       files,
       new Set(foundations.typeRamp.map(({ step }) => step)),
