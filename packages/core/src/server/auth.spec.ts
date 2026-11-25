@@ -14460,6 +14460,7 @@ describe("server/auth", () => {
         isDeployPreview: vi.fn(() => false),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         getEnclosingTransactionDbExec: () => undefined,
         isLocalDatabase: () => true,
