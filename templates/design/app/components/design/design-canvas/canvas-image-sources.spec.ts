@@ -11,7 +11,7 @@ vi.mock("@agent-native/core/client/use-action", () => ({
   callAction: mocks.callAction,
 }));
 
-const PHOTO = "https://images.example.test/a/photo.jpg";
+const PHOTO = "https://images.example.com/a/photo.jpg";
 const NOW = Date.UTC(2026, 5, 10, 12, 0, 0);
 const EXP = Date.UTC(2026, 5, 11, 0, 0, 0) / 1000;
 
@@ -21,7 +21,17 @@ function available(token: string, exp = EXP) {
 
 async function load() {
   vi.resetModules();
-  return import("./canvas-image-sources");
+  const sources = await import("./canvas-image-sources");
+  const root = createRoot(document.createElement("div"));
+  await act(async () => {
+    root.render(
+      createElement(() => {
+        sources.useCanvasImagesReady();
+        return null;
+      }),
+    );
+  });
+  return sources;
 }
 
 async function flush() {
@@ -57,7 +67,7 @@ afterEach(() => {
 });
 
 describe("canvas image token", () => {
-  it("requests the token once at import and rewrites with it afterwards", async () => {
+  it("requests the token once on first use and rewrites with it afterwards", async () => {
     mocks.callAction.mockResolvedValue(available("tok_1"));
     const sources = await load();
     expect(mocks.callAction).toHaveBeenCalledTimes(1);

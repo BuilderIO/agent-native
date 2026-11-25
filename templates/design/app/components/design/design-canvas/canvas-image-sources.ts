@@ -9,7 +9,7 @@ import {
   type CanvasImageProxy,
 } from "@shared/canvas-image-url";
 import { injectHeadStartMarkup } from "@shared/visual-layers";
-import { useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 
 const SETTLE_WAIT_MS = 1500;
 const REFRESH_LEAD_MS = 10 * 60 * 1000;
@@ -62,9 +62,10 @@ function requestCanvasImageToken(): void {
       requestInFlight = false;
       console.warn("[canvas-image] token unavailable", error);
       settle();
-      const delay = RETRY_DELAYS_MS[retryCount];
+      if (retryCount < RETRY_DELAYS_MS.length) {
+        setTimeout(requestCanvasImageToken, RETRY_DELAYS_MS[retryCount]);
+      }
       retryCount += 1;
-      if (delay !== undefined) setTimeout(requestCanvasImageToken, delay);
     },
   );
 }
@@ -74,7 +75,11 @@ function refreshAfterDenial(): void {
   requestCanvasImageToken();
 }
 
-if (typeof window !== "undefined") {
+let started = false;
+
+function startCanvasImageToken(): void {
+  if (started || typeof window === "undefined") return;
+  started = true;
   window.addEventListener("message", (event) => {
     const data: unknown = event.data;
     if (
@@ -95,6 +100,7 @@ function subscribeToSettled(listener: () => void): () => void {
 }
 
 export function useCanvasImagesReady(): boolean {
+  useEffect(startCanvasImageToken, []);
   return useSyncExternalStore(
     subscribeToSettled,
     () => settled,

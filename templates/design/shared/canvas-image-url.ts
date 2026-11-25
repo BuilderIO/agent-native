@@ -4,7 +4,7 @@ export const CANVAS_IMAGE_DENIED_MESSAGE = "agent-native:canvas-image-denied";
 
 const NON_RASTER_PATH = /\.svg$/i;
 const PRIVATE_HOST =
-  /^(?:localhost|.+\.localhost|.+\.local|0\.0\.0\.0|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+|169\.254\.\d+\.\d+|\[(?:::1?|f[cd][0-9a-f]*:[^\]]*|fe80:[^\]]*)\])$/i;
+  /^(?:(?:.+\.)?(?:localhost|local|test|example|invalid)|0\.0\.0\.0|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+|169\.254\.\d+\.\d+|\[(?:::1?|f[cd][0-9a-f]*:[^\]]*|fe80:[^\]]*)\])$/i;
 const NON_IMAGE_CSS_PATH = /\.(?:svg|woff2?|ttf|otf|eot|css)$/i;
 
 export interface CanvasImageAuth {
