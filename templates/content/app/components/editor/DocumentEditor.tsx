@@ -61,6 +61,7 @@ import {
 } from "@shared/feature-flags";
 import { isLocalSourceDirectoryId } from "@shared/local-source-directory";
 import { canonicalizeNfm, docToNfm } from "@shared/nfm";
+import { sameSourceMarkdown } from "@shared/source-markdown";
 import {
   joinRewrittenParagraphs,
   markdownSuggestionOperations,
@@ -4680,8 +4681,10 @@ function PageEditorSessionBody({
           if (!baseline.ok) throw new Error(baseline.error);
           if (
             baseline.revision &&
-            (baseline.document.content !==
-              lastSavedContentRef.current.content ||
+            (!sameSourceMarkdown(
+              baseline.document.content,
+              lastSavedContentRef.current.content,
+            ) ||
               baseline.document.title !== lastSavedTitleRef.current.title)
           ) {
             setLocalSourceConflict({
@@ -4706,7 +4709,10 @@ function PageEditorSessionBody({
           result = await writeDocumentToLinkedLocalSource(
             fileFirstDocument,
             localSource,
-            { expectedRevision: expectedLocalSourceRevision },
+            {
+              expectedRevision: expectedLocalSourceRevision,
+              changed: updates,
+            },
           );
         } catch (error) {
           if (pendingLocalSourceWriteRef.current === pendingLocalWrite) {
@@ -5097,7 +5103,7 @@ function PageEditorSessionBody({
     if (
       !isLinkedLocalSourceDocument ||
       document.title !== localTitleRef.current ||
-      document.content !== localContentRef.current ||
+      !sameSourceMarkdown(document.content, localContentRef.current) ||
       !document.updatedAt
     ) {
       return;
@@ -5514,7 +5520,9 @@ function PageEditorSessionBody({
           (updates.title === undefined ||
             saved.document.title === updates.title) &&
           (updates.content === undefined ||
-            saved.document.content === updates.content)
+            saved.document.content === updates.content ||
+            (isLinkedLocalSourceDocument &&
+              sameSourceMarkdown(saved.document.content, updates.content)))
         )
           saved = saved.document;
       }

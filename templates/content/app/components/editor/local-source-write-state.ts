@@ -1,3 +1,5 @@
+import { sameSourceMarkdown } from "@shared/source-markdown";
+
 export interface PendingLocalSourceWrite {
   title: string;
   content: string;
@@ -36,15 +38,16 @@ export function classifyLocalSourceRead(args: {
 }): LocalSourceReadDisposition {
   if (
     args.pendingWrite?.title === args.diskTitle &&
-    args.pendingWrite.content === args.diskContent
+    sameSourceMarkdown(args.pendingWrite.content, args.diskContent)
   ) {
     return "pending-self-write";
   }
 
   const hasUnsavedEdit =
-    args.hasPendingSave === true || args.localContent !== args.lastSavedContent;
+    args.hasPendingSave === true ||
+    !sameSourceMarkdown(args.localContent, args.lastSavedContent);
   const diskChanged =
-    args.diskContent !== args.lastSavedContent ||
+    !sameSourceMarkdown(args.diskContent, args.lastSavedContent) ||
     args.diskTitle !== args.lastSavedTitle;
 
   if (hasUnsavedEdit && diskChanged) return "conflict";

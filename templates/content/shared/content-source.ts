@@ -1,3 +1,7 @@
+import { safeParseIconValue } from "@agent-native/core/icons";
+
+import { mergeSourceMarkdown } from "./source-markdown.js";
+
 export const CONTENT_SOURCE_ROOT = "content";
 export const CONTENT_SOURCE_EXTENSIONS = [".md", ".mdx"] as const;
 
@@ -43,6 +47,10 @@ export interface ParsedContentSourceFile {
 
 const FRONTMATTER_RE =
   /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n\r?\n|\r?\n|$)/;
+const FRONTMATTER_KEY_RE = /^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$/;
+const CONTINUED_SCALAR_RE = /^(?:[|>]|"(?:[^"\\]|\\.)*$|'(?:[^']|'')*$)/;
+const PLAIN_SCALAR_RE =
+  /^(?!(?:y|n|yes|no|on|off|true|false|null)$)[a-z](?:[a-z0-9 _.,()/'-]*[a-z0-9_.)])?$/i;
 const VALID_SOURCE_ID_RE = /^[A-Za-z0-9_-]{4,128}$/;
 
 function basename(filePath: string): string {
@@ -88,12 +96,26 @@ function parseFrontmatterValue(value: string): unknown {
   }
 }
 
+function rootIndent(lines: readonly string[]): string {
+  const first = lines.find((line) => !/^\s*(?:#|$)/.test(line)) ?? "";
+  return /^ */.exec(first)?.[0] ?? "";
+}
+
+function matchFrontmatterKey(
+  line: string,
+  indent: string,
+): RegExpExecArray | null {
+  return line.startsWith(indent)
+    ? FRONTMATTER_KEY_RE.exec(line.slice(indent.length).trimEnd())
+    : null;
+}
+
 function parseFrontmatter(raw: string): Record<string, unknown> {
   const data: Record<string, unknown> = {};
-  for (const line of raw.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const match = trimmed.match(/^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$/);
+  const lines = raw.split(/\r?\n/);
+  const indent = rootIndent(lines);
+  for (const line of lines) {
+    const match = matchFrontmatterKey(line, indent);
     if (!match) continue;
     data[match[1]] = parseFrontmatterValue(match[2] ?? "");
   }
@@ -111,6 +133,117 @@ function frontmatterLine(key: string, value: unknown): string {
     return `${key}: ${String(value)}`;
   }
   return `${key}: ${JSON.stringify(typeof value === "string" ? value : (JSON.stringify(value) ?? ""))}`;
+}
+
+type FrontmatterValue = string | number | boolean | null;
+
+interface FrontmatterLine {
+  text: string;
+  eol: string;
+}
+
+interface FrontmatterBlock {
+  opening: string;
+  lines: FrontmatterLine[];
+  closing: string;
+  eol: string;
+}
+
+function readFrontmatterBlock(source: string): FrontmatterBlock | null {
+  const match = FRONTMATTER_RE.exec(source);
+  const opening = /^---\r?\n/.exec(source)?.[0];
+  if (!match || opening === undefined) return null;
+  const header = match[0].slice(opening.length);
+  const raw = header.slice(0, match[1]?.length);
+  const closing = header.slice(raw.length);
+  const eol = /^\r?\n/.exec(closing)?.[0] ?? "\n";
+  const eols = new Map((raw + eol).match(/\r?\n/g)?.entries());
+  return {
+    opening,
+    lines: raw
+      .split(/\r?\n/)
+      .map((text, index) => ({ text, eol: eols.get(index) ?? eol })),
+    closing: closing.slice(eol.length),
+    eol,
+  };
+}
+
+function frontmatterLineLike(
+  written: string,
+  key: string,
+  value: FrontmatterValue,
+): string {
+  return typeof value === "string" &&
+    PLAIN_SCALAR_RE.test(written) &&
+    PLAIN_SCALAR_RE.test(value)
+    ? `${key}: ${value}`
+    : frontmatterLine(key, value);
+}
+
+function keptContinuation(
+  lines: readonly FrontmatterLine[],
+  written: string,
+): FrontmatterLine[] {
+  const isBlank = ({ text }: FrontmatterLine) => text.trim() === "";
+  if (!CONTINUED_SCALAR_RE.test(written))
+    return lines.filter((line) => isBlank(line) || /^\s*#/.test(line.text));
+  let end = lines.length;
+  while (end > 0 && lines.slice(end - 1, end).every(isBlank)) end -= 1;
+  return lines.slice(end);
+}
+
+function setFrontmatterValue(
+  block: FrontmatterBlock,
+  key: string,
+  value: FrontmatterValue,
+): FrontmatterBlock {
+  const { lines, eol } = block;
+  const indent = rootIndent(lines.map(({ text }) => text));
+  const at = lines
+    .map(({ text }) => matchFrontmatterKey(text, indent)?.[1])
+    .lastIndexOf(key);
+  if (at === -1) {
+    const text = indent + frontmatterLine(key, value);
+    return { ...block, lines: [...lines, { text, eol }] };
+  }
+  const after = lines.slice(at + 1);
+  const next = after.findIndex(
+    ({ text }) =>
+      text.trim() !== "" &&
+      (!text.startsWith(indent) ||
+        !/^(?:\s|-(?:\s|$))/.test(text.slice(indent.length))),
+  );
+  const continued = after.slice(0, next === -1 ? after.length : next);
+  const rest = next === -1 ? [] : after.slice(next);
+  return {
+    ...block,
+    lines: [
+      ...lines.slice(0, at),
+      ...lines.slice(at, at + 1).flatMap((line) => {
+        const written = matchFrontmatterKey(line.text, indent)?.[2] ?? "";
+        const text = indent + frontmatterLineLike(written, key, value);
+        return [
+          { text, eol: line.eol },
+          ...keptContinuation(continued, written),
+        ];
+      }),
+      ...rest,
+    ],
+  };
+}
+
+function sameIcon(
+  left: string | null | undefined,
+  right: string | null | undefined,
+): boolean {
+  if ((left ?? null) === (right ?? null)) return true;
+  const from = safeParseIconValue(left ?? null);
+  const to = safeParseIconValue(right ?? null);
+  return (
+    from.success &&
+    to.success &&
+    JSON.stringify(from.data) === JSON.stringify(to.data)
+  );
 }
 
 function normalizeSourcePath(filePath: string): string | null {
@@ -236,6 +369,105 @@ export function parseContentSourceFile(
     visibility,
     errors: errors.length > 0 ? errors : undefined,
   };
+}
+
+export interface ContentSourceFileEdit {
+  title: string;
+  content: string;
+  description?: string | undefined;
+  icon?: string | null | undefined;
+  parentId?: string | null | undefined;
+  position?: number | undefined;
+  isFavorite?: boolean | undefined;
+  hideFromSearch?: boolean | undefined;
+  visibility?: "private" | "org" | "public" | undefined;
+}
+
+const UPDATED_WHERE_RECORDED = [
+  "parentId",
+  "position",
+  "isFavorite",
+  "hideFromSearch",
+  "visibility",
+] as const;
+
+function changedFrontmatter(
+  file: ParsedContentSourceFile,
+  edit: ContentSourceFileEdit,
+): [key: string, value: FrontmatterValue][] {
+  const title = edit.title.trim() || "Untitled";
+  const changes: [key: string, value: FrontmatterValue][] = [];
+  if (title !== file.title) changes.push(["title", title]);
+  if (
+    edit.description !== undefined &&
+    edit.description !== (file.description ?? "")
+  )
+    changes.push(["description", edit.description]);
+  if (edit.icon !== undefined && !sameIcon(edit.icon, file.icon))
+    changes.push(["icon", edit.icon]);
+  for (const key of UPDATED_WHERE_RECORDED) {
+    const value = edit[key];
+    if (value !== undefined && file[key] !== undefined && file[key] !== value)
+      changes.push([key, value]);
+  }
+  return changes;
+}
+
+export function updateContentSourceFile(
+  filePath: string,
+  source: string,
+  edit: ContentSourceFileEdit,
+): string {
+  const file = parseContentSourceFile(filePath, source);
+  const content = mergeSourceMarkdown(file.content, edit.content);
+  const changes = changedFrontmatter(file, edit);
+  const eol = source.includes("\r\n") ? "\r\n" : "\n";
+  const before = readFrontmatterBlock(source);
+  if (!before && changes.length === 0)
+    return FRONTMATTER_RE.test(content) ? eol + content : content;
+
+  const { opening, lines, closing } = changes.reduce(
+    (block, [key, value]) => setFrontmatterValue(block, key, value),
+    before ?? {
+      opening: `---${eol}`,
+      lines: [],
+      closing: `---${eol}${eol}`,
+      eol,
+    },
+  );
+  const header =
+    opening + lines.map((line) => line.text + line.eol).join("") + closing;
+  return header.endsWith("\n") || content === ""
+    ? header + content
+    : header + eol + eol + content;
+}
+
+export function mergeContentSourceFiles(
+  current: Record<string, string>,
+  exported: Record<string, string>,
+): Record<string, string> {
+  const sources = new Map(Object.entries(current));
+  return Object.fromEntries(
+    Object.entries(exported).map(([filePath, content]) => {
+      const source = sources.get(filePath);
+      if (source === undefined) return [filePath, content];
+      const page = parseContentSourceFile(filePath, content);
+      return [
+        filePath,
+        updateContentSourceFile(filePath, source, {
+          title: page.title,
+          content: page.content,
+          description: page.description,
+          icon: page.icon ?? null,
+          parentId: page.parentId ?? null,
+          position: page.position ?? 0,
+          isFavorite: page.isFavorite ?? false,
+          hideFromSearch: page.hideFromSearch ?? false,
+          visibility: page.visibility,
+        }),
+      ];
+    }),
+  );
 }
 
 export function buildContentSourceBundle(

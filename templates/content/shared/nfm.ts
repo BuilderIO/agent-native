@@ -1932,7 +1932,10 @@ function serializeTaskList(node: PMNode, indent: number): string[] {
 }
 
 // A cell reads back as one line, so its children share one underscore check.
-function serializeCellInline(cell: PMNode, escapeUnderscore = false): string {
+export function serializeCellInline(
+  cell: PMNode,
+  escapeUnderscore = false,
+): string {
   const parts: string[] = [];
   for (const child of cell.content || []) {
     const part = serializeCellChildInline(child, escapeUnderscore);
@@ -2091,6 +2094,19 @@ export function parseNfmWithLosses(nfm: string | null | undefined): {
   }
 }
 
+export interface NfmBlockSpan {
+  nodes: PMNode[];
+  startLine: number;
+  endLine: number;
+}
+
+export function locateNfmBlocks(nfm: string): NfmBlockSpan[] {
+  const spans: NfmBlockSpan[] = [];
+  const lines = nfm.replace(/\r\n?/g, "\n").split("\n");
+  parseBlockSequence(lines, 0, 0, (span) => spans.push(span));
+  return spans;
+}
+
 interface ParseResult {
   nodes: PMNode[];
   end: number;
@@ -2111,6 +2127,7 @@ function parseBlockSequence(
   lines: string[],
   start: number,
   baseIndent: number,
+  onBlock?: (span: NfmBlockSpan) => void,
 ): ParseResult {
   const out: PMNode[] = [];
   let i = start;
@@ -2130,6 +2147,11 @@ function parseBlockSequence(
     const pipeTable = parseGfmPipeTable(lines, i, ind, rel);
     if (pipeTable) {
       out.push(pipeTable.nodes[0]);
+      onBlock?.({
+        nodes: pipeTable.nodes,
+        startLine: i,
+        endLine: pipeTable.end,
+      });
       i = pipeTable.end;
       continue;
     }
@@ -2143,12 +2165,14 @@ function parseBlockSequence(
     if (listKind) {
       const res = parseList(lines, i, ind, listKind);
       out.push(res.nodes[0]);
+      onBlock?.({ nodes: res.nodes, startLine: i, endLine: res.end });
       i = res.end;
       continue;
     }
 
     const res = parseSingleBlock(lines, i, ind, rel);
     pushAll(out, res.nodes);
+    onBlock?.({ nodes: res.nodes, startLine: i, endLine: res.end });
     i = res.end;
   }
 
@@ -2379,6 +2403,16 @@ export function splitGfmPipeRow(line: string): string[] | null {
   return cells;
 }
 
+export function escapeGfmPipes(value: string): string {
+  return value.replace(/\\[\s\S]|\|/g, (match) =>
+    match === "|" ? "\\|" : match,
+  );
+}
+
+function unescapeGfmPipes(value: string): string {
+  return value.replace(/\\[\s\S]/g, (match) => (match === "\\|" ? "|" : match));
+}
+
 function isGfmDelimiterCell(value: string): boolean {
   return /^-+$/.test(value.trim());
 }
@@ -2443,7 +2477,12 @@ function parseGfmPipeTable(
     content: Array.from({ length: columnCount }, (_, index) => ({
       type: rowIndex === 0 ? "tableHeader" : "tableCell",
       attrs: { color: null, textAlign: alignments[index] ?? null },
-      content: [{ type: "paragraph", content: parseInline(row[index] ?? "") }],
+      content: [
+        {
+          type: "paragraph",
+          content: parseInline(unescapeGfmPipes(row[index] ?? "")),
+        },
+      ],
     })),
   }));
   const attrs: Record<string, unknown> = {
