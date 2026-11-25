@@ -727,6 +727,8 @@ const messages: ToolkitAgentChatTranslation = {
     "لا يمكن لهذا التطبيق إعادة محاولة المطالبة المحفوظة بأمان بعد. حدّث التطبيق ثم حاول مرة أخرى.",
   "errorMessages.runInterrupted": "توقف الوكيل قبل أن يُكمل.",
   "errorMessages.runFailed": "فشل تشغيل الوكيل.",
+  "errorMessages.writeOutcomeUnknown":
+    "توقفت قبل تكرار إجراء الكتابة لأن محاولة سابقة ربما حفظت تغييرات بالفعل ولم أتمكن من تأكيد النتيجة. تحقق مما تم حفظه قبل إعادة المحاولة.",
   "errorMessages.runUnverified":
     "فقدت هذه المحادثة تتبّع الوكيل، وقد يكون لا يزال قيد التشغيل. أعد التحميل لرؤية تقدّمه.",
   "errorMessages.runSignedOut":
