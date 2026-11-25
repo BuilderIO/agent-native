@@ -14,6 +14,7 @@ type Step =
   | { expectText: string }
   | { expectVisible: string }
   | { expectAttr: string; attr: string; value: string }
+  | { expectValue: string; value: string }
   | { action: string; input?: Record<string, unknown>; as?: string }
   | { screenshot: string };
 
@@ -47,6 +48,10 @@ const PRESETS: Record<string, Target> = {
       { expectUrl: "/forms/${write.id}" },
       { reload: true },
       { expectUrl: "/forms/${write.id}" },
+      {
+        expectValue: 'input[data-editable="form-title"]',
+        value: "${write.key}",
+      },
       { screenshot: "editor-after-reload" },
       { freshSignIn: true },
       { expectText: "${write.key}" },
@@ -271,7 +276,16 @@ async function runStep(page: Page, step: Step) {
       .locator(s.expectVisible)
       .first()
       .waitFor({ state: "visible", timeout: 20_000 });
-  else if ("expectAttr" in s) {
+  else if ("expectValue" in s) {
+    const actual = await page
+      .locator(s.expectValue)
+      .first()
+      .inputValue({ timeout: 20_000 });
+    if (actual !== s.value)
+      throw new Error(
+        `value=${JSON.stringify(actual)}, want ${JSON.stringify(s.value)}`,
+      );
+  } else if ("expectAttr" in s) {
     const loc = page.locator(s.expectAttr).first();
     await loc.waitFor({ timeout: 20_000 });
     const actual = await loc.getAttribute(s.attr);
@@ -293,6 +307,22 @@ interface Readback {
   uiAfterReload: boolean | null;
 }
 
+async function savedOnServer(page: Page, id: string, text: string) {
+  const deadline = Date.now() + 20_000;
+  for (;;) {
+    const r = await inPage(
+      page,
+      "GET",
+      `${appBase}/_agent-native/actions/get-form?id=${encodeURIComponent(id)}`,
+    );
+    if (r.status === 200 && JSON.stringify(r.json).includes(text)) return;
+    if (Date.now() > deadline)
+      throw new Error(`form ${id} never saved "${text}" (HTTP ${r.status})`);
+    // fixed-sleep-ok: the editor autosaves on a debounce with no completion event, so poll the server copy
+    await new Promise((resolve) => setTimeout(resolve, 750));
+  }
+}
+
 async function writeAndReadBack(
   page: Page,
 ): Promise<{ readback: Readback; cleanup: () => Promise<void> }> {
@@ -301,9 +331,23 @@ async function writeAndReadBack(
     (target.write ?? (target.app === "forms-2" ? "forms" : "app-state")) ===
     "forms"
   ) {
-    const created = await callAction<{ id: string }>(page, "create-form", {
-      name,
+    await page.goto(`${appBase}/`, {
+      waitUntil: "domcontentloaded",
+      timeout: 60_000,
     });
+    await page.getByRole("button", { name: "New form" }).click();
+    await page.waitForURL(/\/forms\/[^/]+\/edit/, { timeout: 30_000 });
+    const id = decodeURIComponent(
+      page.url().match(/\/forms\/([^/]+)\/edit/)?.[1] ?? "",
+    );
+    if (!id) throw new Error(`no form id in ${page.url()}`);
+    const cleanup = async () => {
+      await callAction(page, "delete-form", { id });
+    };
+    const title = page.locator('input[data-editable="form-title"]');
+    await title.click();
+    await page.keyboard.type(name);
+    await savedOnServer(page, id, name);
     await page.goto(`${appBase}/`, {
       waitUntil: "domcontentloaded",
       timeout: 60_000,
@@ -317,22 +361,21 @@ async function writeAndReadBack(
         () => true,
         () => false,
       );
-    const read = await inPage<{ id?: string; name?: string }>(
+    const read = await inPage<{ id?: string }>(
       page,
       "GET",
-      `${appBase}/_agent-native/actions/get-form?id=${encodeURIComponent(created.id)}`,
+      `${appBase}/_agent-native/actions/get-form?id=${encodeURIComponent(id)}`,
     );
     return {
       readback: {
-        kind: "forms:create-form",
+        kind: "forms:new-form-ui",
         key: name,
-        id: created.id,
-        apiAfterReload: read.status === 200 && read.json?.id === created.id,
+        id,
+        apiAfterReload:
+          read.status === 200 && read.json?.id === id && read.text.length > 0,
         uiAfterReload: ui,
       },
-      cleanup: async () => {
-        await callAction(page, "delete-form", { id: created.id });
-      },
+      cleanup,
     };
   }
   const url = `${appBase}/_agent-native/application-state/${name}`;
