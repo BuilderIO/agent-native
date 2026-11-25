@@ -13,7 +13,7 @@ vi.mock("../actions.js", () => ({ requireOrgMember: boundary.access }));
 vi.mock("../workspace-app-access.js", () => ({
   listConfiguredWorkspaceApps: boundary.configured,
   unbuiltWorkspaceAppIds: boundary.unbuilt,
-  currentWorkspaceAppIdsForAccessList: boundary.inventory,
+  currentWorkspaceAppInventoryForAccessList: boundary.inventory,
 }));
 import action from "./list-workspace-app-access.js";
 const ctx = { caller: "frontend" } as const;
@@ -83,7 +83,7 @@ describe("workspace access listing runtime", () => {
     ]);
   });
   it("uses the verified mounted inventory to hide retired org rows", async () => {
-    boundary.inventory.mockResolvedValue(new Set(["shared"]));
+    boundary.inventory.mockResolvedValue([{ id: "shared", name: "Shared", description: null, path: "/shared" }]);
     boundary.execute.mockResolvedValue({
       rows: [
         { id: "retired", name: "Retired", path: "/retired" },
@@ -97,7 +97,7 @@ describe("workspace access listing runtime", () => {
   });
 
   it("lists a verified shared mounted app without a row in the current org", async () => {
-    boundary.inventory.mockResolvedValue(new Set(["shared"]));
+    boundary.inventory.mockResolvedValue([{ id: "shared", name: "Shared", description: null, path: "/shared" }]);
     boundary.execute.mockResolvedValue({ rows: [] });
     boundary.configured.mockReturnValue([
       { id: "shared", name: "Shared", description: null, path: "/shared" },
@@ -110,6 +110,24 @@ describe("workspace access listing runtime", () => {
         name: "Shared",
         description: null,
         path: "/shared",
+        mode: "all",
+      },
+    ]);
+  });
+
+  it("adds dynamically mounted apps absent from both org rows and the startup catalog", async () => {
+    boundary.inventory.mockResolvedValue([
+      { id: "dynamic", name: "Dynamic", description: null, path: "/dynamic" },
+    ]);
+    boundary.execute.mockResolvedValue({ rows: [] });
+    boundary.configured.mockReturnValue([]);
+    const result = await action.run({}, ctx);
+    expect(result.apps).toEqual([
+      {
+        id: "dynamic",
+        name: "Dynamic",
+        description: null,
+        path: "/dynamic",
         mode: "all",
       },
     ]);
