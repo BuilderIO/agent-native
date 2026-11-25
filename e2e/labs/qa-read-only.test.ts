@@ -6,7 +6,7 @@ import {
   allowsReadOnlyQaRequest,
 } from "./qa-read-only.ts";
 
-test("read-only QA allows authenticated workspace navigation and explicit GET actions", () => {
+await test("read-only QA allows authenticated workspace navigation and explicit GET actions", () => {
   assert.doesNotThrow(() =>
     assertReadOnlyQaTarget(
       {
@@ -22,7 +22,7 @@ test("read-only QA allows authenticated workspace navigation and explicit GET ac
   );
 });
 
-test("read-only QA rejects unsafe methods, cleanup, and extra auth steps", () => {
+await test("read-only QA rejects unsafe methods, cleanup, and extra auth steps", () => {
   const app = "decks-2";
   assert.throws(() => assertReadOnlyQaTarget({ app }, false), /email-link/);
   assert.throws(
@@ -44,7 +44,7 @@ test("read-only QA rejects unsafe methods, cleanup, and extra auth steps", () =>
   }
 });
 
-test("read-only QA permits only same-origin email-link POSTs during sign-in", () => {
+await test("read-only QA permits only same-origin email-link POSTs during sign-in", () => {
   const origin = "https://labs.agent-native.com";
   const app = "decks-2";
   const allows = (
