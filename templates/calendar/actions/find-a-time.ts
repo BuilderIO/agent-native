@@ -214,6 +214,11 @@ export default defineAction({
       .describe("Existing event end to ignore while rescheduling"),
   }),
   http: { method: "GET" },
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   readOnly: true,
   chatUI: {
     renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,

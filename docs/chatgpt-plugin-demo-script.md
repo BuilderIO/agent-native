@@ -26,3 +26,11 @@ Record one short walkthrough per listing in ChatGPT developer mode, using the de
 3. Show the created document in Content and open it in the workspace.
 4. Ask: “Create a new Content document titled 'Plugin review: launch phrase edit' with the sentence 'We will invite our early access customers next month.' Use the new document ID returned by create-document, then replace only 'early access' with 'private preview'. Do not edit Launch Brief Demo or any other existing document.” Show the new review document and focused revision.
 5. State that this connection works with the connected Agent-Native Content workspace; it does not publish to an external CMS or edit Notion.
+
+## Calendar
+
+1. Show the Agent-Native Calendar plugin connected to the reviewer account, with its Google calendar connected and the Plugin Review Demo event visible.
+2. Ask: “What's on my calendar this week? List each event with its day, start time and end time.” Show the listed events without changing them.
+3. Ask: “Add a 30-minute event called 'Plugin review: focus block' tomorrow at 3 PM with no guests. Then move it to 4 PM.” Open Calendar and show the one new event at 4 PM.
+4. Ask: “Show my booking links with their durations, and list anyone who has booked through them.” Show the links and bookings without changing them.
+5. State that this connection reads and plans the connected calendars. Inviting guests asks for approval in Calendar first, and it does not delete events, cancel bookings, change availability, or create or edit booking links.

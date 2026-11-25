@@ -31,6 +31,11 @@ export default defineAction({
   description: "List all booking links",
   schema: z.object({}),
   http: { method: "GET" },
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async () => {
     const db = getDb();
     const userEmail = normalizeEmail(getRequestUserEmail());

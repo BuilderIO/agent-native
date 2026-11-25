@@ -73,7 +73,8 @@ export interface AppSkillChatGptPlugin {
       negative: AppSkillChatGptTestCase[];
     };
     commerce: boolean;
-    iframeJustification: string;
+    /** Required by the pack script when the app's directory profile serves widgets. */
+    iframeJustification?: string;
     demo_recording_url?: string;
   };
 }
@@ -471,11 +472,15 @@ function normalizeChatGptPlugin(value: unknown): AppSkillChatGptPlugin {
         ),
       },
       commerce: review.commerce,
-      iframeJustification: requiredPluginString(
-        review,
-        "iframeJustification",
-        "chatgpt.review.iframeJustification",
-      ),
+      ...(review.iframeJustification === undefined
+        ? {}
+        : {
+            iframeJustification: requiredPluginString(
+              review,
+              "iframeJustification",
+              "chatgpt.review.iframeJustification",
+            ),
+          }),
       ...(review.demo_recording_url !== undefined
         ? { demo_recording_url: review.demo_recording_url }
         : {}),

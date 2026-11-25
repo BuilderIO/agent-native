@@ -6,6 +6,7 @@ import { Client } from "@modelcontextprotocol/client";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { CHATGPT_DIRECTORY_PROFILE as calendarProfile } from "../../../../templates/calendar/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as contentProfile } from "../../../../templates/content/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as designProfile } from "../../../../templates/design/server/lib/chatgpt-directory-tools.js";
 import { CHATGPT_DIRECTORY_PROFILE as slidesProfile } from "../../../../templates/slides/server/lib/chatgpt-directory-tools.js";
@@ -62,10 +63,15 @@ const repoRoot = path.resolve(
 );
 const ACTION_REGISTRY_TEST_TIMEOUT_MS = 60_000;
 
-const templateProfiles = [
+const widgetProfiles = [
   { appId: "slides", profile: slidesProfile },
   { appId: "design", profile: designProfile },
   { appId: "content", profile: contentProfile },
+] as const;
+
+const templateProfiles = [
+  ...widgetProfiles,
+  { appId: "calendar", profile: calendarProfile },
 ] as const;
 
 const registryProfiles = [...templateProfiles] as const;
@@ -307,7 +313,7 @@ describe("ChatGPT directory template profiles", () => {
     ACTION_REGISTRY_TEST_TIMEOUT_MS,
   );
 
-  it.each(registryProfiles)(
+  it.each(widgetProfiles)(
     "$appId validates ordinary targets against the real registry without expanding directory tools",
     async ({ appId, profile }) => {
       const { actions, productionActions } = await loadTemplateActions(appId);
@@ -405,12 +411,70 @@ describe("ChatGPT directory template profiles", () => {
     120_000,
   );
 
-  it.each(templateProfiles)(
+  it.each(widgetProfiles)(
     "$appId keeps the full widget enabled at its canonical domain",
     ({ appId, profile }) => {
       expect(profile.widgets).toBe(true);
       expect(profile.widgetDomain).toBe(`https://${appId}.agent-native.com`);
     },
+  );
+
+  it(
+    "calendar serves exactly its listed tools with no widget",
+    async () => {
+      const { productionActions } = await loadTemplateActions("calendar");
+      const { directoryProfile } = resolveAgentChatMcpOptions({
+        mcp: { directoryProfile: calendarProfile },
+      });
+      const config = {
+        name: "agent-native-calendar",
+        appId: "calendar",
+        description: "Calendar directory listing",
+        catalogMode: "directory" as const,
+        connectorCatalog: calendarProfile.connectorCatalog,
+        widgetDomain: calendarProfile.widgetDomain,
+        actions: productionActions,
+        productionActions,
+        directoryProfile,
+      };
+      expect(calendarProfile.widgets).toBe(false);
+      expect(() => validateMcpDirectoryProfile(config)).not.toThrow();
+
+      const server = await createMCPServerForRequest(
+        config,
+        { userEmail: "reviewer@example.test" },
+        { origin: calendarProfile.widgetDomain, transport: "http" },
+      );
+      const [clientTransport, serverTransport] =
+        InMemoryTransport.createLinkedPair();
+      const client = new Client({ name: "calendar-listing", version: "1" });
+      await Promise.all([
+        client.connect(clientTransport),
+        server.connect(serverTransport),
+      ]);
+      try {
+        const { tools } = await client.listTools();
+        expect(
+          tools
+            .filter((tool) => Object.hasOwn(productionActions, tool.name))
+            .map((tool) => tool.name)
+            .sort(),
+        ).toEqual([...calendarProfile.connectorCatalog].sort());
+        expect(
+          tools
+            .filter(
+              (tool) =>
+                tool._meta?.ui !== undefined ||
+                tool._meta?.["openai/outputTemplate"] !== undefined,
+            )
+            .map((tool) => tool.name),
+        ).toEqual([]);
+        expect(client.getServerCapabilities()?.resources).toBeUndefined();
+      } finally {
+        await Promise.all([client.close(), server.close()]);
+      }
+    },
+    ACTION_REGISTRY_TEST_TIMEOUT_MS,
   );
 
   it("keeps Design's bootstrap read out of model tool discovery", () => {

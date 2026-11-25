@@ -1,18 +1,19 @@
 # ChatGPT Plugin Directory
 
-This repository prepares three focused ChatGPT plugins: Slides, Design, and Content. Each listing connects to one app’s hosted MCP endpoint and exposes a curated action set. Separate listings keep each task description, authorization, review cases, and app destination clear.
+This repository prepares four focused ChatGPT plugins: Slides, Design, Content, and Calendar. Each listing connects to one app’s hosted MCP endpoint and exposes a curated action set. Separate listings keep each task description, authorization, review cases, and app destination clear.
 
 The public `/apps/*` descriptions are the starting point for listing copy. ChatGPT’s metadata limits require shorter subtitles, and each long description names the supported tasks and the connector’s boundaries. Listing metadata and review cases live in each app’s `agent-native.app-skill.json` under `chatgpt`.
 
 ## Production endpoints
 
-Connect these servers or rescan their domains in OpenAI’s dashboard only after PR #6542 is merged and the app deployments are promoted.
+Connect these servers or rescan their domains in OpenAI’s dashboard only after the change that added the app’s listing is merged and its deployment is promoted. Slides, Design, and Content shipped in PR #6542; Calendar’s listing shipped later on its own.
 
-| App     | MCP directory                                    | OpenAI challenge                                                     |
-| ------- | ------------------------------------------------ | -------------------------------------------------------------------- |
-| Slides  | <https://slides.agent-native.com/mcp/directory>  | <https://slides.agent-native.com/.well-known/openai-apps-challenge>  |
-| Design  | <https://design.agent-native.com/mcp/directory>  | <https://design.agent-native.com/.well-known/openai-apps-challenge>  |
-| Content | <https://content.agent-native.com/mcp/directory> | <https://content.agent-native.com/.well-known/openai-apps-challenge> |
+| App      | MCP directory                                     | OpenAI challenge                                                      |
+| -------- | ------------------------------------------------- | --------------------------------------------------------------------- |
+| Slides   | <https://slides.agent-native.com/mcp/directory>   | <https://slides.agent-native.com/.well-known/openai-apps-challenge>   |
+| Design   | <https://design.agent-native.com/mcp/directory>   | <https://design.agent-native.com/.well-known/openai-apps-challenge>   |
+| Content  | <https://content.agent-native.com/mcp/directory>  | <https://content.agent-native.com/.well-known/openai-apps-challenge>  |
+| Calendar | <https://calendar.agent-native.com/mcp/directory> | <https://calendar.agent-native.com/.well-known/openai-apps-challenge> |
 
 The MCP endpoints require authentication. After promotion, each challenge URL returns 404 until that app’s dashboard-issued `OPENAI_APPS_CHALLENGE_TOKEN` is configured and the app is redeployed. After redeployment, verify that the public challenge response exactly matches the token OpenAI issued for that domain.
 
@@ -24,10 +25,16 @@ Run:
 pnpm pack:chatgpt-plugins
 ```
 
-The command validates metadata, review case counts, tool names, icon dimensions, and unique widget origins. It writes three ZIPs and a handoff file to `.tmp/chatgpt-plugin-submissions/`. It stops if that output directory already exists; choose another `--out` path after changing metadata:
+The command validates metadata, review case counts, tool names, icon dimensions, and unique widget origins. It writes one ZIP per app and a handoff file to `.tmp/chatgpt-plugin-submissions/`. It stops if that output directory already exists; choose another `--out` path after changing metadata:
 
 ```sh
 pnpm pack:chatgpt-plugins -- --out=.tmp/chatgpt-plugin-submissions-next
+```
+
+To validate and package only some apps, name them with `--app`:
+
+```sh
+pnpm pack:chatgpt-plugins -- --app=calendar --out=.tmp/chatgpt-plugin-submissions-calendar
 ```
 
 Each ZIP contains only a portable root `plugin.json`, root `mcp.json`, and the app logo under `assets/`. It contains no app source, reviewer login, password, API token, or challenge token. Each `mcp.json` declares one `streamable-http` MCP server at the app’s hosted `/mcp/directory` endpoint.
@@ -38,7 +45,7 @@ The ZIPs include five positive and three negative review cases. They remain **DR
 
 The `mcp.directoryProfile` exposes exactly its configured `connectorCatalog` actions at `/mcp/directory`. It rejects missing actions and incomplete MCP annotations, ignores full-catalog requests, omits generic cross-app actions and `tool-search`, and only allows calls to the advertised set. The three booleans are declared on each action: `readOnlyHint`, `destructiveHint`, and `openWorldHint`.
 
-The directory profile enables MCP App resources by default; Slides, Design, and Content all keep `directoryProfile.widgets: true` and serve their full widget resources. An app can opt out with `directoryProfile.widgets: false`, which removes widget metadata, UI resources, and the MCP Apps capability from its directory tools. The existing `/mcp` catalog and instructions remain unchanged. ChatGPT directory widgets use `window.openai`, with the built-in MCP Apps bridge as the fallback, so they need no CDN bundle or self-hosted copy of the bridge. On saved-chat reload, the widget calls an app-only `create_embed_session` helper to renew a ticket scoped to the verified user, shared widget resource, and one artifact; the helper stays hidden from the model-facing tool catalog. If both host bridges fail, the widget reports the error. Directory mode disables the remote `esm.sh` fallback and omits that origin from its widget CSP. The general `/mcp` endpoint retains its pinned `@modelcontextprotocol/ext-apps@1.7.5` fallback for clients that need it. Each app uses its own request origin for widget metadata and CSP. The OpenAI dashboard also asks for an iframe justification; use the text in the app’s source manifest under `chatgpt.review.iframeJustification`.
+The directory profile enables MCP App resources by default; Slides, Design, and Content all keep `directoryProfile.widgets: true` and serve their full widget resources. An app can opt out with `directoryProfile.widgets: false`, which removes widget metadata, UI resources, and the MCP Apps capability from its directory tools. Calendar opts out and serves plain tools, so its manifest has no `chatgpt.review.iframeJustification`; the package script requires one only from apps that serve a widget. The existing `/mcp` catalog and instructions remain unchanged. ChatGPT directory widgets use `window.openai`, with the built-in MCP Apps bridge as the fallback, so they need no CDN bundle or self-hosted copy of the bridge. On saved-chat reload, the widget calls an app-only `create_embed_session` helper to renew a ticket scoped to the verified user, shared widget resource, and one artifact; the helper stays hidden from the model-facing tool catalog. If both host bridges fail, the widget reports the error. Directory mode disables the remote `esm.sh` fallback and omits that origin from its widget CSP. The general `/mcp` endpoint retains its pinned `@modelcontextprotocol/ext-apps@1.7.5` fallback for clients that need it. Each app uses its own request origin for widget metadata and CSP. The OpenAI dashboard also asks for an iframe justification for an app with a widget; use the text in the app’s source manifest under `chatgpt.review.iframeJustification`.
 
 Only the tools named in `directoryProfile.widgetTargets` attach the widget, so read tools such as `get-design-snapshot` and `get-deck` return data without opening a pane on every call. A legacy directory profile without widget target resolvers remains discoverable as a tool catalog, but it does not publish inline widgets. Widgets require server-owned resource targets and scoped read routes; this avoids giving an older profile an unscoped data capability. A listed `widgetReadOnlyActions` entry must have a non-mutating `mcp-widget` execution path. For example, Slides normal MCP reads may repair duplicate slide IDs, while the ticketed widget path only normalizes them in its response. These branches apply only to directory widgets; `/mcp` keeps its existing behavior.
 
@@ -48,9 +55,9 @@ The core route `GET /.well-known/openai-apps-challenge` returns the configured `
 
 Use OpenAI’s [submission guide](https://developers.openai.com/plugins/deploy/submission), [plugin guidelines](https://developers.openai.com/plugins/plugin-guidelines), and [tool and UI reference](https://developers.openai.com/plugins/reference).
 
-PR #6542 is merged and the Slides, Design, and Content deployments are promoted. Builder.io is preverified for app submission (Business), and the dashboard’s **Upload new or existing plugin** button is available. The source manifests use `developerName: Builder.io` to match the verified publisher.
+PR #6542 is merged and the Slides, Design, and Content deployments are promoted. Calendar’s listing is not yet submitted. Builder.io is preverified for app submission (Business), and the dashboard’s **Upload new or existing plugin** button is available. The source manifests use `developerName: Builder.io` to match the verified publisher.
 
-The dashboard also has an existing unsubmitted **Agent-Native Dispatch** v1.0.0 draft. Leave it untouched; this submission covers only Slides, Design, and Content. Confirm the organization’s project residency is eligible, then complete these steps in order for each app:
+The dashboard also has an existing unsubmitted **Agent-Native Dispatch** v1.0.0 draft. Leave it untouched; these submissions cover only Slides, Design, Content, and Calendar. Confirm the organization’s project residency is eligible, then complete these steps in order for each app:
 
 1. Have an organization owner grant the submitting account `api.apps.write` access.
 2. Use the available **Upload new or existing plugin** button to upload the draft ZIP.
@@ -58,7 +65,7 @@ The dashboard also has an existing unsubmitted **Agent-Native Dispatch** v1.0.0 
 4. Set the challenge token issued for that app and domain as `OPENAI_APPS_CHALLENGE_TOKEN` on that app’s deployment, then redeploy it.
 5. Rescan the domain and confirm its public challenge URL returns the exact token.
 6. Add a reviewer account with password-based sign-in and no inaccessible MFA. Enter its credentials only in the dashboard’s secure form.
-7. Run all eight review cases on ChatGPT web and mobile. Confirm account boundaries, saved artifacts, no unsupported external edits, and widget rendering. Seed exactly the records below; prompts and expected behavior must not assume additional data.
+7. Run all eight review cases on ChatGPT web and mobile. Confirm account boundaries, saved artifacts, no unsupported external edits, and widget rendering for apps that serve one. Seed exactly the records below; prompts and expected behavior must not assume additional data.
 8. Record a reviewer-accessible walkthrough for the app. Add its URL to `chatgpt.review.demo_recording_url`, rebuild the ZIPs, and upload the refreshed package. The walkthrough should show connection and auth, a direct creation request, a revision or read flow, the saved artifact, and the supported-scope boundary.
 9. Submit the completed listing for review. Complete any policy attestations and wait for the review decision.
 10. After approval, select country availability and publish in the dashboard.
@@ -68,6 +75,7 @@ Seeded records guaranteed for review:
 - **Slides:** `Quarterly Planning Demo` with a `Priorities` slide.
 - **Design:** `Northstar Brand`, `Product Launch Demo`, and one available template. The template’s name and type are not fixed.
 - **Content:** `Launch Brief Demo` containing `early access`, and a `Feature Requests Demo` database. Its schema and entries are not fixed.
+- **Calendar:** a connected Google account with a `Plugin Review Demo` event that has a location and falls within 30 days of the review, and at least one booking link. Other events, bookings, and working hours are not fixed. Reviewer runs add guest-free events titled `Plugin review: focus block`.
 
 The package generator writes the current portal order and iframe explanations into `.tmp/chatgpt-plugin-submissions/SUBMISSION.md`. Reviewer credentials and secrets never belong in the ZIPs or repository.
 

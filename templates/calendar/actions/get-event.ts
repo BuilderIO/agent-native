@@ -34,6 +34,11 @@ export default defineAction({
       ),
   }),
   http: { method: "GET" },
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   link: ({ result }) => {

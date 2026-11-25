@@ -26,6 +26,11 @@ export default defineAction({
       ),
   }),
   http: false,
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   readOnly: true,
   run: async (args) => {
     const email = getRequestUserEmail();
