@@ -7740,111 +7740,110 @@ export async function confirmQueuedRunInterrupt(input: {
   return "pending";
 }
 
-async function runAgentLoopInternal(
-  opts: {
-    engine: AgentEngine;
-    model: string;
-    systemPrompt: string;
-    tools: EngineTool[];
-    availableTools?: EngineTool[];
-    messages: EngineMessage[];
-    // Restarting the model call would repeat text the client already shows. Without a
-    // turn-level view, the attempt's own streamed text decides.
-    hasVisibleTurnText?: () => boolean;
-    structuredHistoryImages?: {
-      history: AgentChatStructuredMessage[];
-      resolutions: ReadonlyMap<string, StructuredHistoryImageResolution>;
-    };
-    systemSections?: import("../shared/context-xray.js").ContextManifestSystemSection[];
-    actions: Record<string, ActionEntry>;
-    send: (event: AgentChatEvent) => void | Promise<void>;
-    historyPrivacyState?: { private: boolean; recorded?: boolean };
-    signal: AbortSignal;
-    beforeWrite?: () => Promise<void>;
-    beforeModelDispatch?: BeforeModelDispatch;
-    registerModelInputGuard?: ActionRunContext["registerModelInputGuard"];
-    unknownWriteToolNames?: Set<string>;
-    /** The request's unknown outcomes, which each of its loops feeds and holds by. */
-    unknownOutcomes?: UnknownOutcomes;
-    internalContinuation?: boolean;
-    onModelInput?: ModelInputObserver;
-    onModelAttempt?: ModelAttemptObserver;
-    onModelAttemptStart?: ModelAttemptStartObserver;
-    /**
-     * The model and effort each model call uses. Either can change mid-run: a
-     * rate limit falls back to another model, and an empty response steps effort
-     * down.
-     */
-    onModelSettings?: (
-      model: string,
-      reasoningEffort: ReasoningEffort | undefined,
-    ) => void;
-    /** A provider request passed the run's safe-dispatch boundary. */
-    onModelDispatchStarted?: () => void;
-    onUsage?: (usage: AgentLoopUsage) => void;
-    onOutcome?: (outcome: AgentLoopOutcome) => void;
-    ownerEmail?: string | null;
-    orgId?: string | null;
-    appId?: string;
-    appAuthorization?:
-      | import("../org/app-roles.js").AppAuthorizationContext
-      | null;
-    actionCaller?: ActionCaller;
-    automation?: ActionAutomationContext;
-    runId?: string;
-    /** Enable same-turn, agent-authored response metadata for interactive chat. */
-    followUpSuggestions?: boolean;
-    budgetStartedAt?: number;
-    networkProtocol?: "a2a" | "mcp" | "provider-api";
-    networkId?: string;
-    networkPeer?: string;
-    delegationDepth?: number;
-    visitedApps?: string[];
-    attachments?: AgentChatAttachment[];
-    reasoningEffort?: ReasoningEffort;
-    providerOptions?: any;
-    maxOutputTokens?: number;
-    executionMode?: AgentExecutionMode;
-    maxIterations?: number;
-    /**
-     * Per-TURN input-token ceiling. Iteration count and wall clock do not bound
-     * spend — retained tool results are re-sent every iteration, so cost is
-     * quadratic in tool-call count. Crossing this stops the turn outright
-     * (unlike `maxIterations`, which hands off to the next chunk).
-     */
-    maxRunInputTokens?: number;
-    priorTurnInputTokens?: number;
-    finalResponseGuard?: AgentLoopFinalResponseGuard;
-    finalResponseGuardRequestText?: string;
-    finalGuardKeptDraft?: FinalGuardKeptDraft;
-    threadId?: string;
-    turnId?: string;
-    /** Recovery paths overlay completed durable steps missing from tool_done. */
-    recoverCompletedExecutionSteps?: boolean;
-    durableStepIdForToolCall?: (logicalStepId: string) => string;
-    loadedSkillSlugs?: readonly string[];
-    runSoftTimeoutMs?: number;
-    toolLimits?: ToolLimits;
-    approvedToolCalls?: string[];
-    approvedToolCallAskId?: string;
-    /** Recorded by an approved call's own audit rows, and read by nothing else. */
-    auditOverride?: AuditOverride;
-    /**
-     * Server-side approval persistence hooks. The HTTP transport supplies these
-     * so client-supplied history is never the authorization source; direct loop
-     * callers may omit them when they own the surrounding approval boundary.
-     */
-    onApprovalRequired?: (
-      binding: AgentApprovalBinding,
-    ) => Promise<string | void>;
-    consumeApproval?: (binding: AgentApprovalBinding) => Promise<boolean>;
-    isToolAlwaysAllowed?: (binding: AgentApprovalBinding) => Promise<boolean>;
-    /** Unattended MCP runs require approval for every prepared write call. */
-    requireWriteApproval?: boolean;
-    processors?: Processor[];
-  },
-  lateOutcomes: Set<Promise<void>>,
-): Promise<AgentLoopUsage> {
+async function runAgentLoopInternal(opts: {
+  engine: AgentEngine;
+  model: string;
+  systemPrompt: string;
+  tools: EngineTool[];
+  availableTools?: EngineTool[];
+  messages: EngineMessage[];
+  // Restarting the model call would repeat text the client already shows. Without a
+  // turn-level view, the attempt's own streamed text decides.
+  hasVisibleTurnText?: () => boolean;
+  structuredHistoryImages?: {
+    history: AgentChatStructuredMessage[];
+    resolutions: ReadonlyMap<string, StructuredHistoryImageResolution>;
+  };
+  systemSections?: import("../shared/context-xray.js").ContextManifestSystemSection[];
+  actions: Record<string, ActionEntry>;
+  send: (event: AgentChatEvent) => void | Promise<void>;
+  historyPrivacyState?: { private: boolean; recorded?: boolean };
+  signal: AbortSignal;
+  beforeWrite?: () => Promise<void>;
+  beforeModelDispatch?: BeforeModelDispatch;
+  registerModelInputGuard?: ActionRunContext["registerModelInputGuard"];
+  unknownWriteToolNames?: Set<string>;
+  /** The request's unknown outcomes, which each of its loops feeds and holds by. */
+  unknownOutcomes?: UnknownOutcomes;
+  internalContinuation?: boolean;
+  onModelInput?: ModelInputObserver;
+  onModelAttempt?: ModelAttemptObserver;
+  onModelAttemptStart?: ModelAttemptStartObserver;
+  /**
+   * The model and effort each model call uses. Either can change mid-run: a
+   * rate limit falls back to another model, and an empty response steps effort
+   * down.
+   */
+  onModelSettings?: (
+    model: string,
+    reasoningEffort: ReasoningEffort | undefined,
+  ) => void;
+  /** A provider request passed the run's safe-dispatch boundary. */
+  onModelDispatchStarted?: () => void;
+  onUsage?: (usage: AgentLoopUsage) => void;
+  onOutcome?: (outcome: AgentLoopOutcome) => void;
+  ownerEmail?: string | null;
+  orgId?: string | null;
+  appId?: string;
+  appAuthorization?:
+    | import("../org/app-roles.js").AppAuthorizationContext
+    | null;
+  actionCaller?: ActionCaller;
+  automation?: ActionAutomationContext;
+  runId?: string;
+  /** Enable same-turn, agent-authored response metadata for interactive chat. */
+  followUpSuggestions?: boolean;
+  budgetStartedAt?: number;
+  networkProtocol?: "a2a" | "mcp" | "provider-api";
+  networkId?: string;
+  networkPeer?: string;
+  delegationDepth?: number;
+  visitedApps?: string[];
+  attachments?: AgentChatAttachment[];
+  reasoningEffort?: ReasoningEffort;
+  providerOptions?: any;
+  maxOutputTokens?: number;
+  executionMode?: AgentExecutionMode;
+  maxIterations?: number;
+  /**
+   * Per-TURN input-token ceiling. Iteration count and wall clock do not bound
+   * spend — retained tool results are re-sent every iteration, so cost is
+   * quadratic in tool-call count. Crossing this stops the turn outright
+   * (unlike `maxIterations`, which hands off to the next chunk).
+   */
+  maxRunInputTokens?: number;
+  priorTurnInputTokens?: number;
+  finalResponseGuard?: AgentLoopFinalResponseGuard;
+  finalResponseGuardRequestText?: string;
+  finalGuardKeptDraft?: FinalGuardKeptDraft;
+  threadId?: string;
+  turnId?: string;
+  /** Recovery paths overlay completed durable steps missing from tool_done. */
+  recoverCompletedExecutionSteps?: boolean;
+  durableStepIdForToolCall?: (logicalStepId: string) => string;
+  loadedSkillSlugs?: readonly string[];
+  runSoftTimeoutMs?: number;
+  toolLimits?: ToolLimits;
+  approvedToolCalls?: string[];
+  approvedToolCallAskId?: string;
+  /** Recorded by an approved call's own audit rows, and read by nothing else. */
+  auditOverride?: AuditOverride;
+  /**
+   * Server-side approval persistence hooks. The HTTP transport supplies these
+   * so client-supplied history is never the authorization source; direct loop
+   * callers may omit them when they own the surrounding approval boundary.
+   */
+  onApprovalRequired?: (
+    binding: AgentApprovalBinding,
+  ) => Promise<string | void>;
+  consumeApproval?: (binding: AgentApprovalBinding) => Promise<boolean>;
+  isToolAlwaysAllowed?: (binding: AgentApprovalBinding) => Promise<boolean>;
+  /** Unattended MCP runs require approval for every prepared write call. */
+  requireWriteApproval?: boolean;
+  processors?: Processor[];
+  lateOutcomes: Set<Promise<void>>;
+}): Promise<AgentLoopUsage> {
+  const { lateOutcomes } = opts;
   const {
     engine,
     systemPrompt: providedSystemPrompt,
@@ -12740,25 +12739,24 @@ async function runAgentLoopInternal(
 }
 
 export async function runAgentLoop(
-  opts: Parameters<typeof runAgentLoopInternal>[0],
+  opts: Omit<Parameters<typeof runAgentLoopInternal>[0], "lateOutcomes">,
 ): Promise<AgentLoopUsage> {
   const lateOutcomes = new Set<Promise<void>>();
   try {
-    return await runAgentLoopInternal(opts, lateOutcomes);
+    return await runAgentLoopInternal({ ...opts, lateOutcomes });
   } finally {
-    // Observe queued settlements, but never wait for an action still in flight.
     await Promise.resolve();
     if (lateOutcomes.size > 0) {
       let timer: ReturnType<typeof setTimeout> | undefined;
-      let timedOut = false;
+      const lateWait = { timedOut: false };
       const deadline = new Promise<void>((resolve) => {
         timer = setTimeout(() => {
-          timedOut = true;
+          lateWait.timedOut = true;
           resolve();
         }, 1_000);
       });
       try {
-        while (!timedOut && lateOutcomes.size > 0) {
+        while (!lateWait.timedOut && lateOutcomes.size > 0) {
           await Promise.race([Promise.allSettled([...lateOutcomes]), deadline]);
         }
       } finally {
