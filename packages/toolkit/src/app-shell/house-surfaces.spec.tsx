@@ -13,8 +13,8 @@ import {
 import { HouseAppShell } from "./house-frames.js";
 import { ShellHostProvider } from "./house-shell-host.js";
 import { runShellAction } from "./shell-policies.js";
-vi.mock("../design-system/frames.js", () => ({
-  useDesignSystemFrame: () => undefined,
+vi.mock("../design-system/whole-parts.js", () => ({
+  useWholePart: () => undefined,
 }));
 const surfaces = [
   "dialog",

@@ -26,7 +26,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 
-import { useDesignSystemFrame } from "../design-system/frames.js";
+import { useWholePart } from "../design-system/whole-parts.js";
 import { ButtonBase } from "../ui/button.js";
 import { Dialog, DialogContent, DialogTitle } from "../ui/dialog.js";
 import { Input } from "../ui/input.js";
@@ -131,11 +131,11 @@ const tags = (entry: ShellIdentity) =>
 
 /** Whole-part selection mirrors SettingsSections; omitted adapters use the house. */
 export function Sidebar(props: SidebarPartProps) {
-  const Part = useDesignSystemFrame("Sidebar") ?? HouseSidebar;
+  const Part = useWholePart("sidebar") ?? HouseSidebar;
   return <Part {...props} />;
 }
 export function AppShell(props: AppShellPartProps) {
-  const Part = useDesignSystemFrame("AppShell") ?? HouseAppShell;
+  const Part = useWholePart("app-shell") ?? HouseAppShell;
   return <Part {...props} />;
 }
 

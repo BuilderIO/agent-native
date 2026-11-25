@@ -11,8 +11,8 @@ function required<T>(value: T | null | undefined, what: string): T {
   if (value == null) throw new Error(`Missing ${what}`);
   return value;
 }
-vi.mock("../design-system/frames.js", () => ({
-  useDesignSystemFrame: () => undefined,
+vi.mock("../design-system/whole-parts.js", () => ({
+  useWholePart: () => undefined,
 }));
 const kinds: NavigationEntry["kind"][] = [
   "destination",

@@ -41,11 +41,17 @@ const model: ShellModel = {
 ## Drawing it
 
 `AppShell` and `Sidebar` (exported as `ModelSidebar`) draw the model with the
-design system's frames, or toolkit's house frames (`HouseAppShell`,
-`HouseSidebar`) when it registers none:
+part set's whole parts `app-shell` and `sidebar` (see `model.md`), or
+toolkit's house frames (`HouseAppShell`, `HouseSidebar`) when it draws none:
 
 ```ts
-defineDesignSystem({ frames: { Sidebar: MySidebar, AppShell: MyAppShell } });
+defineDesignSystem({
+  parts: definePartSet({
+    name: "app",
+    parts: { ...AGENT_NATIVE_PART_SET.parts },
+    whole: { sidebar: MySidebar, "app-shell": MyAppShell },
+  }),
+});
 ```
 
 A frame takes the model and owns all of its markup, and must emit the same

@@ -10,7 +10,8 @@ import {
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 
-import { houseShellFrames } from "../design-system/house-shell.js";
+import { houseShellParts } from "../design-system/house-shell.js";
+import { AGENT_NATIVE_PART_SET } from "../design-system/parts.js";
 import { ToolkitProvider } from "../provider.js";
 import type { NavigationEntry, ShellReadState } from "./contracts.js";
 import {
@@ -255,7 +256,15 @@ it("preserves generated control opening-tag bytes across the supported fixture m
       await act(async () =>
         root.render(
           look === "house" ? (
-            <ToolkitProvider designSystem={{ frames: houseShellFrames }}>
+            <ToolkitProvider
+              designSystem={{
+                parts: {
+                  name: "house",
+                  parts: AGENT_NATIVE_PART_SET.parts,
+                  whole: houseShellParts,
+                },
+              }}
+            >
               {node}
             </ToolkitProvider>
           ) : (

@@ -10,8 +10,8 @@ import type {
   ShellActionEffect,
 } from "./contracts.js";
 import { HouseSidebar } from "./house-frames.js";
-vi.mock("../design-system/frames.js", () => ({
-  useDesignSystemFrame: () => undefined,
+vi.mock("../design-system/whole-parts.js", () => ({
+  useWholePart: () => undefined,
 }));
 const kinds: NavigationEntry["kind"][] = [
   "destination",

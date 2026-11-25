@@ -4,7 +4,11 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { houseShellFrames } from "../design-system/house-shell.js";
+import { houseShellParts } from "../design-system/house-shell.js";
+import {
+  AGENT_NATIVE_PART_SET,
+  withDesignSystemParts,
+} from "../design-system/parts.js";
 import { ToolkitProvider } from "../provider.js";
 import type {
   NavigationEntry,
@@ -998,11 +1002,15 @@ describe("house frames", () => {
       root.render(
         <ToolkitProvider
           designSystem={{
-            frames: {
-              ...houseShellFrames,
-              AppShell: () => {
-                calls++;
-                return <p>Registered frame</p>;
+            parts: {
+              name: "registered",
+              parts: AGENT_NATIVE_PART_SET.parts,
+              whole: {
+                ...houseShellParts,
+                "app-shell": () => {
+                  calls++;
+                  return <p>Registered frame</p>;
+                },
               },
             },
           }}
@@ -1013,6 +1021,21 @@ describe("house frames", () => {
     );
     expect(calls).toBe(1);
     expect(container.textContent).toBe("Registered frame");
+  });
+  it("draws a frame registered under its earlier name", () => {
+    render();
+    act(() =>
+      root.render(
+        <ToolkitProvider
+          designSystem={withDesignSystemParts("earlier", {
+            AppShell: () => <p>Earlier frame</p>,
+          })}
+        >
+          <AppShell model={fixture.model} />
+        </ToolkitProvider>,
+      ),
+    );
+    expect(container.textContent).toBe("Earlier frame");
   });
   it("commits rename on leaving the row and keeps internal focus changes in the draft", async () => {
     render("notes");
