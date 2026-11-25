@@ -11,6 +11,7 @@ import {
 import { useState, type ReactNode } from "react";
 
 import { defineDesignSystem } from "../design-system/definition.js";
+import { AGENT_NATIVE_PART_SET } from "../design-system/parts.js";
 import { ToolkitProvider } from "../provider.js";
 import type {
   NavigationEntry,
@@ -306,7 +307,11 @@ export function HousePresentationFixture({
         ? {
             designSystem: defineDesignSystem({
               name: "house-alternate",
-              frames: { Sidebar: HousePresentationAlternate },
+              parts: {
+                name: "house-alternate",
+                parts: AGENT_NATIVE_PART_SET.parts,
+                whole: { sidebar: HousePresentationAlternate },
+              },
             }),
           }
         : {})}

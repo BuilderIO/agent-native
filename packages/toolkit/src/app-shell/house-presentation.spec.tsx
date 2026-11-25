@@ -83,6 +83,7 @@ function snapshots(
 }
 it("compares independently rendered names, values, symbols and order in both looks", async () => {
   const results: ShellSemanticSnapshot[][] = [];
+  const drawn: (string | null)[] = [];
   for (const look of ["alternate", "house"] as const) {
     await act(async () =>
       root.render(<HousePresentationFixture key={look} look={look} />),
@@ -123,7 +124,11 @@ it("compares independently rendered names, values, symbols and order in both loo
     }
     expect(observed.inbox).toBe("inbox");
     results.push(snapshots(observed));
+    drawn.push(
+      node.querySelector("[data-look]")?.getAttribute("data-look") ?? null,
+    );
   }
+  expect(drawn).toEqual(["alternate", "house"]);
   expect(compareShellSnapshots(results[0], results[1]).differences).toEqual([]);
   const changed = results[1].map((row, index) =>
     index ? row : { ...row, symbols: [{ key: "search", fallback: true }] },
