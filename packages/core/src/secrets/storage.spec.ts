@@ -44,6 +44,7 @@ async function createPgliteExec() {
 async function loadStorageWithPglite() {
   const { pglite, exec } = await createPgliteExec();
   vi.doMock("../db/client.js", () => ({
+    getEnclosingTransactionDbExec: () => undefined,
     getDbExec: () => exec,
     isProductionServerlessFunctionRuntime: () => false,
     isLocalDatabase: () => true,
@@ -68,6 +69,7 @@ describe("secrets storage bootstrap", () => {
     const execute = vi.fn(async () => ({ rows: [] as unknown[] }));
 
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => ({ execute }),
       isProductionServerlessFunctionRuntime: () => false,
       isLocalDatabase: () => true,
@@ -105,6 +107,7 @@ describe("secrets storage bootstrap", () => {
     });
 
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => ({ execute }),
       isProductionServerlessFunctionRuntime: () => false,
       isLocalDatabase: () => true,
@@ -135,6 +138,7 @@ describe("secrets storage bootstrap", () => {
     });
 
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => ({ execute }),
       isProductionServerlessFunctionRuntime: () => false,
       isLocalDatabase: () => true,
@@ -151,6 +155,7 @@ describe("secrets storage bootstrap", () => {
     const execute = vi.fn(async () => ({ rows: [] as unknown[] }));
 
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => ({ execute }),
       isProductionServerlessFunctionRuntime: () => false,
       isLocalDatabase: () => true,
@@ -186,6 +191,7 @@ describe("secrets storage bootstrap", () => {
     });
 
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => ({ execute }),
       isProductionServerlessFunctionRuntime: () => false,
       isLocalDatabase: () => true,
@@ -1013,6 +1019,7 @@ describe("per-request read memo", () => {
     const { pglite } = await createPgliteExec();
     selects = [];
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       isProductionServerlessFunctionRuntime: () => false,
       isLocalDatabase: () => true,
       getDbExec: () => ({
@@ -1204,6 +1211,7 @@ describe("development process on a shared database", () => {
     const { pglite: db, exec } = await createPgliteExec();
     pglite = db;
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => exec,
       getRuntimeDatabaseUrl: () => databaseUrl,
       isProductionServerlessFunctionRuntime: () => false,

@@ -1,4 +1,5 @@
 export {
+  ensureTable as ensureSettingsStore,
   getSetting,
   getSettingEntry,
   mutateSetting,

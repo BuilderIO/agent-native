@@ -36,6 +36,7 @@ const access = vi.fn(async () => ({
 const validate = vi.fn();
 const apply = vi.fn();
 vi.mock("../../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => client,
   isProductionServerlessFunctionRuntime: () => false,
 }));

@@ -141,6 +141,7 @@ const mockDb = createMockDb();
 const executeDdlMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => mockDb,
 }));
 

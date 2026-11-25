@@ -13,6 +13,7 @@ vi.mock("./installations-store.js", () => ({
   getActiveIntegrationInstallationForTenant: getInstallationMock,
 }));
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: membershipExecuteMock }),
 }));
 vi.mock("./identity-links-store.js", () => ({
