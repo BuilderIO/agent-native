@@ -499,6 +499,37 @@ function findButtonByText(container: HTMLElement, text: string) {
   );
 }
 
+function selectableRow(id: string, title: string): ContentDatabaseItem {
+  return {
+    id: `item-${id}`,
+    databaseId: "database-1",
+    document: {
+      id: `document-${id}`,
+      parentId: "document-1",
+      title,
+      content: "",
+      icon: null,
+      position: 0,
+      isFavorite: false,
+      hideFromSearch: false,
+      accessRole: "viewer",
+      canView: true,
+      canEdit: false,
+      canManage: false,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    },
+    position: 0,
+    properties: [],
+    bodyHydration: {
+      status: "hydrated",
+      attemptedAt: null,
+      error: null,
+      version: null,
+    },
+  };
+}
+
 describe("DatabaseView UI regressions", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -1642,35 +1673,10 @@ describe("DatabaseView UI regressions", () => {
   });
 
   it("removes the confirmed selection snapshot without clearing newer selections", async () => {
-    const row = (id: string, title: string): ContentDatabaseItem => ({
-      id: `item-${id}`,
-      databaseId: "database-1",
-      document: {
-        id: `document-${id}`,
-        parentId: "document-1",
-        title,
-        content: "",
-        icon: null,
-        position: 0,
-        isFavorite: false,
-        hideFromSearch: false,
-        accessRole: "viewer",
-        canView: true,
-        canEdit: false,
-        canManage: false,
-        createdAt: "2026-01-01T00:00:00.000Z",
-        updatedAt: "2026-01-01T00:00:00.000Z",
-      },
-      position: 0,
-      properties: [],
-      bodyHydration: {
-        status: "hydrated",
-        attemptedAt: null,
-        error: null,
-        version: null,
-      },
-    });
-    databaseResponse.items = [row("a", "Alpha"), row("b", "Beta")];
+    databaseResponse.items = [
+      selectableRow("a", "Alpha"),
+      selectableRow("b", "Beta"),
+    ];
     await renderDatabaseView();
 
     await act(async () => {
@@ -1711,6 +1717,36 @@ describe("DatabaseView UI regressions", () => {
         '[aria-label="Deselect Beta"]',
       ),
     ).toBeTruthy();
+  });
+
+  it("duplicates every selected row in one batch call", async () => {
+    databaseResponse.items = [
+      selectableRow("a", "Alpha"),
+      selectableRow("b", "Beta"),
+    ];
+    await renderDatabaseView();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Select Alpha"]')
+        ?.click();
+    });
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Select Beta"]')
+        ?.click();
+    });
+    await act(async () => {
+      findButtonByText(container, "Duplicate")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(benignMutation.mutateAsync).toHaveBeenCalledTimes(1);
+    expect(benignMutation.mutateAsync).toHaveBeenCalledWith({
+      documentId: "document-1",
+      itemIds: ["item-a", "item-b"],
+    });
   });
 
   // Three rows filtered on a Status property, with that filter's chip.

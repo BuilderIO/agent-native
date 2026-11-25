@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { getDbExec } from "@agent-native/core/db";
 import { and, eq } from "drizzle-orm";
 import {
   afterAll,
@@ -12,6 +13,14 @@ import {
   vi,
   type Mock,
 } from "vitest";
+
+vi.mock("@agent-native/core/db", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@agent-native/core/db")>();
+  return {
+    ...actual,
+    ensureAdditiveColumns: vi.fn(actual.ensureAdditiveColumns),
+  };
+});
 
 vi.mock("../../actions/_property-utils.js", async (importOriginal) => {
   const actual =
@@ -45,6 +54,7 @@ let getDb: () => any;
 let schema: Schema;
 let blocksRepair: Mock;
 let filesRepair: Mock;
+let additiveColumns: Mock;
 
 function resetMaintenanceMemo() {
   (
@@ -94,6 +104,8 @@ beforeAll(async () => {
     .repairUnseededBlocksFields as Mock;
   filesRepair = (await import("../../actions/_files-system-properties.js"))
     .repairFilesSystemPropertyDefinitions as Mock;
+  additiveColumns = (await import("@agent-native/core/db"))
+    .ensureAdditiveColumns as Mock;
   const plugin = (await import("../plugins/db.js")).default;
   await plugin(undefined as any);
   const { scheduleStartupMaintenance } =
@@ -181,6 +193,98 @@ describe("scheduleStartupMaintenance — lazy post-boot maintenance", () => {
       );
       expect(blocksRepair).toHaveBeenCalledTimes(2);
       expect(errorSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      errorSpy.mockRestore();
+      blocksRepair.mockReset();
+    }
+  }, 30_000);
+
+  it("adds back a schema column a migration missed before the repairs read it", async () => {
+    resetMaintenanceMemo();
+    const filesDatabaseId = await insertDatabaseRow({
+      blocksSeeded: 1,
+      systemRole: "files",
+      filesSystemPropertiesSeeded: 0,
+    });
+    await getDbExec().execute(
+      "ALTER TABLE content_databases DROP COLUMN files_system_properties_seeded",
+    );
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const { scheduleStartupMaintenance } =
+        await import("./startup-maintenance.js");
+      await scheduleStartupMaintenance();
+
+      const [files] = await getDb()
+        .select()
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, filesDatabaseId));
+      expect(files.filesSystemPropertiesSeeded).toBe(2);
+      expect(errorSpy).not.toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it("logs and retries the additive-column check when it reports errors", async () => {
+    resetMaintenanceMemo();
+    blocksRepair.mockClear();
+    additiveColumns.mockClear();
+    additiveColumns.mockResolvedValueOnce({
+      mode: "checked",
+      applied: [],
+      skipped: [],
+      errors: [{ column: "documents.title", error: "permission denied" }],
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      const { scheduleStartupMaintenance } =
+        await import("./startup-maintenance.js");
+      await scheduleStartupMaintenance();
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'startup maintenance "additive-columns" failed (attempt 1/5): ensureAdditiveColumns reported 1 error(s): documents.title: permission denied',
+        ),
+      );
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      expect(additiveColumns).toHaveBeenCalledTimes(2);
+      expect(blocksRepair).toHaveBeenCalledTimes(1);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  }, 30_000);
+
+  it("holds the process open for the post-boot run but not for a retry wait", async () => {
+    resetMaintenanceMemo();
+    blocksRepair.mockClear();
+    blocksRepair.mockRejectedValueOnce(new Error("repair exploded"));
+    // Only timers that keep the event loop alive are listed.
+    const liveTimers = () =>
+      process.getActiveResourcesInfo().filter((type) => type === "Timeout")
+        .length;
+    let timersAtFailure = -1;
+    let timersWhileRetryWaits = -1;
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {
+      timersAtFailure = liveTimers();
+      queueMicrotask(() => {
+        timersWhileRetryWaits = liveTimers();
+      });
+    });
+
+    try {
+      const { scheduleStartupMaintenance } =
+        await import("./startup-maintenance.js");
+      const timersBefore = liveTimers();
+      const maintenance = scheduleStartupMaintenance();
+      expect(liveTimers()).toBe(timersBefore + 1);
+      await maintenance;
+
+      expect(blocksRepair).toHaveBeenCalledTimes(2);
+      expect(timersAtFailure).toBeGreaterThanOrEqual(0);
+      expect(timersWhileRetryWaits).toBe(timersAtFailure);
     } finally {
       errorSpy.mockRestore();
       blocksRepair.mockReset();

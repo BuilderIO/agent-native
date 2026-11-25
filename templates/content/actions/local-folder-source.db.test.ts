@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -1931,6 +1937,82 @@ describe("local-folder Content source", () => {
       } else {
         process.env.AGENT_NATIVE_MANIFEST_PATH = previousManifest;
       }
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  // oracle-change(templates/content/actions/split-mode-retirement.test.ts): its checks that canonical document actions and the local-file cache never name the process mode were source-text absence greps; this test runs those actions with the process in local-file mode and sees them read and write SQL, not the folder. Whether the explicit local-file cache serves reads is decided by core (it lists nothing in database mode today), so the cache file not naming the mode guarded nothing observable
+  it("keeps document actions on SQL while the process asks for local-file mode", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "content-local-mode-"));
+    const manifestPath = join(workspace, "agent-native.json");
+    mkdirSync(join(workspace, "docs"));
+    writeFileSync(
+      join(workspace, "docs", "on-disk.md"),
+      "# On disk\n\nFrom disk.",
+    );
+    writeFileSync(
+      manifestPath,
+      JSON.stringify({
+        version: 1,
+        mode: "local-files",
+        apps: {
+          content: {
+            mode: "local-files",
+            roots: [
+              { name: "Docs", path: "docs", extensions: [".md", ".mdx"] },
+            ],
+          },
+        },
+      }),
+    );
+    const modeEnv = [
+      "AGENT_NATIVE_MANIFEST_PATH",
+      "AGENT_NATIVE_MODE",
+      "AGENT_NATIVE_DATA_MODE",
+    ] as const;
+    const previousEnv = modeEnv.map((key) => process.env[key]);
+    process.env.AGENT_NATIVE_MANIFEST_PATH = manifestPath;
+    process.env.AGENT_NATIVE_MODE = "local-files";
+    process.env.AGENT_NATIVE_DATA_MODE = "local-files";
+    const createDocument = (await import("./create-document.js")).default;
+    const updateDocument = (await import("./update-document.js")).default;
+    const getDocument = (await import("./get-document.js")).default;
+    const listDocuments = (await import("./list-documents.js")).default;
+    const asOwner = <T>(run: () => Promise<T>) =>
+      runWithRequestContext({ userEmail: OWNER }, run);
+    try {
+      const { id } = (await asOwner(() =>
+        createDocument.run({ title: "Mode probe", content: "SQL body." }),
+      )) as { id: string };
+      await asOwner(() =>
+        updateDocument.run({ id, title: "Mode probe renamed" }),
+      );
+
+      await expect(
+        getDb()
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, id)),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          title: "Mode probe renamed",
+          content: "SQL body.",
+        }),
+      ]);
+      await expect(asOwner(() => getDocument.run({ id }))).resolves.toEqual(
+        expect.objectContaining({ id, title: "Mode probe renamed" }),
+      );
+      const listed = (await asOwner(() =>
+        listDocuments.run({ exactTitle: "Mode probe renamed" }),
+      )) as { documents: Array<{ id: string }> };
+      expect(listed.documents.map((document) => document.id)).toEqual([id]);
+      expect(readdirSync(join(workspace, "docs"))).toEqual(["on-disk.md"]);
+    } finally {
+      modeEnv.forEach((key, index) => {
+        const value = previousEnv[index];
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      });
       rmSync(workspace, { recursive: true, force: true });
     }
   });

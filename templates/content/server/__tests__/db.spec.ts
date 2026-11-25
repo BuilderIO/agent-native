@@ -6,13 +6,14 @@ import { describe, expect, it } from "vitest";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+// source-read-ok: these pin the hand-written migration SQL itself (additive
+// ALTERs, tables and indexes an existing production database must get), which
+// is the contract; no schema read or fresh-database test sees a missing ALTER.
+const source = readFileSync(join(__dirname, "..", "plugins", "db.ts"), "utf8");
+
+// oracle-change: removed the _database-utils.ts delete-order source check; it pinned deleteDatabaseDataForDocument, which no production code calls (page deletion cleans sources in delete-document.ts, whose receipt cleanup content-database-lifecycle.db.test.ts covers), and the tables have no foreign keys, so the order is not observable
 describe("content database migrations", () => {
   it("keeps document_sync_links migrations aligned with queried columns", () => {
-    const source = readFileSync(
-      join(__dirname, "..", "plugins", "db.ts"),
-      "utf8",
-    );
-
     expect(source).toContain("sync_comments INTEGER NOT NULL DEFAULT 0");
     expect(source).toContain(
       "ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS sync_comments INTEGER NOT NULL DEFAULT 0",
@@ -20,11 +21,6 @@ describe("content database migrations", () => {
   });
 
   it("keeps document source metadata migrations aligned with queried columns", () => {
-    const source = readFileSync(
-      join(__dirname, "..", "plugins", "db.ts"),
-      "utf8",
-    );
-
     expect(source).toContain('table: "content_source_migrations"');
     for (const column of [
       "source_mode",
@@ -41,11 +37,6 @@ describe("content database migrations", () => {
   });
 
   it("creates source-aware database foundation tables additively", () => {
-    const source = readFileSync(
-      join(__dirname, "..", "plugins", "db.ts"),
-      "utf8",
-    );
-
     expect(source).toContain(
       "CREATE TABLE IF NOT EXISTS content_database_sources",
     );
@@ -64,11 +55,6 @@ describe("content database migrations", () => {
   });
 
   it("adds inline database ownership columns additively", () => {
-    const source = readFileSync(
-      join(__dirname, "..", "plugins", "db.ts"),
-      "utf8",
-    );
-
     expect(source).toContain("owner_document_id TEXT");
     expect(source).toContain("owner_block_id TEXT");
     expect(source).toContain(
@@ -80,11 +66,6 @@ describe("content database migrations", () => {
   });
 
   it("adds content database soft-delete marker additively", () => {
-    const source = readFileSync(
-      join(__dirname, "..", "plugins", "db.ts"),
-      "utf8",
-    );
-
     expect(source).toContain("deleted_at TEXT");
     expect(source).toContain(
       "ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS deleted_at TEXT",
@@ -92,11 +73,6 @@ describe("content database migrations", () => {
   });
 
   it("adds the document trash lifecycle additively", () => {
-    const source = readFileSync(
-      join(__dirname, "..", "plugins", "db.ts"),
-      "utf8",
-    );
-
     expect(source).toContain(
       "ALTER TABLE documents ADD COLUMN IF NOT EXISTS trashed_at TEXT",
     );
@@ -109,11 +85,6 @@ describe("content database migrations", () => {
   });
 
   it("creates bounded database migration receipts additively", () => {
-    const source = readFileSync(
-      join(__dirname, "..", "plugins", "db.ts"),
-      "utf8",
-    );
-
     expect(source).toContain(
       "CREATE TABLE IF NOT EXISTS content_database_migration_receipts",
     );
@@ -124,11 +95,6 @@ describe("content database migrations", () => {
   });
 
   it("creates Builder MDX sidecar cache table additively", () => {
-    const source = readFileSync(
-      join(__dirname, "..", "plugins", "db.ts"),
-      "utf8",
-    );
-
     expect(source).toContain("CREATE TABLE IF NOT EXISTS builder_doc_sidecars");
     for (const column of [
       "document_id TEXT NOT NULL",
@@ -144,11 +110,6 @@ describe("content database migrations", () => {
   });
 
   it("adds Builder body hydration state additively", () => {
-    const source = readFileSync(
-      join(__dirname, "..", "plugins", "db.ts"),
-      "utf8",
-    );
-
     expect(source).toContain(
       "ALTER TABLE content_database_items ADD COLUMN IF NOT EXISTS body_hydration_status TEXT NOT NULL DEFAULT 'hydrated'",
     );
@@ -158,29 +119,5 @@ describe("content database migrations", () => {
     expect(source).toContain(
       "CREATE UNIQUE INDEX IF NOT EXISTS content_database_body_hydration_queue_item_idx",
     );
-  });
-
-  it("cleans source review and execution rows when database pages are deleted", () => {
-    const source = readFileSync(
-      join(__dirname, "..", "..", "actions", "_database-utils.ts"),
-      "utf8",
-    );
-
-    const executionDelete = source.indexOf(
-      "delete(schema.contentDatabaseSourceExecutions)",
-    );
-    const reviewDelete = source.indexOf(
-      "delete(schema.contentDatabaseSourceChangeReviews)",
-    );
-    const changeSetDelete = source.indexOf(
-      "delete(schema.contentDatabaseSourceChangeSets)",
-    );
-
-    expect(executionDelete).toBeGreaterThan(-1);
-    expect(reviewDelete).toBeGreaterThan(-1);
-    expect(changeSetDelete).toBeGreaterThan(-1);
-    expect(executionDelete).toBeLessThan(changeSetDelete);
-    expect(reviewDelete).toBeLessThan(changeSetDelete);
-    expect(source).toContain("delete(schema.contentDatabaseMigrationReceipts)");
   });
 });

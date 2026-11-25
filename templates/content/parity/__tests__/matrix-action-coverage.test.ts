@@ -20,6 +20,8 @@ function actionIds() {
 }
 
 function isHiddenAgentAction(action: string) {
+  // source-read-ok: the parity inventory reads the declared agentTool flag of
+  // every action file; importing all of them to read one flag costs far more.
   const source = readFileSync(new URL(`${action}.ts`, actionsDir), "utf8");
   return /agentTool:\s*false/.test(source);
 }
