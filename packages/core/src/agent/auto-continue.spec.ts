@@ -94,18 +94,18 @@ describe("admitAutoContinue", () => {
   });
 
   it("honors a configured cap on automatic continuations", () => {
-    process.env.AGENT_MAX_AUTO_CONTINUES_PER_TURN = "6";
-    try {
-      expect(
-        admit(turn({}, { autoContinues: MAX_AUTO_CONTINUES_PER_TURN })),
-      ).toEqual({ admit: true });
-      expect(admit(turn({}, { autoContinues: 6 }))).toEqual({
-        admit: false,
-        code: "auto_continue_cap_reached",
+    const withCap = (autoContinues: number) =>
+      admitAutoContinue({
+        turn: turn({}, { autoContinues }),
+        stoppedRunId: "run-stopped",
+        nowMs: NOW,
+        maxAutoContinuesPerTurn: 6,
       });
-    } finally {
-      delete process.env.AGENT_MAX_AUTO_CONTINUES_PER_TURN;
-    }
+    expect(withCap(MAX_AUTO_CONTINUES_PER_TURN)).toEqual({ admit: true });
+    expect(withCap(6)).toEqual({
+      admit: false,
+      code: "auto_continue_cap_reached",
+    });
   });
 
   it("never extends a turn past the server's own wall-clock budget", () => {
