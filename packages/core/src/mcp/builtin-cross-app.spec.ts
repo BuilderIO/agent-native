@@ -1,6 +1,18 @@
+import fs from "node:fs";
 import { createServer } from "node:net";
+import os from "node:os";
+import path from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import * as callerAuth from "../a2a/caller-auth.js";
 import * as a2aClient from "../a2a/client.js";
@@ -18,6 +30,18 @@ const ORIGINAL_ENV = { ...process.env };
 const INVALID_HANDLE =
   /^Invalid or expired ask_app task handle\. To keep polling the same task, call ask_app_status with the app and taskId from the ask_app result and leave out taskHandle\. Do not resubmit ask_app; that can duplicate work\.$/;
 
+let isolatedCwd: string;
+
+beforeAll(() => {
+  isolatedCwd = fs.mkdtempSync(
+    path.join(os.tmpdir(), "builtin-cross-app-cwd-"),
+  );
+});
+
+afterAll(() => {
+  fs.rmSync(isolatedCwd, { recursive: true, force: true });
+});
+
 function resetEnv() {
   process.env = { ...ORIGINAL_ENV };
   delete process.env.ACCESS_TOKEN;
@@ -28,6 +52,7 @@ function resetEnv() {
   delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
   delete process.env.APP_BASE_PATH;
   delete process.env.VITE_APP_BASE_PATH;
+  vi.spyOn(process, "cwd").mockReturnValue(isolatedCwd);
 }
 
 beforeEach(resetEnv);
@@ -691,16 +716,16 @@ describe("ask_app — honest routing metadata", () => {
       }),
     );
   });
-  it("describes direct tools as preferred and ask_app as the fallback", () => {
+  it("describes ask_app factually alongside direct single-action tools", () => {
     const tools = getBuiltinCrossAppTools(baseConfig({ appId: "mail" }));
     expect(tools.ask_app.tool.description).toMatch(
-      /Prefer host page WebMCP or cataloged direct action tools for known, bounded current-app work/i,
-    );
-    expect(tools.ask_app.tool.description).toMatch(
-      /when direct tools are unavailable or the task needs the app agent's interpretation/i,
+      /unlike direct single-action tools/i,
     );
     expect(tools.ask_app.tool.description).toMatch(
       /full skills, instructions, tools, and context/i,
+    );
+    expect(tools.ask_app.tool.description).not.toMatch(
+      /prefer host page|call list_apps first|never resubmit/i,
     );
   });
 

@@ -5,7 +5,14 @@ const mocks = vi.hoisted(() => ({
   eq: vi.fn(() => "where"),
   nanoid: vi.fn(() => "new-token-material"),
   nowIso: vi.fn(() => "2026-07-22T00:00:00.000Z"),
-  parseJson: vi.fn(() => ({})),
+  parseJson: vi.fn((value: string | null | undefined, fallback: unknown) => {
+    if (!value) return fallback;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return fallback;
+    }
+  }),
   serializeSource: vi.fn((source) => ({ id: source.id })),
   sha256Hex: vi.fn(async (value: string) => `hash:${value}`),
   stableJson: vi.fn((value) => JSON.stringify(value)),
@@ -19,19 +26,26 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
 }));
 
-vi.mock("drizzle-orm", () => ({ eq: mocks.eq }));
+vi.mock("drizzle-orm", () => ({
+  eq: mocks.eq,
+  and: vi.fn(() => "where"),
+  isNull: vi.fn(() => "null"),
+}));
 
 const set = vi.fn();
-const where = vi.fn();
+const returning = vi.fn();
+const where = vi.fn(() => ({ returning }));
 const update = vi.fn(() => ({ set }));
-const limit = vi.fn();
-const selectWhere = vi.fn(() => ({ limit }));
-const from = vi.fn(() => ({ where: selectWhere }));
-const select = vi.fn(() => ({ from }));
-
 vi.mock("../server/db/index.js", () => ({
-  getDb: () => ({ update, select }),
-  schema: { brainSources: { id: "brainSources.id" } },
+  getDb: () => ({ update }),
+  schema: {
+    brainSources: {
+      id: "brainSources.id",
+      configJson: "configJson",
+      sourceKey: "sourceKey",
+      ingestTokenHash: "ingestTokenHash",
+    },
+  },
 }));
 
 vi.mock("../server/lib/brain.js", () => mocks);
@@ -54,14 +68,18 @@ describe("rotate-source-ingest-token", () => {
       id: "source-clips",
       provider: "clips",
       sourceKey: "clips",
-      configJson: "{}",
+      ingestTokenHash: "old-hash",
+      configJson: '{"sourceKey":"clips","ingestTokenHash":"old-hash"}',
     };
     mocks.assertAccess.mockResolvedValue({ resource: source });
     set.mockReturnValue({ where });
-    limit.mockResolvedValue([{ ...source, ingestTokenHash: "stored-hash" }]);
+    returning.mockResolvedValue([
+      { ...source, ingestTokenHash: "stored-hash" },
+    ]);
 
     await expect(action.run({ sourceId: source.id })).resolves.toEqual({
       source: { id: source.id },
+      sourceKey: "clips",
       ingestToken: "brain_new-token-material",
     });
 
@@ -87,19 +105,32 @@ describe("rotate-source-ingest-token", () => {
         id: "source-generic",
         provider: "generic",
         sourceKey: null,
+        ingestTokenHash: null,
         configJson: '{"sourceKey":"legacy-clips"}',
       },
     });
-    mocks.parseJson.mockReturnValueOnce({ sourceKey: "legacy-clips" });
-    mocks.parseJson.mockReturnValueOnce({ sourceKey: "legacy-clips" });
     set.mockReturnValue({ where });
-    limit.mockResolvedValue([{ id: "source-generic" }]);
+    returning.mockResolvedValue([{ id: "source-generic" }]);
 
-    await action.run({ sourceId: "source-generic" });
+    await expect(
+      action.run({ sourceId: "source-generic" }),
+    ).resolves.toMatchObject({
+      sourceKey: "legacy-clips",
+      ingestToken: "brain_new-token-material",
+    });
 
     expect(set).toHaveBeenCalledWith(
       expect.objectContaining({ sourceKey: "legacy-clips" }),
     );
+  });
+
+  it("does not rotate or reveal a key without admin access", async () => {
+    mocks.assertAccess.mockRejectedValueOnce(new Error("Forbidden"));
+
+    await expect(action.run({ sourceId: "source-clips" })).rejects.toThrow(
+      "Forbidden",
+    );
+    expect(update).not.toHaveBeenCalled();
   });
 
   it("rejects sources that cannot receive signed ingest", async () => {
@@ -118,6 +149,7 @@ describe("rotate-source-ingest-token", () => {
         id: "source-clips",
         provider: "clips",
         sourceKey: null,
+        ingestTokenHash: null,
         configJson: "{}",
       },
     });

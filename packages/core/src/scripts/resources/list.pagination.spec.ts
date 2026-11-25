@@ -8,6 +8,7 @@ import { runWithRequestContext } from "../../server/request-context.js";
 import resourceListScript from "./list.js";
 
 vi.mock("../../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => sharedClient,
   isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),

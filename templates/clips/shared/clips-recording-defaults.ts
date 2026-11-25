@@ -36,6 +36,7 @@ export interface ClipsRecordingDefaults {
   defaultRecordingVisibility: ClipsDefaultVisibility | null;
   /** The organization's saved default, or null when it never set one. */
   organizationDefaultVisibility: ClipsDefaultVisibility | null;
+  organizationVisibilityEnforced: boolean;
   /** The visibility a recording created now gets. */
   effectiveRecordingVisibility: ClipsDefaultVisibility;
   recordingVisibilitySource: ClipsRecordingVisibilitySource;
@@ -64,15 +65,18 @@ export function isClipsRecordingVisibility(
 export function getClipsRecordingDefaults(
   prefs: ClipsUserPrefs | Record<string, unknown> | null | undefined,
   organizationDefault: ClipsDefaultVisibility | null,
+  enforced = false,
 ): ClipsRecordingDefaults {
   const speed = prefs?.defaultPlaybackSpeed;
   const stored = prefs?.defaultRecordingVisibility;
-  const personal = isClipsRecordingVisibility(stored) ? stored : null;
+  const personal =
+    !enforced && isClipsRecordingVisibility(stored) ? stored : null;
   return {
     defaultPlaybackSpeed:
       typeof speed === "string" && speed ? speed : DEFAULT_CLIPS_PLAYBACK_SPEED,
     defaultRecordingVisibility: personal,
     organizationDefaultVisibility: organizationDefault,
+    organizationVisibilityEnforced: enforced,
     effectiveRecordingVisibility:
       personal ?? organizationDefault ?? DEFAULT_CLIPS_RECORDING_VISIBILITY,
     recordingVisibilitySource: personal
@@ -98,5 +102,6 @@ export function applyClipsRecordingDefaultsPatch(
           : patch.defaultRecordingVisibility,
     },
     current.organizationDefaultVisibility,
+    current.organizationVisibilityEnforced,
   );
 }

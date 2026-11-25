@@ -13,6 +13,7 @@ import {
   IconMessage,
   IconFileText,
   IconBrandX,
+  IconBrandYoutube,
   IconHeadset,
   IconUsers,
   IconSearch,
@@ -871,6 +872,40 @@ export const dataSources: DataSource[] = [
         inputKey: "TWITTER_BEARER_TOKEN",
         inputLabel: "Bearer Token",
         inputPlaceholder: "AAAA...",
+        inputType: "password",
+      },
+    ],
+  },
+  {
+    id: "youtube",
+    name: "YouTube",
+    description: "Public views, likes and comments for a channel's videos",
+    category: "communication",
+    icon: IconBrandYoutube,
+    envKeys: ["YOUTUBE_API_KEY"],
+    docsUrl: "https://developers.google.com/youtube/v3/getting-started",
+    walkthroughSteps: [
+      {
+        title: "Turn on the YouTube Data API",
+        description:
+          "In a Google Cloud project, enable the YouTube Data API v3. Its free quota of 10,000 units a day covers thousands of videos.",
+        url: "https://console.cloud.google.com/apis/library/youtube.googleapis.com",
+        linkText: "YouTube Data API v3",
+      },
+      {
+        title: "Create an API key",
+        description:
+          "Under APIs & Services > Credentials, create an API key and restrict it to the YouTube Data API v3. It reads public data only, so no channel owner has to grant access.",
+        url: "https://console.cloud.google.com/apis/credentials",
+        linkText: "Credentials",
+      },
+      {
+        title: "Enter your API key",
+        description:
+          "Paste the API key. Then ask the agent to turn on YouTube collection for the Content dashboard and name your channels, for example @Builderio. It takes an organization owner or admin.",
+        inputKey: "YOUTUBE_API_KEY",
+        inputLabel: "API Key",
+        inputPlaceholder: "AIza...",
         inputType: "password",
       },
     ],

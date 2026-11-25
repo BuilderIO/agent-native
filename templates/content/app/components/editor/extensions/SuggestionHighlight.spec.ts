@@ -778,7 +778,7 @@ describe("SuggestionHighlight", () => {
       encoding: "utf8",
     });
     expect(css).toMatch(
-      /\.content-editor\s+\.suggestion-inline-widget\.suggestion-insert--spaced\[data-suggestion-widget\]\s*\{[^}]*margin-inline-start: 0\.3em;/,
+      /\.content-editor\s+\.suggestion-inline-widget\.suggestion-insert--spaced\[data-suggestion-widget\]\s*\{[^}]*margin-inline-start: 0\.55em;/,
     );
 
     const text = "Clips keeps the recording you already made. Colour";

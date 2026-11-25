@@ -6442,6 +6442,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     "overflow",
     "lineHeight",
     "letterSpacing",
+    "fontSize",
+    "opacity",
     "gridTemplateColumns",
     "gridTemplateRows",
     "gridAutoFlow",

@@ -53,6 +53,7 @@ export const ANALYTICS_CAPTURE_SOURCES = [
   "demo",
   "prometheus",
   "program",
+  "postgres",
 ] as const;
 export type AnalyticsCaptureSource = (typeof ANALYTICS_CAPTURE_SOURCES)[number];
 const MAX_FILTERS = 40;

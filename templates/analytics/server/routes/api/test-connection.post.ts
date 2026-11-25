@@ -306,6 +306,14 @@ export default defineEventHandler(async (event) => {
           return { ok: true };
         }
 
+        case "youtube": {
+          const key = await resolveCredential("YOUTUBE_API_KEY", ctx);
+          if (!key) return { ok: false, error: "Missing API key" };
+          const { testYouTubeApiKey } = await import("../../lib/youtube");
+          await testYouTubeApiKey(key);
+          return { ok: true };
+        }
+
         case "pylon": {
           const key = await resolveCredential("PYLON_API_KEY", ctx);
           if (!key) return { ok: false, error: "Missing API key" };

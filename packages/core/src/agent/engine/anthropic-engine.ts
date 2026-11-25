@@ -7,10 +7,12 @@ import {
 } from "../../server/credential-provider.js";
 import {
   allowsSamplingParams,
+  ANTHROPIC_THINKING_BINDING_BETA,
   anthropicManualThinkingBudget,
   claudeAdaptiveThinking,
   isUnsetReasoningEffort,
   normalizeReasoningEffortForModel,
+  supportsAnthropicThinkingBlockBinding,
   supportsClaudeAdaptiveThinking,
 } from "../../shared/reasoning-effort.js";
 import { ANTHROPIC_MODEL_CONFIG } from "../model-config.js";
@@ -232,6 +234,16 @@ class AnthropicEngine implements AgentEngine {
       }
     }
 
+    const bindThinking =
+      (extra.thinking as { type?: string } | undefined)?.type === "adaptive" &&
+      supportsAnthropicThinkingBlockBinding(opts.model);
+    if (bindThinking) {
+      extra.thinking = {
+        ...(extra.thinking as object),
+        block_binding: { prefix_mismatch_behavior: "drop_block" },
+      };
+    }
+
     const samplingAllowed = allowsSamplingParams({
       model: opts.model,
       thinkingEnabled: Boolean(extra.thinking),
@@ -305,6 +317,9 @@ class AnthropicEngine implements AgentEngine {
         providerDispatched = true;
         return client.messages.stream(requestParams, {
           signal: firstEventAbort.signal,
+          ...(bindThinking
+            ? { headers: { "anthropic-beta": ANTHROPIC_THINKING_BINDING_BETA } }
+            : {}),
         });
       });
       if (!dispatch.started) return;

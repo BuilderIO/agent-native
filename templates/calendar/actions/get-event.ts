@@ -158,6 +158,7 @@ export default defineAction({
           allDay: !evt.start?.dateTime,
           source: "google",
           googleEventId: evt.id || undefined,
+          revision: evt.etag || undefined,
           htmlLink: evt.htmlLink || undefined,
           accountEmail: acctEmail,
           responseStatus: selfAttendee?.responseStatus || undefined,

@@ -10,14 +10,25 @@ const devDatabaseCloseApps = new WeakSet<object>();
 let devDatabaseClosePromise: Promise<void> | undefined;
 const devDatabaseHot = (
   import.meta as ImportMeta & {
-    hot?: {
-      on(event: string, listener: (payload: any) => void): void;
-      send(event: string, payload?: any): void;
-    };
+    hot?: DevDatabaseHot;
   }
 ).hot;
 
+type DevDatabaseHot = {
+  on(
+    event: string,
+    listener: (payload?: { requestId?: unknown }) => void,
+  ): void;
+  send(event: string, payload?: { requestId: unknown; error?: string }): void;
+};
+
 if (process.env.NODE_ENV === "development" && devDatabaseHot) {
+  listenForDevDatabaseLifecycle(devDatabaseHot);
+}
+
+export function listenForDevDatabaseLifecycle(
+  devDatabaseHot: DevDatabaseHot,
+): void {
   devDatabaseHot.on("agent-native:dev-database-resume", (payload) => {
     if (typeof payload?.requestId !== "string") return;
     resumePgliteClientAccess();
@@ -29,7 +40,11 @@ if (process.env.NODE_ENV === "development" && devDatabaseHot) {
 
   devDatabaseHot.on("agent-native:dev-database-close", (payload) => {
     if (typeof payload?.requestId !== "string") return;
-    void closeDevDatabase(payload.requestId).then(
+    const announceClosing = () =>
+      devDatabaseHot.send("agent-native:dev-database-closing", {
+        requestId: payload.requestId,
+      });
+    void closeDevDatabase(announceClosing).then(
       () =>
         devDatabaseHot.send("agent-native:dev-database-closed", {
           requestId: payload.requestId,
@@ -41,13 +56,16 @@ if (process.env.NODE_ENV === "development" && devDatabaseHot) {
         }),
     );
   });
+
+  devDatabaseHot.on("agent-native:dev-database-ready-check", () =>
+    devDatabaseHot.send("agent-native:dev-database-ready"),
+  );
+  devDatabaseHot.send("agent-native:dev-database-ready");
 }
 
-async function closeDevDatabase(requestId?: string): Promise<void> {
+async function closeDevDatabase(announceClosing?: () => void): Promise<void> {
   beginPgliteClientShutdown();
-  if (requestId) {
-    devDatabaseHot?.send("agent-native:dev-database-closing", { requestId });
-  }
+  announceClosing?.();
   devDatabaseClosePromise ??= (async () => {
     await waitForPgliteClientOperations();
     await closeDbExec();

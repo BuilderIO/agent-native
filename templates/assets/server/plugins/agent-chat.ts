@@ -38,6 +38,7 @@ export default createAgentChatPlugin({
   appId: "assets",
   mcp: {
     appApprovalPage: true,
+    skills: ["assets"],
     title: "Agent-Native Assets",
     description:
       "Create, search, select, and export brand image and video assets from Assets.",

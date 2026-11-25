@@ -7,7 +7,8 @@ import { afterEach, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
-  useFormatters: () => ({ formatDate: () => "" }),
+  DEFAULT_LOCALE: "en",
+  useOptionalLocale: () => null,
 }));
 import Search from "./search";
 

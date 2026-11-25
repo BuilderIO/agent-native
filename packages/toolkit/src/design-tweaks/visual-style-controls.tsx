@@ -24,6 +24,7 @@ export {
   readVisualScrubInputs,
   resolvePendingScrubCommit,
   type PendingScrubCommit,
+  type ScrubInputApi,
   type ScrubInputChangeMeta,
   type ScrubInputDisplay,
   type ScrubInputProps,

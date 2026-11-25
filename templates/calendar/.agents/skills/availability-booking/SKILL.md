@@ -73,6 +73,18 @@ booking links only show slots when the owner and every co-host can be checked as
 free. When a booking is confirmed, the app creates the Google Calendar event on
 the owner's connected account and adds co-hosts as invited attendees.
 
+### Reminder emails
+
+Each booking link emails a reminder to the guest who booked, and any guests they
+added, before the meeting. `reminderMinutes` on `create-booking-link` and
+`update-booking-link` sets when: `1440` for 1 day before (the default), `60` for
+1 hour before, or `0` for none. Leaving it out of an update keeps the current
+setting. The host gets no reminder; their own calendar reminds them.
+
+A booking made after its reminder time gets none, a cancelled booking gets none,
+and a rescheduled booking is reminded for its new time. Turning a link's
+reminder off stops the reminders it hasn't sent yet.
+
 ### Single-use links
 
 A single-use link is a one-time URL for an active booking link: the first
@@ -220,6 +232,7 @@ Bookings are the confirmed appointments. They are stored in SQL via Drizzle ORM 
 | "Show my bookings"                | Navigate to `/bookings`                                        |
 | "Show my booking links"           | Navigate to `/booking-links`                                   |
 | "Send Sam a link that works once" | `create-single-use-link`, then give Sam the returned `url`     |
+| "Remind people an hour before"    | `update-booking-link` with `reminderMinutes: 60`               |
 
 ## Important Notes
 

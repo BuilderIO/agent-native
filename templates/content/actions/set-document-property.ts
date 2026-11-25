@@ -708,6 +708,7 @@ export default defineAction({
         tx as unknown as ReturnType<typeof getDb>,
         database.id,
         lockedDefinition,
+        { value: parsePropertyValue(valueJson) },
       );
       // A tab frozen by this column checks it under the page's row lock, so
       // the change takes that lock too: a save to the tab that started before

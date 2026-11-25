@@ -82,6 +82,9 @@ export async function allowanceBudget(
 export async function allowanceToAskAbout(
   ctx: ActionApprovalNoticeContext,
   askBytes: number,
+  runsOnBigQuery: (
+    identity: OutsideAgentIdentity,
+  ) => Promise<boolean> = firstPartyQueriesRunOnBigQuery,
 ): Promise<BigQueryAgentBudgetSnapshot> {
   const read = await allowanceBudget(ctx, new Date(ctx.askedAt));
   if (read === null) {
@@ -89,12 +92,11 @@ export async function allowanceToAskAbout(
       new OutsideAgentBigQueryRefusalError({ code: "budget_unavailable" }),
     );
   }
-  const onBigQuery = await firstPartyQueriesRunOnBigQuery(read.identity).catch(
-    () =>
-      fail(
-        "Analytics could not read where its first-party queries run, so it asked nothing about BigQuery spend and nothing ran. Try again in a few minutes.",
-        { errorCode: "first_party_backend_unavailable", statusCode: 503 },
-      ),
+  const onBigQuery = await runsOnBigQuery(read.identity).catch(() =>
+    fail(
+      "Analytics could not read where its first-party queries run, so it asked nothing about BigQuery spend and nothing ran. Try again in a few minutes.",
+      { errorCode: "first_party_backend_unavailable", statusCode: 503 },
+    ),
   );
   if (!onBigQuery || !needsAllowanceApproval(read.budget, askBytes)) {
     fail(

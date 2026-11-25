@@ -270,6 +270,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
+  mcpScript: "read",
   run: async (args, ctx): Promise<GetDocumentResult> => {
     if (!args.id) throw new Error("--id is required");
 

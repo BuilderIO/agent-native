@@ -719,6 +719,24 @@ export function mcpScriptInstructions(
 }
 
 /**
+ * The regular catalog's instructions, with a pointer to the script catalog
+ * for bulk work. `catalog` is what a script connection would offer this
+ * caller, or undefined when it would offer none. The pointer appears only
+ * when a script could call one of its actions, and says scripts can change
+ * data only when one of them is a write.
+ */
+export function withMcpScriptCatalogPointer(
+  instructions: string,
+  catalog: McpScriptCatalog | undefined,
+): string {
+  if (!catalog || catalog.byFunction.size === 0) return instructions;
+  const work = Object.values(catalog.actions).some(isMcpScriptWrite)
+    ? "reading or changing many items"
+    : "reading many items";
+  return `${instructions}\n\nFor bulk work, such as ${work}, this app can also be used through scripts that call its actions as functions: connect again with \`?catalog=script\` on this server's URL, or the \`x-agent-native-mcp-catalog: script\` header, then use ${MCP_SCRIPT_SEARCH_TOOL} and ${MCP_SCRIPT_RUN_TOOL}.`;
+}
+
+/**
  * Whether an action a script can call says it reaches outside the app, read
  * as the direct catalog reads it: its own annotations, else its defaults.
  */

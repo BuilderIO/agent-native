@@ -1456,6 +1456,8 @@ const messages: ToolkitAgentChatTranslation = {
     "El esquema de una herramienta no era válido, así que el modelo rechazó la solicitud antes de iniciarla. Puedes omitir la herramienta no válida y volver a intentarlo.",
   "errorMessages.malformedRequest":
     "El proveedor del modelo rechazó esta solicitud por estar mal formada, así que no se reintentó. Vuelve a intentarlo o inicia un chat nuevo si sigue ocurriendo.",
+  "errorMessages.requestNotRead":
+    "El modelo no pudo leer esta solicitud porque era demasiado grande o compleja, por ejemplo por demasiadas herramientas, así que no se reintentó. Inicia un chat nuevo o elige otro modelo.",
   "errorMessages.requestTooLarge":
     "Esta solicitud superó el límite de tamaño del servidor (HTTP 413). Inicia un chat nuevo o quita archivos adjuntos o referencias grandes y vuelve a intentarlo.",
   "errorMessages.capabilityUnavailable":
@@ -1464,6 +1466,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Esta aplicación aún no puede volver a intentar tu mensaje guardado de forma segura. Actualiza la aplicación y vuelve a intentarlo.",
   "errorMessages.runInterrupted": "El agente se detuvo antes de terminar.",
   "errorMessages.runFailed": "La ejecución del agente falló.",
+  "errorMessages.writeOutcomeUnknown":
+    "Me detuve antes de repetir una acción de escritura porque un intento anterior podría haber guardado cambios y no pude confirmar el resultado. Comprueba qué se guardó antes de volver a intentarlo.",
   "errorMessages.runUnverified":
     "Este chat perdió el rastro del agente, que puede seguir ejecutándose. Recarga para ver su progreso.",
   "errorMessages.runSignedOut":
@@ -3762,6 +3766,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpApps.openInNewTab": "Abrir en una pestaña nueva",
   "mcpApps.initFailed": "No se pudo inicializar la aplicación MCP.",
   "mcpApps.readOnly": "Esta aplicación MCP guardada es de solo lectura.",
+  "markdown.opensInNewTab": "(se abre en una pestaña nueva)",
   "iframeEmbed.blocked": "Inserción bloqueada",
   "iframeEmbed.missingSrc": "Falta la fuente",
   "iframeEmbed.crossOrigin": "No se permite una URL de otro origen",

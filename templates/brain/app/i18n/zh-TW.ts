@@ -321,6 +321,7 @@ const messages = {
     emptyTitle: "連線 Brain 的第一個來源",
     emptyDetail:
       "新增已核准的 Slack 通道、Granola Team-space 來源、GitHub 儲存庫、Clips 匯出、手動匯入或簽名的 Webhook。",
+    rotationConflictDetail: "來源已變更。請重新載入頁面，然後重試權杖輪換。",
     actionFailedTitle: "來源操作失敗",
     actionFailedDetail: "檢查來源憑證、通道允許清單和最新的同步錯誤。",
     advancedTitle: "進階來源程式碼控制",

@@ -11,7 +11,7 @@ import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
-import { readActiveOrganizationDefaultVisibility } from "../server/lib/recordings.js";
+import { readActiveOrganizationVisibilityPolicy } from "../server/lib/recordings.js";
 import {
   CLIPS_USER_PREFS_KEY,
   type ClipsUserPrefs,
@@ -23,7 +23,7 @@ import {
 
 export default defineAction({
   description:
-    "Get the current user's Clips recording defaults. defaultPlaybackSpeed is the speed recordings open at. defaultRecordingVisibility is the user's own choice, or null when they follow the organization default. effectiveRecordingVisibility is what a new recording gets, and recordingVisibilitySource says whether it comes from the user ('personal'), the organization default ('organization'), or the built-in default ('built-in').",
+    "Get the current user's Clips recording defaults. defaultPlaybackSpeed is the speed recordings open at. defaultRecordingVisibility is the user's own choice, or null when they follow the organization default. effectiveRecordingVisibility is what a new recording gets, and recordingVisibilitySource says whether it comes from the user ('personal'), the organization default ('organization'), or the built-in default ('built-in'). organizationVisibilityEnforced is true when the organization enforces its default, in which case defaultRecordingVisibility is always null.",
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,
@@ -32,13 +32,17 @@ export default defineAction({
     const email = getRequestUserEmail();
     if (!email) throw new Error("Sign in required");
 
-    const [prefs, organizationDefault] = await Promise.all([
+    const [prefs, policy] = await Promise.all([
       getUserSetting(
         email,
         CLIPS_USER_PREFS_KEY,
       ) as Promise<ClipsUserPrefs | null>,
-      readActiveOrganizationDefaultVisibility(),
+      readActiveOrganizationVisibilityPolicy(),
     ]);
-    return getClipsRecordingDefaults(prefs, organizationDefault);
+    return getClipsRecordingDefaults(
+      prefs,
+      policy.defaultVisibility,
+      policy.enforced,
+    );
   },
 });

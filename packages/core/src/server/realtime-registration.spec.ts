@@ -9,6 +9,7 @@ const mockPlatformMarker = vi.hoisted(() => vi.fn());
 const mockDeployEnv = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDatabaseUrl: mockGetDatabaseUrl,
   isPgliteUrl: (url: string) => url.startsWith("pglite:"),
 }));

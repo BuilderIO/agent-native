@@ -43,6 +43,7 @@ const execute = vi.fn(async () => {
 });
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute }),
 }));
 

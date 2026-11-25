@@ -454,8 +454,10 @@ payload replays the durable receipt; reusing it with a different payload fails.
 Configure at most one ordinary text property as the collection's natural key,
 then use `upsert-database-item-by-key` with that property. Natural-key upsert
 never accepts an arbitrary property name or silently chooses a field. Blocks,
-computed, system, source-managed, unknown, and relation properties are not
-writable through these actions; use their owning surfaces instead.
+computed, system, unknown, and relation properties are not writable through
+these actions; use their owning surfaces instead. A source-managed property is
+writable only when the mutation contract marks it `writable`, as it does for a
+Builder test-model field whose edits Content saves back to Builder.
 
 For a bounded migration that must rewrite every existing row body while adding
 new property definitions and values, use `migrate-content-database-rows` rather
@@ -478,7 +480,15 @@ rows different values, such as a distinct rank per row, call
 `patch-database-items` once with up to 250 rows, each carrying its own item ID,
 document ID, row revision, and sparse patch from the same fresh read. The batch
 writes every row or none; after a conflict, reread only the rows its error
-lists. Do not loop `update-database-item` for multi-row edits. Removing a row from a
+lists. Do not loop `update-database-item` for multi-row edits. An external MCP
+connection whose server instructions offer the script catalog can do bulk work
+that spans calls, such as reading several collections and patching rows from
+what they return, as one script on that catalog: it calls `get-document`,
+`get-content-database`, `list-content-databases`, `search-documents`,
+`search-content-database-rows` and `patch-database-items` as functions. Each
+patch still carries its own idempotency key, and one script's patches share a
+row budget (200 rows unless the deployment sets another): a patch past it is
+refused, and the script's earlier patches stay committed. Removing a row from a
 collection preserves its Page, descendants, other collection memberships, and
 unrelated property values.
 

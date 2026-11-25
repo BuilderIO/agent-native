@@ -14,7 +14,37 @@ describe("Gmail quota timestamps in PGlite", () => {
       "__agentNativePgliteProcessExitCleanupRegistered",
     );
     vi.unstubAllEnvs();
+    vi.restoreAllMocks();
     vi.resetModules();
+  });
+
+  it("spreads simultaneous quota cooldowns while respecting Retry-After", async () => {
+    vi.stubEnv("DATABASE_URL", "pglite:memory");
+    const [{ default: initializeMailDb }, quotaStore] = await Promise.all([
+      import("../plugins/db.js"),
+      import("./inbox-store.js"),
+    ]);
+    await initializeMailDb({});
+    const random = vi
+      .spyOn(Math, "random")
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0.99);
+    const now = Date.now();
+    const first = await quotaStore.recordGmailQuotaCooldown(
+      "owner@example.test",
+      "first@example.test",
+      5000,
+      now,
+    );
+    const second = await quotaStore.recordGmailQuotaCooldown(
+      "owner@example.test",
+      "second@example.test",
+      5000,
+      now,
+    );
+    expect(first).toBeGreaterThanOrEqual(5000);
+    expect(second).toBeGreaterThan(first);
+    expect(random).toHaveBeenCalledTimes(2);
   });
 
   it("reserves and records cooldowns with millisecond timestamps", async () => {

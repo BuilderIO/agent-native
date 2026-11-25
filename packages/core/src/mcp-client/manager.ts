@@ -13,12 +13,35 @@ import {
 } from "../json-schema/unusable-schema.js";
 import { assertUsableSchema } from "../json-schema/usable-schema.js";
 import type { McpConfig, McpServerConfig } from "./config.js";
-import { formatMcpConnectError, httpStatusFromError } from "./errors.js";
+import {
+  formatMcpConnectError,
+  httpStatusFromError,
+  isMcpTransportDisconnectError,
+  McpToolCallReplayRefusedError,
+  type McpToolCallDisconnectReason,
+} from "./errors.js";
 import {
   isFirstPartyRemoteEndpointTrusted,
   parseMergedKey,
 } from "./remote-store.js";
 import { isLocalMcpRuntime } from "./remote-url.js";
+import {
+  capabilitiesAdvertiseSkills,
+  extractVerifiedSkillResource,
+  MCP_SKILLS_EXTENSION_ID,
+  McpSkillError,
+  mcpSkillGetResultSchema,
+  mcpSkillListResultSchema,
+  normalizeSha256Digest,
+  parseSkillGetResult,
+  parseSkillListResult,
+  parseSkillUri,
+  type McpSkillGetResult,
+  type McpSkillListOptions,
+  type McpSkillListResult,
+  type McpSkillReadOptions,
+  type McpSkillResourceContent,
+} from "./skills.js";
 import {
   isWorkspaceConnectionMcpServer,
   resolveWorkspaceConnectionMcpBearer,
@@ -240,6 +263,8 @@ export interface McpClientManagerOptions {
   connectTimeoutMs?: number;
   /** Abandons in-flight server connects and closes their transports when it aborts. */
   signal?: AbortSignal;
+  /** Advertise the MCP Skills extension (`io.modelcontextprotocol/skills`) during client handshake. */
+  enableSkills?: boolean;
 }
 
 export interface McpToolCallOptions {
@@ -247,6 +272,123 @@ export interface McpToolCallOptions {
   context?: ActionRunContext;
   /** Fallback used by standalone action wrappers without a manager resolver. */
   authorize?: ActionAuthorize<Record<string, unknown>>;
+  /**
+   * Explicitly allow reconnecting and replaying this tool call if the session
+   * expires or the transport disconnects after dispatch. Defaults to automatic
+   * replay only when the tool declares `annotations.readOnlyHint === true`.
+   */
+  retryOnDisconnect?: boolean;
+  /**
+   * Explicit replay override. Setting `false` always disables automatic replay
+   * after dispatch, even for tools declaring `readOnlyHint: true`.
+   */
+  allowReplay?: boolean;
+  /**
+   * Explicit idempotency flag. Setting `false` always disables automatic replay
+   * after dispatch, even if `retryOnDisconnect` or `readOnlyHint` is set.
+   */
+  idempotent?: boolean;
+}
+
+/**
+ * Returns true when a dispatched MCP tool call may be automatically replayed
+ * after an expired session or transport disconnect.
+ */
+export function isToolCallReplayable(
+  tool: Pick<McpTool, "annotations">,
+  options: Pick<
+    McpToolCallOptions,
+    "retryOnDisconnect" | "allowReplay" | "idempotent"
+  > = {},
+): boolean {
+  if (
+    options.idempotent === false ||
+    options.allowReplay === false ||
+    options.retryOnDisconnect === false
+  ) {
+    return false;
+  }
+  if (options.retryOnDisconnect === true || options.allowReplay === true) {
+    return true;
+  }
+  return tool.annotations?.readOnlyHint === true;
+}
+
+function classifyCallDisconnect(
+  error: unknown,
+  sessionId: unknown,
+): McpToolCallDisconnectReason | null {
+  if (
+    typeof sessionId === "string" &&
+    sessionId.length > 0 &&
+    httpStatusFromError(error) === 404
+  ) {
+    return "session_expired";
+  }
+  if (isMcpTransportDisconnectError(error)) {
+    return "transport_disconnect";
+  }
+  return null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function readServerCapabilitiesFromClient(
+  client: unknown,
+): Record<string, unknown> | undefined {
+  if (!isRecord(client)) return undefined;
+  const getCapabilities = client.getServerCapabilities;
+  if (typeof getCapabilities === "function") {
+    const capabilities: unknown = getCapabilities.call(client);
+    if (isRecord(capabilities)) return capabilities;
+  }
+  const getDiscoverResult = client.getDiscoverResult;
+  if (typeof getDiscoverResult === "function") {
+    const discoverResult: unknown = getDiscoverResult.call(client);
+    if (isRecord(discoverResult) && isRecord(discoverResult.capabilities)) {
+      return discoverResult.capabilities;
+    }
+  }
+  return undefined;
+}
+
+function clientAdvertisesSkillsCapability(client: unknown): boolean {
+  if (!isRecord(client)) return false;
+  const getCapabilities = client.getServerCapabilities;
+  if (typeof getCapabilities === "function") {
+    const capabilities: unknown = getCapabilities.call(client);
+    if (capabilitiesAdvertiseSkills(capabilities)) return true;
+  }
+  const getDiscoverResult = client.getDiscoverResult;
+  if (typeof getDiscoverResult === "function") {
+    const discoverResult: unknown = getDiscoverResult.call(client);
+    if (
+      isRecord(discoverResult) &&
+      capabilitiesAdvertiseSkills(discoverResult.capabilities)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function sendClientExtensionRequest(
+  client: unknown,
+  serverId: string,
+  method: string,
+  params: Record<string, unknown>,
+  resultSchema: unknown,
+): Promise<unknown> {
+  if (!isRecord(client) || typeof client.request !== "function") {
+    throw new McpSkillError(
+      "SKILLS_UNSUPPORTED",
+      `MCP server "${serverId}" client does not support extension request "${method}"`,
+      { serverId },
+    );
+  }
+  return client.request.call(client, { method, params }, resultSchema);
 }
 
 export type McpToolAuthorizationResolver = (
@@ -402,6 +544,7 @@ export class McpClientManager {
   private readonly debug: boolean;
   private readonly connectTimeoutMs: number | undefined;
   private readonly signal: AbortSignal | undefined;
+  private readonly enableSkills: boolean;
   private started = false;
   private config: McpConfig | null;
   private sdk: SdkModules | null = null;
@@ -415,6 +558,7 @@ export class McpClientManager {
     this.debug = !!options.debug;
     this.connectTimeoutMs = options.connectTimeoutMs;
     this.signal = options.signal;
+    this.enableSkills = options.enableSkills === true;
   }
 
   /**
@@ -749,6 +893,7 @@ export class McpClientManager {
             [MCP_APP_EXTENSION_ID]: {
               mimeTypes: [MCP_APP_MIME_TYPE],
             },
+            ...(this.enableSkills ? { [MCP_SKILLS_EXTENSION_ID]: {} } : {}),
           },
         },
         versionNegotiation: { mode: "auto" },
@@ -1105,9 +1250,187 @@ export class McpClientManager {
     return !!entry?.client && !entry.error;
   }
 
+  /** Returns the negotiated server capabilities for a connected server, if available. */
+  getServerCapabilities(serverId: string): Record<string, unknown> | undefined {
+    const entry = this.servers.get(serverId);
+    if (!entry?.client || entry.error) return undefined;
+    return readServerCapabilitiesFromClient(entry.client);
+  }
+
+  /** Returns true when a connected server advertises the MCP Skills extension (`io.modelcontextprotocol/skills`). */
+  serverSupportsSkills(serverId: string): boolean {
+    const entry = this.servers.get(serverId);
+    if (!entry?.client || entry.error) return false;
+    return clientAdvertisesSkillsCapability(entry.client);
+  }
+
+  private requireConnectedEntry(serverId: string): ServerEntry {
+    const entry = this.servers.get(serverId);
+    if (!entry || !entry.client || entry.error) {
+      throw new Error(
+        `MCP server "${serverId}" is not connected${
+          entry?.error ? `: ${entry.error}` : ""
+        }`,
+      );
+    }
+    return entry;
+  }
+
+  private assertEntrySupportsSkills(entry: ServerEntry): void {
+    if (!clientAdvertisesSkillsCapability(entry.client)) {
+      throw new McpSkillError(
+        "SKILLS_UNSUPPORTED",
+        `MCP server "${entry.id}" does not advertise the ${MCP_SKILLS_EXTENSION_ID} capability`,
+        { serverId: entry.id },
+      );
+    }
+  }
+
+  /** Lists skills advertised by a connected server supporting `io.modelcontextprotocol/skills`. */
+  async listSkills(
+    serverId: string,
+    options: McpSkillListOptions = {},
+  ): Promise<McpSkillListResult> {
+    const entry = this.requireConnectedEntry(serverId);
+    this.assertEntrySupportsSkills(entry);
+    const params: Record<string, unknown> =
+      options.cursor !== undefined ? { cursor: options.cursor } : {};
+    return this.withExpiredSessionRetry(entry, async (current) => {
+      this.assertEntrySupportsSkills(current);
+      const raw = await sendClientExtensionRequest(
+        current.client,
+        serverId,
+        "skills/list",
+        params,
+        mcpSkillListResultSchema,
+      );
+      return parseSkillListResult(raw, serverId);
+    });
+  }
+
+  /** Fetches the manifest for a single `skill://` URI from a connected skills-capable server. */
+  async getSkill(serverId: string, uri: string): Promise<McpSkillGetResult> {
+    parseSkillUri(uri);
+    const entry = this.requireConnectedEntry(serverId);
+    this.assertEntrySupportsSkills(entry);
+    return this.withExpiredSessionRetry(entry, async (current) => {
+      this.assertEntrySupportsSkills(current);
+      const raw = await sendClientExtensionRequest(
+        current.client,
+        serverId,
+        "skills/get",
+        { uri },
+        mcpSkillGetResultSchema,
+      );
+      return parseSkillGetResult(raw, uri, serverId);
+    });
+  }
+
+  /**
+   * Reads a `skill://` resource from a connected skills-capable server and verifies
+   * its SHA-256 digest (and declared byte length) against the skill manifest.
+   */
+  async readSkillResource(
+    serverId: string,
+    uri: string,
+    options: McpSkillReadOptions = {},
+  ): Promise<McpSkillResourceContent> {
+    const parsedUri = parseSkillUri(uri);
+    let expectedDigest: string;
+    let expectedSize: number | undefined = options.expectedSize;
+    if (options.expectedDigest !== undefined) {
+      expectedDigest = normalizeSha256Digest(options.expectedDigest, {
+        uri,
+        serverId,
+      });
+    } else {
+      const manifestUri = options.skillUri ?? parsedUri.manifestUri;
+      if (options.skillUri !== undefined) {
+        parseSkillUri(options.skillUri);
+      }
+      const { skill } = await this.getSkill(serverId, manifestUri);
+      const manifestEntry = skill.resources.find(
+        (candidate) => candidate.uri === uri,
+      );
+      if (!manifestEntry) {
+        throw new McpSkillError(
+          "RESOURCE_NOT_IN_MANIFEST",
+          `Skill manifest "${manifestUri}" on MCP server "${serverId}" does not declare resource "${uri}"`,
+          { uri, serverId },
+        );
+      }
+      expectedDigest = manifestEntry.digest;
+      expectedSize = manifestEntry.size;
+    }
+    const entry = this.requireConnectedEntry(serverId);
+    this.assertEntrySupportsSkills(entry);
+    const raw = await this.withExpiredSessionRetry(entry, (current) => {
+      this.assertEntrySupportsSkills(current);
+      if (typeof current.client.readResource === "function") {
+        return current.client.readResource({ uri });
+      }
+      if (typeof current.client.request === "function") {
+        return current.client.request({
+          method: "resources/read",
+          params: { uri },
+        });
+      }
+      throw new McpSkillError(
+        "SKILLS_UNSUPPORTED",
+        `MCP server "${serverId}" does not support resources/read`,
+        { uri, serverId },
+      );
+    });
+    return extractVerifiedSkillResource(
+      raw,
+      uri,
+      expectedDigest,
+      expectedSize,
+      serverId,
+    );
+  }
+
+  private async handleNonReplayableDisconnect(
+    entry: ServerEntry,
+    failedTransport: unknown,
+    serverId: string,
+    toolName: string,
+    reason: McpToolCallDisconnectReason,
+    cause: unknown,
+  ): Promise<never> {
+    let reconnected = false;
+    let reconnectError: string | undefined;
+    try {
+      const replacement = await this.reconnectExpiredSession(
+        entry,
+        failedTransport,
+      );
+      reconnected = Boolean(replacement?.client && !replacement.error);
+      if (replacement?.error) {
+        reconnectError = replacement.error;
+      }
+    } catch (err) {
+      reconnectError = formatMcpConnectError(err);
+    }
+    throw new McpToolCallReplayRefusedError({
+      serverId,
+      toolName,
+      reason,
+      reconnected,
+      ...(reconnectError !== undefined ? { reconnectError } : {}),
+      cause,
+    });
+  }
+
   /**
    * Rejections this raises before the request reaches the server satisfy
    * `mcpToolCallWasNotSent`; any other rejection may follow a delivered call.
+   *
+   * After a call crosses the submit boundary, only read-only tools
+   * (`annotations.readOnlyHint === true`) or calls explicitly opted in via
+   * `retryOnDisconnect: true` / `allowReplay: true` are automatically replayed
+   * after session expiry or transport disconnect. Non-replayable calls
+   * reconnect cleanly for subsequent calls and throw `McpToolCallReplayRefusedError`.
    */
   async callTool(
     prefixedName: string,
@@ -1132,9 +1455,16 @@ export class McpClientManager {
     }
     const normalizedArgs =
       args && typeof args === "object" ? (args as Record<string, unknown>) : {};
-    // The expired-session retry replays this attempt on a reconnected entry
-    // whose tool metadata was reloaded, so authorization must run per attempt.
-    return this.withExpiredSessionRetry(entry, async (current) => {
+    const failedTransport: unknown = entry.transport;
+    const sessionId: unknown = entry.transport?.sessionId;
+    const state: { dispatched: boolean; dispatchedTool?: McpTool } = {
+      dispatched: false,
+    };
+
+    const runAttempt = async (
+      current: ServerEntry,
+      replayContext?: { reason: McpToolCallDisconnectReason; cause: unknown },
+    ): Promise<unknown> => {
       const known = current.tools.find((t) => t.name === prefixedName);
       if (!known) {
         throw markNotSent(
@@ -1142,6 +1472,15 @@ export class McpClientManager {
             `MCP server "${parsed.serverId}" does not expose tool "${parsed.toolName}"`,
           ),
         );
+      }
+      if (replayContext && !isToolCallReplayable(known, options)) {
+        throw new McpToolCallReplayRefusedError({
+          serverId: parsed.serverId,
+          toolName: parsed.toolName,
+          reason: replayContext.reason,
+          reconnected: true,
+          cause: replayContext.cause,
+        });
       }
       const client = current.client;
       const authorize =
@@ -1172,12 +1511,56 @@ export class McpClientManager {
           ),
         );
       }
+      state.dispatchedTool = known;
+      state.dispatched = true;
       noteExternalWrite("mcp");
       return client.callTool({
         name: parsed.toolName,
         arguments: normalizedArgs,
       });
-    });
+    };
+
+    try {
+      return await this.runRequest(entry, (current) => runAttempt(current));
+    } catch (error) {
+      if (!state.dispatched) {
+        throw error;
+      }
+      const disconnectReason = classifyCallDisconnect(error, sessionId);
+      if (!disconnectReason) {
+        throw error;
+      }
+      const replayable =
+        state.dispatchedTool !== undefined &&
+        isToolCallReplayable(state.dispatchedTool, options);
+      if (!replayable) {
+        return this.handleNonReplayableDisconnect(
+          entry,
+          failedTransport,
+          parsed.serverId,
+          parsed.toolName,
+          disconnectReason,
+          error,
+        );
+      }
+      const replacement = await this.reconnectExpiredSession(
+        entry,
+        failedTransport,
+      );
+      if (!replacement) {
+        throw error;
+      }
+      if (!replacement.client) {
+        throw new Error(
+          `MCP server "${entry.id}" is not connected${
+            replacement.error ? `: ${replacement.error}` : ""
+          }`,
+        );
+      }
+      return this.runRequest(replacement, (current) =>
+        runAttempt(current, { reason: disconnectReason, cause: error }),
+      );
+    }
   }
 
   async readResource(serverId: string, uri: string): Promise<unknown> {

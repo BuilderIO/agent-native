@@ -1459,6 +1459,11 @@ export const migrations = runMigrations(
       ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS calendar_id TEXT`,
     },
     {
+      version: 108,
+      name: "organization-enforce-default-visibility",
+      sql: `ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS enforce_default_visibility BOOLEAN NOT NULL DEFAULT FALSE`,
+    },
+    {
       version: 106,
       name: "recording-comments-copy-to-review-kit",
       sql: {},

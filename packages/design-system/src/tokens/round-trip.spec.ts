@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { COMPONENTS_FILE, readSwitchComponent } from "./component-inputs.js";
 import { EXTENSION, flattenTokens, type DtcgToken } from "./dtcg.js";
 import {
   exportForFigma,
@@ -69,6 +70,100 @@ describe("token round trip", () => {
         .filter(([file]) => file !== TEXT_STYLES_FILE)
         .map(([, group]) => group),
     );
+  });
+
+  it("keeps late-bound Switch roles when a Figma export strips custom extensions", () => {
+    const group = asFigmaWrites(TOKEN_FILES[COMPONENTS_FILE]);
+    const imported = importFromFigma(
+      new Map([["Components/Value.tokens.json", group]]),
+      TOKEN_FILES,
+    );
+    const { inputs, colorLiterals } = readSwitchComponent(
+      imported.files.get(COMPONENTS_FILE),
+    );
+    expect(Object.keys(inputs)).toHaveLength(15);
+    expect(imported.changed.size).toBe(0);
+    expect({ inputs, colorLiterals }).toEqual(
+      readSwitchComponent(TOKEN_FILES[COMPONENTS_FILE]),
+    );
+  });
+
+  it("reads changed Switch sizes, colors with fractional alpha, and shadow presets", () => {
+    const original = clone(TOKEN_FILES[COMPONENTS_FILE]);
+    setToken(original, "switch.width", (token) => {
+      token.$value = 28;
+    });
+    setToken(original, "switch.radius", (token) => {
+      token.$value = 9999;
+      token.$extensions = { [EXTENSION]: { cssVariable: "--radius-full" } };
+    });
+    setToken(original, "switch.surface-track-color", (token) => {
+      token.$value = {
+        colorSpace: "srgb",
+        components: [0, 0, 0],
+        alpha: 0.494118,
+        hex: "#000000",
+      };
+      token.$extensions = { [EXTENSION]: { cssVariable: "--gray-a10" } };
+    });
+    setToken(original, "switch.thumb-shadow", (token) => {
+      token.$value = "var(--shadow-2)";
+    });
+    const group = asFigmaWrites(original);
+    setToken(group, "switch.width", (token) => {
+      token.$value = 40;
+    });
+    setToken(group, "switch.radius", (token) => {
+      token.$value = 7;
+    });
+    setToken(group, "switch.surface-track-color", (token) => {
+      token.$value = {
+        colorSpace: "srgb",
+        components: [0, 0, 0],
+        alpha: 0.4942,
+        hex: "#000000",
+      };
+    });
+    setToken(group, "switch.thumb-shadow", (token) => {
+      token.$value = "var(--shadow-5)";
+    });
+    const imported = importFromFigma(
+      new Map([["Components/Value.tokens.json", group]]),
+      { ...TOKEN_FILES, [COMPONENTS_FILE]: original },
+    );
+    const { inputs, colorLiterals } = readSwitchComponent(
+      imported.files.get(COMPONENTS_FILE),
+    );
+    expect(imported.changed.get(COMPONENTS_FILE)).toEqual([
+      "switch.width",
+      "switch.radius",
+      "switch.surface-track-color",
+      "switch.thumb-shadow",
+    ]);
+    expect(inputs["--switch-width"]?.fallback).toBe("40px");
+    expect(inputs["--switch-radius"]?.fallback).toBe("7px");
+    expect(inputs["--switch-thumb-shadow"]?.fallback).toBe("var(--shadow-5)");
+    expect(colorLiterals).toMatchObject({
+      "--component-switch-surface-track-color": "color(srgb 0 0 0 / 0.4942)",
+    });
+  });
+
+  it("rejects unrenderable Switch inputs before accepting the collection", () => {
+    const group = clone(TOKEN_FILES[COMPONENTS_FILE]);
+    setToken(group, "switch.inset", (token) => {
+      token.$value = -3;
+    });
+    setToken(group, "switch.thumb-shadow", (token) => {
+      token.$value = "var(--shadow-7);}";
+    });
+    expect(
+      problems(() =>
+        importFromFigma(
+          new Map([["Components/Value.tokens.json", group]]),
+          TOKEN_FILES,
+        ),
+      ),
+    ).toHaveLength(2);
   });
 
   it("lists each text style with the Foundations variables it binds", () => {
