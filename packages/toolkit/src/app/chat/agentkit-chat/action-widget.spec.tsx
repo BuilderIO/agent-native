@@ -216,13 +216,12 @@ describe("AgentKitActionWidget", () => {
               </AgentNativeI18nProvider>,
             );
           });
-          if (expected.length) {
-            await waitFor(() => {
-              for (const name of expected)
-                expect(container.textContent).toContain(name);
-            });
-          }
-          return container.textContent ?? "";
+          await waitFor(() => {
+            expect(
+              expected.filter((name) => container.textContent.includes(name)),
+            ).toEqual(expected);
+          });
+          return container.textContent;
         } finally {
           await act(async () => root.unmount());
         }
@@ -231,7 +230,10 @@ describe("AgentKitActionWidget", () => {
       const text = await render(taskRunIds, visible);
       for (const name of visible) expect(text).toContain(name);
       for (const name of hidden) expect(text).not.toContain(name);
-      if (visible.length === 0) expect(text).toBe("");
+      expect(text.length === 0).toBe(visible.length === 0);
+      expect(visible.map((name) => text.split(name).length)).toEqual(
+        visible.map(() => 2),
+      );
     },
   );
 
