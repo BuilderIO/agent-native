@@ -9,6 +9,7 @@ type Step =
   | { press: string }
   | { reload: true }
   | { freshSignIn: true }
+  | { ifVisible: string; then: Step[] }
   | { expectUrl: string }
   | { fill: string; value: string }
   | { expectText: string }
@@ -241,7 +242,19 @@ async function signInThroughUi(page: Page, email: string, password: string) {
 
 let credentials: { email: string; password: string } | undefined;
 
-async function runStep(page: Page, step: Step) {
+async function runStep(page: Page, step: Step): Promise<void> {
+  if ("ifVisible" in step) {
+    const shown = await page
+      .locator(interpolate(step.ifVisible))
+      .first()
+      .waitFor({ state: "visible", timeout: 5_000 })
+      .then(
+        () => true,
+        () => false,
+      );
+    if (shown) for (const inner of step.then) await runStep(page, inner);
+    return;
+  }
   const s = interpolate(step);
   if ("goto" in s) {
     await page.goto(
@@ -492,6 +505,11 @@ async function main() {
     }
   } catch (err) {
     failure = err instanceof Error ? err.message : String(err);
+    const page = browser?.contexts()[0]?.pages()[0];
+    if (page)
+      await shot(page, "failure").catch((shotErr: unknown) => {
+        console.log(`failure screenshot not taken: ${String(shotErr)}`);
+      });
   } finally {
     const cleaned: string[] = [];
     for (const fn of [
