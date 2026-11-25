@@ -2,6 +2,8 @@ import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js"
 
 export default {
   common: {
+    calendarRateLimited:
+      "Google Kalender begrenzt Anfragen. Gespeicherte Termine sind möglicherweise nicht aktuell.",
     connect: "Verbinden",
     connected: "Verbunden",
     connecting: "Verbinden...",
@@ -595,6 +597,12 @@ export default {
     custom: "Benutzerdefiniert",
     customLink: "Benutzerdefinierter Link",
     customLinkDescription: "Fügen Sie ein beliebiges Meeting URL ein",
+    reminderEmail: "Erinnerungs-E-Mail",
+    reminderEmailDescription:
+      "Geht an die Person, die gebucht hat, und an alle Gäste, die sie hinzugefügt hat.",
+    reminderOff: "Keine Erinnerung",
+    reminderOneHour: "1 Stunde vorher",
+    reminderOneDay: "1 Tag vorher",
     date: "Datum",
     dateAndTime: "Datum und Uhrzeit",
     dateSelection: "Datumsauswahl",

@@ -255,6 +255,11 @@ import {
   waitForImageUploadsToSettle,
   wasImageUploadBlockRemoved,
 } from "./image-upload-previews";
+import {
+  LinkCardPaste,
+  type LinkCardPasteContext,
+  type LinkCardPasteOptions,
+} from "./link-card/link-card-paste";
 import { LinkHoverPreview } from "./LinkHoverPreview";
 import {
   LIVE_BODY_PARITY_QUIET_MS,
@@ -2367,6 +2372,7 @@ interface VisualEditorExtensionOptions {
   onPickedImageFile?: ContentImageOptions["onPickedImageFile"];
   canMutateMedia?: () => boolean;
   isSuggesting?: () => boolean;
+  onSuggestionRefused?: () => void;
   onJoinTitle?: (text: string) => void;
   onOpenNotionPageLink?: (documentId: string) => void;
   resolveNotionPageLink?: (id: string) => ContentLinkTarget | null;
@@ -2382,6 +2388,7 @@ interface VisualEditorExtensionOptions {
   findCommentQuote?: CommentHighlightOptions["findQuote"];
   /** Turns a pasted Analytics panel link into a chart while it returns one. */
   analyticsChartPaste?: AnalyticsChartPasteOptions["getContext"];
+  linkCardPaste?: LinkCardPasteOptions["getContext"];
   designScreenPaste?: DesignScreenPasteOptions["getContext"];
 }
 
@@ -3438,6 +3445,7 @@ export function createVisualEditorExtensions({
   onPickedImageFile,
   canMutateMedia,
   isSuggesting,
+  onSuggestionRefused,
   onJoinTitle,
   onOpenNotionPageLink,
   resolveNotionPageLink,
@@ -3449,6 +3457,7 @@ export function createVisualEditorExtensions({
   onMediaSourceCommitted,
   findCommentQuote,
   analyticsChartPaste,
+  linkCardPaste,
   designScreenPaste,
 }: VisualEditorExtensionOptions = {}): Extensions {
   return createSharedEditorExtensions({
@@ -3536,7 +3545,14 @@ export function createVisualEditorExtensions({
       NormalizeTableAlignment,
       TablePresentation,
       ...(isSuggesting
-        ? [SuggestingReadOnlyBlocks.configure({ isSuggesting })]
+        ? [
+            SuggestingReadOnlyBlocks.configure({
+              isSuggesting,
+              ...(onSuggestionRefused
+                ? { onRefused: onSuggestionRefused }
+                : {}),
+            }),
+          ]
         : []),
       ...createNotionEditorExtensions({
         documentId,
@@ -3560,6 +3576,9 @@ export function createVisualEditorExtensions({
       NotionMarkdownShortcuts,
       ...(analyticsChartPaste
         ? [AnalyticsChartPaste.configure({ getContext: analyticsChartPaste })]
+        : []),
+      ...(linkCardPaste
+        ? [LinkCardPaste.configure({ getContext: linkCardPaste })]
         : []),
       ...(designScreenPaste
         ? [DesignScreenPaste.configure({ getContext: designScreenPaste })]
@@ -4299,6 +4318,11 @@ export function VisualEditor({
   }, [documentId, fileStorageConfigured, uploadBodyImages]);
   const canMutateMedia = useCallback(() => !suggestingRef.current, []);
   const isSuggesting = useCallback(() => suggestingRef.current, []);
+  const onSuggestionRefused = useCallback(() => {
+    toast(tRef.current("editor.blockMenu.lockedSuggesting"), {
+      id: "suggesting-refused-block",
+    });
+  }, []);
   const analyticsLinks = useActionQuery(
     "get-analytics-links",
     {},
@@ -4318,6 +4342,29 @@ export function VisualEditor({
             canEdit: !suggestingRef.current,
             linkOrigins: analyticsLinkOriginsRef.current,
             t: tRef.current,
+          }
+        : null,
+    [documentId, localFileMode],
+  );
+  const linkCardOrigins = useActionQuery(
+    "get-link-card-origins",
+    {},
+    {
+      enabled: Boolean(documentId) && editable && !localFileMode,
+      staleTime: Infinity,
+      retry: false,
+    },
+  );
+  const linkCardAppUrlsRef = useRef<LinkCardPasteContext["appUrls"]>({});
+  useEffect(() => {
+    linkCardAppUrlsRef.current = linkCardOrigins.data ?? {};
+  }, [linkCardOrigins.data]);
+  const getLinkCardPasteContext = useCallback(
+    () =>
+      documentId && !localFileMode
+        ? {
+            canEdit: !suggestingRef.current,
+            appUrls: linkCardAppUrlsRef.current,
           }
         : null,
     [documentId, localFileMode],
@@ -4402,6 +4449,7 @@ export function VisualEditor({
         onPickedImageFile,
         canMutateMedia,
         isSuggesting,
+        onSuggestionRefused,
         onJoinTitle,
         onOpenNotionPageLink,
         resolveNotionPageLink,
@@ -4413,6 +4461,7 @@ export function VisualEditor({
         onMediaSourceCommitted,
         findCommentQuote,
         analyticsChartPaste: getAnalyticsChartPasteContext,
+        linkCardPaste: getLinkCardPasteContext,
         designScreenPaste: getDesignScreenPasteContext,
       }),
       Extension.create({
@@ -4486,6 +4535,7 @@ export function VisualEditor({
       onPickedImageFile,
       canMutateMedia,
       isSuggesting,
+      onSuggestionRefused,
       onJoinTitle,
       onOpenNotionPageLink,
       resolveNotionPageLink,
@@ -4497,6 +4547,7 @@ export function VisualEditor({
       onMediaSourceCommitted,
       findCommentQuote,
       getAnalyticsChartPasteContext,
+      getLinkCardPasteContext,
       getDesignScreenPasteContext,
     ],
   );

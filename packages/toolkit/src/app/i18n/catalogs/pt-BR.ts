@@ -1444,6 +1444,8 @@ const messages: ToolkitAgentChatTranslation = {
     "O esquema de uma ferramenta era inválido, então o modelo rejeitou a solicitação antes de iniciá-la. Você pode ignorar a ferramenta inválida e tentar novamente.",
   "errorMessages.malformedRequest":
     "O provedor do modelo rejeitou esta solicitação por estar malformada, então ela não foi repetida. Tente novamente ou inicie um novo chat se continuar acontecendo.",
+  "errorMessages.requestNotRead":
+    "O modelo não conseguiu ler esta solicitação porque ela era grande ou complexa demais, por exemplo por ter ferramentas demais, então ela não foi repetida. Inicie um novo chat ou escolha outro modelo.",
   "errorMessages.requestTooLarge":
     "Esta solicitação excedeu o limite de tamanho do servidor (HTTP 413). Inicie um novo chat ou remova anexos ou referências grandes e tente novamente.",
   "errorMessages.capabilityUnavailable":
@@ -1452,6 +1454,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Este app ainda não pode tentar novamente com segurança o seu prompt salvo. Atualize o app e tente de novo.",
   "errorMessages.runInterrupted": "O agente parou antes de terminar.",
   "errorMessages.runFailed": "A execução do agente falhou.",
+  "errorMessages.writeOutcomeUnknown":
+    "Parei antes de repetir uma ação de gravação porque uma tentativa anterior pode já ter salvo alterações e não consegui confirmar o resultado. Verifique o que foi salvo antes de tentar novamente.",
   "errorMessages.runUnverified":
     "Este chat perdeu o acompanhamento do agente, que ainda pode estar em execução. Recarregue para ver o progresso.",
   "errorMessages.runSignedOut":
@@ -3750,6 +3754,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpApps.openInNewTab": "Abrir em uma nova aba",
   "mcpApps.initFailed": "Não foi possível inicializar o app MCP.",
   "mcpApps.readOnly": "Este app MCP salvo é somente leitura.",
+  "markdown.opensInNewTab": "(abre em uma nova aba)",
   "iframeEmbed.blocked": "Incorporação bloqueada",
   "iframeEmbed.missingSrc": "Fonte ausente",
   "iframeEmbed.crossOrigin": "URL de outra origem não permitida",

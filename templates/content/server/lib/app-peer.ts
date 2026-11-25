@@ -15,7 +15,7 @@ import {
 } from "@agent-native/core/shared/environment-lanes";
 import type { ZodType } from "zod";
 
-export type PeerAppId = "analytics" | "design";
+export type PeerAppId = "analytics" | "clips" | "design" | "slides";
 
 function hostnameOf(url: string | undefined): string | undefined {
   if (!url || !URL.canParse(url)) return undefined;
@@ -39,7 +39,7 @@ export function resolvePeerAppUrl(appId: PeerAppId): string | null {
   ).replace(/\/+$/, "");
 }
 
-function peerAppTarget(appId: PeerAppId): string {
+export function peerAppTarget(appId: PeerAppId): string {
   const builtinUrl = builtinPeerAppUrl(appId);
   const appUrl = resolvePeerAppUrl(appId);
   return appUrl && appUrl !== builtinUrl ? appUrl : appId;

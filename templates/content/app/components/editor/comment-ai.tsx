@@ -774,24 +774,22 @@ export function useCommentAiRequests(
   useEffect(() => {
     for (const request of serverRequests) {
       const receipt = sessionReceipt(request);
-      if (
-        !ACTIVE_STATUSES.has(request.status) ||
-        !receipt ||
-        monitoredRequestsRef.current.has(request.operationId)
-      )
-        continue;
-      monitoredRequestsRef.current.add(request.operationId);
+      if (!ACTIVE_STATUSES.has(request.status) || !receipt) continue;
+      const monitorKey = `${request.operationId}:${receipt.turnId}`;
+      if (monitoredRequestsRef.current.has(monitorKey)) continue;
+      monitoredRequestsRef.current.add(monitorKey);
+      const watching = () =>
+        mountedRef.current &&
+        serverRequestsRef.current.some(
+          (current) =>
+            current.operationId === request.operationId &&
+            ACTIVE_STATUSES.has(current.status) &&
+            sessionReceipt(current)?.turnId === receipt.turnId,
+        );
       void (async () => {
         let retryDelay = ACTIVE_REQUEST_REFETCH_INTERVAL_MS;
         try {
-          while (
-            mountedRef.current &&
-            serverRequestsRef.current.some(
-              (current) =>
-                current.operationId === request.operationId &&
-                ACTIVE_STATUSES.has(current.status),
-            )
-          ) {
+          while (watching()) {
             let snapshot;
             try {
               snapshot = await getBackgroundAgentSessionStatus(receipt);
@@ -802,6 +800,7 @@ export function useCommentAiRequests(
               continue;
             }
             if (shouldReconcileCommentAiSnapshot(snapshot)) {
+              if (!watching()) return;
               await reconcile(
                 request,
                 receipt.threadId,
@@ -817,7 +816,7 @@ export function useCommentAiRequests(
             );
           }
         } finally {
-          monitoredRequestsRef.current.delete(request.operationId);
+          monitoredRequestsRef.current.delete(monitorKey);
         }
       })();
     }
@@ -1094,7 +1093,7 @@ export function useCommentAiRequests(
             (priorConversation
               ? `\n\nProtected conversation context:\n\n${priorConversation}`
               : ""),
-          ...(request.model ? { model: request.model } : {}),
+          ...continuationModel(request),
           usageLabel:
             mode === "resume"
               ? "content:comment-ai-resume"
@@ -1327,6 +1326,14 @@ function workingLabel(
   });
 }
 
+function continuationModel(request: CommentAiRequest) {
+  const model = request.model ?? request.submittedModel;
+  return {
+    ...(model ? { model } : {}),
+    ...(request.submittedEngine ? { engine: request.submittedEngine } : {}),
+  };
+}
+
 function requestStatusLabel(
   request: CommentAiRequest,
   t: ReturnType<typeof useT>,
@@ -1391,8 +1398,7 @@ export function CommentAiRequestStatus({
     continuation?.status === "unavailable";
   const continuationLabel = continuation
     ? continuation.status === "queued" || continuation.status === "running"
-      ? // A follow-up runs on request.model alone (see dispatchContinuation).
-        workingLabel(request.model, t)
+      ? workingLabel(continuationModel(request).model, t)
       : continuation.status === "aborted"
         ? t("comments.aiCancelled")
         : continuation.status === "completed"

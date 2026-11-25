@@ -1226,6 +1226,8 @@ describe("when something fails part way", () => {
         throw new EmbeddingProviderError(
           "Embedding provider fake failed with status 429.",
           429,
+          undefined,
+          "rate_limit_exceeded",
         );
       },
     };
@@ -1235,9 +1237,15 @@ describe("when something fails part way", () => {
       resolveEmbeddingFamily: async (identity) =>
         identity?.userEmail === "limited@a.com" ? limitedFamily : family,
     });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       await drain();
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("The embedding provider is rate limiting"),
+        "Embedding provider fake failed with status 429. The provider's code: rate_limit_exceeded.",
+      );
     } finally {
+      warn.mockRestore();
       restoreStore();
     }
     expect(limitedCalls).toBe(1);

@@ -2,6 +2,8 @@ import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js"
 
 export default {
   common: {
+    calendarRateLimited:
+      "Google Calendar ने अनुरोध सीमित कर दिए हैं। सहेजे गए इवेंट पुराने हो सकते हैं।",
     connect: "कनेक्ट करें",
     connected: "कनेक्टेड",
     connecting: "कनेक्ट कर रहे हैं...",
@@ -558,6 +560,12 @@ export default {
     custom: "कस्टम",
     customLink: "कस्टम लिंक",
     customLinkDescription: "किसी भी मीटिंग को URL पेस्ट करें",
+    reminderEmail: "रिमाइंडर ईमेल",
+    reminderEmailDescription:
+      "बुकिंग करने वाले व्यक्ति और उनके जोड़े गए मेहमानों को भेजा जाता है।",
+    reminderOff: "कोई रिमाइंडर नहीं",
+    reminderOneHour: "1 घंटा पहले",
+    reminderOneDay: "1 दिन पहले",
     date: "दिनांक",
     dateAndTime: "तारीख और समय",
     dateSelection: "तारीख चयन",

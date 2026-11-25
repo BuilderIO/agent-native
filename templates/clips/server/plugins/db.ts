@@ -1459,8 +1459,19 @@ export const migrations = runMigrations(
       ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS calendar_id TEXT`,
     },
     {
+      version: 108,
+      name: "organization-enforce-default-visibility",
+      sql: `ALTER TABLE organization_settings ADD COLUMN IF NOT EXISTS enforce_default_visibility BOOLEAN NOT NULL DEFAULT FALSE`,
+    },
+    {
       version: 106,
       name: "recording-comments-copy-to-review-kit",
+      sql: {},
+      run: copyRecordingCommentsOnce,
+    },
+    {
+      version: 107,
+      name: "recording-comments-copy-to-review-kit-again",
       sql: {},
       run: copyRecordingCommentsOnce,
     },
@@ -1484,6 +1495,12 @@ async function copyRecordingCommentsOnce(): Promise<MigrationRunResult> {
     console.warn(
       `[db] Kept ${report.kitWrittenComments.length} recording comment(s) that were written through the review kit's own actions and aren't in Clips:`,
       report.kitWrittenComments.slice(0, 20),
+    );
+  }
+  if (report.orphanedReplies.length > 0) {
+    console.warn(
+      `[db] Deleted ${report.orphanedReplies.length} recording comment(s) written through the review kit's own actions in a thread Clips deleted:`,
+      report.orphanedReplies.slice(0, 20),
     );
   }
   if (report.differences.length > 0 || report.failedRecordings.length > 0) {

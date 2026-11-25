@@ -798,11 +798,15 @@ describe("LayoutContextProperties interactions", () => {
     const heading = section?.querySelector(".design-sidebar-section-title");
     expect(heading?.textContent).toBe("editPanel.sections.layout");
     expect(heading?.closest("button")).toBeNull();
-    expect(section?.textContent).toContain("editPanel.labels.width");
-    expect(section?.textContent).toContain("editPanel.labels.height");
+    // oracle-change: ENG-14616 drops the visible Width/Height labels; the W and H fields keep their names.
+    expect(section?.textContent).not.toContain("editPanel.labels.width");
+    // oracle-change: ENG-14616 drops the visible Width/Height labels; the W and H fields keep their names.
+    expect(section?.textContent).not.toContain("editPanel.labels.height");
     expect(section?.textContent).not.toContain("editPanel.labels.flexGrow");
-    expect(section?.querySelector('button[aria-label^="W "]')).not.toBeNull();
-    expect(section?.querySelector('button[aria-label^="H "]')).not.toBeNull();
+    // oracle-change: ENG-14616 makes a fixed W/H an editable token combobox, so the field is an input named "W size in pixels" instead of a sizing-mode button.
+    expect(section?.querySelector('[aria-label^="W "]')).not.toBeNull();
+    // oracle-change: ENG-14616 makes a fixed W/H an editable token combobox, so the field is an input named "H size in pixels" instead of a sizing-mode button.
+    expect(section?.querySelector('[aria-label^="H "]')).not.toBeNull();
 
     const advanced = container.querySelector<HTMLButtonElement>(
       'button[aria-label="editPanel.layoutContext.flexChild"]',

@@ -120,7 +120,8 @@ describe("AutoLayoutMatrix", () => {
       }),
     );
 
-    expect(markup).toContain("Resizing");
+    // oracle-change: ENG-14616 drops the visible Resizing label; the W and H sizing triggers still render.
+    expect(markup).toContain('aria-label="W ');
     expect(markup).not.toContain("Flow");
     expect(markup).not.toContain("Alignment");
     expect(markup).not.toContain("Gap");
@@ -286,7 +287,10 @@ describe("AutoLayoutMatrix", () => {
     expect(markup).toContain('data-inspector-layout="pair-flow"');
     expect(markup.match(/data-inspector-span="13"/g)).toHaveLength(2);
     expect(markup).not.toContain('data-inspector-span="14"');
-    expect(markup).not.toContain('data-inspector-layout="field-action"');
+    // oracle-change: ENG-14616 drops the Flow label row, so the flow control's own row is the only field-action grid.
+    expect(markup.match(/data-inspector-layout="field-action"/g)).toHaveLength(
+      1,
+    );
     expect(markup).toContain("w-full max-w-[92px]");
   });
 });

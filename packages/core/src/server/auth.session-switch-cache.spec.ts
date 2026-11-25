@@ -158,6 +158,7 @@ async function fixture() {
       (await native!.$context).internalAdapter,
   }));
   vi.doMock("../db/client.js", () => ({
+    getEnclosingTransactionDbExec: () => undefined,
     getDbExec: () => ({
       execute: vi.fn(async (statement: { sql: string; args?: unknown[] }) => {
         if (

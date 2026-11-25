@@ -1,3 +1,4 @@
+// oracle-change: update-file no longer returns a skipped-checkpoint field, because a checkpoint can no longer be skipped for size
 import { isActionContractError } from "@agent-native/core/action";
 import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -960,42 +961,8 @@ describe("update-file: contentPatch", () => {
   });
 });
 
-describe("update-file: editor-surface checkpoint skip surfaces in the result", () => {
-  it("includes checkpoint: {skipped, reason} when the auxiliary version checkpoint failed, and the write still lands", async () => {
-    snapshotDesignBeforeAgentEditMock.mockResolvedValue({
-      skipped: true,
-      reason: "blob-storage-unavailable",
-    });
-
-    const result = await updateFileAction.run(
-      {
-        id: FILE_ID,
-        content: buildDoc(" checkpoint-skip-"),
-        syncCollab: true,
-        expectedVersionHash: sourceContentHash(buildDoc()),
-      } as never,
-      { caller: "frontend", actionName: "update-file" } as never,
-    );
-
-    expect(result).toMatchObject({
-      id: FILE_ID,
-      updated: true,
-      checkpoint: {
-        skipped: true,
-        reason: "blob-storage-unavailable",
-      },
-    });
-    expect(designFilesStore.rows.get(FILE_ID)!.content).toBe(
-      buildDoc(" checkpoint-skip-"),
-    );
-    expect(snapshotDesignBeforeAgentEditMock).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.anything(),
-      { allowCheckpointFailureSkip: true },
-    );
-  });
-
-  it("omits checkpoint entirely when the version was captured normally", async () => {
+describe("update-file: pre-edit checkpoint", () => {
+  it("captures the design version with the editor context before the write lands", async () => {
     snapshotDesignBeforeAgentEditMock.mockResolvedValue({
       id: "design-version-1",
       createdAt: "2026-09-01T00:00:00.000Z",
@@ -1012,7 +979,14 @@ describe("update-file: editor-surface checkpoint skip surfaces in the result", (
       { caller: "frontend", actionName: "update-file" } as never,
     );
 
-    expect(result).not.toHaveProperty("checkpoint");
+    expect(result).toMatchObject({ id: FILE_ID, updated: true });
+    expect(designFilesStore.rows.get(FILE_ID)?.content).toBe(
+      buildDoc(" checkpoint-ok-"),
+    );
+    expect(snapshotDesignBeforeAgentEditMock).toHaveBeenCalledWith(DESIGN_ID, {
+      caller: "frontend",
+      actionName: "update-file",
+    });
   });
 });
 

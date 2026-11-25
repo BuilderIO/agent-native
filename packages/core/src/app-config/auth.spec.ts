@@ -50,3 +50,19 @@ describe("previous encryption key configuration", () => {
     ).toThrow();
   });
 });
+
+describe("Builder preview local development configuration", () => {
+  it("stays off unless the opt-in variable is set", () => {
+    expect(
+      schema.parse(readEnvConfigLayer(schema, {})).auth
+        .allowBuilderPreviewLocalDev,
+    ).toBe(false);
+    expect(
+      schema.parse(
+        readEnvConfigLayer(schema, {
+          AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV: "1",
+        }),
+      ).auth.allowBuilderPreviewLocalDev,
+    ).toBe(true);
+  });
+});

@@ -187,6 +187,7 @@ const messages = {
       moveToTrash: "移到垃圾桶",
       star: "加上星號",
       unstar: "移除星號",
+      copyLink: "複製連結",
     },
     labels: {
       labelAsPlaceholder: "加上標籤…",
@@ -444,10 +445,13 @@ const messages = {
       tryDifferentKeywords: "試試其他關鍵詞",
       nothingHere: "這裡還沒有內容",
       loadingMore: "正在載入更多...",
+      loadOlder: "載入較早的對話",
       openAllMailForOlder: "開啟全部郵件查看較早的郵件",
     },
     toasts: {
       noEmailSelected: "未選取郵件。",
+      linkCopied: "連結已複製。",
+      linkCopyFailed: "無法複製連結。",
       reportedSpam: "已舉報為垃圾郵件。",
       reportedSpamBlocked: "已舉報為垃圾郵件並屏蔽 {{email}}。",
       noThreadSelected: "未選取工作階段。",
@@ -535,7 +539,11 @@ const messages = {
       tryAgain: "重試",
       rateLimitTitle: "觸發 Gmail 速率限制",
       loadTitle: "無法載入郵件",
+      staleSaved: "無法重新整理郵件。正在顯示已儲存的對話。",
       rateLimitDescription: "最近對 Google 的請求過多。稍等片刻後會重試。",
+      limitedListFrom:
+        "上次更新：{{time}}。部分郵件可能未顯示。Google 正在限制 Mail 的請求。",
+      limitedList: "部分郵件可能未顯示。Google 正在限制 Mail 的請求。",
       failedToConnect: "連線失敗。請重試。",
       failedToParseJson: "解析 JSON 失敗",
       missingGoogleCredentials: "在 JSON 中找不到 client_id 和 client_secret",
@@ -632,7 +640,7 @@ const messages = {
       instructionsTitle: "指示",
       instructionCount: "{{count}} 個指示",
       instructionPlaceholder:
-        "例如：主旨包含「question for you, Steve」的郵件不需要",
+        "例如：主旨包含「quick question for you」的郵件不需要",
       addInstruction: "新增",
       noInstructions: "尚無指示。",
       instructionExample: "試試「所有政治競選郵件都不需要」。",
@@ -677,13 +685,13 @@ const messages = {
       skipInboxRuleHelp:
         "以自然語言撰寫指示。符合條件的郵件會封存並略過收件匣。",
       spamRuleHelp:
-        "以自然語言撰寫指示。Jev 會為符合條件的郵件新增 agent-native-filtered 標籤並封存。這不是 Gmail 垃圾郵件。",
+        "以自然語言撰寫指示。Mail 會為符合條件的郵件新增 agent-native-filtered 標籤並封存。這不是 Gmail 垃圾郵件。",
       filteredMode: "已篩選",
       manageSettings: "管理",
-      askJev: "詢問 Jev",
+      askJev: "詢問 Mail 的代理",
       askJevPrompt:
         "幫我調整這條 Mail 規則：{{condition}}。先詢問我想變更什麼，再更新規則。",
-      composerPlaceholder: "請 Jev 幫你整理收件匣…",
+      composerPlaceholder: "請 Mail 的代理幫你整理收件匣…",
       chatSuggestionFilter: "篩選類似這樣的郵件",
       chatSuggestionPriority: "優先處理來自…的郵件",
       chatSuggestionArchive: "自動封存機器人通知",
@@ -813,7 +821,8 @@ const messages = {
     },
   },
   agent: {
-    emptyState: "可以問我任何關於郵件的問題",
+    emptyState:
+      "我是 Mail 的代理。可以問我郵件相關的問題，也可以請我幫你整理郵件。",
     suggestionSummarize: "總結我的未讀郵件",
     suggestionReplies: "今天哪些郵件需要我回覆？",
     suggestionWidget: "為我的收件箱建立自訂小元件",
@@ -876,6 +885,7 @@ const messages = {
     autocomplete: "自動完成",
     sendAndMarkDone: "傳送並標記為已完成",
     autocompleteSaveFailed: "無法儲存自動完成設定。",
+    signaturePlaceholder: "祝好，\n你的名字",
     writingStylePlaceholder: "簡短、具體、溫暖。避免正式套話。",
     saveDraftingSettings: "儲存草稿設定",
     reset: "重設",

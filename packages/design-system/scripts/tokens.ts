@@ -1,6 +1,7 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isDeepStrictEqual } from "node:util";
 
 import {
   exportForFigma,
@@ -78,9 +79,9 @@ function main(): number {
   let written = 0;
   for (const [relative, group] of result.files) {
     const target = path.join(FILES_DIR, relative);
-    const next = formatTokenFile(group);
-    if (readFileSync(target, "utf8") === next) continue;
-    writeFileSync(target, next);
+    if (isDeepStrictEqual(JSON.parse(readFileSync(target, "utf8")), group))
+      continue;
+    writeFileSync(target, formatTokenFile(group));
     written += 1;
   }
   for (const [file, tokenPaths] of result.changed) {

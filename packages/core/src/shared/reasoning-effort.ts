@@ -201,6 +201,31 @@ export function claudeAdaptiveThinking(model: string): {
     : { type: "adaptive" };
 }
 
+/**
+ * Beta value that unlocks `thinking.block_binding`. A signed thinking block is
+ * bound to the system prompt, tools and messages before it, so a tool list that
+ * changes mid-turn (tool-search loading a tool, a guard expanding the tool
+ * surface) makes the API reject the replayed block with a 400.
+ */
+export const ANTHROPIC_THINKING_BINDING_BETA =
+  "thinking-binding-controls-2026-08-01";
+
+/** Models whose thinking blocks are prefix-bound and accept `block_binding`. */
+export function supportsAnthropicThinkingBlockBinding(
+  model: string | undefined,
+) {
+  if (!model) return false;
+  const id = model.toLowerCase().replace(/^anthropic\//, "");
+  return (
+    id.includes("fable-5") ||
+    id.includes("mythos-5") ||
+    id.includes("sonnet-5") ||
+    id.includes("haiku-5-5") ||
+    id.includes("haiku-5.5") ||
+    claudeOpusAtLeast(id, 5, 0)
+  );
+}
+
 export function anthropicManualThinkingBudget(effort: ReasoningEffort) {
   switch (effort) {
     case "low":

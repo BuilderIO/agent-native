@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import http, { type Server } from "node:http";
 import path from "node:path";
 
 import { decodeContinuation } from "@agent-native/core/shared";
 import {
   prepareDesignConnectManifest,
+  readDevActionDiscoveryFile,
   startDesignConnectBridge,
   type DesignConnectBridge,
 } from "@agent-native/core/testing";
@@ -2049,12 +2050,11 @@ async function createLinkedScreen(browser: Browser, designId: string) {
 async function registerSignedOutBridgeThroughCli(
   bridge: DesignConnectBridge,
 ): Promise<void> {
-  const discovery = JSON.parse(
-    await readFile(
-      path.join(import.meta.dirname, "..", ".agent-native", "dev-server.json"),
-      "utf8",
-    ),
-  ) as { token: string };
+  const discovery = readDevActionDiscoveryFile(
+    path.join(import.meta.dirname, ".."),
+  );
+  if (!discovery)
+    throw new Error("The local dev action bridge is unavailable.");
   const rootPath = bridge.manifest.rootPath;
   const workspaceId = createHash("sha256")
     .update(path.resolve(rootPath))

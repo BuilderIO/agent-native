@@ -30,7 +30,6 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useState, type ComponentType } from "react";
 
-import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   Dialog,
   DialogClose,
@@ -204,12 +203,7 @@ export function MailSidebar({
                 )}
               />
             }
-            footerExtras={
-              <>
-                <DevDatabaseLink />
-                <ThemeToggle className="size-9 shrink-0 !bg-transparent text-primary hover:!bg-accent/60 hover:!text-primary" />
-              </>
-            }
+            footerExtras={<DevDatabaseLink />}
           />
         </>
       }

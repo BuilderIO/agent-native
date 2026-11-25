@@ -47,6 +47,7 @@ const UNRELATED = [
   "get-visual-edit-pending",
   "list-resource-shares",
   "list-review-comments",
+  "read-brief-titles",
 ];
 
 describe("design sync invalidation", () => {

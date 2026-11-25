@@ -56,7 +56,7 @@ async function resizeTo(app: App, width: number, height: number) {
     ["W size in pixels", width],
     ["H size in pixels", height],
   ] as const) {
-    const input = app.page.getByRole("textbox", { name: label });
+    const input = app.page.getByRole("combobox", { name: label });
     await input.fill(String(value));
     await input.press("Enter");
   }

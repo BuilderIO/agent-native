@@ -5,6 +5,7 @@ const mockPutUserSetting = vi.fn();
 const mockTrackInviteAccepted = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: mockExecute }),
   isLocalDatabase: () => true,
 }));

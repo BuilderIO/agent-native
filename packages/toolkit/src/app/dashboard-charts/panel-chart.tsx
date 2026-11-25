@@ -312,6 +312,7 @@ type ChartAxisValues = {
   rows: Record<string, unknown>[];
   keys: string[];
   stacked?: boolean | undefined;
+  stackedKeys?: ReadonlySet<string> | undefined;
 };
 
 // Duration axes step in clean units ("6 hours") rather than the decimal
@@ -326,7 +327,7 @@ function durationAxisProps(values: ChartAxisValues, keys: string[]) {
     for (const key of keys) {
       const value = Number(row[key]);
       if (!Number.isFinite(value)) continue;
-      if (values.stacked) {
+      if (values.stacked || values.stackedKeys?.has(key)) {
         if (value < 0) below += value;
         else above += value;
       } else {
@@ -3176,6 +3177,7 @@ export function ComboRenderer({
   colors,
   yFormatter,
   barKeys,
+  stacked,
   panel,
   onDatumClick,
 }: {
@@ -3185,6 +3187,7 @@ export function ComboRenderer({
   colors: string[];
   yFormatter?: ChartValueFormatter | undefined;
   barKeys: string[];
+  stacked?: boolean;
   panel: SqlPanel;
   onDatumClick?: DatumClickHandler | undefined;
 }) {
@@ -3267,6 +3270,7 @@ export function ComboRenderer({
         <ComposedChart
           data={rows}
           margin={chartMargin.margin}
+          stackOffset={stacked ? "sign" : undefined}
           {...chartClick.props}
         >
           {chartClick.locator}
@@ -3287,6 +3291,7 @@ export function ComboRenderer({
           {renderChartYAxes(dualAxis, yFormatter, {
             rows,
             keys: yKeys.filter((key) => !hiddenKeys.has(key)),
+            stackedKeys: stacked ? barKeySet : undefined,
           })}
           <CartesianGrid
             strokeDasharray="3 3"
@@ -3324,6 +3329,13 @@ export function ComboRenderer({
                 yAxisId={seriesAxisId(dualAxis, key)}
                 fill={colors[i % colors.length]}
                 radius={[4, 4, 0, 0]}
+                stackId={
+                  stacked
+                    ? dualAxis.enabled
+                      ? `stack-${seriesAxisId(dualAxis, key)}`
+                      : "stack"
+                    : undefined
+                }
                 hide={hiddenKeys.has(key)}
                 isAnimationActive={false}
                 {...chartSeriesClickProps(

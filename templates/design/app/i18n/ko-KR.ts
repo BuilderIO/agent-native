@@ -363,6 +363,8 @@ export default {
       blur: "흐림",
       spread: "확산",
       rotation3d: "3D 회전",
+      constraints: "제약 조건",
+      absolutePosition: "절대 위치",
       rotationX: "X 회전",
       rotationY: "Y 회전",
       perspective: "원근감",
@@ -1143,6 +1145,12 @@ export default {
         opacity: "불투명도",
       },
       editColor: "{{name}} 색상 편집",
+      field: {
+        open: "토큰",
+        detach: "토큰 분리",
+        primitives: "{{group}} 프리미티브",
+        loading: "토큰 불러오는 중…",
+      },
     },
     import: {
       description:
@@ -1833,8 +1841,6 @@ export default {
         "다시 실행을 건너뛰었습니다 — 다른 사용자가 이동했습니다",
       saveConflict:
         "이 페이지가 다른 곳에서 변경되었습니다. 마지막 편집은 저장되지 않았습니다.",
-      versionHistoryUnavailable:
-        "이 디자인에는 버전 기록을 사용할 수 없습니다. 편집 내용은 저장되었습니다.",
       removeAutoLayoutFailed: "오토 레이아웃을 제거할 수 없습니다",
       autoLayoutScreensUnsupported:
         "자동 레이아웃 추가는 페이지에 적용되지 않습니다",

@@ -35,6 +35,7 @@ function createCapturingDb() {
 const mockDb = createCapturingDb();
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => mockDb,
   retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
 }));

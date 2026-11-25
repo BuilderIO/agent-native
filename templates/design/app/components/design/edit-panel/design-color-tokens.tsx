@@ -26,7 +26,28 @@ export interface DesignColorTokenSource {
   request: () => void;
 }
 
-const DesignColorTokensContext = createContext<DesignColorTokenSource | null>(
+export interface DesignToken {
+  cssVar: string;
+  value: string;
+  type: string;
+}
+
+export type DesignTokenList =
+  | { status: "loading" }
+  | { status: "error" }
+  | { status: "ready"; tokens: DesignToken[] };
+
+export interface DesignTokenSource {
+  tokens: DesignTokenList;
+  request: () => void;
+}
+
+interface DesignTokensContextValue {
+  colors: DesignColorTokenSource;
+  all: DesignTokenSource;
+}
+
+const DesignTokensContext = createContext<DesignTokensContextValue | null>(
   null,
 );
 
@@ -35,6 +56,30 @@ interface IndexedToken {
   cssVar: string;
   value: string;
   type: string;
+}
+
+export function readDesignTokens(query: {
+  data: unknown;
+  isError: boolean;
+}): DesignTokenList {
+  const data = query.data;
+  if (data === undefined || data === null) {
+    return query.isError ? { status: "error" } : { status: "loading" };
+  }
+  const tokens = (data as { tokens?: unknown }).tokens;
+  if (!Array.isArray(tokens)) return { status: "error" };
+  const list: DesignToken[] = [];
+  for (const entry of tokens as IndexedToken[]) {
+    if (
+      typeof entry.cssVar !== "string" ||
+      typeof entry.value !== "string" ||
+      typeof entry.type !== "string"
+    ) {
+      continue;
+    }
+    list.push({ cssVar: entry.cssVar, value: entry.value, type: entry.type });
+  }
+  return { status: "ready", tokens: list };
 }
 
 /**
@@ -74,11 +119,20 @@ function TokenLoader({
   onTokens,
 }: {
   designId: string;
-  onTokens: (tokens: DesignColorTokens) => void;
+  onTokens: (tokens: {
+    colors: DesignColorTokens;
+    all: DesignTokenList;
+  }) => void;
 }) {
-  const query = useActionQuery<unknown>("index-design-tokens", { designId });
+  const query = useActionQuery<unknown>("index-design-tokens", {
+    designId,
+    compact: true,
+  });
   const tokens = useMemo(
-    () => readColorTokens({ data: query.data, isError: query.isError }),
+    () => ({
+      colors: readColorTokens({ data: query.data, isError: query.isError }),
+      all: readDesignTokens({ data: query.data, isError: query.isError }),
+    }),
     [query.data, query.isError],
   );
   useEffect(() => onTokens(tokens), [tokens, onTokens]);
@@ -93,26 +147,49 @@ export function DesignColorTokensProvider({
   children: ReactNode;
 }) {
   const [requested, setRequested] = useState(false);
-  const [tokens, setTokens] = useState<DesignColorTokens>({
-    status: "loading",
-  });
+  const [loaded, setLoaded] = useState<{
+    designId: string;
+    tokens: { colors: DesignColorTokens; all: DesignTokenList };
+  } | null>(null);
   const request = useCallback(() => setRequested(true), []);
-  useEffect(() => setTokens({ status: "loading" }), [designId]);
-  const source = useMemo(
-    () => (designId ? { tokens, request } : null),
+  const onTokens = useCallback(
+    (next: { colors: DesignColorTokens; all: DesignTokenList }) => {
+      if (designId) setLoaded({ designId, tokens: next });
+    },
+    [designId],
+  );
+  const tokens =
+    loaded && loaded.designId === designId ? loaded.tokens : LOADING_TOKENS;
+  const value = useMemo(
+    () =>
+      designId
+        ? {
+            colors: { tokens: tokens.colors, request },
+            all: { tokens: tokens.all, request },
+          }
+        : null,
     [designId, tokens, request],
   );
   return (
-    <DesignColorTokensContext.Provider value={source}>
+    <DesignTokensContext.Provider value={value}>
       {requested && designId ? (
-        <TokenLoader key={designId} designId={designId} onTokens={setTokens} />
+        <TokenLoader key={designId} designId={designId} onTokens={onTokens} />
       ) : null}
       {children}
-    </DesignColorTokensContext.Provider>
+    </DesignTokensContext.Provider>
   );
 }
 
+const LOADING_TOKENS = {
+  colors: { status: "loading" },
+  all: { status: "loading" },
+} as const satisfies { colors: DesignColorTokens; all: DesignTokenList };
+
 /** The token source for the inspector's pickers, or null when none is provided. */
 export function useDesignColorTokenSource(): DesignColorTokenSource | null {
-  return useContext(DesignColorTokensContext);
+  return useContext(DesignTokensContext)?.colors ?? null;
+}
+
+export function useDesignTokenSource(): DesignTokenSource | null {
+  return useContext(DesignTokensContext)?.all ?? null;
 }
