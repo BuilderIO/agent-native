@@ -1,8 +1,5 @@
 name: Labs QA users
 on:
-  push:
-    branches: ["job/j-20261124-1615-3ae"]
-    paths: [".github/workflows/labs-qa-probe.yml"]
   workflow_dispatch:
     inputs:
       host:
