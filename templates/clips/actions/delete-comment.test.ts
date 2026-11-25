@@ -300,6 +300,48 @@ describe("delete-comment", () => {
     expect(kitDeletes).toEqual([]);
   });
 
+  it("deletes a thread whose first comment is already gone through the reply that now leads it", async () => {
+    state.comments = [
+      {
+        id: "left-first",
+        resourceId: "recording-1",
+        threadId: "deleted-root",
+        parentCommentId: null,
+        authorEmail: "author@example.com",
+      },
+      {
+        id: "left-second",
+        resourceId: "recording-1",
+        threadId: "deleted-root",
+        parentCommentId: "left-first",
+        authorEmail: "author@example.com",
+      },
+    ];
+
+    const result = await action.run({ id: "left-first" });
+
+    expect(result.deletedCommentIds).toEqual(["left-first", "left-second"]);
+    expect(kitDeletes).toEqual(
+      deletedThrough("left-first", "author@example.com"),
+    );
+  });
+
+  it("refuses the first of several unlinked replies whose thread's first comment is gone", async () => {
+    state.comments = ["left-first", "left-second"].map((id) => ({
+      id,
+      resourceId: "recording-1",
+      threadId: "deleted-root",
+      parentCommentId: null,
+      authorEmail: "author@example.com",
+    }));
+
+    await expect(action.run({ id: "left-first" })).rejects.toMatchObject({
+      errorCode: "reply_not_linked",
+      statusCode: 409,
+    });
+    expect(kitDeletes).toEqual([]);
+  });
+
   it("recognizes the author regardless of email case", async () => {
     state.comments[0].authorEmail = "Author@Example.com";
     mockGetUserEmail.mockReturnValue("author@example.COM");

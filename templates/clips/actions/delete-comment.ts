@@ -51,15 +51,18 @@ export default defineAction({
       }
     }
 
-    if (!existing.parentCommentId && existing.threadId !== existing.id) {
+    const removed = existing.parentCommentId
+      ? [existing]
+      : await recordingKitComments(existing.resourceId, existing.threadId);
+    const threadHasAnotherFirst = removed.some(
+      (comment) => comment.id !== existing.id && !comment.parentCommentId,
+    );
+    if (existing.threadId !== existing.id && threadHasAnotherFirst) {
       fail(
         "This reply isn't linked to its thread yet, so deleting it would delete the whole thread. Try again after Clips restarts.",
         { errorCode: "reply_not_linked", statusCode: 409 },
       );
     }
-    const removed = existing.parentCommentId
-      ? [existing]
-      : await recordingKitComments(existing.resourceId, existing.threadId);
 
     await deleteReviewComment.run(
       {
