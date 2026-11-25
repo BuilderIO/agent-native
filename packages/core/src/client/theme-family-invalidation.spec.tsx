@@ -7,10 +7,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { useThemeFamily } from "./theme-family.js";
 import { useActionMutation } from "./use-action.js";
 
-// A table interaction writes through an action that names no resources, which
-// refreshes every action read. The theme preference does not depend on those
-// writes, so its in-flight read must not be cancelled by them (the browser
-// reports a cancelled read as net::ERR_ABORTED).
 describe("theme family read and unscoped writes", () => {
   const roots: ReturnType<typeof createRoot>[] = [];
 
@@ -31,7 +27,6 @@ describe("theme family read and unscoped writes", () => {
         });
       if (init?.method === "POST") return json({ ok: true });
       if (String(input).includes("/actions/get-theme-family")) {
-        // The first read answers at once; later refetches stay in flight.
         if (themeReads++ === 0)
           return json({ family: "original", source: "default", appId: null });
         if (init?.signal) themeSignals.push(init.signal);
@@ -50,7 +45,8 @@ describe("theme family read and unscoped writes", () => {
     });
     vi.stubGlobal("fetch", fetch);
 
-    let write: (() => Promise<unknown>) | undefined;
+    let write: () => Promise<unknown> = () =>
+      Promise.reject(new Error("probe not rendered"));
     function Probe() {
       useThemeFamily();
       const mutation = useActionMutation("save-table-view");
@@ -73,17 +69,13 @@ describe("theme family read and unscoped writes", () => {
       ),
     );
     await vi.waitFor(() => expect(themeReads).toBe(1));
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    });
+    await vi.waitFor(() => expect(queryClient.isFetching()).toBe(0));
 
-    // The first write refetches the loaded theme read; the second arrives while
-    // that refetch is still in flight and, by default, cancels it.
     await act(async () => {
-      await write!();
+      await write();
     });
     await act(async () => {
-      await write!();
+      await write();
     });
 
     expect(themeSignals.map((signal) => signal.aborted)).not.toContain(true);
