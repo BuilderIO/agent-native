@@ -3,6 +3,10 @@ name: Labs QA Identities (smoke)
 on:
   workflow_dispatch:
     inputs:
+      host:
+        description: "Target host (beta selectable later)"
+        required: false
+        default: "labs.agent-native.com"
       apps:
         description: "Comma-separated Labs apps or 'all' (excludes mail-2 and calendar-2)"
         required: false
@@ -70,6 +74,7 @@ jobs:
       max-parallel: 4
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     env:
+      LABS_HOST: ${{ inputs.host || 'labs.agent-native.com' }}
       LABS_APP: ${{ matrix.app }}
       QA_SLOT: ${{ matrix.slot }}
       MAILOSAUR_API_KEY: ${{ secrets.MAILOSAUR_API_KEY }}

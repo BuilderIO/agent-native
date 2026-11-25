@@ -15,7 +15,8 @@ if (!app || !email || !password) {
   throw new Error("LABS_APP, QA_EMAIL, and QA_PASSWORD are required.");
 }
 
-const origin = "https://labs.agent-native.com";
+const host = (process.env.LABS_HOST?.trim() || "labs.agent-native.com").replace(/^https?:\/\//, "");
+const origin = `https://${host}`;
 const appUrl = `${origin}/${app}/`;
 const artifactDir = `artifacts/labs-qa-${app}`;
 mkdirSync(artifactDir, { recursive: true });

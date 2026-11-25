@@ -24,7 +24,7 @@ jobs:
       MAILOSAUR_API_KEY: ${{ secrets.MAILOSAUR_API_KEY }}
       MAILOSAUR_SERVER_ID: ${{ secrets.MAILOSAUR_SERVER_ID }}
       QA_HOST: ${{ inputs.host || 'labs.agent-native.com' }}
-      QA_SLOTS: ${{ inputs.slots || '1' }}
+      QA_SLOTS: ${{ inputs.slots || '1,2,3,4,5' }}
       QA_PROBE: ${{ inputs.probe || '1' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
