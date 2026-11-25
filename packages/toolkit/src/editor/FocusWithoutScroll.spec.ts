@@ -76,7 +76,7 @@ describe("FocusWithoutScroll", () => {
     ({ emulate }) => {
       emulate();
       const editor = mountEditor(
-        '<ul data-type="taskList"><li data-type="taskItem" data-checked="false"><p>Buy milk</p></li></ul>',
+        '<ul data-type="taskList"><li data-type="taskItem" data-checked="false"><p>Buy milk</p></li></ul><p>Then cook</p>',
         [StarterKit, TaskList, TaskItem, FocusWithoutScroll],
       );
       const focus = vi.spyOn(HTMLElement.prototype, "focus");
