@@ -122,6 +122,7 @@ const insertPanelSchema = z
         "demo",
         "prometheus",
         "program",
+        "postgres",
       ])
       .optional(),
     sql: z.string().optional(),

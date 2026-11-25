@@ -1467,6 +1467,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Le schéma d’un outil n’était pas valide. Le modèle a donc rejeté la demande avant son démarrage. Vous pouvez ignorer cet outil et réessayer.",
   "errorMessages.malformedRequest":
     "Le fournisseur du modèle a rejeté cette demande car elle était mal formée, elle n’a donc pas été réessayée. Réessayez ou démarrez une nouvelle conversation si le problème persiste.",
+  "errorMessages.requestNotRead":
+    "Le modèle n’a pas pu lire cette demande car elle était trop volumineuse ou trop complexe, par exemple à cause d’un trop grand nombre d’outils, elle n’a donc pas été réessayée. Démarrez une nouvelle conversation ou choisissez un autre modèle.",
   "errorMessages.requestTooLarge":
     "Cette requête a dépassé la limite de taille du serveur (HTTP 413). Démarrez un nouveau chat ou supprimez les pièces jointes ou références volumineuses, puis réessayez.",
   "errorMessages.capabilityUnavailable":
@@ -1475,6 +1477,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Cette application ne peut pas encore réessayer votre message enregistré en toute sécurité. Mettez l’application à jour, puis réessayez.",
   "errorMessages.runInterrupted": "L’agent s’est arrêté avant de terminer.",
   "errorMessages.runFailed": "L’exécution de l’agent a échoué.",
+  "errorMessages.writeOutcomeUnknown":
+    "Je me suis arrêté avant de répéter une action d’écriture, car une tentative précédente a peut-être déjà enregistré des modifications sans que je puisse confirmer le résultat. Vérifiez ce qui a été enregistré avant de réessayer.",
   "errorMessages.runUnverified":
     "Cette conversation a perdu la trace de l’agent, qui est peut-être encore en cours. Rechargez pour voir sa progression.",
   "errorMessages.runSignedOut":
@@ -2378,6 +2382,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.languageDescription":
     "S’applique sur tous vos appareils.",
   "settingsShell.account.appearance": "Apparence",
+  "settingsShell.account.theme": "Thème",
+  "settingsShell.account.themeSystem": "Système",
+  "settingsShell.account.themeLight": "Clair",
+  "settingsShell.account.themeDark": "Sombre",
   "settingsShell.account.themeFamily": "Famille de thème",
   "settingsShell.account.themeFamilyAgentNative": "Agent-Native",
   "settingsShell.account.themeFamilyOriginal":
@@ -3796,6 +3804,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpApps.openInNewTab": "Ouvrir dans un nouvel onglet",
   "mcpApps.initFailed": "Impossible d’initialiser l’application MCP.",
   "mcpApps.readOnly": "Cette application MCP enregistrée est en lecture seule.",
+  "markdown.opensInNewTab": "(s'ouvre dans un nouvel onglet)",
   "iframeEmbed.blocked": "Intégration bloquée",
   "iframeEmbed.missingSrc": "Source manquante",
   "iframeEmbed.crossOrigin": "URL d’une autre origine non autorisée",
@@ -4211,6 +4220,7 @@ const messages: ToolkitAgentChatTranslation = {
   "filters.typeValue": "Saisir une valeur",
   "filters.enterNumber": "Saisir un nombre",
   "filters.exactDate": "Date exacte",
+  "filters.relativeRange": "Période relative",
   "filters.startDate": "Date de début",
   "filters.endDate": "Date de fin",
   "filters.dateBetween": "{{start}} – {{end}}",
@@ -4250,6 +4260,8 @@ const messages: ToolkitAgentChatTranslation = {
   "filters.date.this.year": "Cette année",
   "filters.date.past": "{{duration}} passés",
   "filters.date.next": "{{duration}} à venir",
+  "filters.date.direction.past": "Derniers",
+  "filters.date.direction.next": "Prochains",
   "filters.views.notSaved": "Non enregistré",
   "filters.views.save": "Enregistrer",
   "filters.views.saveForMe": "Enregistrer pour moi",

@@ -27,6 +27,7 @@ import {
   IconDots,
   IconFilter,
   IconInbox,
+  IconLink,
   IconArrowsMaximize,
   IconArrowsMinimize,
   IconTrash,
@@ -56,6 +57,13 @@ import {
   type AiFilterDialogTarget,
 } from "@/components/email/AiFilterDialog";
 import { ImportanceFeedbackMenu } from "@/components/email/ImportanceFeedbackMenu";
+import {
+  LabelPicker,
+  useApplyLabel,
+  type LabelChoice,
+  type LabelPickerAction,
+  type LabelPickerRequest,
+} from "@/components/email/LabelPicker";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
@@ -71,6 +79,7 @@ import {
   applyDraftSaveResult,
   useComposeState,
 } from "@/hooks/use-compose-state";
+import { useCopyEmailLink } from "@/hooks/use-copy-email-link";
 import {
   useThreadMessages,
   useArchiveEmail,
@@ -100,7 +109,11 @@ import {
 } from "@/lib/email-image-policy";
 import { getLabelStyle } from "@/lib/label-colors";
 import { mailLabelDisplayName } from "@/lib/label-display";
-import { mailThreadHref, mailViewHref } from "@/lib/mail-routes";
+import {
+  mailThreadHref,
+  mailViewHasThreadLinks,
+  mailViewHref,
+} from "@/lib/mail-routes";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import {
   buildForwardDraft,
@@ -209,6 +222,7 @@ export function EmailThread({
   const compose = useComposeState();
   const queryClient = useQueryClient();
   const priorityFeedback = useAiPriorityFeedback();
+  const copyEmailLink = useCopyEmailLink();
 
   useEffect(() => {
     if (!threadId) return;
@@ -1006,6 +1020,44 @@ export function EmailThread({
     () => new Map(labels.map((label) => [label.id, label.name])),
     [labels],
   );
+  const userLabels = useMemo(
+    () => labels.filter((label) => label.type === "user"),
+    [labels],
+  );
+  const applyLabel = useApplyLabel(labelParam || undefined);
+  const [labelPicker, setLabelPicker] = useState<LabelPickerRequest | null>(
+    null,
+  );
+  const resolveActionTargets = useCallback(
+    () =>
+      getActionThreadKeys()
+        .map((key) => {
+          const t = threads.find(
+            (t) => (t.latestMessage.threadId || t.latestMessage.id) === key,
+          );
+          if (t) return t.latestMessage;
+          if (email && (email.threadId || email.id) === key) return email;
+          return undefined;
+        })
+        .filter((m): m is EmailMessage => !!m),
+    [email, threads, getActionThreadKeys],
+  );
+  const openLabelPicker = useCallback(
+    (action: LabelPickerAction) => {
+      if (resolveActionTargets().length > 0) setLabelPicker({ action });
+    },
+    [resolveActionTargets],
+  );
+  const labelCurrent = useCallback(
+    (action: LabelPickerAction, choice: LabelChoice) => {
+      const targets = resolveActionTargets();
+      if (targets.length === 0) return;
+      if (action === "move") advanceOrGoBack();
+      setSelectedIds?.(new Set());
+      void applyLabel(action, choice, targets);
+    },
+    [resolveActionTargets, advanceOrGoBack, setSelectedIds, applyLabel],
+  );
   const myEmails = useMemo(() => {
     const emails = new Set(allAccounts.map((a) => a.email.toLowerCase()));
     if (settings?.email) emails.add(settings.email.toLowerCase());
@@ -1121,6 +1173,8 @@ export function EmailThread({
       { key: "d", handler: handleTrash },
       { key: "#", shift: "either", handler: handleTrash },
       { key: "s", handler: handleStar },
+      { key: "l", handler: () => openLabelPicker("label") },
+      { key: "v", handler: () => openLabelPicker("move") },
       {
         key: "r",
         handler: () => {
@@ -1515,6 +1569,23 @@ export function EmailThread({
                     </button>
                   </ActionTooltip>
                 )}
+                {threadId && mailViewHasThreadLinks(view) && (
+                  <ActionTooltip label={t("mail.actions.copyLink")}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void copyEmailLink(
+                          threadId,
+                          email.accountEmail ?? accountEmail,
+                        )
+                      }
+                      aria-label={t("mail.actions.copyLink")}
+                      className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                    >
+                      <IconLink className="h-4 w-4" />
+                    </button>
+                  </ActionTooltip>
+                )}
                 <ActionTooltip
                   label={t("mail.thread.previousConversation")}
                   keys={MAIL_ACTION_KEYS.previousConversation}
@@ -1763,6 +1834,16 @@ export function EmailThread({
           }
         />
       )}
+      <LabelPicker
+        request={labelPicker}
+        labels={
+          labelPicker?.action === "move"
+            ? userLabels.filter((label) => label.id !== labelParam)
+            : userLabels
+        }
+        onClose={() => setLabelPicker(null)}
+        onPick={(choice, action) => labelCurrent(action, choice)}
+      />
       <AiFilterDialog
         open={!!aiFilterDialog}
         onOpenChange={(open) => !open && setAiFilterDialog(null)}

@@ -94,6 +94,45 @@ describe("Notion database source adapter", () => {
     });
   });
 
+  it("reads oldest first and goes on from where a capped read stopped", async () => {
+    const page = (id: string, created: string) => ({
+      object: "page",
+      id,
+      created_time: created,
+      properties: {},
+    });
+    notionFetch
+      .mockResolvedValueOnce({ id: "data-source-3", properties: {} })
+      .mockResolvedValueOnce({
+        results: [
+          page("page-1", "2026-07-01T09:00:00.000Z"),
+          page("page-2", "2026-07-01T10:00:00.000Z"),
+        ],
+        has_more: true,
+        next_cursor: "cursor-1",
+      });
+
+    const result = await readNotionDatabaseSource({
+      sourceTable: "data-source-3",
+      limit: 2,
+      offset: 0,
+      continueFrom: "2026-07-01T08:00:00.000Z",
+    });
+
+    expect(JSON.parse(notionFetch.mock.calls[1]?.[2].body as string)).toEqual({
+      page_size: 2,
+      sorts: [{ timestamp: "created_time", direction: "ascending" }],
+      filter: {
+        timestamp: "created_time",
+        created_time: { on_or_after: "2026-07-01T08:00:00.000Z" },
+      },
+    });
+    expect(result.metadata).toMatchObject({
+      hasMore: true,
+      lastCreatedTime: "2026-07-01T10:00:00.000Z",
+    });
+  });
+
   it("uses the current user's OAuth connection and never returns its token", async () => {
     notionFetch
       .mockResolvedValueOnce({ id: "data-source-2", properties: {} })

@@ -668,6 +668,12 @@ export const CONTINUATION_REASONS = [
 
 export type ContinuationReason = (typeof CONTINUATION_REASONS)[number];
 
+/**
+ * `tool_done.errorCode` for a call whose tool name does not exist. Nothing ran
+ * and the model self-corrects from the error, so chat UIs hide the cell.
+ */
+export const UNKNOWN_TOOL_ERROR_CODE = "unknown_tool";
+
 export const RESPONSE_GUARD_RICH_EVENT_NAMESPACE =
   "agent-native.response-guard";
 export const RESPONSE_GUARD_DRAFT_KEPT_EVENT = "draft_kept_after_failure";

@@ -28,9 +28,8 @@ export default defineAction({
   schema: z.object({}),
   http: { method: "GET" },
   run: async () => {
-    const { hiddenAgentIds = [] } = await import("../server/index.js").then(
-      (m) => m.getDispatchConfig(),
-    );
+    const { hiddenAgentIds = [], hostedCatalog = true } =
+      await import("../server/index.js").then((m) => m.getDispatchConfig());
     const [discovered, hosted, hostedAppsSettings] = await Promise.all([
       discoverAgents("dispatch"),
       listHostedApps(),
@@ -119,6 +118,10 @@ export default defineAction({
       });
     }
 
-    return connected.filter((a) => !hiddenAgentIds.includes(a.id));
+    return connected.filter(
+      (a) =>
+        !hiddenAgentIds.includes(a.id) &&
+        (hostedCatalog || a.source !== "builtin"),
+    );
   },
 });

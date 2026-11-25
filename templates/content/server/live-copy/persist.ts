@@ -21,6 +21,7 @@ import {
 } from "../../actions/_document-edit-mutation.js";
 import { assertSourceAllowsPageEdit } from "../../actions/_document-source.js";
 import { HISTORY_IDLE_MS } from "../../app/components/editor/document-history-session.js";
+import type { EditorBlockIds } from "../../shared/block-identity-ids.js";
 import { changedBlocksBetween } from "../../shared/document-intent-merge.js";
 import { getDb, schema } from "../db/index.js";
 import { followCommentAnchors } from "../lib/comment-anchor-follow.js";
@@ -47,6 +48,7 @@ import {
   type PageRebaselineReport,
 } from "../lib/suggestion-rebaseline.js";
 import { liveCopyAnchorText } from "./anchor-text.js";
+import { liveCopyBlockIds } from "./block-ids.js";
 import {
   liveBodySwitchBlockers,
   type LiveBodySwitchBlocker,
@@ -552,6 +554,7 @@ async function writeBody(args: {
   /** The `_collab_docs.version` this commit leaves stored. */
   liveCopyVersion: number;
   cause: ContentBodyWriteCause | undefined;
+  editorIds?: EditorBlockIds;
   extraColumns?: Partial<typeof schema.documents.$inferInsert>;
   /**
    * The conversion commit's re-baseline moves comment quotes from the text
@@ -622,6 +625,7 @@ async function writeBody(args: {
               rejectCrossFieldIdRemapping: identity.rejectCrossFieldIdRemapping,
             }
           : {}),
+        ...(args.editorIds ? { editorIds: args.editorIds } : {}),
         now: updatedAt,
       });
     }
@@ -806,6 +810,20 @@ export async function persistContentLiveCopy(
     );
   }
   const db = drizzleOverExec(tx);
+  // guard:allow-unscoped — compares the commit with the page body the collab route already authorized it to write.
+  const saved = cause
+    ? undefined
+    : firstRow(
+        await db
+          .select({ content: schema.documents.content })
+          .from(schema.documents)
+          .where(eq(schema.documents.id, commit.docId)),
+      );
+  const pendingEditorIds =
+    cause?.operation === "accept-suggestion" ||
+    (saved !== undefined && saved.content !== commit.text)
+      ? liveCopyBlockIds(commit.state)
+      : null;
   const locked = await lockPageForBodyWrite(
     db,
     commit.docId,
@@ -824,6 +842,11 @@ export async function persistContentLiveCopy(
   }
   assertEditablePage(locked.page);
   await cause?.beforeWrite?.(tx);
+  const editorIds =
+    commit.text === locked.page.content
+      ? null
+      : await (pendingEditorIds ??
+          (cause ? null : liveCopyBlockIds(commit.state)));
   await writeBody({
     tx,
     db,
@@ -832,6 +855,7 @@ export async function persistContentLiveCopy(
     text: commit.text,
     liveCopyVersion: commit.version,
     cause,
+    ...(editorIds ? { editorIds } : {}),
   });
   return { derived: true };
 }

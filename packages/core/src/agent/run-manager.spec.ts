@@ -2215,6 +2215,25 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  it("raises the hosted foreground ceiling when configured", () => {
+    process.env.K_SERVICE = "cloud-run-app";
+    process.env.AGENT_HOSTED_RUN_SOFT_TIMEOUT_CEILING_MS = "240000";
+    try {
+      expect(resolveRunSoftTimeoutMs(200_000)).toBe(200_000);
+      expect(resolveRunSoftTimeoutMs(300_000)).toBe(240_000);
+      expect(
+        resolveRunSoftTimeoutMs(undefined, { useHostedDefault: true }),
+      ).toBe(DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS);
+      process.env.AGENT_HOSTED_RUN_SOFT_TIMEOUT_CEILING_MS = "20000";
+      expect(
+        resolveRunSoftTimeoutMs(undefined, { useHostedDefault: true }),
+      ).toBe(20_000);
+    } finally {
+      delete process.env.AGENT_HOSTED_RUN_SOFT_TIMEOUT_CEILING_MS;
+      delete process.env.K_SERVICE;
+    }
+  });
+
   it("FOREGROUND hosted run still clamps to the 40s interactive ceiling (guardrail)", () => {
     process.env.NETLIFY = "true";
     expect(resolveRunSoftTimeoutMs(240_000)).toBe(

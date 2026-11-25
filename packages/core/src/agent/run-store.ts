@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 
+import { getAppConfig } from "../app-config/index.js";
 import {
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   TURN_RUN_LEDGER_SLACK,
@@ -2520,6 +2521,8 @@ export async function tryClaimRunSlot(
               turn,
               stoppedRunId: continueOf.runId,
               nowMs: now,
+              maxAutoContinuesPerTurn:
+                getAppConfig().agent.maxAutoContinuesPerTurn,
             })
           : admitManualContinue({
               turn,
@@ -3433,6 +3436,23 @@ async function reapSingleStaleRun(
       (run.worker_generation == null ||
         String(run.worker_generation) === lease.generation);
     if (lease?.isLive && generationMatches) {
+      return { reaped: false, outcome: null };
+    }
+    if (
+      typeof maxStaleMs !== "number" &&
+      lease &&
+      generationMatches &&
+      (await ownsLapsedTurnLease(
+        tx,
+        {
+          threadId: runScope.thread_id as string,
+          turnId: runScope.turn_id as string,
+          runId,
+          generation: lease.generation,
+        },
+        { lapsedWithinMs: TURN_EXECUTION_LEASE_MS },
+      ))
+    ) {
       return { reaped: false, outcome: null };
     }
     const repaired = await reconcileTerminalRunInRecoveryTransaction(tx, runId);

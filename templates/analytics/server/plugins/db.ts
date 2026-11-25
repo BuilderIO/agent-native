@@ -17,6 +17,8 @@ import { EXTERNAL_DASHBOARD_MIGRATION_SQL } from "../lib/bi-migration/external-d
 import {
   BIGQUERY_AGENT_BUDGET_MIGRATION_SQL,
   BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION_SQL,
+  BIGQUERY_AGENT_EXECUTION_CANCEL_MIGRATION_SQL,
+  BIGQUERY_AGENT_EXECUTION_JOB_IDENTITY_MIGRATION_SQL,
 } from "../lib/bigquery-agent-budget.js";
 import { BIGQUERY_USAGE_MIGRATION_SQL } from "../lib/bigquery-usage.js";
 import { BUILTIN_DASHBOARD_CHECKS_MIGRATION_SQL } from "../lib/builtin-dashboard-checks-migration.js";
@@ -203,6 +205,20 @@ const BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION = {
   version: 188,
   name: "analytics-bigquery-agent-credential-fingerprint",
   sql: BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION_SQL.join(";\n"),
+};
+
+// raw-sql-ok: static app-owned additive column DDL with no runtime values or interpolation.
+const BIGQUERY_AGENT_EXECUTION_JOB_IDENTITY_MIGRATION = {
+  version: 190,
+  name: "analytics-bigquery-agent-execution-job-identity",
+  sql: BIGQUERY_AGENT_EXECUTION_JOB_IDENTITY_MIGRATION_SQL.join(";\n"),
+};
+
+// raw-sql-ok: static app-owned additive column DDL with no runtime values or interpolation.
+const BIGQUERY_AGENT_EXECUTION_CANCEL_MIGRATION = {
+  version: 191,
+  name: "analytics-bigquery-agent-execution-cancel-requested",
+  sql: BIGQUERY_AGENT_EXECUTION_CANCEL_MIGRATION_SQL.join(";\n"),
 };
 
 // raw-sql-ok: static app-owned search query table DDL with no runtime values or interpolation.
@@ -1980,6 +1996,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
     BIGQUERY_AGENT_BUDGET_MIGRATION,
     BIGQUERY_AGENT_CREDENTIAL_FINGERPRINT_MIGRATION,
     CONTENT_SEARCH_QUERIES_MIGRATION,
+    BIGQUERY_AGENT_EXECUTION_JOB_IDENTITY_MIGRATION,
+    BIGQUERY_AGENT_EXECUTION_CANCEL_MIGRATION,
   ],
   { table: "analytics_migrations" },
 );

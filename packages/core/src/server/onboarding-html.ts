@@ -107,8 +107,6 @@ function withAppBasePath(path: string, explicitBasePath?: string): string {
 
 const AGENT_NATIVE_TERMS_URL = "https://www.agent-native.com/terms";
 const AGENT_NATIVE_PRIVACY_URL = "https://www.agent-native.com/privacy";
-const BUILDER_PREVIEW_LOCAL_DEV_ENV =
-  "AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV";
 declare const __AGENT_NATIVE_BUILD_ID__: string | undefined;
 
 function authClientBuildId(): string {
@@ -140,10 +138,7 @@ function isBuilderPreviewLocalDevEnabled(): boolean {
   ) {
     return false;
   }
-  const value = process.env[BUILDER_PREVIEW_LOCAL_DEV_ENV]
-    ?.trim()
-    .toLowerCase();
-  return value === "1" || value === "true";
+  return getAppConfig().auth.allowBuilderPreviewLocalDev;
 }
 
 const EN_AUTH_COPY = {
