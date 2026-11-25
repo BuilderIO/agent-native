@@ -80,7 +80,12 @@ import { useRollbackCreatedSlashDocument } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
 import { localContentComponents } from "@/local-components";
 
-import { carriedAttrs } from "./block-actions";
+import {
+  carriedAttrs,
+  selectedListItem,
+  turnSelectedListItemInto,
+  type TurnIntoTarget,
+} from "./block-actions";
 import { TOGGLE_TITLE_NODE } from "./extensions/NotionExtensions";
 import { createImagePickerId } from "./image-upload";
 import { buildLocalComponentSlashItems } from "./localComponentSlashItems";
@@ -377,6 +382,38 @@ export interface CommandTemplate extends Omit<
   descriptionKey: string;
 }
 
+/**
+ * In a list item's first line, a command that changes the block's kind turns
+ * that item only, as the block menu does. A command that keeps the slash
+ * query (`keepsQuery`) has it deleted first.
+ */
+export function turningListItem(
+  target: TurnIntoTarget,
+  action: CommandTemplate["action"],
+  keepsQuery = false,
+): CommandTemplate["action"] {
+  return (editor, context) => {
+    if (selectedListItem(editor.state.selection)) {
+      const tr = editor.state.tr;
+      if (keepsQuery && context.slashRange) {
+        tr.delete(context.slashRange.from, context.slashRange.to);
+      }
+      if (turnSelectedListItemInto(tr, target)) {
+        editor.view.dispatch(tr.scrollIntoView());
+        editor.commands.focus();
+        return true;
+      }
+    }
+    return action(editor, context);
+  };
+}
+
+const HEADING_TARGETS: Partial<Record<number, TurnIntoTarget>> = {
+  1: "heading1",
+  2: "heading2",
+  3: "heading3",
+};
+
 export const CONTENT_HEADING_LEVELS = [1, 2, 3, 4, 5, 6] as const;
 
 const headingCommandMetadata = [
@@ -430,6 +467,13 @@ const headingCommandMetadata = [
   icon: React.ElementType;
 }>;
 
+function withListItemTarget(
+  target: TurnIntoTarget | undefined,
+  action: CommandTemplate["action"],
+): CommandTemplate["action"] {
+  return target ? turningListItem(target, action) : action;
+}
+
 export function buildHeadingCommands(
   behavior: "toggle" | "set",
 ): CommandTemplate[] {
@@ -438,12 +482,12 @@ export function buildHeadingCommands(
     searchText: `h${heading.level}`,
     suggestionSafe: true,
     directoryWidgetSafe: true,
-    action: (editor) => {
+    action: withListItemTarget(HEADING_TARGETS[heading.level], (editor) => {
       const chain = editor.chain().focus();
       return behavior === "toggle"
         ? chain.toggleHeading({ level: heading.level }).run()
         : chain.setHeading({ level: heading.level }).run();
-    },
+    }),
   }));
 }
 
@@ -704,7 +748,7 @@ const commands: CommandTemplate[] = [
     descriptionKey: "editor.slash.textDescription",
     icon: IconTypography,
     suggestionSafe: true,
-    action: setPlainTextBlock,
+    action: turningListItem("text", setPlainTextBlock),
   },
   ...buildHeadingCommands("toggle"),
   {
@@ -713,7 +757,9 @@ const commands: CommandTemplate[] = [
     shortcut: "-",
     icon: IconList,
     suggestionSafe: true,
-    action: (editor) => editor.chain().focus().toggleBulletList().run(),
+    action: turningListItem("bulletedList", (editor) =>
+      editor.chain().focus().toggleBulletList().run(),
+    ),
   },
   {
     titleKey: "editor.slash.numberedList",
@@ -721,7 +767,9 @@ const commands: CommandTemplate[] = [
     shortcut: "1.",
     icon: IconListNumbers,
     suggestionSafe: true,
-    action: (editor) => editor.chain().focus().toggleOrderedList().run(),
+    action: turningListItem("numberedList", (editor) =>
+      editor.chain().focus().toggleOrderedList().run(),
+    ),
   },
   {
     titleKey: "editor.slash.todoList",
@@ -729,7 +777,9 @@ const commands: CommandTemplate[] = [
     shortcut: "[]",
     icon: IconSquareCheck,
     suggestionSafe: true,
-    action: (editor) => editor.chain().focus().toggleTaskList().run(),
+    action: turningListItem("todoList", (editor) =>
+      editor.chain().focus().toggleTaskList().run(),
+    ),
   },
   {
     titleKey: "editor.slash.toggle",
@@ -737,15 +787,22 @@ const commands: CommandTemplate[] = [
     shortcut: ">",
     icon: IconChevronRight,
     preserveSlashRange: true,
-    action: (editor, { slashRange }) =>
-      insertEmptyToggle(editor, slashRange, null),
+    action: turningListItem(
+      "toggle",
+      (editor, { slashRange }) => insertEmptyToggle(editor, slashRange, null),
+      true,
+    ),
   },
   ...toggleHeadingCommandMetadata.map(
     (heading): CommandTemplate => ({
       ...heading,
       preserveSlashRange: true,
-      action: (editor, { slashRange }) =>
-        insertEmptyToggle(editor, slashRange, heading.level),
+      action: turningListItem(
+        `toggleHeading${heading.level}`,
+        (editor, { slashRange }) =>
+          insertEmptyToggle(editor, slashRange, heading.level),
+        true,
+      ),
     }),
   ),
   {
@@ -755,8 +812,12 @@ const commands: CommandTemplate[] = [
     icon: IconCode,
     suggestionSafe: true,
     preserveSlashRange: true,
-    action: (editor, { slashRange }) =>
-      setCodeBlockFromSlashCommand(editor, slashRange),
+    action: turningListItem(
+      "codeBlock",
+      (editor, { slashRange }) =>
+        setCodeBlockFromSlashCommand(editor, slashRange),
+      true,
+    ),
   },
   {
     titleKey: "editor.slash.quote",
@@ -764,7 +825,9 @@ const commands: CommandTemplate[] = [
     shortcut: '"',
     icon: QuoteCommandIcon,
     suggestionSafe: true,
-    action: (editor) => editor.chain().focus().toggleBlockquote().run(),
+    action: turningListItem("quote", (editor) =>
+      editor.chain().focus().toggleBlockquote().run(),
+    ),
   },
   {
     titleKey: "editor.slash.callout",
@@ -822,7 +885,7 @@ const turnIntoCommands: CommandTemplate[] = [
     descriptionKey: "editor.slash.textDescription",
     icon: IconTypography,
     suggestionSafe: true,
-    action: setPlainTextBlock,
+    action: turningListItem("text", setPlainTextBlock),
   },
   ...buildHeadingCommands("set"),
   {
@@ -831,7 +894,9 @@ const turnIntoCommands: CommandTemplate[] = [
     shortcut: "-",
     icon: IconList,
     suggestionSafe: true,
-    action: (editor) => editor.chain().focus().toggleBulletList().run(),
+    action: turningListItem("bulletedList", (editor) =>
+      editor.chain().focus().toggleBulletList().run(),
+    ),
   },
   {
     titleKey: "editor.slash.numberedList",
@@ -839,7 +904,9 @@ const turnIntoCommands: CommandTemplate[] = [
     shortcut: "1.",
     icon: IconListNumbers,
     suggestionSafe: true,
-    action: (editor) => editor.chain().focus().toggleOrderedList().run(),
+    action: turningListItem("numberedList", (editor) =>
+      editor.chain().focus().toggleOrderedList().run(),
+    ),
   },
   {
     titleKey: "editor.slash.todoList",
@@ -847,21 +914,25 @@ const turnIntoCommands: CommandTemplate[] = [
     shortcut: "[]",
     icon: IconSquareCheck,
     suggestionSafe: true,
-    action: (editor) => editor.chain().focus().toggleTaskList().run(),
+    action: turningListItem("todoList", (editor) =>
+      editor.chain().focus().toggleTaskList().run(),
+    ),
   },
   {
     titleKey: "editor.slash.toggle",
     descriptionKey: "editor.slash.collapsibleBlockDescription",
     shortcut: ">",
     icon: IconChevronRight,
-    action: (editor) => {
+    action: turningListItem("toggle", (editor) => {
       turnBlockIntoToggle(editor, null);
-    },
+    }),
   },
   ...toggleHeadingCommandMetadata.map(
     (heading): CommandTemplate => ({
       ...heading,
-      action: (editor) => turnBlockIntoToggle(editor, heading.level),
+      action: turningListItem(`toggleHeading${heading.level}`, (editor) =>
+        turnBlockIntoToggle(editor, heading.level),
+      ),
     }),
   ),
   {
@@ -871,8 +942,12 @@ const turnIntoCommands: CommandTemplate[] = [
     icon: IconCode,
     suggestionSafe: true,
     preserveSlashRange: true,
-    action: (editor, { slashRange }) =>
-      setCodeBlockFromSlashCommand(editor, slashRange),
+    action: turningListItem(
+      "codeBlock",
+      (editor, { slashRange }) =>
+        setCodeBlockFromSlashCommand(editor, slashRange),
+      true,
+    ),
   },
   {
     titleKey: "editor.slash.quote",
@@ -880,7 +955,9 @@ const turnIntoCommands: CommandTemplate[] = [
     shortcut: '"',
     icon: QuoteCommandIcon,
     suggestionSafe: true,
-    action: (editor) => editor.chain().focus().toggleBlockquote().run(),
+    action: turningListItem("quote", (editor) =>
+      editor.chain().focus().toggleBlockquote().run(),
+    ),
   },
   {
     titleKey: "editor.slash.callout",

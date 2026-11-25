@@ -650,6 +650,13 @@
 .content-editor li p {
   margin: 0;
 }
+.content-editor li > ul:not(.content-task-list),
+.content-editor li > ol,
+.content-editor li > .content-task-list,
+.content-editor .content-task-list li > div > ul,
+.content-editor .content-task-list li > div > ol {
+  margin: 0;
+}
 
 .content-editor ul:not(.content-task-list) > li,
 .content-editor ol > li {

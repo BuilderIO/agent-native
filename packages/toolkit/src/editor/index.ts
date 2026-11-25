@@ -86,6 +86,17 @@ export {
   type DragHandleOptions,
 } from "./DragHandle.js";
 export {
+  blockRemovalRange,
+  forEachListItemBlock,
+  insertBlockAt,
+  isList,
+  isListItem,
+  joinListsAt,
+  listItemTypeOf,
+  moveBlockTransaction,
+  positionBelowBlock,
+} from "./listItemBlocks.js";
+export {
   createRegistryBlockNode,
   LegacyJsonEditSurface,
   RegistryBlockDataProvider,

@@ -1,3 +1,4 @@
+import { isListItem } from "@agent-native/toolkit/editor";
 import { registryBlockSpecByType } from "@shared/nfm-registry";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
@@ -97,6 +98,8 @@ export const BLOCK_MENU_ENTRIES: Record<string, BlockMenuEntry> = {
   bulletList: { title: titled("editor.slash.bulletedList") },
   orderedList: { title: titled("editor.slash.numberedList") },
   taskList: { title: titled("editor.slash.todoList") },
+  listItem: { title: titled("editor.slash.bulletedList"), turnInto: true },
+  taskItem: { title: titled("editor.slash.todoList"), turnInto: true },
   blockquote: { title: titled("editor.slash.quote") },
   codeBlock: {
     title: (node, t) =>
@@ -141,4 +144,14 @@ const UNKNOWN_BLOCK: BlockMenuEntry = {
 
 export function blockMenuEntry(node: ProseMirrorNode): BlockMenuEntry {
   return BLOCK_MENU_ENTRIES[node.type.name] ?? UNKNOWN_BLOCK;
+}
+
+/** The menu's title for a block. A list item is titled by its list's kind. */
+export function blockMenuTitle(
+  node: ProseMirrorNode,
+  parent: ProseMirrorNode | null,
+  t: Translate,
+): string {
+  const named = isListItem(node) && parent ? parent : node;
+  return blockMenuEntry(named).title(named, t);
 }
