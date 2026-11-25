@@ -10735,6 +10735,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             runtimeGlobals.__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__ = true;
           }
           let stopBackgroundSetupHeartbeat = true;
+          let workerHandlerInvoked = false;
           const reportFailureFinalizationError = (error: unknown) => {
             console.error(
               "[agent-chat] _process-run failure finalization failed:",
@@ -10873,6 +10874,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               if (turnGrant)
                 event.context[VERIFIED_TURN_GRANT_CONTEXT_KEY] = turnGrant;
             }
+            workerHandlerInvoked = true;
             const result = await invokeAgentChatHandler(event);
             const responseStatus = getResponseStatus(event);
             if (responseStatus >= 400) {
@@ -10910,14 +10912,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 runId: prepared.runId,
               },
             });
-            try {
-              await finalizeClaimedAgentChatProcessRunFailure(
-                prepared.runId,
-                err,
-              );
-            } catch (finalizationError) {
-              stopBackgroundSetupHeartbeat = false;
-              reportFailureFinalizationError(finalizationError);
+            if (workerHandlerInvoked) {
+              try {
+                await finalizeClaimedAgentChatProcessRunFailure(
+                  prepared.runId,
+                  err,
+                );
+              } catch (finalizationError) {
+                stopBackgroundSetupHeartbeat = false;
+                reportFailureFinalizationError(finalizationError);
+              }
             }
             setResponseStatus(event, 500);
             return { error: "process-run failed" };
