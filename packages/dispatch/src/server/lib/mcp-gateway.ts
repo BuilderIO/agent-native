@@ -177,7 +177,8 @@ function sealDispatchAskAppTaskHandle(params: {
   expiresInSeconds?: number;
 }): string | undefined {
   const secrets = dispatchTaskHandleSecrets(params.orgSecret);
-  if (secrets.length === 0) return undefined;
+  const primarySecret = secrets[0];
+  if (!primarySecret) return undefined;
   const app = normalizeAppId(params.app);
   const targetUrl = validDispatchTaskTargetUrl(params.targetUrl);
   const taskId = params.taskId.trim();
@@ -202,7 +203,7 @@ function sealDispatchAskAppTaskHandle(params: {
   const iv = randomBytes(DISPATCH_TASK_HANDLE_IV_BYTES);
   const cipher = createCipheriv(
     "aes-256-gcm",
-    dispatchTaskHandleKey(secrets[0]),
+    dispatchTaskHandleKey(primarySecret),
     iv,
   );
   cipher.setAAD(Buffer.from(DISPATCH_TASK_HANDLE_DOMAIN, "utf8"));
@@ -237,19 +238,26 @@ function unsealDispatchAskAppTaskHandle(
   }
 
   const parts = trimmedHandle.split(".");
-  if (parts.length !== 4 || parts[0] !== DISPATCH_TASK_HANDLE_PREFIX) {
+  const [prefix, ivPart, ciphertextPart, authTagPart] = parts;
+  if (
+    parts.length !== 4 ||
+    prefix !== DISPATCH_TASK_HANDLE_PREFIX ||
+    !ivPart ||
+    !ciphertextPart ||
+    !authTagPart
+  ) {
     throw invalid();
   }
-  const iv = Buffer.from(parts[1], "base64url");
-  const ciphertext = Buffer.from(parts[2], "base64url");
-  const authTag = Buffer.from(parts[3], "base64url");
+  const iv = Buffer.from(ivPart, "base64url");
+  const ciphertext = Buffer.from(ciphertextPart, "base64url");
+  const authTag = Buffer.from(authTagPart, "base64url");
   if (
     iv.length !== DISPATCH_TASK_HANDLE_IV_BYTES ||
     ciphertext.length === 0 ||
     authTag.length !== DISPATCH_TASK_HANDLE_AUTH_TAG_BYTES ||
-    iv.toString("base64url") !== parts[1] ||
-    ciphertext.toString("base64url") !== parts[2] ||
-    authTag.toString("base64url") !== parts[3]
+    iv.toString("base64url") !== ivPart ||
+    ciphertext.toString("base64url") !== ciphertextPart ||
+    authTag.toString("base64url") !== authTagPart
   ) {
     throw invalid();
   }
