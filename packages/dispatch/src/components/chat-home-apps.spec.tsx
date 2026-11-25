@@ -269,6 +269,25 @@ describe("DispatchChatHomeApps", () => {
     expect(launcherState.value.openApp).not.toHaveBeenCalled();
   });
 
+  it("opens hosted apps in place with no external-link arrow on the Open button", async () => {
+    launcherState.value.workspaceApps = [
+      { id: "mail", name: "Mail", source: "builtin", url: "https://m.test" },
+    ] as typeof launcherState.value.workspaceApps;
+    appLayoutState.value = { pinnedIds: [], orderedIds: [] };
+
+    await act(async () => renderChatHome(root));
+
+    const open = container.querySelector<HTMLButtonElement>(
+      "button[aria-label='Open Mail']",
+    );
+    expect(open).not.toBeNull();
+    expect(open?.querySelector("svg")).toBeNull();
+    await act(async () => open?.click());
+    expect(launcherState.value.openApp).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "mail" }),
+    );
+  });
+
   it("says the workspace has no apps under Apps when only hosted apps exist", async () => {
     launcherState.value.workspaceApps = [
       { id: "mail", name: "Mail", source: "builtin", url: "https://m.test" },
