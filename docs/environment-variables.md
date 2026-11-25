@@ -435,10 +435,10 @@ store them only as GitHub Actions secrets. See `e2e/signup/README.md`.
 | `SIGNUP_E2E_APPS`         | Comma-separated app ids, or `all`, for the full email signup canary.                          |
 | `SIGNUP_E2E_ENVIRONMENTS` | Comma-separated `beta` and/or `production` environments for the canary.                       |
 
-### Labs QA identities
+### Labs QA identities and live verification
 
 Read by `.github/workflows/labs-qa-probe.yml`, `.github/workflows/labs-qa-identities.yml`,
-and `e2e/labs/`, never by application runtime code. The workflows reuse the
+`.github/workflows/qa-live-verify.yml`, and `e2e/labs/`, never by application runtime code. The workflows reuse the
 `MAILOSAUR_*` secrets above and derive each `qa-fleet-N` password from them.
 
 | Variable       | Purpose                                                                                                        |
@@ -450,8 +450,11 @@ and `e2e/labs/`, never by application runtime code. The workflows reuse the
 | `QA_FRESH`     | Set to `1` to sign up one new `qa-tmp-` Mailosaur address end to end and write a receipt without any password. |
 | `LABS_APP`     | Labs app the signed-in smoke test opens. Workflow-internal.                                                    |
 | `LABS_HOST`    | Host the signed-in smoke test targets. Defaults to `labs.agent-native.com`.                                    |
-| `QA_SLOT`      | Slot of the `qa-fleet-N` identity a smoke matrix entry uses. Workflow-internal.                                |
+| `QA_SLOT`      | Slot of the `qa-fleet-N` identity a smoke or live-verify run uses.                                             |
 | `INPUT_APPS`   | Apps input passed to the smoke matrix builder. Workflow-internal.                                              |
+| `QA_TARGET`    | Live-verify target: a preset (`forms-seeded`), an app name, or JSON with app, path, steps.                     |
+| `QA_PROVIDER`  | Live-verify browser: `browserbase` (remote session with a replay) or `local` (headless).                       |
+| `QA_OUT_DIR`   | Directory the live-verify receipt and before/after screenshots are written to.                                 |
 
 ### Deploy-path check
 

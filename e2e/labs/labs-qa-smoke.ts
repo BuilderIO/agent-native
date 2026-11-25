@@ -33,7 +33,12 @@ async function readSession(context: import("playwright").BrowserContext) {
     },
   );
   if (!res.ok()) return null;
-  return (await res.json()) as { email?: string };
+  try {
+    return (await res.json()) as { email?: string };
+    // coercion-ok: a non-JSON session body means no session to reuse
+  } catch {
+    return null;
+  }
 }
 
 async function ensureSignedIn(

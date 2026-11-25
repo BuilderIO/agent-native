@@ -207,10 +207,16 @@ async function signUpAndVerify(
   };
 }
 
-async function ensureUser(slot: string): Promise<Jar> {
+export function qaIdentity(slot: string) {
   const user = `qa-fleet-${slot}`;
   const email = `${user}@${serverId}.mailosaur.net`.toLowerCase();
   const password = derive(user);
+  return { email, password };
+}
+
+export async function ensureUser(slot: string): Promise<Jar> {
+  const user = `qa-fleet-${slot}`;
+  const { email, password } = qaIdentity(slot);
   const jar: Jar = new Map();
 
   if ((await signIn(jar, email, password)).ok) {
@@ -312,4 +318,4 @@ async function main() {
   if (failed.length) process.exit(1);
 }
 
-await main();
+if (import.meta.main) await main();
