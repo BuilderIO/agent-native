@@ -48,6 +48,7 @@ import {
   type SkillMetadata,
 } from "./metadata.js";
 import { RESOURCE_PACK_MAX_BODY_BYTES } from "./pack.js";
+import { canonicalResourcePath } from "./path-form.js";
 import {
   RESOURCE_CONTENT_RECORD,
   resourceContentRevision,
@@ -82,6 +83,7 @@ import {
   WORKSPACE_OWNER,
   type Resource,
   type ResourceMeta,
+  type ResourceWriteOptions,
 } from "./store.js";
 
 function isSameSkillUpload(
@@ -552,7 +554,11 @@ export async function handleGetResource(event: any) {
 export async function handleCreateResource(event: any) {
   const body = await readBody(event);
 
-  if (!body?.path || typeof body.path !== "string") {
+  if (
+    !body?.path ||
+    typeof body.path !== "string" ||
+    !canonicalResourcePath(body.path)
+  ) {
     setResponseStatus(event, 400);
     return { error: "path is required" };
   }
@@ -562,6 +568,22 @@ export async function handleCreateResource(event: any) {
   }
 
   const owner = await resolveOwner(event, body.shared);
+
+  if (body.uniquePath) {
+    const writeOptions =
+      body.metadata !== undefined ? { metadata: body.metadata } : undefined;
+    const path = canonicalResourcePath(body.path);
+    const put = await putUnderFreePath(
+      owner,
+      path,
+      body.content ?? "",
+      body.mimeType || "text/markdown",
+      writeOptions,
+    );
+    if (!put) return resourcePathTaken(event, owner, path, false);
+    setResponseStatus(event, put.created ? 201 : 200);
+    return withContentRevision(put.resource);
+  }
 
   if (body.uniqueSkillPath) {
     const match = /^skills\/([a-z0-9]+(?:-[a-z0-9]+)*)\/SKILL\.md$/.exec(
@@ -908,13 +930,15 @@ export async function handleUpdateResource(event: any) {
       ((body.metadata === null || typeof body.metadata === "string"
         ? body.metadata
         : JSON.stringify(body.metadata)) || null) === resource.metadata);
+  const requestedPath =
+    typeof body.path === "string" ? canonicalResourcePath(body.path) : "";
+  const nextPath =
+    !requestedPath || requestedPath === canonicalResourcePath(existing.path)
+      ? existing.path
+      : requestedPath;
   // The move and the content write are separate statements, so a conflict
   // found after the move would leave the resource renamed but not saved.
-  if (
-    checksRevision &&
-    body.path !== undefined &&
-    body.path !== existing.path
-  ) {
+  if (checksRevision && nextPath !== existing.path) {
     setResponseStatus(event, 400);
     return {
       error:
@@ -934,7 +958,6 @@ export async function handleUpdateResource(event: any) {
       );
     }
   }
-  const nextPath = body.path ?? existing.path;
   const isLegacyOrganizationWorkspaceResource =
     existing.owner === SHARED_OWNER &&
     isLegacyOrganizationWorkspaceFile(existing, orgId);
@@ -1074,13 +1097,13 @@ export async function handleUpdateResource(event: any) {
     return resourcePathTaken(event, existing.owner, nextPath, localFiles);
   }
 
-  if (!isLocalWorkspaceResource && body.path && body.path !== existing.path) {
+  if (!isLocalWorkspaceResource && nextPath !== existing.path) {
     try {
-      await resourceMove(id, body.path);
+      await resourceMove(id, nextPath);
     } catch (error) {
       // Another write took the path between the check and the move.
       if (!isUniqueViolation(error)) throw error;
-      return resourcePathTaken(event, existing.owner, body.path, false);
+      return resourcePathTaken(event, existing.owner, nextPath, false);
     }
   }
 
@@ -1300,9 +1323,9 @@ export async function handleUploadResource(event: any) {
   }
 
   const fileName = filePart.filename || "upload";
-  const path = pathPart?.data
-    ? Buffer.from(pathPart.data).toString("utf8") || `/${fileName}`
-    : `/${fileName}`;
+  const path = canonicalResourcePath(
+    (pathPart?.data && Buffer.from(pathPart.data).toString("utf8")) || fileName,
+  );
   const shared = sharedPart?.data
     ? Buffer.from(sharedPart.data).toString("utf8") === "true"
     : false;
@@ -1341,7 +1364,7 @@ export async function handleUploadResource(event: any) {
       ? await runWithRequestContext({ userEmail: credentialEmail }, doUpload)
       : await doUpload();
     if (uploaded) {
-      const put = await putUpload(owner, path, uploaded.url, mimeType);
+      const put = await putUnderFreePath(owner, path, uploaded.url, mimeType);
       if (!put) return resourcePathTaken(event, owner, path, false);
       setResponseStatus(event, put.created ? 201 : 200);
       return {
@@ -1360,34 +1383,32 @@ export async function handleUploadResource(event: any) {
 
   const content = Buffer.from(filePart.data).toString("utf-8");
 
-  const put = await putUpload(owner, path, content, mimeType);
+  const put = await putUnderFreePath(owner, path, content, mimeType);
   if (!put) return resourcePathTaken(event, owner, path, false);
   setResponseStatus(event, put.created ? 201 : 200);
   return withContentRevision(put.resource);
 }
 
-const UPLOAD_PATH_ATTEMPTS = 5;
+const CLAIM_PATH_ATTEMPTS = 5;
 
-async function putUpload(
+async function putUnderFreePath(
   owner: string,
   path: string,
   content: string,
   mimeType: string,
+  options?: ResourceWriteOptions,
 ): Promise<{ resource: Resource; created: boolean } | null> {
   const orgId = organizationIdFromResourceOwner(owner);
   const lookup = orgId ? { orgId } : undefined;
   let target = path;
-  for (let attempt = 0; attempt < UPLOAD_PATH_ATTEMPTS; attempt += 1) {
+  for (let attempt = 0; attempt < CLAIM_PATH_ATTEMPTS; attempt += 1) {
     const legacy = orgId
       ? await resourceGetByPath(SHARED_OWNER, target, lookup)
       : null;
     if (!legacy) {
-      const created = await resourcePutIfAbsent(
-        owner,
-        target,
-        content,
-        mimeType,
-      );
+      const created = options
+        ? await resourcePutIfAbsent(owner, target, content, mimeType, options)
+        : await resourcePutIfAbsent(owner, target, content, mimeType);
       if (created) return { resource: created, created: true };
     }
     const existing = (await resourceGetByPath(owner, target, lookup)) ?? legacy;

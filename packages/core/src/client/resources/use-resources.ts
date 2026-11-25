@@ -349,6 +349,7 @@ export function useCreateResource() {
       mimeType?: string;
       shared?: boolean;
       uniqueSkillPath?: boolean;
+      uniquePath?: boolean;
       ifNotExists?: boolean;
     }) => {
       const res = await fetch(agentNativePath("/_agent-native/resources"), {
@@ -356,7 +357,9 @@ export function useCreateResource() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error(`Create failed: ${res.statusText}`);
+      if (!res.ok) {
+        throw await resourceWriteError(res, `Create failed: ${res.statusText}`);
+      }
       return res.json() as Promise<Resource>;
     },
     onSuccess: () => {
