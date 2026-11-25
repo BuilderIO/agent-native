@@ -106,6 +106,7 @@ const checkSchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   answers: z.array(answerSchema),
+  skips: z.array(z.object({ placeKey: z.string(), textHash: z.string() })),
 });
 
 export const pageChecksOutput = z.object({

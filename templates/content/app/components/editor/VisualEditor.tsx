@@ -266,6 +266,8 @@ import {
   measureLiveBodyParity,
   reportLiveBodyParity,
 } from "./live-body-parity";
+import { usePageChecksActions } from "./page-checks/page-checks-context";
+import { PageCheckMarks } from "./page-checks/PageCheckMarks";
 import { imageDisplaySrc } from "./private-media-src";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import {
@@ -1962,6 +1964,8 @@ interface VisualEditorProps {
     | undefined;
   /** Starts a comment on a whole block, such as a video. */
   onBlockComment?: (target: CommentBlockTarget, offsetTop: number) => void;
+  /** The page's body: its checks mark it and can be added from its menus. */
+  pageCheckMarks?: boolean;
   commentThreads?: CommentThread[];
   activeThreadId?: string | null;
   hoveredThreadId?: string | null;
@@ -3937,6 +3941,7 @@ export function VisualEditor({
   onComment,
   onSuggestEdit,
   onBlockComment,
+  pageCheckMarks = false,
   commentThreads,
   activeThreadId,
   hoveredThreadId,
@@ -3973,6 +3978,15 @@ export function VisualEditor({
   onBlockIdentityIds,
 }: VisualEditorProps) {
   const t = useT();
+  const pageCheckActions = usePageChecksActions();
+  const pageChecksHere = pageCheckMarks && !!pageCheckActions?.enabled;
+  const addCheckAt =
+    pageChecksHere &&
+    pageCheckActions.canEdit &&
+    !suggesting &&
+    !directoryWidgetEditing
+      ? pageCheckActions.openAdd
+      : undefined;
   const tRef = useRef(t);
   tRef.current = t;
   const widgetBridgeActive = isEmbedMcpChatBridgeActive();
@@ -6400,6 +6414,7 @@ export function VisualEditor({
               }),
             ).then(isEditorDraftSaveAccepted)
           }
+          onAddCheck={addCheckAt}
         />
       ) : null}
       <LinkHoverPreview editor={editor} editable={editable} />
@@ -6414,6 +6429,7 @@ export function VisualEditor({
           editor={editor}
           onComment={onComment}
           onCopyLink={blockLinks && documentId ? copyBlockLink : undefined}
+          onAddCheck={addCheckAt ? (block) => addCheckAt(block.pos) : undefined}
           onTurnTableIntoCollection={
             documentId && !directoryWidgetEditing
               ? turnTableIntoCollection
@@ -6454,6 +6470,14 @@ export function VisualEditor({
           <EditorContent editor={editor} hidden={showStoredBody} />
         </DrawDiagramsContext.Provider>
       </RegistryBlockDataProvider>
+      {pageChecksHere && !showStoredBody ? (
+        <PageCheckMarks
+          editor={editor}
+          wrapperRef={wrapperRef}
+          onComment={onComment}
+          suggesting={suggesting}
+        />
+      ) : null}
       {collabState.initialSeedFailed ? (
         <div
           role="alert"

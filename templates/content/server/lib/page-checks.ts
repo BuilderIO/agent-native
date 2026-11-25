@@ -21,10 +21,10 @@ import {
   readPageCheckSentence,
   type PageCheck,
   type PageCheckPart,
-  type PageCheckPlaceAnswer,
   type PageCheckResult,
   type PageCheckScope,
   type PageCheckSkip,
+  type PageCheckView,
 } from "../../shared/page-checks.js";
 import { getDb, schema } from "../db/index.js";
 import { firstRow } from "./first-row.js";
@@ -38,11 +38,6 @@ export type PageCheckScopeInput =
   | (Omit<Extract<PageCheckScope, { kind: "section" }>, "headingId"> & {
       headingId?: string | null;
     });
-
-/** A check with what each of its places shows now. */
-export interface PageCheckView extends PageCheck {
-  answers: PageCheckPlaceAnswer[];
-}
 
 function nowIso() {
   return new Date().toISOString();
@@ -100,7 +95,11 @@ async function savedBody(
   }
   const access = await pageCheckAccess(documentId, options.minRole);
   const markdown = (access.resource.content as string | null | undefined) ?? "";
-  return { access, markdown, idsByPath: await bodyIdsByPath(documentId, markdown) };
+  return {
+    access,
+    markdown,
+    idsByPath: await bodyIdsByPath(documentId, markdown),
+  };
 }
 
 /** The body's block IDs by path, or none on a page without them. */
@@ -207,6 +206,10 @@ function viewOf(
       loaded.results,
       loaded.skips,
     ),
+    skips: loaded.skips.map(({ placeKey, textHash }) => ({
+      placeKey,
+      textHash,
+    })),
   };
 }
 
@@ -228,7 +231,7 @@ function unreadableSentence(sentence: string): ActionContractError {
   return new ActionContractError(
     reading.tooManyParts
       ? "A check can have at most three parts."
-      : "Content can't read every part of this check yet. It reads counts of words, sentences or paragraphs, like \"Under 120 words\".",
+      : 'Content can\'t read every part of this check yet. It reads counts of words, sentences or paragraphs, like "Under 120 words".',
     {
       errorCode: "PAGE_CHECK_UNREADABLE",
       statusCode: 400,
@@ -538,7 +541,11 @@ export async function skipPageCheckPlace(args: {
   );
   if (args.undo) {
     await db.delete(schema.contentPageCheckSkips).where(where);
-    return { documentId: args.documentId, checkId: args.checkId, skipped: false };
+    return {
+      documentId: args.documentId,
+      checkId: args.checkId,
+      skipped: false,
+    };
   }
   let textHash = args.textHash;
   if (!textHash) {

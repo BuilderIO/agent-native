@@ -7,6 +7,7 @@ import {
   isEmptyPropertyValue,
   isPrimaryBlocksField,
 } from "@shared/properties";
+import type { ReactNode } from "react";
 
 import {
   documentPropertiesReadFailed,
@@ -29,6 +30,8 @@ interface DocumentInfoPanelProps {
   rowViewPending?: boolean;
   canEdit: boolean;
   onSaveDescription: (description: string) => Promise<unknown>;
+  /** The page's checks, above its details. */
+  checks?: ReactNode;
 }
 
 export function DocumentInfoPanel({
@@ -41,6 +44,7 @@ export function DocumentInfoPanel({
   rowViewPending,
   canEdit,
   onSaveDescription,
+  checks,
 }: DocumentInfoPanelProps) {
   const t = useT();
   const isLocalFileDocument = document.source?.mode === "local-files";
@@ -105,6 +109,7 @@ export function DocumentInfoPanel({
           wrapValues
         />
       ) : null}
+      {checks}
       <PageDetails
         document={document}
         blockFields={

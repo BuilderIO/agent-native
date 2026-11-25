@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   combinePageCheckFindings,
   countPageCheckUnit,
+  checkPageCheckPlace,
   evaluatePageCheckPart,
+  livePageCheckAnswers,
+  pageCheckAnswers,
   pageCheckCountDistance,
   pageCheckHeadings,
   pageCheckPlaces,
@@ -12,6 +15,8 @@ import {
   readPageCheckPart,
   readPageCheckSentence,
   type PageCheckPlace,
+  type PageCheckResult,
+  type PageCheckView,
 } from "./page-checks.js";
 import { countWords } from "./properties.js";
 
@@ -113,11 +118,12 @@ describe("reading a check's sentence", () => {
   });
 
   it("keeps numbers with separators whole", () => {
-    expect(readPageCheckSentence("Under 1,200 words, at least 2 paragraphs").parts)
-      .toMatchObject([
-        { kind: "count", unit: "words", max: 1200 },
-        { kind: "count", unit: "paragraphs", min: 2 },
-      ]);
+    expect(
+      readPageCheckSentence("Under 1,200 words, at least 2 paragraphs").parts,
+    ).toMatchObject([
+      { kind: "count", unit: "words", max: 1200 },
+      { kind: "count", unit: "paragraphs", min: 2 },
+    ]);
   });
 
   it("saves only sentences whose every part reads", () => {
@@ -314,11 +320,79 @@ describe("answers", () => {
     const parts = readablePageCheckParts("Under 120 words")!;
     const same = readablePageCheckParts("Keep it under 120 words.")!;
     const hash = pageCheckWordingHash({ parts, scope: { kind: "intro" } });
-    expect(pageCheckWordingHash({ parts: same, scope: { kind: "intro" } })).toBe(
-      hash,
-    );
+    expect(
+      pageCheckWordingHash({ parts: same, scope: { kind: "intro" } }),
+    ).toBe(hash);
     expect(pageCheckWordingHash({ parts, scope: { kind: "page" } })).not.toBe(
       hash,
     );
+  });
+});
+
+describe("answers while someone writes", () => {
+  const parts = readablePageCheckParts("Under 120 words")!;
+  const scope = { kind: "intro" } as const;
+  const wordingHash = pageCheckWordingHash({ parts, scope });
+
+  function listed(markdown: string, checkedMarkdown: string): PageCheckView {
+    const [checked] = placesOf(checkedMarkdown, scope);
+    const result: PageCheckResult = {
+      placeKey: "intro",
+      wordingHash,
+      textHash: checked!.textHash,
+      ...checkPageCheckPlace(parts, checked!),
+      checkedBy: "editor@example.com",
+      checkedAt: "2026-11-25T00:00:00.000Z",
+    };
+    const check = {
+      id: "check",
+      documentId: "draft",
+      sentence: "Under 120 words",
+      parts,
+      scope,
+      wordingHash,
+      paused: false,
+      createdBy: "editor@example.com",
+      createdAt: "2026-11-25T00:00:00.000Z",
+      updatedAt: "2026-11-25T00:00:00.000Z",
+      skips: [],
+    };
+    return {
+      ...check,
+      answers: pageCheckAnswers(
+        check,
+        pageCheckPlaces(markdown, scope),
+        [result],
+        [],
+      ),
+    };
+  }
+
+  it("keeps the last answer while the text changes, so the dot stays put", () => {
+    const check = listed(words(183), words(183));
+    const [answer] = livePageCheckAnswers(
+      check,
+      pageCheckPlaces(words(125), scope),
+    );
+    expect(answer).toMatchObject({ answer: "not_fine", writing: true });
+  });
+
+  it("still says changed where the text had changed before the list was read", () => {
+    const check = listed(words(150), words(183));
+    expect(check.answers[0]!.answer).toBe("changed");
+    const [answer] = livePageCheckAnswers(
+      check,
+      pageCheckPlaces(words(150), scope),
+    );
+    expect(answer).toMatchObject({ answer: "changed", writing: false });
+  });
+
+  it("shows the checked answer once the text is the text that was checked", () => {
+    const check = listed(words(118), words(118));
+    const [answer] = livePageCheckAnswers(
+      check,
+      pageCheckPlaces(words(118), scope),
+    );
+    expect(answer).toMatchObject({ answer: "fine", writing: false });
   });
 });

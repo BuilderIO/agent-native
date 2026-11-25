@@ -350,9 +350,7 @@ function longestFound(text: string, words: readonly string[]): string | null {
 
 function numbersIn(text: string): number[] {
   const numbers: number[] = [];
-  for (const match of text.matchAll(
-    /\d{1,3}(?:[,.   ]\d{3})+(?!\d)|\d+/g,
-  )) {
+  for (const match of text.matchAll(/\d{1,3}(?:[,.   ]\d{3})+(?!\d)|\d+/g)) {
     numbers.push(Number(match[0].replace(/[^\d]/g, "")));
   }
   if (numbers.length) return numbers;
@@ -515,14 +513,17 @@ const NO_PARAGRAPHS_INSIDE = new Set([
   "tableCell",
 ]);
 
-interface BodyBlock {
+export interface PageCheckBodyBlock {
   node: PMNode;
   path: string;
   /** A paragraph that stands as one: not in a list or table. */
   paragraph: boolean;
 }
 
-function bodyBlocks(doc: PMNode): { top: BodyBlock[]; paragraphs: BodyBlock[] } {
+function bodyBlocks(doc: PMNode): {
+  top: PageCheckBodyBlock[];
+  paragraphs: PageCheckBodyBlock[];
+} {
   const content = doc.content ?? [];
   const trimmed = isEditorTerminalFiller(
     content[content.length - 1],
@@ -530,8 +531,8 @@ function bodyBlocks(doc: PMNode): { top: BodyBlock[]; paragraphs: BodyBlock[] } 
   )
     ? { ...doc, content: content.slice(0, -1) }
     : doc;
-  const top: BodyBlock[] = [];
-  const paragraphs: BodyBlock[] = [];
+  const top: PageCheckBodyBlock[] = [];
+  const paragraphs: PageCheckBodyBlock[] = [];
   const kinds = new Map<string, string>();
   visitBlocksFieldBlocks(trimmed, (node, { path, parentPath }) => {
     kinds.set(path, node.type);
@@ -567,24 +568,28 @@ function excerptOf(nodes: readonly PMNode[]): string {
 
 function placeOf(
   key: string,
-  blocks: readonly BodyBlock[],
+  blocks: readonly PageCheckBodyBlock[],
   idsByPath: Readonly<Record<string, string>>,
   markdown?: string,
 ): PageCheckPlace {
   const nodes = blocks.map((block) => block.node);
-  const body = markdown ?? docToNfm({ type: "doc", content: nodes });
+  const text = docToNfm({ type: "doc", content: nodes });
   const first = blocks[0];
   return {
     key,
     path: first?.path ?? "0",
     blockId: first ? (idsByPath[first.path] ?? null) : null,
-    textHash: hashPageCheckText(body.trim()),
+    // The text as Content writes it, so the editor and the server agree on
+    // whether it changed even where their Markdown is spelled differently.
+    textHash: hashPageCheckText(text.trim()),
     excerpt: excerptOf(nodes),
-    markdown: body,
+    markdown: markdown ?? text,
   };
 }
 
-function headingOf(block: BodyBlock): { text: string; level: number } | null {
+function headingOf(
+  block: PageCheckBodyBlock,
+): { text: string; level: number } | null {
   if (block.node.type !== "heading") return null;
   return {
     text: plainText(block.node).replace(/\s+/g, " ").trim(),
@@ -596,8 +601,20 @@ function headingOf(block: BodyBlock): { text: string; level: number } | null {
 export function pageCheckHeadings(
   markdown: string,
   idsByPath: Readonly<Record<string, string>> = {},
-): Array<{ path: string; headingId: string | null; heading: string; level: number }> {
-  return bodyBlocks(nfmToDoc(markdown) as PMNode).top.flatMap((block) => {
+): PageCheckHeading[] {
+  return pageCheckHeadingsIn(readPageCheckBody(markdown, idsByPath));
+}
+
+export interface PageCheckHeading {
+  path: string;
+  headingId: string | null;
+  heading: string;
+  level: number;
+}
+
+export function pageCheckHeadingsIn(body: PageCheckBody): PageCheckHeading[] {
+  const { top, idsByPath } = body;
+  return top.flatMap((block) => {
     const heading = headingOf(block);
     return heading
       ? [
@@ -621,7 +638,42 @@ export function pageCheckPlaces(
   scope: PageCheckScope,
   idsByPath: Readonly<Record<string, string>> = {},
 ): PageCheckPlaces {
-  const { top, paragraphs } = bodyBlocks(nfmToDoc(markdown) as PMNode);
+  return pageCheckPlacesIn(readPageCheckBody(markdown, idsByPath), scope);
+}
+
+/** A page body read once, for finding the places of many checks in it. */
+export interface PageCheckBody {
+  markdown: string;
+  idsByPath: Readonly<Record<string, string>>;
+  top: readonly PageCheckBodyBlock[];
+  paragraphs: readonly PageCheckBodyBlock[];
+  /** Places already found, by scope: checks often share one. */
+  found: Map<string, PageCheckPlaces>;
+}
+
+export function readPageCheckBody(
+  markdown: string,
+  idsByPath: Readonly<Record<string, string>> = {},
+  doc: PMNode = nfmToDoc(markdown) as PMNode,
+): PageCheckBody {
+  return { markdown, idsByPath, ...bodyBlocks(doc), found: new Map() };
+}
+
+export function pageCheckPlacesIn(
+  body: PageCheckBody,
+  scope: PageCheckScope,
+): PageCheckPlaces {
+  const key = JSON.stringify(scope);
+  const found = body.found.get(key) ?? findPageCheckPlaces(body, scope);
+  body.found.set(key, found);
+  return found;
+}
+
+function findPageCheckPlaces(
+  body: PageCheckBody,
+  scope: PageCheckScope,
+): PageCheckPlaces {
+  const { markdown, idsByPath, top, paragraphs } = body;
   switch (scope.kind) {
     case "page":
       return {
@@ -712,7 +764,8 @@ export function evaluatePageCheckPart(
 export function combinePageCheckFindings(
   results: readonly Pick<PageCheckPartResult, "finding">[],
 ): PageCheckFinding {
-  if (results.some((result) => result.finding === "not_fine")) return "not_fine";
+  if (results.some((result) => result.finding === "not_fine"))
+    return "not_fine";
   if (results.some((result) => result.finding === "couldnt")) return "couldnt";
   return "fine";
 }
@@ -762,6 +815,19 @@ export interface PageCheckSkip {
   skippedBy: string;
 }
 
+/** A check with what each of its places shows now, as list-page-checks returns it. */
+export interface PageCheckView extends PageCheck {
+  answers: PageCheckPlaceAnswer[];
+  /** The places left alone, each until its text changes. */
+  skips: Pick<PageCheckSkip, "placeKey" | "textHash">[];
+}
+
+export interface PageCheckList {
+  documentId: string;
+  canEdit: boolean;
+  checks: PageCheckView[];
+}
+
 /** What one place shows now. */
 export interface PageCheckPlaceAnswer {
   key: string;
@@ -808,7 +874,9 @@ export function pageCheckAnswers(
       },
     ];
   }
-  const resultsByKey = new Map(results.map((result) => [result.placeKey, result]));
+  const resultsByKey = new Map(
+    results.map((result) => [result.placeKey, result]),
+  );
   return places.places.map(({ markdown: _markdown, ...place }) => {
     const result = resultsByKey.get(place.key) ?? null;
     const skipped = skips.some(
@@ -824,6 +892,32 @@ export function pageCheckAnswers(
           : "changed",
       result,
     };
+  });
+}
+
+/**
+ * What a check's places show in the text an editor holds now, from what was
+ * last checked. A place whose text changed after that keeps its last answer
+ * while the person is still writing, so a dot doesn't come and go mid-sentence;
+ * one that was already changed when the list was read still says so.
+ */
+export function livePageCheckAnswers(
+  check: PageCheckView,
+  places: PageCheckPlaces,
+): Array<PageCheckPlaceAnswer & { writing: boolean }> {
+  const results = check.answers.flatMap((answer) =>
+    answer.result ? [answer.result] : [],
+  );
+  const listed = new Map(check.answers.map((answer) => [answer.key, answer]));
+  return pageCheckAnswers(check, places, results, check.skips).map((answer) => {
+    const before = listed.get(answer.key);
+    const writing =
+      answer.answer === "changed" &&
+      answer.place !== null &&
+      before?.place?.textHash !== answer.place.textHash;
+    return writing && answer.result
+      ? { ...answer, answer: answer.result.finding, writing }
+      : { ...answer, writing };
   });
 }
 

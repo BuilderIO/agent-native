@@ -16,6 +16,7 @@ import { collapseExactRepeatedNfm, docToNfm, type PMNode } from "@shared/nfm";
 import { serializeRegistryBlockToMdx } from "@shared/nfm-registry";
 import {
   IconCheck,
+  IconChecklist,
   IconTypography,
   IconH1,
   IconH2,
@@ -98,6 +99,8 @@ interface SlashCommandMenuProps {
   notionPageId?: string | null;
   /** The page saves no body; its body is the live copy. */
   bodyIsLiveCopy?: boolean;
+  /** Opens the box that adds a check, starting at this position's section. */
+  onAddCheck?: (pos: number) => void;
 }
 
 interface EditorMenuPosition {
@@ -918,6 +921,7 @@ export function SlashCommandMenu({
   onDraftCommitted,
   onDraftPersisted,
   bodyIsLiveCopy = false,
+  onAddCheck,
 }: SlashCommandMenuProps) {
   const t = useT();
   const labs = useLabStates();
@@ -1446,6 +1450,20 @@ export function SlashCommandMenu({
   const mediaCommands = isTurnInto
     ? []
     : [imageCommand, videoCommand, audioCommand];
+  const checkCommands: CommandItem[] =
+    isTurnInto || !onAddCheck
+      ? []
+      : [
+          {
+            title: t("pageChecks.addCheck"),
+            description: t("pageChecks.addCheckDescription"),
+            searchText: "check",
+            icon: IconChecklist,
+            action: (editor, { slashRange }) => {
+              onAddCheck(slashRange?.from ?? editor.state.selection.from);
+            },
+          },
+        ];
   const normalizedQuery = query.toLowerCase();
   const commandMatchesQuery = (cmd: CommandItem) =>
     cmd.title.toLowerCase().includes(normalizedQuery) ||
@@ -1470,6 +1488,9 @@ export function SlashCommandMenu({
   const availableMediaCommands = directoryWidgetEditing
     ? []
     : slashCommandsForMode(mediaCommands, suggesting);
+  const availableCheckCommands = directoryWidgetEditing
+    ? []
+    : slashCommandsForMode(checkCommands, suggesting);
   const filteredAiCommands = availableAiCommands.filter(commandMatchesQuery);
   const filteredBlockCommands =
     availableBlockCommands.filter(commandMatchesQuery);
@@ -1481,6 +1502,8 @@ export function SlashCommandMenu({
     availablePageCommands.filter(commandMatchesQuery);
   const filteredMediaCommands =
     availableMediaCommands.filter(commandMatchesQuery);
+  const filteredCheckCommands =
+    availableCheckCommands.filter(commandMatchesQuery);
   const allCommands = [
     ...availableAiCommands,
     ...availableBlockCommands,
@@ -1488,6 +1511,7 @@ export function SlashCommandMenu({
     ...availableLocalComponentCommands,
     ...availableMediaCommands,
     ...availablePageCommands,
+    ...availableCheckCommands,
   ];
   const filteredCommands = [
     ...filteredAiCommands,
@@ -1496,6 +1520,7 @@ export function SlashCommandMenu({
     ...filteredLocalComponentCommands,
     ...filteredMediaCommands,
     ...filteredPageCommands,
+    ...filteredCheckCommands,
   ];
 
   const renderCommand = (cmd: CommandItem) => {
@@ -1823,6 +1848,14 @@ export function SlashCommandMenu({
                   {t("editor.slash.pages")}
                 </div>
                 {filteredPageCommands.map(renderCommand)}
+              </>
+            ) : null}
+            {filteredCheckCommands.length > 0 ? (
+              <>
+                <div className="px-3 pt-2 pb-1 text-xs font-semibold text-muted-foreground">
+                  {t("pageChecks.title")}
+                </div>
+                {filteredCheckCommands.map(renderCommand)}
               </>
             ) : null}
           </div>

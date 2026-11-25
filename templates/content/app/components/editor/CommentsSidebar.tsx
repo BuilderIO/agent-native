@@ -1145,6 +1145,15 @@ export function usePendingCommentDraft(documentId: string) {
     },
     [setPendingComment],
   );
+  // Fills in a new comment's words, such as why a check marked the text it
+  // quotes; the person can change them, and nothing posts until they send.
+  const prefillPendingComment = useCallback((text: string) => {
+    const pending = current.current;
+    if (!pending || pending.documentId !== currentDocumentId.current) return;
+    pendingDraftRef.current.setText(text);
+    current.current = { ...pending, text };
+    setDraft(current.current);
+  }, []);
   useEffect(() => setPendingComment(null), [documentId, setPendingComment]);
   const pendingComment = useMemo(
     () =>
@@ -1158,6 +1167,7 @@ export function usePendingCommentDraft(documentId: string) {
     setPendingComment,
     changePendingComment,
     completePendingComment,
+    prefillPendingComment,
   };
 }
 
