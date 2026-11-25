@@ -711,38 +711,14 @@ describe("document editor layout", () => {
       /suggestionsSignature,\r?\n\s+showCommentIndicators,/,
     );
   });
+  // oracle-change: the source half is now "locks the title, icon and embedded
+  //   blocks while Suggesting" in DocumentEditor.recovery-save-state.test.tsx.
+  //   The title paste check repeats handleTitleChange's own guard, so removing
+  //   it alone changes nothing a user sees.
   it("blocks every document metadata mutation while suggesting", () => {
     expect(documentCanonicalMutationsEnabled(true, false)).toBe(true);
     expect(documentCanonicalMutationsEnabled(false, false)).toBe(false);
     expect(documentCanonicalMutationsEnabled(true, true)).toBe(false);
-
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    const titlePasteHandler = source.slice(
-      source.indexOf("const handleTitlePaste"),
-      source.indexOf("// Auto-focus title"),
-    );
-    expect(titlePasteHandler).toContain(
-      "documentCanonicalMutationsEnabled(editorCanEdit, isSuggesting)",
-    );
-    const iconPickerStart = source.indexOf("<EmojiPicker");
-    expect(source.slice(iconPickerStart - 250, iconPickerStart)).toContain(
-      "documentCanonicalMutationsEnabled(",
-    );
-    const iconPicker = source.slice(
-      iconPickerStart,
-      source.indexOf(") : document.icon"),
-    );
-    expect(
-      iconPicker.match(
-        /documentCanonicalMutationsEnabled\(\s*editorCanEdit,\s*isSuggesting,\s*\)/g,
-      ),
-    ).toHaveLength(1);
-    expect(source).toContain(
-      "canEdit: documentCanonicalMutationsEnabled(canEdit, isSuggesting)",
-    );
   });
 
   // editor-isolation.mounted.test.tsx mounts the editor with this wiring.
@@ -772,76 +748,15 @@ describe("document editor layout", () => {
     expect(source).not.toMatch(/documentUpdatedAt:\s*document\.updatedAt/);
   });
 
-  // After unmount no timer can run a follow-up save, so a final flush that
-  // finds a save in flight must wait for it and then save the newer draft.
-  it("saves the newer draft after an in-flight save when no timer can follow", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    expect(source).toMatch(
-      /if \(\s*autosave &&\s*queueSuggestionAutosave\([^)]*\)\s*\)\s*return null;\s*await inFlight;/,
-    );
-  });
+  // oracle-change: replaced by "saves words typed during an autosave when
+  //   Suggesting ends before it answers" in
+  //   DocumentEditor.recovery-save-state.test.tsx.
 
-  // A commenter cannot reject, so before withdrawal an author who edited their
-  // suggestion back to the Page could not leave Suggesting at all.
-  it("withdraws an edited suggestion reverted to the Page when Suggesting ends", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    ).replace(/\r\n/g, "\n");
-    const persist = source.slice(
-      source.indexOf("const persistSuggestionDraft"),
-      source.indexOf("const flushSuggestionDraft = "),
-    );
-    const amendmentGate =
-      "if (suggestionAmendmentConflict || amendmentTargetIsResolved) {";
-    const empty = persist.slice(
-      persist.indexOf("if (base.existingSuggestion) {"),
-      persist.indexOf(amendmentGate),
-    );
-    // A rejection this tab already saw must not keep a reverted suggestion
-    // from ending: only the amendment after the withdrawal waits on it.
-    expect(persist.indexOf(amendmentGate)).toBeGreaterThan(
-      persist.indexOf("const withdrawn = await saveUnlessSuggestionChanged("),
-    );
-    expect(persist.slice(0, persist.indexOf("try {"))).not.toContain(
-      "amendmentTargetIsResolved",
-    );
-    expect(empty).toMatch(
-      /if \(operations\.length === 0\) \{[\s\S]*?if \(keepMode\) \{[\s\S]*?return null;\s*\}\s*const withdrawn = await saveUnlessSuggestionChanged\(\s*existing,/,
-    );
-    expect(empty).toMatch(
-      /decision: "withdrawn",[\s\S]*?observedBase: existing\.baseRevision,\s*observedRevision: existing\.revision,/,
-    );
-    expect(empty).toMatch(
-      /withdrawn\.status === "changed"\) \{\s*setSuggestionAmendmentConflict\(true\);\s*return null;/,
-    );
-    expect(empty).toContain(
-      "return saved(new Map<string, ResourceSuggestion>());",
-    );
-    expect(persist).not.toMatch(
-      /base\.existingSuggestion && draft === base\.baseContent/,
-    );
-  });
+  // oracle-change: replaced by the two "withdraws a reopened suggestion typed
+  //   back to the Page" tests in DocumentEditor.recovery-save-state.test.tsx.
 
-  it("keys every suggestion amendment by the revision it observed", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    const persist = source.slice(
-      source.indexOf("const persistSuggestionDraft"),
-      source.indexOf("const flushSuggestionDraft = "),
-    );
-    expect(
-      persist.match(
-        /idempotencyKey(?:: | = )suggestionAmendmentIdempotencyKey\(/g,
-      ),
-    ).toHaveLength(2);
-    expect(persist).not.toContain("suggestionAmendmentKeysRef.current.get(");
-  });
+  // oracle-change: replaced by "gives an amendment typed back to earlier words
+  //   a new idempotency key" in DocumentEditor.recovery-save-state.test.tsx.
 
   it("recognizes resolved amendment targets and action conflicts", () => {
     expect(
@@ -2984,23 +2899,10 @@ describe("document editor layout", () => {
     ).toEqual({ icon: "🌱" });
   });
 
-  it("stages title edits synchronously for adjacent metadata actions", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      { encoding: "utf8" },
-    );
-    const handlerStart = source.indexOf(
-      "const handleTitleChange = useCallback",
-    );
-    const refUpdate = source.indexOf(
-      "localTitleRef.current = newTitle",
-      handlerStart,
-    );
-    const stateUpdate = source.indexOf("setLocalTitle(newTitle)", handlerStart);
-
-    expect(refUpdate).toBeGreaterThan(handlerStart);
-    expect(refUpdate).toBeLessThan(stateUpdate);
-  });
+  // oracle-change: covered by "closing a page this tab never edited journals a
+  //   failed rename of a page another writer rewrote on its stored body" in
+  //   DocumentEditor.recovery-save-state.test.tsx, which fails when the title
+  //   ref waits a microtask.
 
   it("does not mistake an optimistic title cache patch for a confirmed save", () => {
     const renamed = {
@@ -3213,16 +3115,8 @@ describe("document editor layout", () => {
     expect(documentEditorTitleRegionClassName(false)).toContain("pb-8");
   });
 
-  it("does not append a collection conversion button to an empty document", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      { encoding: "utf8" },
-    ).replace(/\r\n/g, "\n");
-
-    expect(source).not.toContain('{t("editor.createCollection")}');
-    expect(source).not.toContain("primaryEditorWithStarter");
-    expect(source).toContain("return primaryEditor;");
-  });
+  // oracle-change: removed an absence test for the collection starter button
+  //   that #7138 deleted; nothing renders it and no string for it remains.
 
   it("gives database pages a wider database surface", () => {
     expect(documentEditorTitleRegionClassName(true)).toContain("max-w-none");
@@ -3813,23 +3707,10 @@ describe("document editor layout", () => {
     expect(source).toContain("suggestionEditorIsolation.bindCanonicalYDoc");
   });
 
-  it("binds suggestion operations to the body and revision captured at mode entry", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("createSuggestionDraftSession({");
-    expect(source).toContain("baseContent: nextDocument.content");
-    expect(source).toContain(
-      "const readyDocument = await prepareSuggestionDraftDocument()",
-    );
-    expect(source).toContain("suggestionDraftOperations(base, draft)");
-    expect(source).toContain("createSuggestionProposal.mutateAsync(request)");
-    expect(source).toContain("suggestions: pending.map((operation) => ({");
-    expect(source).toContain("operations: [operation]");
-    expect(source).toContain("baseRevision: base.baseRevision");
-  });
+  // oracle-change: covered by "moves the typing onto the newer Page and saves
+  //   it there, with no alert" and four sibling tests in
+  //   DocumentEditor.recovery-save-state.test.tsx, which fail when a proposal
+  //   takes the live body or revision.
 
   it("confirms pending canonical edits before starting either suggestion entry path", () => {
     const source = readFileSync(
@@ -3853,23 +3734,10 @@ describe("document editor layout", () => {
   });
 
   // oracle-change: suggestion activation scrolling without taking Reply focus is now checked by behavior in suggestion-page-view.test.ts
-  it("freezes the suggestion editor while mode exit persists proposals", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain(
-      "if (!autosave && isSubmittingSuggestions) return",
-    );
-    expect(source).toContain("if (!autosave) setIsSubmittingSuggestions(true)");
-    expect(source).toMatch(
-      /suggestionEditorIsolation\.editable &&\s+!isStartingSuggestion &&\s+!isSubmittingSuggestions/,
-    );
-    expect(source).toContain(
-      "if (!autosave) setIsSubmittingSuggestions(false)",
-    );
-  });
+  // oracle-change: replaced by "holds the draft still while leaving Suggesting
+  //   saves it" in DocumentEditor.recovery-save-state.test.tsx. The
+  //   second-exit guard has no way in while the editor is frozen; removing it
+  //   broke no test.
 
   it("keeps Suggesting enabled while accept and reject reconcile", () => {
     const source = readFileSync(
@@ -4005,6 +3873,7 @@ describe("document editor layout", () => {
       "./extensions/VideoBlock.tsx",
       "../sidebar/NotionButton.tsx",
     ].map((path) =>
+      // source-read-ok: a boundary rule over five files; no copy control may call navigator.clipboard itself
       readFileSync(new URL(path, import.meta.url), { encoding: "utf8" }),
     );
 

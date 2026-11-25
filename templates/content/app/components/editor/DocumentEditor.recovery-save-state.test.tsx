@@ -82,6 +82,7 @@ const fixture = vi.hoisted(() => ({
   awareness: null as Awareness | null,
   editor: null as ComponentProps<typeof VisualEditor> | null,
   pickIcon: null as ((icon: string | null) => Promise<void>) | null,
+  blocksCanEdit: undefined as boolean | undefined,
   recovery: null as ReturnType<typeof useDocumentReconcileRecovery> | null,
   save: vi.fn(),
   keepalive: vi.fn(),
@@ -354,6 +355,8 @@ vi.mock("@tiptap/react", async (original) => {
 vi.mock("./VisualEditor", async (original) => {
   const actual = await original<typeof import("./VisualEditor")>();
   const React = await import("react");
+  const { useOptionalBlockRegistry } =
+    await import("@agent-native/toolkit/app/blocks");
   function RealAdditionalEditor(props: ComponentProps<typeof VisualEditor>) {
     const current = React.useRef(props);
     current.current = props;
@@ -375,6 +378,12 @@ vi.mock("./VisualEditor", async (original) => {
   }
   function FixtureVisualEditor(props: ComponentProps<typeof VisualEditor>) {
     const primary = !props.localFileMode;
+    const blocks = useOptionalBlockRegistry();
+    // Content's block context carries canEdit beyond the toolkit's type.
+    if (primary)
+      fixture.blocksCanEdit = (
+        blocks?.ctx as { canEdit?: boolean } | undefined
+      )?.canEdit;
     const current = React.useRef(props);
     current.current = props;
     const draft = React.useRef(props.content);
@@ -524,6 +533,7 @@ beforeEach(() => {
     );
   fixture.editor = null;
   fixture.pickIcon = null;
+  fixture.blocksCanEdit = undefined;
   fixture.fields = null;
   fixture.realAdditionalEditors = false;
   fixture.realPrimaryEditor = false;
@@ -3385,5 +3395,166 @@ describe("a Suggesting draft typed while another tab saves the Page", () => {
         "Closing paragraph. Words from another tab. And more.",
       ),
     );
+  });
+
+  function holdNextCreate() {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const answer = fixture.mutation.mutateAsync.getMockImplementation()!;
+    let held = false;
+    fixture.mutation.mutateAsync.mockImplementation(async (input) => {
+      if (held || input?.adapterKind !== "content.document-markdown")
+        return answer(input);
+      held = true;
+      const created = answer(input);
+      await gate;
+      return created;
+    });
+    return async () => act(async () => release());
+  }
+
+  it("holds the draft still while leaving Suggesting saves it", async () => {
+    await startSuggesting();
+    const release = holdNextCreate();
+    act(() => fixture.editor?.onChange(typed));
+    await act(async () => fixture.toolbar?.onSuggestingChange?.(false));
+    expect(creates).toEqual([
+      { baseRevision: "r1", changed: [" Typed here."] },
+    ]);
+    expect(fixture.editor?.editable).toBe(false);
+    await release();
+    await advance(500);
+    expect(fixture.editor?.suggesting).toBe(false);
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("saves words typed during an autosave when Suggesting ends before it answers", async () => {
+    await startSuggesting();
+    const release = holdNextCreate();
+    act(() => fixture.editor?.onChange(typed));
+    await advance(1_100);
+    expect(creates).toEqual([
+      { baseRevision: "r1", changed: [" Typed here."] },
+    ]);
+    const more = page(
+      "Opening paragraph. Typed here. And more.",
+      "Closing paragraph.",
+    );
+    act(() => fixture.editor?.onChange(more));
+    await act(async () => fixture.toolbar?.onSuggestingChange?.(false));
+    await release();
+    await advance(500);
+    expect([...creates, ...amends].flatMap(({ changed }) => changed)).toEqual([
+      " Typed here.",
+      " Typed here. And more.",
+    ]);
+    expect(fixture.editor?.suggesting).toBe(false);
+  });
+  it("locks the title, icon and embedded blocks while Suggesting", async () => {
+    await act(async () => renderEditor({ host: "page" }));
+    expect(fixture.pickIcon).not.toBeNull();
+    expect(fixture.blocksCanEdit).toBe(true);
+    await act(async () => fixture.toolbar?.onSuggestingChange?.(true));
+    fixture.pickIcon = null;
+    pasteTitle("Renamed while suggesting");
+    act(() => fixture.editor?.onChange(typed));
+    expect(container.querySelector("textarea")?.value).toBe("Saved title");
+    expect(fixture.pickIcon).toBeNull();
+    expect(fixture.blocksCanEdit).toBe(false);
+    expect(fixture.save).not.toHaveBeenCalled();
+  });
+
+  function recordWithdrawals() {
+    const withdrawals: string[] = [];
+    const answer = fixture.mutation.mutateAsync.getMockImplementation()!;
+    fixture.mutation.mutateAsync.mockImplementation(async (input) => {
+      if (input?.decision !== "withdrawn") return answer(input);
+      withdrawals.push(input.id);
+      const suggestion: ResourceSuggestion = {
+        ...stored.get(input.id)!,
+        status: "withdrawn",
+      };
+      stored.set(input.id, suggestion);
+      return { suggestion };
+    });
+    return withdrawals;
+  }
+
+  async function reopenSavedSuggestion() {
+    await startSuggesting();
+    act(() => fixture.editor?.onChange(typed));
+    await advance(1_500);
+    await act(async () => fixture.toolbar?.onSuggestingChange?.(false));
+    await advance(500);
+    fixture.suggestions = {
+      ...fixture.suggestions!,
+      data: { suggestions: [...stored.values()] },
+    };
+    await act(async () => renderEditor({ host: "page" }));
+    await act(async () => fixture.editor?.onActivateSuggestion?.("saved-0"));
+    await advance(500);
+    expect(fixture.editor?.suggesting).toBe(true);
+    expect(fixture.editor?.content).toBe(typed);
+  }
+
+  it("withdraws a reopened suggestion typed back to the Page when Suggesting ends", async () => {
+    await reopenSavedSuggestion();
+    const withdrawals = recordWithdrawals();
+    act(() => fixture.editor?.onChange(opened));
+    await advance(1_500);
+    expect(withdrawals).toEqual([]);
+    await act(async () => fixture.toolbar?.onSuggestingChange?.(false));
+    await advance(500);
+    expect(withdrawals).toEqual(["saved-0"]);
+    expect(fixture.editor?.suggesting).toBe(false);
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("withdraws a reopened suggestion typed back to the Page after this tab saw it rejected", async () => {
+    await reopenSavedSuggestion();
+    const withdrawals = recordWithdrawals();
+    const saved = stored.get("saved-0")!;
+    fixture.suggestions = {
+      ...fixture.suggestions!,
+      data: {
+        suggestions: [
+          {
+            ...saved,
+            status: "rejected",
+            revision: saved.revision + 1,
+            updatedAt: "2026-10-19T12:07:00.000Z",
+          },
+        ],
+      },
+    };
+    await act(async () => renderEditor({ host: "page" }));
+    act(() => fixture.editor?.onChange(opened));
+    await act(async () => fixture.toolbar?.onSuggestingChange?.(false));
+    await advance(500);
+    expect(withdrawals).toEqual(["saved-0"]);
+  });
+
+  it("gives an amendment typed back to earlier words a new idempotency key", async () => {
+    await reopenSavedSuggestion();
+    const more = page(
+      "Opening paragraph. Typed here. And more.",
+      "Closing paragraph.",
+    );
+    for (const draft of [more, typed, more]) {
+      act(() => fixture.editor?.onChange(draft));
+      await advance(1_500);
+    }
+    const keys = fixture.mutation.mutateAsync.mock.calls
+      .map(([input]) => input)
+      .filter((input) => input?.id === "saved-0" && input.operations)
+      .map((input) => input.idempotencyKey);
+    expect(amends.map(({ changed }) => changed)).toEqual([
+      [" Typed here. And more."],
+      [" Typed here."],
+      [" Typed here. And more."],
+    ]);
+    expect(new Set(keys).size).toBe(3);
   });
 });
