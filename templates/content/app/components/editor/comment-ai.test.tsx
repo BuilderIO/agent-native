@@ -503,6 +503,7 @@ describe("comment AI controls", () => {
     ["comment_ai_already_active", "comments.aiRetryRefusedNewer"],
     ["comment_ai_operation_conflict", "comments.aiRetryRefusedStarted"],
     ["comment_ai_thread_resolved", "comments.aiRetryRefusedResolved"],
+    ["comment_ai_edit_applied", "comments.aiRetryRefusedEditApplied"],
     ["AGENT_VIEW_ONLY", "comments.aiRetryRefusedViewOnly"],
   ])("says why Retry was refused (%s) in one sentence", async (code, copy) => {
     const refusal = Object.assign(new Error("Request failed"), {

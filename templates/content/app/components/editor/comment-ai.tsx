@@ -739,7 +739,7 @@ export function useCommentAiRequests(
                 ...current,
                 [requestId]: {
                   options,
-                  phase,
+                  ...(phase ? { phase } : {}),
                   error: [
                     error instanceof Error
                       ? error.message

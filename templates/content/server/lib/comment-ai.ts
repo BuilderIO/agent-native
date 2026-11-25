@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 
 import { fail } from "@agent-native/core/action";
-import { isUniqueViolation } from "@agent-native/core/db";
 import { writeAppState } from "@agent-native/core/application-state";
+import { isUniqueViolation } from "@agent-native/core/db";
 import {
   getRequestRunContext,
   getRequestUserEmail,
@@ -1036,45 +1036,45 @@ export async function restartCommentAiRequest(args: {
   const now = new Date().toISOString();
   const updated = await getDb()
     .transaction(async (tx) => {
-    const rows = await tx
-      .update(schema.commentAiRequests)
-      .set({
-        status: intent ? "queued" : "classifying",
-        agentThreadId,
-        agentTurnId: intent
-          ? backgroundAgentTurnIdForReceipt(agentThreadId, request.id)
-          : null,
-        ...(classificationThreadId && {
-          classificationThreadId,
-          classificationTurnId: backgroundAgentTurnIdForReceipt(
+      const rows = await tx
+        .update(schema.commentAiRequests)
+        .set({
+          status: intent ? "queued" : "classifying",
+          agentThreadId,
+          agentTurnId: intent
+            ? backgroundAgentTurnIdForReceipt(agentThreadId, request.id)
+            : null,
+          ...(classificationThreadId && {
             classificationThreadId,
-            `${request.id}:classification`,
+            classificationTurnId: backgroundAgentTurnIdForReceipt(
+              classificationThreadId,
+              `${request.id}:classification`,
+            ),
+          }),
+          activeAttemptId: null,
+          submittedThreadDigest: digest,
+          submittedSnapshotJson: snapshot,
+          threadDigest: digest,
+          snapshotJson: snapshot,
+          errorCode: null,
+          error: null,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(schema.commentAiRequests.id, request.id),
+            eq(schema.commentAiRequests.status, request.status),
+            eq(schema.commentAiRequests.updatedAt, request.updatedAt),
           ),
-        }),
-        activeAttemptId: null,
-        submittedThreadDigest: digest,
-        submittedSnapshotJson: snapshot,
-        threadDigest: digest,
-        snapshotJson: snapshot,
-        errorCode: null,
-        error: null,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(schema.commentAiRequests.id, request.id),
-          eq(schema.commentAiRequests.status, request.status),
-          eq(schema.commentAiRequests.updatedAt, request.updatedAt),
-        ),
-      )
-      .returning();
-    if (rows.length > 0 && request.activeAttemptId) {
-      await tx
-        .update(schema.commentAiAttempts)
-        .set({ status: "superseded", updatedAt: now })
-        .where(eq(schema.commentAiAttempts.id, request.activeAttemptId));
-    }
-    return rows;
+        )
+        .returning();
+      if (rows.length > 0 && request.activeAttemptId) {
+        await tx
+          .update(schema.commentAiAttempts)
+          .set({ status: "superseded", updatedAt: now })
+          .where(eq(schema.commentAiAttempts.id, request.activeAttemptId));
+      }
+      return rows;
     })
     .catch((error: unknown) => {
       if (isUniqueViolation(error)) {

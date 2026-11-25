@@ -367,18 +367,18 @@ describe("comment AI follow-ups and Retry", () => {
       .update(schema.commentAiRequests)
       .set({ status: "running" })
       .where(eq(schema.commentAiRequests.id, OP_A));
-    await expect(
-      retry(OP_A),
-    ).rejects.toMatchObject({ errorCode: "comment_ai_operation_conflict" });
+    await expect(retry(OP_A)).rejects.toMatchObject({
+      errorCode: "comment_ai_operation_conflict",
+    });
 
     await getDb()
       .update(schema.commentAiRequests)
       .set({ status: "needs-review" })
       .where(eq(schema.commentAiRequests.id, OP_A));
     await followUp(OP_B, OP_A);
-    await expect(
-      retry(OP_A),
-    ).rejects.toMatchObject({ errorCode: "comment_ai_already_active" });
+    await expect(retry(OP_A)).rejects.toMatchObject({
+      errorCode: "comment_ai_already_active",
+    });
 
     await getDb()
       .update(schema.commentAiRequests)
@@ -388,9 +388,9 @@ describe("comment AI follow-ups and Retry", () => {
       .update(schema.documentComments)
       .set({ resolved: 1 })
       .where(eq(schema.documentComments.id, ROOT_A));
-    await expect(
-      retry(OP_A),
-    ).rejects.toMatchObject({ errorCode: "comment_ai_thread_resolved" });
+    await expect(retry(OP_A)).rejects.toMatchObject({
+      errorCode: "comment_ai_thread_resolved",
+    });
   });
 
   it("refuses Retry after the AI changed the page, and from a tab that saw an older version", async () => {
@@ -401,9 +401,9 @@ describe("comment AI follow-ups and Retry", () => {
       .update(schema.commentAiRequests)
       .set({ status: "needs-review", updatedAt: "2026-11-25T12:00:00.000Z" })
       .where(eq(schema.commentAiRequests.id, OP_A));
-    await expect(
-      retry(OP_A, "2026-11-25T11:00:00.000Z"),
-    ).rejects.toMatchObject({ errorCode: "comment_ai_operation_conflict" });
+    await expect(retry(OP_A, "2026-11-25T11:00:00.000Z")).rejects.toMatchObject(
+      { errorCode: "comment_ai_operation_conflict" },
+    );
 
     await getDb()
       .update(schema.commentAiRequests)
@@ -438,7 +438,10 @@ describe("comment AI follow-ups and Retry", () => {
       await asUser(() =>
         commentAi.updateCommentAiRequest(stale, { status: "replied" }),
       ),
-    ).toMatchObject({ status: "queued", agentThreadId: restarted.agentThreadId });
+    ).toMatchObject({
+      status: "queued",
+      agentThreadId: restarted.agentThreadId,
+    });
     expect(
       await answer(restarted.backgroundSession, "Answer from the new chat"),
     ).toMatchObject({ status: "replied" });
