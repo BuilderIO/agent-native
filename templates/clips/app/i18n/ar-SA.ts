@@ -1154,6 +1154,7 @@ const messages = {
     visibilityDescription:
       "تُطبّق على التسجيلات التي تنشئها. يمكنك تغييرها في أي تسجيل.",
     useOrgDefault: "استخدام الإعداد الافتراضي لـ {{org}} ({{visibility}})",
+    enforceOrgDefault: "لا يمكن للأعضاء تعيين إعدادهم الافتراضي",
     useDefault: "استخدام الإعداد الافتراضي ({{visibility}})",
     transcriptExport: "تصدير النصوص",
     logoDescription: "يظهر في رسائل المشاركة وصفحات المقاطع العامة.",

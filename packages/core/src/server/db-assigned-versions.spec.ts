@@ -20,6 +20,7 @@ function makeAllocatorDb(shared?: { v: number; ids: Map<string, number> }) {
       log.push({ sql, args });
       if (
         sql.includes("information_schema.tables") ||
+        sql.includes("information_schema.columns") ||
         sql.includes("pg_indexes")
       ) {
         return { rows: [{ "1": 1 }], rowsAffected: 0 };

@@ -1540,6 +1540,13 @@ it("flushes un-emitted visual input, changes the first prepare, then prepares an
   expect(publishedAcks()[0]).toHaveProperty("status", "changed");
   expect(fixture.page!.content).toBe("Not yet emitted visual body");
   expect(fixture.awareness!.getLocalState()?.unsavedEdits).toBe(false);
+  await vi.waitFor(() => {
+    expect(fixture.editor?.content).toBe("Not yet emitted visual body");
+    expect(fixture.awareness?.getLocalState()).toMatchObject({
+      unsavedEdits: false,
+      savedRevision: "r2",
+    });
+  });
   await deliver(flushRequest("prepare", "stable-retry"));
   expect(publishedAcks()[1]).toHaveProperty("status", "prepared");
   await deliver(flushRequest("verify", "stable-retry"));

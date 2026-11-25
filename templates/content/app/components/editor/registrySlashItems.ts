@@ -36,6 +36,7 @@ const ALWAYS_HIDDEN_BLOCK_TYPES = new Set([
   "inline-database",
   "clip-embed",
   "analytics-chart",
+  "link-card",
   "design-screen",
   "callout",
   "source-component",

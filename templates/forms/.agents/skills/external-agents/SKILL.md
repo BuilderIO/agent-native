@@ -247,19 +247,19 @@ connection or page WebMCP. Route UI through
 unless they explicitly opt into the full catalog, and
 `publicAgent.expose` remains the action-level opt-in for safe read/ingest tools
 outside the compact MCP Apps catalog. Apps can set
-`externalAgents.authenticatedReads: "auto"` to automatically advertise every
-action that is GET + `readOnly` + `publicAgent.requiresAuth`, instead of
-maintaining a long connector allow-list. This policy never includes writes by
-default. Set `writes: "allowlisted"` to serve the writes your actions choose to
-serve; `writes: "ask_app_only"`, the default with automatic reads, is
-deprecated and warns at startup, so keep a write in the app with
-`mcpTool: false` instead. Use `denyActions` for defense-in-depth vetoes.
+`externalAgents.authenticatedReads: "auto"` advertises GET + `readOnly` +
+`publicAgent.requiresAuth` actions without a connector allow-list. Writes are
+excluded by default. Set `writes: "allowlisted"` to serve selected writes;
+`writes: "ask_app_only"`, the automatic-reads default, is deprecated and warns at startup. Keep a write in
+the app with `mcpTool: false`. Use `denyActions` for defense-in-depth vetoes.
 `tool-search` finds only the tools the connection is served, listed or
 `mcpTool: "search"` ones that `call-tool` runs. It names matching actions
 outside them under `notServed`, for the caller to hand to `ask_app`. Do not rely on
 action-specific `mcpApp` resources appearing in ChatGPT/Claude discovery by
 default; use `open_app` for the
-first-class app embed path. If a specific
+first-class app embed path. For "show", "open", "draft", "chart", calendar, or
+dashboard asks, call `open_app` after the read or save so the host opens the pane
+instead of drawing its own card. If a specific
 action truly must remain visible in that compact app-host catalog, set
 `mcpApp.compactCatalog: true` as a rare escape hatch.
 

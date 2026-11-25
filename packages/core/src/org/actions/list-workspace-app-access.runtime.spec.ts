@@ -6,6 +6,7 @@ const boundary = vi.hoisted(() => ({
   unbuilt: vi.fn(),
 }));
 vi.mock("../../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: boundary.execute }),
 }));
 vi.mock("../actions.js", () => ({ requireOrgMember: boundary.access }));

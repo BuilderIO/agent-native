@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import http, { type Server } from "node:http";
 import path from "node:path";
 
 import { decodeContinuation } from "@agent-native/core/shared";
 import {
   prepareDesignConnectManifest,
+  readDevActionDiscoveryFile,
   startDesignConnectBridge,
   type DesignConnectBridge,
 } from "@agent-native/core/testing";
@@ -24,6 +25,7 @@ import {
   designFrame,
   enterDirectMode,
   installBridge,
+  openPageOverview,
   readSeedDesignId,
   selectByText,
   waitForBridge,
@@ -815,7 +817,7 @@ test.describe("public visual edit", () => {
       await expect(preparing).toBeHidden();
       await expect(frame).toHaveAttribute("src", settledSource!);
       await expect(
-        page.getByRole("dialog", { name: "Connect your local screens" }),
+        page.getByRole("dialog", { name: "Connect your local pages" }),
         "a rejected preview token is not a local-network permission problem",
       ).toHaveCount(0);
     } finally {
@@ -1561,11 +1563,8 @@ test.describe("public visual edit", () => {
     await expect(
       ownerFrame.getByRole("heading", { name: "Local visual edit" }),
     ).toBeVisible({ timeout: 30_000 });
-    const allScreensButton = page.getByRole("button", {
-      name: "All screens",
-    });
-    await allScreensButton.click();
-    await expect(allScreensButton).toHaveAttribute("aria-current", "page");
+    // oracle-change: the All screens row is gone; the overview is entered from the View menu, which asserts the switch itself.
+    await openPageOverview(page);
 
     await page.getByRole("button", { name: /^share$/i }).click();
     const copyLiveCanvasLink = page
@@ -2051,12 +2050,11 @@ async function createLinkedScreen(browser: Browser, designId: string) {
 async function registerSignedOutBridgeThroughCli(
   bridge: DesignConnectBridge,
 ): Promise<void> {
-  const discovery = JSON.parse(
-    await readFile(
-      path.join(import.meta.dirname, "..", ".agent-native", "dev-server.json"),
-      "utf8",
-    ),
-  ) as { token: string };
+  const discovery = readDevActionDiscoveryFile(
+    path.join(import.meta.dirname, ".."),
+  );
+  if (!discovery)
+    throw new Error("The local dev action bridge is unavailable.");
   const rootPath = bridge.manifest.rootPath;
   const workspaceId = createHash("sha256")
     .update(path.resolve(rootPath))

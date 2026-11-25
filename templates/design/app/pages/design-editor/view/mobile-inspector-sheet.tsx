@@ -1,4 +1,5 @@
 import { IconAdjustmentsHorizontal } from "@tabler/icons-react";
+import type { ReactNode } from "react";
 
 import { EditPanel } from "@/components/design/EditPanel";
 import { Button } from "@/components/ui/button";
@@ -74,5 +75,36 @@ export function renderMobileInspectorSheet({
         </Sheet>
       ) : null}
     </>
+  );
+}
+
+export function MobileCommentsSheet({
+  open,
+  onClose,
+  title,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <Sheet
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+    >
+      <SheetContent
+        side="right"
+        className="w-[min(92vw,360px)] overflow-hidden p-0 md:hidden"
+      >
+        <SheetHeader className="sr-only">
+          <SheetTitle>{title}</SheetTitle>
+        </SheetHeader>
+        <div className="flex h-full min-h-0 flex-col pt-8">{children}</div>
+      </SheetContent>
+    </Sheet>
   );
 }

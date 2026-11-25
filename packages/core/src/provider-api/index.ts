@@ -5169,7 +5169,9 @@ async function resolveRequiredCredential(options: {
     });
   }
   throw new Error(
-    `${options.key} not configured${scopeGap ? `. ${scopeGap}` : ""}`,
+    scopeGap
+      ? `${options.provider} credential not configured. ${scopeGap} Tried: ${options.key}`
+      : `${options.key} not configured`,
   );
 }
 

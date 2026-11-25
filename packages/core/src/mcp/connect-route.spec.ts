@@ -92,6 +92,7 @@ const issuanceTransaction = {
   }),
 };
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({
     transaction: async (
       run: (tx: typeof issuanceTransaction) => Promise<unknown>,

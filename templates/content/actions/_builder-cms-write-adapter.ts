@@ -10,6 +10,7 @@ import type {
   DocumentPropertyValue,
 } from "../shared/api.js";
 import { BUILDER_CMS_SAFE_WRITE_MODEL as SAFE_WRITE_MODEL } from "../shared/api.js";
+import { documentPropertyDateTimestamp } from "../shared/properties.js";
 import {
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   BUILDER_CMS_ENTRY_NAME_KEY,
@@ -63,6 +64,7 @@ export interface BuilderCmsExecutionPayload {
   };
   /** Builder's entry as read right before the write. */
   livePreflight?: BuilderCmsLivePreflight;
+  reviewedBodyEmpty?: true;
 }
 
 export interface BuilderCmsLivePreflight {
@@ -189,6 +191,17 @@ function builderNativeFieldValue(args: {
   const field = builderModelFieldForOperation(args);
   const fieldLabel = field?.label?.trim() || field?.name || args.sourceFieldKey;
   const kind = normalizedBuilderFieldKind(field);
+  const cleared =
+    args.value === null ||
+    args.value === undefined ||
+    args.value === "" ||
+    (Array.isArray(args.value) && args.value.length === 0);
+  if (
+    cleared &&
+    /\b(date|datetime|file|image|reference|relation)\b/.test(kind)
+  ) {
+    return { value: null };
+  }
 
   if (/\b(date|datetime)\b/.test(kind)) {
     const raw =
@@ -199,7 +212,7 @@ function builderNativeFieldValue(args: {
       return { blocker: `${fieldLabel} must be a valid Builder date.` };
     }
     const timestamp =
-      typeof raw === "number" ? raw : new Date(raw.trim()).getTime();
+      typeof raw === "number" ? raw : documentPropertyDateTimestamp(raw);
     if (!Number.isFinite(timestamp)) {
       return { blocker: `${fieldLabel} must be a valid Builder date.` };
     }
@@ -262,6 +275,7 @@ function builderNativeFieldValue(args: {
   const choices = builderOptionLabels(field);
   const isList = /\b(list|array|tags?|multi[-_\s]?select)\b/.test(kind);
   if (isList || choices.length > 0) {
+    if (cleared) return { value: isList ? [] : null };
     const values = Array.isArray(args.value) ? args.value : [args.value];
     const labels = values.map((value) => {
       if (typeof value !== "string") return null;
@@ -697,7 +711,7 @@ function builderRequiredFieldBlockers(args: {
 }) {
   if (
     args.source.sourceTable !== SAFE_WRITE_MODEL ||
-    (args.effect !== "create_draft" && args.effect !== "publish")
+    args.effect !== "publish"
   ) {
     return [];
   }
@@ -1080,6 +1094,9 @@ export function buildBuilderCmsExecutionPlan(args: {
         checks: safety.checks,
         blockers: safety.blockers,
       },
+      ...(args.changeSet.bodyChange?.currentEmpty
+        ? { reviewedBodyEmpty: true as const }
+        : {}),
     },
     lastError,
   };
@@ -1173,6 +1190,11 @@ export function validateBuilderCmsExecutionDryRun(args: {
   ) {
     mismatches.push(
       "Builder entry changed since this change was reviewed. Refresh and review it again.",
+    );
+  }
+  if (storedComparable.reviewedBodyEmpty && !planComparable.reviewedBodyEmpty) {
+    mismatches.push(
+      "Builder body changed since this change was reviewed. Refresh and review it again.",
     );
   }
 

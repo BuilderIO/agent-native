@@ -108,31 +108,100 @@ const database = {
   githubDetailFolder: "Carpeta",
   githubDetailBranch: "Rama",
   githubDetailVersion: "Versión",
-  githubDetailUpdated: "Última actualización",
-  githubCheckForUpdates: "Buscar actualizaciones",
+  sourceDetailUpdated: "Última actualización",
   githubOpenFolder: "Abrir en GitHub",
-  githubUnlinkFolder: "Desvincular carpeta…",
   githubUnlinkTitle: "¿Desvincular esta carpeta de GitHub?",
   githubUnlinkBodyOne:
     "La página se queda aquí y pasa a ser una página normal que puedes editar. Los cambios en GitHub ya no llegarán. Para volver a vincular esta carpeta más adelante, tendrás que usar una colección nueva.",
   githubUnlinkBody:
     "Las {{count}} páginas se quedan aquí y pasan a ser páginas normales que puedes editar. Los cambios en GitHub ya no llegarán. Para volver a vincular esta carpeta más adelante, tendrás que usar una colección nueva.",
-  githubUnlink: "Desvincular",
-  githubUnlinking: "Desvinculando…",
-  githubUnlinkedToast:
-    "Carpeta desvinculada. Tus páginas se conservan y ya puedes editarlas.",
-  githubUnlinkFailed: "No se pudo desvincular la carpeta",
+  sourceUnlinkConfirm: "Desvincular",
+  sourceUnlinking: "Desvinculando…",
+  sourceUnlinkedToast:
+    "Desvinculado. Tus páginas se conservan y ya puedes editarlas.",
+  sourceSyncNow: "Sincronizar ahora",
+  sourceUnlink: "Desvincular…",
+  sourceUnlinkFailed: "No se pudo desvincular",
+  sourceFromBuilderModel: "Del modelo {{name}} en Builder",
+  sourceDetailsFromBuilderModel: "Detalles del modelo {{name}} en Builder",
+  sourceDetailsFromNotionDatabase:
+    "Detalles de la base de datos {{name}} en Notion",
+  sourceDetailModel: "Modelo",
+  sourceDetailDatabase: "Base de datos",
+  sourceUnlinkBuilderTitle: "¿Desvincular este modelo de Builder?",
+  sourceUnlinkBuilderBodyOne:
+    "La página se queda aquí y pasa a ser una página normal que puedes editar. Los cambios en Builder ya no llegarán.",
+  sourceUnlinkBuilderBody:
+    "Las {{count}} páginas se quedan aquí y pasan a ser páginas normales que puedes editar. Los cambios en Builder ya no llegarán.",
+  sourceUnlinkNotionTitle: "¿Desvincular esta base de datos de Notion?",
+  sourceUnlinkNotionBodyOne:
+    "La página se queda aquí y sigue siendo tuya para editarla. Los detalles de Notion ya no llegarán.",
+  sourceUnlinkNotionBody:
+    "Las {{count}} páginas se quedan aquí y siguen siendo tuyas para editarlas. Los detalles de Notion ya no llegarán.",
+  sourceProblemNotion: "No se pudo actualizar desde Notion.",
+  sourceProblemBuilder: "No se pudo actualizar desde Builder.",
+  sourceShowingDetailsAsOf:
+    "Se muestran los detalles tal como estaban {{time}}.",
+  notionSyncedToast: "Actualizado desde Notion.",
   githubFromFolder: "De la carpeta {{folder}} en GitHub",
   githubFromRepo: "De {{repo}} en GitHub",
-  githubUpdatedAgo: "Última actualización: {{time}}",
-  githubJustNow: "hace un momento",
-  githubNotUpdatedYet: "Aún sin actualizar",
+  sourceUpdatedAgo: "Última actualización: {{time}}",
+  sourceJustNow: "hace un momento",
+  sourceNotUpdatedYet: "Aún sin actualizar",
   githubEditOnGitHub: "Editar en GitHub",
-  githubDetails: "Detalles",
+  sourceDetails: "Detalles",
   githubNotShownOne: "1 archivo no se muestra",
   githubNotShown: "{{count}} archivos no se muestran",
   githubNotShownHeading: "No se muestran",
-  githubShowingAsOf: "Se muestran las páginas tal como estaban {{time}}.",
+  sourceShowingPagesAsOf: "Se muestran las páginas tal como estaban {{time}}.",
+  sourcePanelFromGitHubFolder:
+    "Las páginas vienen de la carpeta {{folder}} de {{repo}}.",
+  sourcePanelFromGitHubRepo: "Las páginas vienen de {{repo}}.",
+  sourcePanelFromBuilderModel: "Las páginas vienen del modelo {{name}}.",
+  sourcePanelDetailsFromBuilderModel:
+    "Los detalles vienen del modelo {{name}} y se añaden a las páginas que coinciden aquí.",
+  sourcePanelDetailsFromNotionDatabase:
+    "Los detalles vienen de la base de datos {{name}} y se añaden a las páginas que coinciden aquí.",
+  sourceUpToDate: "Al día · comprobado {{time}}",
+  sourceNoDetailsChosen: "Todavía no se han elegido detalles.",
+  sourceLoadingPageContent:
+    "Cargando el contenido de las páginas: {{done}} de {{total}}",
+  sourceEditingGitHub:
+    "No puedes editar estas páginas aquí. Edítalas en GitHub.",
+  sourceEditingNotion:
+    "No puedes editar aquí los detalles de Notion. Edítalos en Notion.",
+  sourceEditingBuilderDetails:
+    "No puedes editar aquí los detalles de Builder. Edítalos en Builder.",
+  sourceEditingBuilderReadOnly:
+    "Los cambios que hagas aquí no se envían a Builder.",
+  sourceEditingBuilderStageOnly:
+    "Los cambios que hagas aquí se guardan en Builder para revisarlos, sin publicarse.",
+  sourceEditingBuilderPublish:
+    "Los cambios que hagas aquí cambian el sitio en vivo después de revisarlos.",
+  sourceNoChangesWaiting: "No hay cambios pendientes",
+  sourcePagesChangedOne: "1 página cambiada",
+  sourcePagesChanged: "{{count}} páginas cambiadas",
+  sourceChangesCheckFailed: "No se pudo comprobar si hay cambios.",
+  sourceReviewAndSend: "Revisar y enviar",
+  sourceMore: "Más",
+  sourceBuilderEditsHeading: "Qué pasa con mis cambios",
+  sourceBuilderEditsDontSend: "No enviar",
+  sourceBuilderEditsSaveForReview: "Guardar en Builder para revisar",
+  sourceBuilderEditsPublish: "Publicar en el sitio en vivo",
+  sourceBuilderPublishConfirmTitle:
+    "¿Publicar los cambios en el sitio en vivo?",
+  sourceBuilderPublishConfirmBody:
+    "Los cambios que envíes desde aquí después de revisarlos cambiarán el sitio en vivo al momento.",
+  sourceMatchedOn: "Las páginas se emparejan por {{field}}.",
+  sourceMatchedOnIgnoringCase:
+    "Las páginas se emparejan por {{field}}, sin tener en cuenta mayúsculas.",
+  sourceMatchedOnCustom:
+    "Las páginas se emparejan por {{field}} con una regla propia.",
+  sourceUnlinkKeepsPages:
+    "Las páginas se quedan aquí y pasan a ser tuyas para editarlas.",
+  sourceUnlinkKeepsDetailPages:
+    "Las páginas se quedan aquí y siguen siendo tuyas para editarlas.",
+  sourceChooseDetails: "Elegir detalles",
   githubSyncingProgress: "Trayendo cambios: {{done}} de {{total}} archivos",
   githubPicturesWaiting:
     "Algunas imágenes no se mostrarán hasta que un administrador del espacio de trabajo configure el almacenamiento de archivos.",
@@ -365,7 +434,6 @@ const database = {
   addProperty: "Añadir propiedad",
   back: "Atrás",
   builderSpace: "Espacio de Builder",
-  connectNotionFirst: "Conecta Notion primero",
   connected: "Conectado",
   builderBulkUpdateNotStaged: "Actualización masiva de Builder no preparada",
   builderBulkUpdateStaged: "Actualización masiva de Builder preparada",
@@ -373,8 +441,6 @@ const database = {
   builderWriteModeWasNotChanged: "No se cambió el modo de escritura de Builder",
   closeDatabaseSettings: "Cerrar ajustes de colección",
   closeSearch: "Cerrar búsqueda",
-  databaseRowsAndLocalPropertiesWereKeptIntact:
-    "Se conservaron las filas y propiedades locales.",
   failedToAttachSource: "No se pudo adjuntar la fuente",
   failedToCreateRow: "No se pudo crear la fila",
   pageCreatedCollectionRefreshFailed:
@@ -458,8 +524,6 @@ const database = {
   searchProperties: "Buscar propiedades",
   somethingWentWrong: "Algo salió mal",
   sort: "Ordenar",
-  sourceDisconnected: "Fuente desconectada",
-  sourceWasNotDisconnected: "La fuente no se desconectó",
   sources: "Fuentes",
   table: "Tabla",
   tryAgain: "Inténtalo de nuevo.",
@@ -473,6 +537,70 @@ const database = {
   unfreezeColumns: "Dejar de inmovilizar columnas",
   selectAllLoadedRows: "Seleccionar todas las filas cargadas",
   clearSelectedRows: "Anular selección de filas",
+  fillWithAi: "Rellenar con IA",
+  fillWithAiTitle: "Rellenar {{name}} con IA",
+  fillWithAiDescription:
+    "Cada fila tiene su propia ejecución de IA, que lee la página de esa fila y solo escribe en su celda.",
+  fillWithAiDescriptionOptions:
+    "Cada fila tiene su propia ejecución de IA, que lee la página de esa fila y elige entre las opciones de esta columna.",
+  fillWithAiInstructionLabel: "¿Qué debe ir en cada celda?",
+  fillWithAiInstructionPlaceholder:
+    "Por ejemplo: una descripción de la página en una frase para los resultados de búsqueda",
+  fillWithAiRewrite: "Reescribir también las celdas que tienen un valor",
+  fillWithAiCount_zero: "Rellena {{count}} celdas vacías en esta vista",
+  fillWithAiCount_one: "Rellena {{count}} celda vacía en esta vista",
+  fillWithAiCount_two: "Rellena {{count}} celdas vacías en esta vista",
+  fillWithAiCount_few: "Rellena {{count}} celdas vacías en esta vista",
+  fillWithAiCount_many: "Rellena {{count}} celdas vacías en esta vista",
+  fillWithAiCount_other: "Rellena {{count}} celdas vacías en esta vista",
+  fillWithAiRewriteCount_zero: "Rellena {{count}} celdas en esta vista",
+  fillWithAiRewriteCount_one: "Rellena {{count}} celda en esta vista",
+  fillWithAiRewriteCount_two: "Rellena {{count}} celdas en esta vista",
+  fillWithAiRewriteCount_few: "Rellena {{count}} celdas en esta vista",
+  fillWithAiRewriteCount_many: "Rellena {{count}} celdas en esta vista",
+  fillWithAiRewriteCount_other: "Rellena {{count}} celdas en esta vista",
+  fillWithAiNothingEmpty: "Todas las celdas de esta vista ya tienen un valor.",
+  fillWithAiNoRows: "No hay filas que rellenar en esta vista.",
+  fillWithAiTooMany:
+    "Rellenar con IA rellena hasta {{max}} celdas a la vez. Filtra la vista para tener menos filas.",
+  fillWithAiLoadedOnly: "Solo se incluyen las filas cargadas hasta ahora.",
+  fillWithAiAlreadyRunning: "Esta columna ya se está rellenando.",
+  fillWithAiNeedsSetup: "Configura la IA para rellenar celdas.",
+  fillWithAiSetUp: "Configurar IA",
+  fillWithAiStart: "Rellenar",
+  fillWithAiStartFailed: "No se pudo iniciar el relleno.",
+  fillProgress: "Rellenando {{done}} de {{total}}",
+  fillStopping: "Deteniendo…",
+  fillStop: "Detener",
+  fillStopLabel: "Dejar de rellenar {{name}}",
+  fillStopFailed: "No se pudo detener el relleno.",
+  fillCellWaiting: "En espera",
+  fillCellRunning: "Rellenando…",
+  fillCellFailed: "No se pudo rellenar",
+  fillTryAgain: "Reintentar",
+  fillRetryFailed: "No se pudo reintentar.",
+  fillOpenChat: "Abrir chat",
+  fillEditInChat: "Editar en el chat",
+  fillStarted_zero: "Rellenando {{count}} celdas en {{name}}.",
+  fillStarted_one: "Rellenando {{count}} celda en {{name}}.",
+  fillStarted_two: "Rellenando {{count}} celdas en {{name}}.",
+  fillStarted_few: "Rellenando {{count}} celdas en {{name}}.",
+  fillStarted_many: "Rellenando {{count}} celdas en {{name}}.",
+  fillStarted_other: "Rellenando {{count}} celdas en {{name}}.",
+  fillFinished: "Se terminó de rellenar {{name}}.",
+  fillFinishedWithFailures_zero:
+    "Se terminó de rellenar {{name}}. No se pudieron rellenar {{count}} celdas.",
+  fillFinishedWithFailures_one:
+    "Se terminó de rellenar {{name}}. No se pudo rellenar {{count}} celda.",
+  fillFinishedWithFailures_two:
+    "Se terminó de rellenar {{name}}. No se pudieron rellenar {{count}} celdas.",
+  fillFinishedWithFailures_few:
+    "Se terminó de rellenar {{name}}. No se pudieron rellenar {{count}} celdas.",
+  fillFinishedWithFailures_many:
+    "Se terminó de rellenar {{name}}. No se pudieron rellenar {{count}} celdas.",
+  fillFinishedWithFailures_other:
+    "Se terminó de rellenar {{name}}. No se pudieron rellenar {{count}} celdas.",
+  fillStoppedAnnouncement: "Se dejó de rellenar {{name}}.",
 };
 
 const databaseExactEnglish = {
@@ -656,6 +784,18 @@ const editor = {
   githubSourceReadOnly:
     "Solo lectura. Esta página sigue un archivo de GitHub y se actualiza después de cada push.",
   githubSourceOpenFile: "Abrir en GitHub",
+  syncedPageBuilder: "Esta página viene del modelo {{name}} en Builder.",
+  syncedPageBuilderReadOnly:
+    "Los cambios que hagas aquí no se envían a Builder.",
+  syncedPageBuilderStageOnly:
+    "Los cambios que hagas aquí se pueden guardar en Builder después de revisarlos, pero nunca se publican.",
+  syncedPageBuilderPublish:
+    "Los cambios que hagas aquí se pueden publicar en Builder después de revisarlos.",
+  syncedPageNotion:
+    "Algunos detalles de esta página vienen de la base de datos {{name}} en Notion y aquí son de solo lectura.",
+  syncedPageSourceUnreadable:
+    "No se pudo comprobar de dónde viene esta página.",
+  syncedPageCheckAgain: "Reintentar",
   textColor: "Color de texto",
   resizeColumns: "Cambiar el ancho de las columnas",
   backgroundColor: "Color de fondo",
@@ -720,6 +860,15 @@ const editor = {
       "El bloque cambió antes de poder moverse, así que no se movió nada.",
     moveFailed: "No se pudo mover el bloque a {{title}}",
     openPage: "Abrir",
+    copyLink: "Copiar enlace",
+    linkCopied: "Enlace copiado",
+    copyLinkFailed: "No se pudo copiar el enlace",
+    linkNotReady:
+      "El enlace de este bloque aún no está listo. Inténtalo de nuevo en un momento.",
+    linkedBlockDeleted: "Se eliminó el bloque al que apunta este enlace.",
+    linkedBlockMissing: "No se encontró el bloque al que apunta este enlace.",
+    linkedBlockLookupFailed:
+      "No se pudo abrir el bloque al que apunta este enlace. Recarga la página para volver a intentarlo.",
   },
   noDocumentSelected: "Ningún documento seleccionado",
   registryBlockLoadError: "No se pudo cargar el bloque {{type}}: {{message}}",
@@ -851,6 +1000,9 @@ const editor = {
     imageUploadsFailed:
       "No se pudieron subir {{failed}} de {{total}} imágenes.",
     imageView: "Vista de imagen",
+    imagePosition: "{{current}} de {{total}}",
+    nextImage: "Imagen siguiente",
+    previousImage: "Imagen anterior",
     keptYourAltText: "Se mantuvo tu texto alternativo.",
     link: "Enlace",
     loadingAssetsPicker: "Cargando selector de recursos",
@@ -1663,10 +1815,11 @@ const comments = {
   openRowComments_other: "{{count}} comentarios abiertos en {{title}}",
   openRow: "Abrir fila",
   suggestions: "Sugerencias",
-  suggestionAdd: "Añadir",
-  suggestionDelete: "Eliminar",
-  suggestionWith: "por",
-  suggestionReplace: "Reemplazar",
+  suggestionReplaceWith: "Reemplazar «{{old}}» por «{{new}}»",
+  suggestionAddText: "Añadir «{{text}}»",
+  suggestionRemoveText: "Eliminar «{{text}}»",
+  suggestionAddParagraph: "Añadir párrafo «{{text}}»",
+  suggestionRemoveParagraph: "Eliminar párrafo «{{text}}»",
   suggestionDetails: "Detalles de la sugerencia",
   proposalEditCount_one: "{{count}} cambio",
   proposalEditCount_many: "{{count}} cambios",
@@ -1989,7 +2142,6 @@ const overrides = {
     builderRowsLoadingBackground:
       "Builder sigue cargando filas en segundo plano.",
     attachingReadOnly: "Adjuntando · solo lectura",
-    builderRowsLoadingHitSnag: "La carga de filas de Builder tuvo un problema.",
     opening: "Abriendo...",
   },
   localFiles: localFiles,

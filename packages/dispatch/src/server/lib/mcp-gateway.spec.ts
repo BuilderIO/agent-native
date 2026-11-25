@@ -166,18 +166,22 @@ vi.mock("@agent-native/core/mcp-client", () => ({
 import { runWithRequestContext } from "@agent-native/core/server";
 
 import {
+  appHomeBaseUrl,
   callGrantedDispatchMcpAppAction,
+  clearGrantedAppManifestCache,
   createGrantedDispatchMcpEmbedSession,
   createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat,
   createWorkspaceSsoEmbedSession,
   createWorkspaceSsoEmbedSessionForWorkspaceAppChat,
   askGrantedDispatchMcpApp,
   getGrantedDispatchMcpAppTask,
+  joinAppBaseUrlAndPath,
   listDispatchMcpApps,
   listGrantedDispatchMcpAppActions,
   listGrantedDispatchMcpApps,
   listGrantedDispatchMcpAppOrigins,
   openGrantedDispatchMcpApp,
+  registerGrantedAppManifest,
   resolveGrantedDispatchMcpApp,
   setDispatchAppActionHeaderProvider,
 } from "./mcp-gateway.js";
@@ -3185,23 +3189,24 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         isDispatch: false,
       },
     ]);
-    mocks.managerCallTool.mockImplementation(async (_tool, args) =>
-      args.runtime
-        ? {
-            structuredContent: {
-              runtime: "workspace-app-chat",
-              token: "private-chat-credential",
-              targetPath: "/",
-              expiresAt: Date.now() + 900000,
-            },
-          }
-        : {
-            structuredContent: {
-              startUrl:
-                "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
-            },
+    mocks.managerCallTool.mockImplementation(async (_tool, args) => {
+      if (args.runtime) {
+        return {
+          structuredContent: {
+            runtime: "workspace-app-chat",
+            token: "private-chat-credential",
+            targetPath: "/",
+            expiresAt: Date.now() + 900000,
           },
-    );
+        };
+      }
+      return {
+        structuredContent: {
+          startUrl:
+            "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
+        },
+      };
+    });
 
     // Independent auth review: retain the document assertion, then pin the
     // separate chat caller's explicit purpose. Public inputs cannot escalate it.
@@ -3226,18 +3231,6 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       },
     );
 
-    const session = await runWithRequestContext(
-      {
-        userEmail: "owner@example.test",
-        identityAuthenticatedAtMs: Date.now() - 1000,
-        requestOrigin: "https://beta.dispatch.agent-native.com",
-      },
-      () =>
-        createWorkspaceSsoEmbedSessionForWorkspaceAppChat(
-          "customer-ticket-triage",
-        ),
-    );
-
     expect(mocks.managerConstructor).toHaveBeenCalledWith(
       expect.objectContaining({
         servers: {
@@ -3253,6 +3246,40 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       undefined,
       expect.objectContaining({
         audience: "https://beta.agent-workspace.builder.io/dispatch/mcp",
+        preferGlobalSecret: true,
+      }),
+    );
+    mocks.managerConstructor.mockClear();
+    mocks.signA2AToken.mockClear();
+
+    const session = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        identityAuthenticatedAtMs: Date.now() - 1000,
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () =>
+        createWorkspaceSsoEmbedSessionForWorkspaceAppChat(
+          "customer-ticket-triage",
+        ),
+    );
+
+    expect(mocks.managerConstructor).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        servers: {
+          target: expect.objectContaining({
+            url: "https://beta.agent-workspace.builder.io/customer-ticket-triage/mcp",
+          }),
+        },
+      }),
+    );
+    expect(mocks.signA2AToken).toHaveBeenCalledWith(
+      "owner@example.test",
+      undefined,
+      undefined,
+      expect.objectContaining({
+        audience:
+          "https://beta.agent-workspace.builder.io/customer-ticket-triage/mcp",
         preferGlobalSecret: true,
       }),
     );
@@ -3531,6 +3558,124 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
                 }),
         ),
       ).rejects.toThrow(/invalid embed start URL/);
+    },
+  );
+
+  it.each(["workspace-sso", "dispatch-grant"] as const)(
+    "routes root-mounted Workspace app chat directly through %s without changing document embeds",
+    async (route) => {
+      vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+      vi.stubEnv("APP_URL", "https://beta.agent-workspace.builder.io");
+      vi.stubEnv(
+        "WORKSPACE_GATEWAY_URL",
+        "https://beta.agent-workspace.builder.io/dispatch",
+      );
+      vi.stubEnv("APP_BASE_PATH", "");
+      vi.stubEnv("VITE_APP_BASE_PATH", "");
+      vi.stubEnv(
+        "IDENTITY_SSO_APP_REGISTRY_JSON",
+        JSON.stringify([
+          {
+            appId: "customer-ticket-triage",
+            clientId: "workspace-client",
+            origin: "https://beta.agent-workspace.builder.io",
+            callbackPath: "/_agent-native/identity/callback",
+            capabilities: ["identity-sso"],
+          },
+        ]),
+      );
+      const workspaceApp = {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        path: "/",
+        url: "https://beta.agent-workspace.builder.io",
+        isDispatch: false,
+      };
+      mocks.listWorkspaceApps.mockResolvedValue([workspaceApp]);
+      mocks.discoverAgents.mockResolvedValue([
+        { ...workspaceApp, color: "#14B8A6" },
+      ]);
+      mocks.managerCallTool.mockImplementation(async (_tool, args) =>
+        args.runtime
+          ? {
+              structuredContent: {
+                runtime: "workspace-app-chat",
+                token: "private-chat-credential",
+                targetPath: "/",
+                expiresAt: Date.now() + 900000,
+              },
+            }
+          : {
+              structuredContent: {
+                startUrl:
+                  "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
+              },
+            },
+      );
+      const context = {
+        userEmail: "owner@example.test",
+        identityAuthenticatedAtMs: Date.now() - 1000,
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      };
+
+      const document = await runWithRequestContext(context, () => {
+        const input = {
+          app: workspaceApp.id,
+          path: "/",
+          chrome: "minimal" as const,
+        };
+        return route === "workspace-sso"
+          ? createWorkspaceSsoEmbedSession(input)
+          : createGrantedDispatchMcpEmbedSession(input);
+      });
+      expect(mocks.managerConstructor).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          servers: {
+            target: expect.objectContaining({
+              url: "https://beta.agent-workspace.builder.io/dispatch/mcp",
+            }),
+          },
+        }),
+      );
+      expect(mocks.managerCallTool).toHaveBeenLastCalledWith(
+        "mcp__target__create_embed_session",
+        { url: "https://beta.agent-workspace.builder.io/", chrome: "minimal" },
+      );
+      expect(document.startUrl).toBe(
+        "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
+      );
+
+      const chat = await runWithRequestContext(context, () =>
+        route === "workspace-sso"
+          ? createWorkspaceSsoEmbedSessionForWorkspaceAppChat(workspaceApp.id)
+          : createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat(
+              workspaceApp.id,
+            ),
+      );
+      expect.soft(mocks.managerConstructor).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          servers: {
+            target: expect.objectContaining({
+              url: "https://beta.agent-workspace.builder.io/mcp",
+            }),
+          },
+        }),
+      );
+      expect(mocks.managerCallTool).toHaveBeenLastCalledWith(
+        "mcp__target__create_embed_session",
+        {
+          url: "https://beta.agent-workspace.builder.io/",
+          chrome: "minimal",
+          runtime: "workspace-app-chat",
+        },
+      );
+      expect.soft(chat).toEqual({
+        token: "private-chat-credential",
+        targetPath: "/",
+        expiresAt: expect.any(Number),
+        appBaseUrl: "https://beta.agent-workspace.builder.io",
+      });
     },
   );
 
@@ -4937,4 +5082,205 @@ it("withholds first-party MCP claims for granted document embeds to unregistered
     undefined,
     expect.not.objectContaining({ extraClaims: expect.anything() }),
   );
+});
+
+describe("A2A tab/viewport propagation, double-prefix prevention, and manifest v2 open_app validation", () => {
+  afterEach(() => {
+    clearGrantedAppManifestCache();
+  });
+
+  it("forwards childBrowserTabId and foreground viewportMode on ask_app when the target app is bound in the pane", async () => {
+    mocks.resolveChildBrowserTab.mockResolvedValueOnce(
+      "a1b2c3d4-5678-4abc-9def-1234567890ab",
+    );
+    mocks.a2aSend.mockResolvedValueOnce({
+      id: "task-tab-1",
+      status: {
+        state: "completed",
+        message: { role: "agent", parts: [{ type: "text", text: "opened" }] },
+        timestamp: "2026-11-23T00:00:00Z",
+      },
+    });
+
+    await runWithRequestContext(
+      { userEmail: "owner@example.test", orgId: "org-1" },
+      () => askGrantedDispatchMcpApp("analytics", "switch to revenue"),
+    );
+
+    expect(mocks.a2aConstructor).toHaveBeenCalledWith(
+      analyticsAgent.url,
+      undefined,
+      expect.objectContaining({
+        transportHeaders: {
+          "x-agent-native-browser-tab": "a1b2c3d4-5678-4abc-9def-1234567890ab",
+          "x-agent-native-viewport-mode": "foreground",
+        },
+      }),
+    );
+    expect(mocks.a2aSend).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          browserTabId: "a1b2c3d4-5678-4abc-9def-1234567890ab",
+          viewportMode: "foreground",
+        }),
+      }),
+    );
+  });
+
+  it("forwards viewportMode=background on ask_app without binding the foreground child tab", async () => {
+    mocks.a2aSend.mockResolvedValueOnce({
+      id: "task-bg-1",
+      status: {
+        state: "completed",
+        message: { role: "agent", parts: [{ type: "text", text: "found" }] },
+        timestamp: "2026-11-23T00:00:00Z",
+      },
+    });
+
+    await runWithRequestContext(
+      { userEmail: "owner@example.test", orgId: "org-1" },
+      () =>
+        askGrantedDispatchMcpApp("analytics", "look up metric", {
+          viewportMode: "background",
+        }),
+    );
+
+    expect(mocks.resolveChildBrowserTab).not.toHaveBeenCalled();
+    expect(mocks.a2aConstructor).toHaveBeenCalledWith(
+      analyticsAgent.url,
+      undefined,
+      expect.objectContaining({
+        transportHeaders: {
+          "x-agent-native-viewport-mode": "background",
+        },
+      }),
+    );
+    expect(mocks.a2aSend).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          viewportMode: "background",
+        }),
+      }),
+    );
+  });
+
+  it("prevents /<app>/<app> double base-path prefixing in appHomeBaseUrl, joinAppBaseUrlAndPath, and open_app", async () => {
+    expect(
+      appHomeBaseUrl({
+        url: "https://workspace.example.test/decks-2/decks-2",
+      }),
+    ).toBe("https://workspace.example.test/decks-2");
+    expect(
+      joinAppBaseUrlAndPath(
+        "https://workspace.example.test/decks-2",
+        "/decks-2",
+      ),
+    ).toBe("https://workspace.example.test/decks-2/");
+    expect(
+      joinAppBaseUrlAndPath(
+        "https://workspace.example.test/decks-2",
+        "/decks-2/docs/deck-1?slide=2",
+      ),
+    ).toBe("https://workspace.example.test/decks-2/docs/deck-1?slide=2");
+
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "decks-2",
+        name: "Decks",
+        description: "Slide decks",
+        url: "https://workspace.example.test/decks-2",
+        color: "#222222",
+      },
+    ]);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "decks-2",
+        name: "Decks",
+        path: "/decks-2",
+        url: "https://workspace.example.test/decks-2",
+      },
+    ]);
+
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.test", orgId: "org-1" },
+      () =>
+        openGrantedDispatchMcpApp({
+          app: "decks-2",
+          path: "/decks-2/docs/q4",
+          focus: true,
+        }),
+    );
+
+    expect(result.url).toBe("https://workspace.example.test/decks-2/docs/q4");
+    expect(result.focus).toBe(true);
+  });
+
+  it("validates open_app routes and expands { screen, params } against a v2 manifest", async () => {
+    mocks.discoverAgents.mockResolvedValue([
+      {
+        id: "decks-2",
+        name: "Decks",
+        description: "Slide decks",
+        url: "https://workspace.example.test/decks-2",
+        color: "#222222",
+      },
+    ]);
+    mocks.listWorkspaceApps.mockResolvedValue([
+      {
+        id: "decks-2",
+        name: "Decks",
+        path: "/decks-2",
+        url: "https://workspace.example.test/decks-2",
+      },
+    ]);
+    registerGrantedAppManifest("decks-2", {
+      version: 2,
+      screens: {
+        home: { route: "/", action: "navigate" },
+        deck: { route: "/docs/:deckId", action: "navigate" },
+      },
+      supportsViewOverlay: true,
+    });
+
+    const validPath = await runWithRequestContext(
+      { userEmail: "owner@example.test", orgId: "org-1" },
+      () =>
+        openGrantedDispatchMcpApp({
+          app: "decks-2",
+          path: "/docs/deck-42",
+        }),
+    );
+    expect(validPath.url).toBe(
+      "https://workspace.example.test/decks-2/docs/deck-42",
+    );
+
+    const byScreen = await runWithRequestContext(
+      { userEmail: "owner@example.test", orgId: "org-1" },
+      () =>
+        openGrantedDispatchMcpApp({
+          app: "decks-2",
+          screen: "deck",
+          params: { deckId: "deck-42", slide: 3 },
+        }),
+    );
+    expect(byScreen.path).toBe("/docs/deck-42");
+    expect(byScreen.url).toBe(
+      "https://workspace.example.test/decks-2/docs/deck-42?slide=3",
+    );
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "owner@example.test", orgId: "org-1" },
+        () =>
+          openGrantedDispatchMcpApp({
+            app: "decks-2",
+            path: "/totally/invalid",
+          }),
+      ),
+    ).rejects.toThrow(
+      /Invalid route "\/totally\/invalid" for app "decks-2".*deck \(\/docs\/:deckId\)/,
+    );
+  });
 });

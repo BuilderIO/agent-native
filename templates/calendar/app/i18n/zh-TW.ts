@@ -2,6 +2,8 @@ import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js"
 
 export default {
   common: {
+    calendarRateLimited:
+      "Google 日曆要求受到限制。已儲存的活動可能不是最新資料。",
     connect: "連線",
     connected: "已連線",
     connecting: "正在連線...",
@@ -537,6 +539,11 @@ export default {
     custom: "定制",
     customLink: "自訂連結",
     customLinkDescription: "貼上任何會議 URL",
+    reminderEmail: "提醒郵件",
+    reminderEmailDescription: "寄給預約者及其新增的所有來賓。",
+    reminderOff: "不提醒",
+    reminderOneHour: "提前 1 小時",
+    reminderOneDay: "提前 1 天",
     date: "日期",
     dateAndTime: "日期和時間",
     dateSelection: "日期選取",

@@ -79,6 +79,7 @@ const SOURCES: { value: DataSourceType; label: string }[] = [
   { value: "demo", label: "Demo Prometheus" }, // i18n-ignore stable source label
   { value: "prometheus", label: "Prometheus" },
   { value: "program", label: "Data program" }, // i18n-ignore stable source label
+  { value: "postgres", label: "PostgreSQL" },
 ];
 
 interface DataProgramSummary {
@@ -414,7 +415,7 @@ function PanelEditorContent({
         `Inspect the dashboard's declared filters and use their exact ids in first-party SQL. The seeded dashboard uses \`{{timeRange}}\`, with \`{{timeRangeStart}}\` and \`{{timeRangeEnd}}\` for the custom range. ` +
         `Use the \`mutate-dashboard\` action with one structured operation like {op:"insertPanel",panel:{id:"new-panel",title:"New Panel",source:"first-party",chartType:"metric",width:1,config:{timeScope:"dashboard"},sql:"SELECT COUNT(*) AS value FROM analytics_events WHERE ${firstPartyTimeFilter}"},position:"bottom"}. The width must be a JSON integer from 1 to 6, never a string. ` + // i18n-ignore i18n-copy-ignore: Internal agent context is not displayed as UI copy.
         `For placement, use position, index, beforePanelId, afterPanelId, nextToPanelId, rowNumber, or rowPosition. Prefer nextToPanelId or rowNumber for visible row placement requests; they keep the chart in the intended rendered row and expand/rebalance that row when needed. ` +
-        `Panel shape: { id (unique slug), title, sql, source ('bigquery'|'ga4'|'amplitude'|'first-party'|'demo'|'prometheus'|'program'), chartType ('line'|'area'|'bar'|'combo'|'metric'|'table'|'pie'|'funnel'|'heatmap'|'callout'|'section'|'extension'), width (legacy integer 1..6; set to 1 unless editing existing data), tab? (use 'Group / Tab' for grouped tabs), columns? (section panels only - 1..6 max panels per row for panels following this section), config? }. ` +
+        `Panel shape: { id (unique slug), title, sql, source ('bigquery'|'ga4'|'amplitude'|'first-party'|'demo'|'prometheus'|'program'|'postgres'), chartType ('line'|'area'|'bar'|'combo'|'metric'|'table'|'pie'|'funnel'|'heatmap'|'callout'|'section'|'extension'), width (legacy integer 1..6; set to 1 unless editing existing data), tab? (use 'Group / Tab' for grouped tabs), columns? (section panels only - 1..6 max panels per row for panels following this section), config? }. ` +
         `Visible layout auto-fits by row: one panel in a row spans the row, two split it, three split it into thirds, up to the section column limit. ` +
         `For amplitude panels, sql is a JSON descriptor: {"event":"event name","groupBy":"property","days":30}. ` +
         `For first-party panels, sql is read-only SQL over analytics_events only; use source 'first-party' and do not call db-query for this datasource. ` +

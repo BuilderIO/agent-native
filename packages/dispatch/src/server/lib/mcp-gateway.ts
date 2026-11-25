@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 
 import {
+  appCapabilityManifestSchema,
+  resolveManifestScreenPath,
+  validateAppManifestPath,
+  type AppCapabilityManifest,
+} from "@agent-native/core";
+import {
   A2AClient,
   canonicalA2AAudience,
   extractA2APersistedMutationReceipts,
@@ -36,6 +42,7 @@ import {
   getRequestUserEmail,
   platformWaitUntil,
   resolveAppRuntimeUrl,
+  type ViewportMode,
 } from "@agent-native/core/server";
 import {
   discoverAgents,
@@ -107,11 +114,66 @@ export interface DispatchMcpAccessibleApp {
   url: string;
   homeUrl?: string;
   mcpUrl?: string;
+  workspaceMount?: boolean;
   color: string;
   source?: DiscoveredAgent["source"];
   aliases?: string[];
   granted: boolean;
   mountedPathUnavailable?: boolean;
+  manifest?: AppCapabilityManifest;
+}
+
+const grantedAppManifestCache = new Map<string, AppCapabilityManifest>();
+
+/** Registers or clears a parsed capability manifest for a granted app id. */
+export function registerGrantedAppManifest(
+  appId: string,
+  manifest: unknown,
+): AppCapabilityManifest | undefined {
+  const key = normalizeAppId(appId);
+  if (!key) return undefined;
+  if (manifest === undefined || manifest === null) {
+    grantedAppManifestCache.delete(key);
+    return undefined;
+  }
+  const parsed = appCapabilityManifestSchema.safeParse(manifest);
+  if (!parsed.success) return undefined;
+  grantedAppManifestCache.set(key, parsed.data);
+  return parsed.data;
+}
+
+/** Clears cached granted app capability manifests. */
+export function clearGrantedAppManifestCache(): void {
+  grantedAppManifestCache.clear();
+}
+
+function getGrantedAppManifest(
+  target: DispatchMcpAccessibleApp,
+): AppCapabilityManifest | undefined {
+  if (target.manifest) {
+    const parsed = appCapabilityManifestSchema.safeParse(target.manifest);
+    if (parsed.success) return parsed.data;
+  }
+  return grantedAppManifestCache.get(normalizeAppId(target.id));
+}
+
+function stripTargetBasePath(
+  target: DispatchMcpAccessibleApp,
+  rawPath: string,
+): string {
+  const basePath = appBasePath(target);
+  if (!basePath) return rawPath;
+  const parsed = new URL(rawPath, "https://agent-native.invalid");
+  const lowerBase = basePath.toLowerCase();
+  const lowerPathname = parsed.pathname.toLowerCase();
+  if (lowerPathname === lowerBase) {
+    return `/${parsed.search}${parsed.hash}`;
+  }
+  if (lowerPathname.startsWith(`${lowerBase}/`)) {
+    const stripped = parsed.pathname.slice(basePath.length) || "/";
+    return `${stripped}${parsed.search}${parsed.hash}`;
+  }
+  return rawPath;
 }
 
 function normalizeAppId(value: string): string {
@@ -291,6 +353,8 @@ async function createDispatchA2AClient(input: {
   orgDomain?: string;
   orgSecret?: string;
   deadline?: number;
+  childBrowserTabId?: string;
+  viewportMode?: ViewportMode;
 }): Promise<{
   client: A2AClient;
   metadata: Record<string, unknown>;
@@ -329,6 +393,18 @@ async function createDispatchA2AClient(input: {
     ...(getRequestContext()?.requestOrigin
       ? { requestOrigin: getRequestContext()?.requestOrigin }
       : {}),
+    ...(input.childBrowserTabId
+      ? { browserTabId: input.childBrowserTabId }
+      : {}),
+    ...(input.viewportMode ? { viewportMode: input.viewportMode } : {}),
+  };
+  const transportHeaders: Record<string, string> = {
+    ...(input.childBrowserTabId
+      ? { "x-agent-native-browser-tab": input.childBrowserTabId }
+      : {}),
+    ...(input.viewportMode
+      ? { "x-agent-native-viewport-mode": input.viewportMode }
+      : {}),
   };
   const remainingMs =
     input.deadline == null ? null : input.deadline - Date.now();
@@ -339,6 +415,7 @@ async function createDispatchA2AClient(input: {
           ? DISPATCH_A2A_REQUEST_TIMEOUT_MS
           : Math.max(1, Math.min(DISPATCH_A2A_REQUEST_TIMEOUT_MS, remainingMs)),
       ...(apiKeys.length > 1 ? { fallbackApiKeys: apiKeys.slice(1) } : {}),
+      ...(Object.keys(transportHeaders).length > 0 ? { transportHeaders } : {}),
     }),
     metadata,
   };
@@ -661,21 +738,87 @@ function targetEndpointKeepsCredentialsPrivate(endpoint: string): boolean {
   }
 }
 
-function appHomeBaseUrl(app: DispatchMcpAccessibleApp): string {
+function collapseRepeatedLeadingPathSegment(pathname: string): string {
+  const segments = pathname.split("/").filter(Boolean);
+  if (segments.length < 2) return pathname;
+  let start = 0;
+  while (start + 1 < segments.length) {
+    const current = segments[start];
+    const next = segments[start + 1];
+    if (!current || !next || current.toLowerCase() !== next.toLowerCase()) {
+      break;
+    }
+    start += 1;
+  }
+  if (start === 0) return pathname;
+  return `/${segments.slice(start).join("/")}`;
+}
+
+export function appHomeBaseUrl(
+  app: Pick<DispatchMcpAccessibleApp, "url" | "homeUrl">,
+): string {
+  const normalize = (raw: string): string => {
+    const parsed = new URL(raw);
+    parsed.pathname = collapseRepeatedLeadingPathSegment(parsed.pathname);
+    return parsed.toString().replace(/\/+$/, "");
+  };
   const configured = app.homeUrl?.trim();
   if (configured) {
     try {
       const url = new URL(configured);
       if (url.protocol === "http:" || url.protocol === "https:") {
-        return url.toString().replace(/\/+$/, "");
+        return normalize(configured);
       }
     } catch {
       // coercion-ok: invalid optional home URL falls back to endpoint.
-      // Fall back to the registered endpoint below. The endpoint has already
-      // passed the app-origin validation before this helper is reached.
     }
   }
-  return appBaseUrl(app);
+  try {
+    return normalize(app.url);
+  } catch {
+    // coercion-ok: fallback preserves pre-validated app base URL string.
+    return app.url.replace(/\/+$/, "");
+  }
+}
+
+export function joinAppBaseUrlAndPath(
+  baseUrl: string,
+  relPath: string,
+): string {
+  const cleanBase = baseUrl.replace(/\/+$/, "");
+  let parsedBase: URL;
+  let parsedRel: URL;
+  try {
+    parsedBase = new URL(cleanBase);
+    parsedRel = new URL(relPath, "https://agent-native.invalid");
+  } catch {
+    // coercion-ok: fallback preserves direct concatenation for non-URL test inputs.
+    return `${cleanBase}${relPath}`;
+  }
+  const basePath = collapseRepeatedLeadingPathSegment(
+    parsedBase.pathname.replace(/\/+$/, "") || "/",
+  );
+  const relPathname = collapseRepeatedLeadingPathSegment(
+    parsedRel.pathname || "/",
+  );
+  const normalizedBasePath = basePath === "/" ? "" : basePath;
+  const suffix = `${parsedRel.search}${parsedRel.hash}`;
+  if (!normalizedBasePath) {
+    return `${parsedBase.origin}${relPathname}${suffix}`;
+  }
+  const lowerBase = normalizedBasePath.toLowerCase();
+  const lowerRel = relPathname.toLowerCase();
+  const effectiveRel =
+    lowerRel === lowerBase
+      ? "/"
+      : lowerRel.startsWith(`${lowerBase}/`)
+        ? relPathname.slice(normalizedBasePath.length)
+        : relPathname;
+  const joinedPath =
+    effectiveRel === "/"
+      ? `${normalizedBasePath}/`
+      : `${normalizedBasePath}${effectiveRel.startsWith("/") ? effectiveRel : `/${effectiveRel}`}`;
+  return `${parsedBase.origin}${joinedPath}${suffix}`;
 }
 
 function workspaceGatewayMcpUrl(appUrl: string): string | undefined {
@@ -872,7 +1015,7 @@ export async function listDispatchMcpApps(): Promise<{
             mountedApp && sameOriginMount
               ? mountedWorkspaceAppHomeUrl(mountedApp)
               : null;
-          if (homeUrl) return { ...accessible, homeUrl };
+          if (homeUrl) return { ...accessible, homeUrl, workspaceMount: true };
           return agent.source === "workspace" ||
             isDispatchAppPageUrl(accessible.url)
             ? { ...accessible, mountedPathUnavailable: true }
@@ -989,6 +1132,7 @@ async function listWorkspaceSsoApps(): Promise<DispatchMcpAccessibleApp[]> {
       description: app.description,
       url: app.url,
       homeUrl,
+      workspaceMount: true,
       ...(mcpUrl ? { mcpUrl } : {}),
       color: DISPATCH_COLOR,
       granted: true,
@@ -1038,7 +1182,11 @@ async function resolveWorkspaceSsoApp(
 export async function askGrantedDispatchMcpApp(
   app: string,
   message: string,
-  options?: { async?: boolean; maxWaitMs?: number },
+  options?: {
+    async?: boolean;
+    maxWaitMs?: number;
+    viewportMode?: ViewportMode;
+  },
 ): Promise<ReturnType<typeof dispatchAskAppTaskResult>> {
   const trimmedMessage = message.trim();
   if (!trimmedMessage) throw new Error("message is required");
@@ -1053,6 +1201,15 @@ export async function askGrantedDispatchMcpApp(
         getOrgA2ASecret(orgId).catch(() => null),
       ])
     : [null, null];
+
+  const requestedViewportMode =
+    options?.viewportMode ?? getRequestRunContext()?.viewportMode;
+  const childBrowserTabId =
+    requestedViewportMode === "background"
+      ? undefined
+      : await resolveDispatchChildBrowserTab(target);
+  const viewportMode: ViewportMode | undefined =
+    requestedViewportMode ?? (childBrowserTabId ? "foreground" : undefined);
 
   const inlineWaitMs =
     options?.async === true
@@ -1069,6 +1226,8 @@ export async function askGrantedDispatchMcpApp(
     orgDomain: orgDomain ?? undefined,
     orgSecret: orgSecret ?? undefined,
     deadline: submissionDeadline,
+    ...(childBrowserTabId ? { childBrowserTabId } : {}),
+    ...(viewportMode ? { viewportMode } : {}),
   });
   const idempotencyKey = await dispatchAskAppIdempotencyKey(
     target,
@@ -1170,18 +1329,22 @@ export async function getGrantedDispatchMcpAppTask(
 export async function openGrantedDispatchMcpApp(
   input: {
     app: string;
+    screen?: string | undefined;
     view?: string | undefined;
     path?: string | undefined;
     params?: Record<string, string | number | boolean> | undefined;
+    focus?: boolean | undefined;
     embed?: boolean | undefined;
     chrome?: "full" | "minimal" | undefined;
   },
   options?: { prefetchEmbed: boolean },
 ): Promise<{
   app: string;
+  screen?: string;
   view?: string;
   path?: string;
   url: string;
+  focus?: boolean;
   embed?: boolean;
   chrome?: "full" | "minimal";
   embedStartUrl?: string;
@@ -1189,23 +1352,68 @@ export async function openGrantedDispatchMcpApp(
   embedExpiresAt?: number;
   embedUnavailable?: string;
 }> {
+  const screen = input.screen?.trim() ?? "";
   const view = input.view?.trim() ?? "";
   const hasPathInput = input.path != null;
-  // Naming only the app opens its home page.
-  const path = safeAppPath(input.path ?? (view ? undefined : "/"));
+  let path = safeAppPath(input.path ?? (view || screen ? undefined : "/"));
   if (hasPathInput && !path) {
     throw new Error("path must be a safe app-relative route");
   }
   const target = await resolveGrantedDispatchMcpApp(input.app);
-  if (path) assertAppCanOpenPath(target, path);
+  const manifest = getGrantedAppManifest(target);
+  let effectiveParams = input.params;
+  if (screen && !path) {
+    if (manifest?.screens && Object.keys(manifest.screens).length > 0) {
+      const resolvedScreen = resolveManifestScreenPath(
+        manifest,
+        screen,
+        input.params,
+      );
+      if ("error" in resolvedScreen) {
+        fail(
+          `Cannot open screen "${screen}" on app "${target.id}": ${resolvedScreen.error}`,
+          { errorCode: "invalid_app_route", statusCode: 400 },
+        );
+      }
+      path = safeAppPath(resolvedScreen.path);
+      if (!path) {
+        fail(
+          `Resolved route "${resolvedScreen.path}" for screen "${screen}" on app "${target.id}" is not a safe app-relative route.`,
+          { errorCode: "invalid_app_route", statusCode: 400 },
+        );
+      }
+      effectiveParams =
+        Object.keys(resolvedScreen.remainingParams).length > 0
+          ? resolvedScreen.remainingParams
+          : undefined;
+    } else if (!view) {
+      path = "/";
+    }
+  }
+  if (path) {
+    assertAppCanOpenPath(target, path);
+    if (manifest) {
+      const manifestPath = stripTargetBasePath(target, path);
+      const validation = validateAppManifestPath(manifest, manifestPath);
+      if (!validation.valid) {
+        const templates = validation.validTemplates
+          .map((entry) => `${entry.screenId} (${entry.route})`)
+          .join(", ");
+        fail(
+          `Invalid route "${path}" for app "${target.id}". Valid screens: ${templates}.`,
+          { errorCode: "invalid_app_route", statusCode: 400 },
+        );
+      }
+    }
+  }
   const relUrl = path
-    ? appendParamsToPath(path, input.params)
+    ? appendParamsToPath(path, effectiveParams)
     : buildDeepLink({
         app: target.id,
-        view,
-        params: input.params,
+        view: view || screen,
+        params: effectiveParams,
       });
-  const url = `${appHomeBaseUrl(target)}${relUrl}`;
+  const url = joinAppBaseUrlAndPath(appHomeBaseUrl(target), relUrl);
   let embedSession: Awaited<
     ReturnType<typeof createGrantedDispatchMcpEmbedSession>
   > | null = null;
@@ -1252,9 +1460,11 @@ export async function openGrantedDispatchMcpApp(
   }
   return {
     app: target.id,
+    ...(screen ? { screen } : {}),
     ...(view ? { view } : {}),
     ...(path ? { path } : {}),
     url,
+    ...(input.focus === true ? { focus: true } : {}),
     ...(input.embed === true ? { embed: true } : {}),
     ...(input.chrome ? { chrome: input.chrome } : {}),
     ...(embedSession?.startUrl ? { embedStartUrl: embedSession.startUrl } : {}),
@@ -1582,6 +1792,7 @@ async function appActionHeaders(
     if (
       name.toLowerCase() === "authorization" ||
       name.toLowerCase() === "x-agent-native-browser-tab" ||
+      name.toLowerCase() === "x-agent-native-viewport-mode" ||
       typeof value !== "string"
     ) {
       throw new Error(
@@ -1688,6 +1899,7 @@ async function withGrantedAppMcp<T>(
   app: string,
   action: string | undefined,
   withClient: (manager: McpClientManager, serverId: string) => Promise<T>,
+  options?: { viewportMode?: ViewportMode },
 ): Promise<T> {
   if (!dispatchDirectAppActionsEnabled()) {
     fail("Direct app actions are not enabled on this Dispatch deployment.", {
@@ -1741,10 +1953,17 @@ async function withGrantedAppMcp<T>(
     if (oauth.credential) credentials.push(oauth.credential);
     else appAuthorizationRequired(target, mcpUrl, oauth.serverId);
   }
+  const requestedViewportMode =
+    options?.viewportMode ?? getRequestRunContext()?.viewportMode;
   const childBrowserTabId =
-    action === undefined
+    action === undefined || requestedViewportMode === "background"
       ? undefined
       : await resolveDispatchChildBrowserTab(target);
+  const viewportMode: ViewportMode | undefined =
+    action === undefined
+      ? undefined
+      : (requestedViewportMode ??
+        (childBrowserTabId ? "foreground" : undefined));
   const extraHeaders = await appActionHeaders({
     app: target.id,
     action,
@@ -1769,6 +1988,9 @@ async function withGrantedAppMcp<T>(
               ...extraHeaders,
               ...(childBrowserTabId
                 ? { "x-agent-native-browser-tab": childBrowserTabId }
+                : {}),
+              ...(viewportMode
+                ? { "x-agent-native-viewport-mode": viewportMode }
                 : {}),
               Authorization: `Bearer ${credential.token}`,
               ...(credential.firstPartyMcp
@@ -1880,6 +2102,7 @@ export async function callGrantedDispatchMcpAppAction(
   app: string,
   action: string,
   args: Record<string, unknown>,
+  options?: { viewportMode?: ViewportMode },
 ): Promise<GrantedAppActionResult> {
   if (TARGET_APP_HIDDEN_ACTIONS.has(action)) {
     throw new NoWriteError(`"${action}" is not an app action.`, {
@@ -1887,55 +2110,62 @@ export async function callGrantedDispatchMcpAppAction(
       statusCode: 404,
     });
   }
-  return withGrantedAppMcp(app, action, async (manager, serverId) => {
-    const toolName = buildMcpToolName(serverId, action);
-    if (!manager.getTool(toolName)) {
-      throw new NoWriteError(
-        `The app has no action named "${action}". Call list_app_actions to see them.`,
-        { errorCode: "app_action_not_found", statusCode: 404 },
-      );
-    }
-    let result: unknown;
-    try {
-      result = await manager.callTool(toolName, args);
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      if (mcpToolCallWasNotSent(error)) {
-        throw new NoWriteError(`The app action did not run (${reason}).`, {
-          errorCode: "app_action_not_sent",
-          statusCode:
-            (error as { statusCode?: unknown }).statusCode === 403 ? 403 : 502,
-        });
+  return withGrantedAppMcp(
+    app,
+    action,
+    async (manager, serverId) => {
+      const toolName = buildMcpToolName(serverId, action);
+      if (!manager.getTool(toolName)) {
+        throw new NoWriteError(
+          `The app has no action named "${action}". Call list_app_actions to see them.`,
+          { errorCode: "app_action_not_found", statusCode: 404 },
+        );
       }
-      fail(
-        `The app action failed before returning a result (${reason}). Its write outcome may be unknown; inspect the app before retrying.`,
-        { errorCode: "app_action_outcome_unknown", statusCode: 502 },
-      );
-    }
-    if (
-      result === null ||
-      typeof result !== "object" ||
-      !("content" in result) ||
-      !Array.isArray(result.content)
-    ) {
-      fail(
-        "The app action returned an unreadable result. Its write outcome may be unknown; inspect the app before retrying.",
-        { errorCode: "app_action_result_unreadable", statusCode: 502 },
-      );
-    }
-    const approvalReview = approvalReviewFrom(result);
-    return {
-      ...("isError" in result && result.isError === true
-        ? { isError: true }
-        : {}),
-      ...(approvalReview ? { approvalReview } : {}),
-      ...("structuredContent" in result &&
-      result.structuredContent !== undefined
-        ? { structuredContent: result.structuredContent }
-        : {}),
-      content: result.content as unknown[],
-    };
-  });
+      let result: unknown;
+      try {
+        result = await manager.callTool(toolName, args);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        if (mcpToolCallWasNotSent(error)) {
+          throw new NoWriteError(`The app action did not run (${reason}).`, {
+            errorCode: "app_action_not_sent",
+            statusCode:
+              (error as { statusCode?: unknown }).statusCode === 403
+                ? 403
+                : 502,
+          });
+        }
+        fail(
+          `The app action failed before returning a result (${reason}). Its write outcome may be unknown; inspect the app before retrying.`,
+          { errorCode: "app_action_outcome_unknown", statusCode: 502 },
+        );
+      }
+      if (
+        result === null ||
+        typeof result !== "object" ||
+        !("content" in result) ||
+        !Array.isArray(result.content)
+      ) {
+        fail(
+          "The app action returned an unreadable result. Its write outcome may be unknown; inspect the app before retrying.",
+          { errorCode: "app_action_result_unreadable", statusCode: 502 },
+        );
+      }
+      const approvalReview = approvalReviewFrom(result);
+      return {
+        ...("isError" in result && result.isError === true
+          ? { isError: true }
+          : {}),
+        ...(approvalReview ? { approvalReview } : {}),
+        ...("structuredContent" in result &&
+        result.structuredContent !== undefined
+          ? { structuredContent: result.structuredContent }
+          : {}),
+        content: result.content as unknown[],
+      };
+    },
+    options,
+  );
 }
 
 type TargetMcpCredential = {
@@ -2073,7 +2303,7 @@ async function resolveEmbedTarget(
     return {
       app: explicitApp,
       path,
-      url: `${appHomeBaseUrl(explicitApp)}${path}`,
+      url: joinAppBaseUrlAndPath(appHomeBaseUrl(explicitApp), path),
     };
   }
 
@@ -2093,7 +2323,7 @@ async function resolveEmbedTarget(
     return {
       app: explicitApp,
       path,
-      url: `${appHomeBaseUrl(explicitApp)}${path}`,
+      url: joinAppBaseUrlAndPath(appHomeBaseUrl(explicitApp), path),
     };
   }
 
@@ -2107,7 +2337,11 @@ async function resolveEmbedTarget(
   const path = safeAppPath(appRelativePath(target, parsed));
   if (!path) throw new Error("Embed URL path is not safe.");
   assertAppCanOpenPath(target, path);
-  return { app: target, path, url: `${appHomeBaseUrl(target)}${path}` };
+  return {
+    app: target,
+    path,
+    url: joinAppBaseUrlAndPath(appHomeBaseUrl(target), path),
+  };
 }
 
 async function resolveDispatchEmbedTarget(input: {
@@ -2419,7 +2653,10 @@ async function createEmbedSessionForResolvedApp(input: {
     };
   }
 
-  const targetMcpUrl = appMcpUrl(target.app);
+  const targetMcpUrl =
+    input.runtime && target.app.workspaceMount
+      ? `${appHomeBaseUrl(target.app)}/mcp`
+      : appMcpUrl(target.app);
   const firstPartyMcp = isWorkspaceSsoAppUrl(
     { id: target.app.id, url: targetMcpUrl },
     {
@@ -2535,7 +2772,9 @@ async function createEmbedSessionForResolvedApp(input: {
       targetPath: parsed.targetPath,
       expiresAt: parsed.expiresAt,
       app: target.app.id,
-      appBaseUrl: appChatBaseUrl(target.app),
+      appBaseUrl: target.app.workspaceMount
+        ? appHomeBaseUrl(target.app)
+        : appChatBaseUrl(target.app),
     };
   }
   if (!parsed.startUrl || parsed.token) {

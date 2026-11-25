@@ -286,7 +286,7 @@ export function BreakpointDeviceControl({
                     ) : null}
                     {onRemove ? (
                       <DropdownMenuItem
-                        className="text-destructive focus:text-destructive"
+                        variant="destructive"
                         onSelect={() => {
                           setMenuOpenFor(null);
                           onRemove(breakpoint.id);

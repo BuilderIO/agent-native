@@ -1,10 +1,10 @@
 //! The camera track's own AVCaptureSession and fMP4 writer (see
 //! `camera_track` for what the file holds). The session opens the camera the
-//! bubble shows, beside the web view's own capture of it, with the preset that
-//! leaves the camera's format alone, so the bubble keeps its picture. Frames
-//! reach the writer on a queue of the track's own, and the file takes the size
-//! of the first one. The camera going away, or anything failing here, ends
-//! only this track, which is then listed incomplete.
+//! bubble shows, beside the web view's own capture of it, and hands the camera
+//! back the format and frame rate it had, so the bubble keeps its picture.
+//! Frames reach the writer on a queue of the track's own, and the file takes
+//! the size of the first one. The camera going away, or anything failing here,
+//! ends only this track, which is then listed incomplete.
 //!
 //! The track never asks for the camera: it starts only when Clips already has
 //! access, as it does while the bubble shows the camera.
@@ -25,11 +25,11 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{class, define_class, msg_send, AllocAnyThread, DefinedClass};
 use objc2_av_foundation::{
-    AVAuthorizationStatus, AVCaptureConnection, AVCaptureDevice, AVCaptureDeviceInput,
-    AVCaptureOutput, AVCaptureSession, AVCaptureVideoDataOutput,
+    AVAuthorizationStatus, AVCaptureConnection, AVCaptureDevice, AVCaptureDeviceFormat,
+    AVCaptureDeviceInput, AVCaptureOutput, AVCaptureSession, AVCaptureVideoDataOutput,
     AVCaptureVideoDataOutputSampleBufferDelegate,
 };
-use objc2_core_media::CMSampleBuffer as CaptureSampleBuffer;
+use objc2_core_media::{CMSampleBuffer as CaptureSampleBuffer, CMTime, CMTimeFlags};
 use objc2_foundation::{NSArray, NSString};
 use screencapturekit::cm::CMSampleBuffer;
 use std::ffi::c_void;
@@ -61,11 +61,6 @@ extern "C" {
     static kCVPixelBufferPixelFormatTypeKey: *const AnyObject;
     fn CVPixelBufferGetWidth(pixel_buffer: *mut c_void) -> usize;
     fn CVPixelBufferGetHeight(pixel_buffer: *mut c_void) -> usize;
-}
-
-#[link(name = "AVFoundation", kind = "framework")]
-extern "C" {
-    static AVCaptureSessionPresetInputPriority: *const AnyObject;
 }
 
 struct FrameIvars {
@@ -160,6 +155,82 @@ impl Drop for CameraSession {
             unsafe { CFRelease(self.clock) };
         }
     }
+}
+
+/// The format and frame durations a camera had before the track's session
+/// took it, which the bubble's own capture chose.
+struct KeptFormat {
+    format: Retained<AVCaptureDeviceFormat>,
+    min_frame: CMTime,
+    max_frame: CMTime,
+}
+
+impl KeptFormat {
+    unsafe fn read(device: &AVCaptureDevice) -> Self {
+        Self {
+            format: device.activeFormat(),
+            min_frame: device.activeVideoMinFrameDuration(),
+            max_frame: device.activeVideoMaxFrameDuration(),
+        }
+    }
+
+    /// Sets them back inside the session's configuration, as
+    /// AVCaptureDevice.h shows, and hands back the camera's configuration
+    /// lock, held until the session has started so its own preset can't pick
+    /// another format as it starts. If that fails, the session keeps its
+    /// choice and the track still records.
+    unsafe fn restore<'a>(
+        &self,
+        device: &'a AVCaptureDevice,
+        recording_id: &str,
+    ) -> Option<ConfigLock<'a>> {
+        if let Err(error) = device.lockForConfiguration() {
+            eprintln!(
+                "[rich-tracks] {recording_id}: camera format not kept: {}",
+                error.localizedDescription()
+            );
+            return None;
+        }
+        let lock = ConfigLock(device);
+        let restored = objc2::exception::catch(AssertUnwindSafe(|| {
+            device.setActiveFormat(&self.format);
+            if is_duration(self.min_frame) {
+                device.setActiveVideoMinFrameDuration(self.min_frame);
+            }
+            if is_duration(self.max_frame) {
+                device.setActiveVideoMaxFrameDuration(self.max_frame);
+            }
+        }));
+        match restored {
+            Ok(()) => Some(lock),
+            Err(exception) => {
+                eprintln!(
+                    "[rich-tracks] {recording_id}: camera format not kept: {}",
+                    describe_objc_exception(exception)
+                );
+                None
+            }
+        }
+    }
+
+    unsafe fn is_active(&self, device: &AVCaptureDevice) -> bool {
+        let active = device.activeFormat();
+        let active: &AnyObject = &active;
+        self.format.isEqual(Some(active))
+    }
+}
+
+/// A camera's configuration lock, released when dropped.
+struct ConfigLock<'a>(&'a AVCaptureDevice);
+
+impl Drop for ConfigLock<'_> {
+    fn drop(&mut self) {
+        unsafe { self.0.unlockForConfiguration() };
+    }
+}
+
+fn is_duration(time: CMTime) -> bool {
+    time.flags.contains(CMTimeFlags::Valid) && time.timescale > 0 && time.value > 0
 }
 
 enum Append {
@@ -377,10 +448,25 @@ impl Shared {
             av_dict_set(&settings, kCVPixelBufferPixelFormatTypeKey, &pixel_format);
             settings
         };
+        // macOS has no preset that leaves a camera's format alone (iOS's
+        // AVCaptureSessionPresetInputPriority raises here), so the session
+        // hands the camera back what the bubble's capture chose.
+        let kept = match objc2::exception::catch(AssertUnwindSafe(|| unsafe {
+            KeptFormat::read(&device)
+        })) {
+            Ok(kept) => Some(kept),
+            Err(exception) => {
+                eprintln!(
+                    "[rich-tracks] {}: camera format not kept: {}",
+                    this.recording_id,
+                    describe_objc_exception(exception)
+                );
+                None
+            }
+        };
+        let mut held = None;
         let configured = objc2::exception::catch(AssertUnwindSafe(|| unsafe {
             session.beginConfiguration();
-            // Leaves the camera's format as the bubble's capture set it.
-            let _: () = msg_send![&*session, setSessionPreset: AVCaptureSessionPresetInputPriority];
             let _: () = msg_send![&*output, setVideoSettings: &*settings];
             let added = session.canAddInput(&input) && {
                 session.addInput(&input);
@@ -388,6 +474,9 @@ impl Shared {
             };
             if added {
                 session.addOutput(&output);
+                if let Some(kept) = &kept {
+                    held = kept.restore(&device, &this.recording_id);
+                }
             }
             session.commitConfiguration();
             added
@@ -416,6 +505,9 @@ impl Shared {
             session.startRunning();
             session.isRunning()
         }));
+        // Started, the session keeps its format; the bubble's capture may
+        // configure the camera again.
+        drop(held);
         let mut camera = CameraSession {
             session,
             output,
@@ -424,7 +516,14 @@ impl Shared {
             clock: std::ptr::null(),
         };
         match running {
-            Ok(true) => {}
+            Ok(true) => {
+                if kept.is_some_and(|kept| !unsafe { kept.is_active(&device) }) {
+                    eprintln!(
+                        "[rich-tracks] {}: {}'s format changed as the camera track started",
+                        this.recording_id, this.device_name
+                    );
+                }
+            }
             Ok(false) => {
                 camera.stop();
                 return Err(format!("{} did not start capturing", this.device_name));

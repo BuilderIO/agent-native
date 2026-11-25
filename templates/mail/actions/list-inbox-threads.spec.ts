@@ -53,10 +53,6 @@ vi.mock("../server/lib/mail-settings.js", () => ({
 vi.mock("../server/lib/inbox-store.js", () => ({
   readInboxThreads: mocks.readInboxThreads,
   readInboxTabWindows: mocks.readInboxTabWindows,
-  aiImportantLabelIds: (labelMap?: Map<string, string>) =>
-    [...(labelMap?.entries() ?? [])]
-      .filter(([, name]) => name === "agent-native-important")
-      .map(([id]) => id),
   readCachedLabels: mocks.readCachedLabels,
   // Fixtures list only the sync columns a test cares about; the store always
   // returns the pending and degraded fields.
@@ -88,7 +84,8 @@ vi.mock("../server/lib/inbox-store.js", () => ({
     messageCount: row.messageCount ?? 1,
     unreadCount: row.unreadCount ?? (row.isUnread ? 1 : 0),
     messageIds: row.messageIds ?? [row.latestMessageId],
-    isAutomated: !!row.isAutomated,
+    isAutomated: row.isAutomated,
+    classificationNeedsRefresh: row.classificationNeedsRefresh,
   }),
 }));
 
@@ -178,6 +175,33 @@ beforeEach(() => {
 });
 
 describe("list-inbox-threads action", () => {
+  it("offers older cached classifications for explicit loading", async () => {
+    mocks.readInboxThreads.mockResolvedValue([
+      row({
+        threadId: "legacy",
+        isAutomated: null,
+        classificationNeedsRefresh: true,
+      }),
+    ]);
+    const result = await action.run(
+      { tab: "important", limit: 50, offset: 0 },
+      undefined as unknown as Parameters<typeof action.run>[1],
+    );
+    expect(result.hasLegacyClassification).toBe(true);
+  });
+  it("marks split counts as incomplete while cached classification is unknown", async () => {
+    mocks.readInboxThreads.mockResolvedValue([
+      row({ threadId: "unknown", isAutomated: null }),
+    ]);
+    const result = await action.run(
+      { tab: "important", limit: 50, offset: 0 },
+      undefined as unknown as Parameters<typeof action.run>[1],
+    );
+    expect(result.tabs.find((tab) => tab.id === "important")).toMatchObject({
+      total: 0,
+      totalIsLowerBound: true,
+    });
+  });
   it("reports a Gmail cooldown as read state next to the rows instead of failing", async () => {
     const until = Date.now() + 40_000;
     mocks.readInboxThreads.mockResolvedValue([row({})]);
@@ -563,7 +587,7 @@ describe("list-inbox-threads action", () => {
     });
   });
 
-  it("uses provider inbox totals and local lower-bound counts for label tabs during backfill", async () => {
+  it("uses observed rows for lower-bound counts during backfill", async () => {
     mocks.readSettings.mockResolvedValue({
       combineInbox: false,
       pinnedLabels: ["projects"],
@@ -617,7 +641,7 @@ describe("list-inbox-threads action", () => {
     );
 
     expect(result.tabs.find((tab) => tab.id === "__inbox_all__")).toMatchObject(
-      { total: 12, unread: 3, totalIsLowerBound: true },
+      { total: 1, unread: 1, totalIsLowerBound: true },
     );
     expect(result.tabs.find((tab) => tab.id === "projects")).toMatchObject({
       total: 1,
@@ -709,7 +733,7 @@ describe("list-inbox-threads action", () => {
     expect(result.hasMore).toBe(false);
   });
 
-  it("counts an AI-important Gmail label as Important through the account label map", async () => {
+  it("keeps automated mail out of Important even with a priority label", async () => {
     mocks.readCachedLabels.mockResolvedValue({
       labels: [],
       labelMapByAccount: new Map([
@@ -744,18 +768,14 @@ describe("list-inbox-threads action", () => {
       undefined as any,
     );
 
-    const windowsInput = mocks.readInboxTabWindows.mock.calls.at(-1)?.[0];
-    expect(windowsInput.aiLabelIdsByAccount.get(OWNER)).toEqual(["Label_ai"]);
     expect(result.activeTabId).toBe("important");
     expect(result.tabs.find((t) => t.id === "important")).toMatchObject({
-      total: 2,
-      unread: 2,
+      total: 1,
+      unread: 1,
     });
-    expect(result.tabs.find((t) => t.id === "other")?.total).toBe(1);
-    expect(result.items.map((item) => item.threadId)).toEqual([
-      "ai-auto",
-      "plain",
-    ]);
+    expect(result.tabs.find((t) => t.id === "other")?.total).toBe(2);
+    expect(result.items.map((item) => item.threadId)).toEqual(["plain"]);
+    expect(result.items[0]?.isAutomated).toBe(false);
   });
 });
 
@@ -919,9 +939,9 @@ describe("list-inbox-threads action — local mode (no connected Google account)
     expect(result.tabs.find((t) => t.id === "important")?.total).toBe(0);
   });
 
-  it("a plain sender lands in Important", async () => {
+  it("a personal-category sender lands in Important", async () => {
     mocks.readLocalEmails.mockResolvedValue([
-      localEmail({ id: "m1", threadId: "t1", labelIds: ["inbox"] }),
+      localEmail({ id: "m1", threadId: "t1", labelIds: ["inbox", "personal"] }),
     ]);
 
     const result = await action.run(

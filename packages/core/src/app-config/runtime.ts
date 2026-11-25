@@ -17,6 +17,14 @@ export const runtimeConfig = z.object({
     env: "AGENT_NATIVE_AGENT_CHAT_STREAM_RUNTIME",
     doc: "Run the dedicated Nitro agent-chat response-streaming route used by an AWS Lambda Function URL.",
   }),
+  builderEnvironment: z.string().trim().optional().meta({
+    env: "FUSION_ENVIRONMENT",
+    doc: "Platform-provided Builder dev container environment.",
+  }),
+  builderPodUid: z.string().trim().optional().meta({
+    env: "FUSION_POD_UID",
+    doc: "Platform-provided id of the Builder cloud dev container running this server.",
+  }),
   vercelBranchUrl: z.string().trim().min(1).optional().meta({
     env: "VERCEL_BRANCH_URL",
     doc: "Platform-provided Vercel branch URL used to address the current preview deployment.",

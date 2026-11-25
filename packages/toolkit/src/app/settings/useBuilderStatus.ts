@@ -661,12 +661,21 @@ export interface OpenBuilderConnectPopupOptions {
   features?: string;
 }
 
-export function openBuilderConnectPopup({
-  url,
-  source = "builder_connect",
-  flow,
-  features = "noopener,noreferrer",
-}: OpenBuilderConnectPopupOptions = {}): Window | null {
+export function openBuilderConnectPopup(
+  options: OpenBuilderConnectPopupOptions = {},
+): Window | null {
+  return openConnectWindow(options);
+}
+
+function openConnectWindow(
+  {
+    url,
+    source = "builder_connect",
+    flow,
+    features = "noopener,noreferrer",
+  }: OpenBuilderConnectPopupOptions,
+  fallback?: { url: string; onOpened: () => void },
+): Window | null {
   if (typeof window === "undefined") return null;
   const origin = getCallbackOrigin() || window.location.origin;
   const href =
@@ -687,7 +696,18 @@ export function openBuilderConnectPopup({
     connect_url_kind: connectUrlKind,
   });
   try {
-    const opened = window.open(trackedHref, "_blank", features);
+    let opened = window.open(trackedHref, "_blank", features);
+    if (!opened && fallback) {
+      opened = window.open(
+        withBuilderConnectTrackingParams(fallback.url, {
+          source,
+          ...(flow !== undefined ? { flow } : {}),
+        }),
+        "_blank",
+        features,
+      );
+      if (opened) fallback.onOpened();
+    }
     if (!opened && !/AgentNativeDesktop/i.test(navigator.userAgent || "")) {
       trackEvent("builder connect popup blocked", {
         feature: "builder",
@@ -1694,12 +1714,25 @@ export function useBuilderConnectFlow(
         }
       } else {
         const embeddedWindow = isEmbeddedWindow();
-        const opened = openBuilderConnectPopup({
-          url: embeddedWindow ? oauthPopupWaitingUrl() : "about:blank",
-          source: clickTrackingSource,
-          flow: clickTrackingFlow,
-          features: "width=600,height=700",
-        });
+        let popupLoadsWaitingPage = embeddedWindow;
+        const opened = openConnectWindow(
+          {
+            url: embeddedWindow ? oauthPopupWaitingUrl() : "about:blank",
+            source: clickTrackingSource,
+            ...(clickTrackingFlow !== undefined
+              ? { flow: clickTrackingFlow }
+              : {}),
+            features: "width=600,height=700",
+          },
+          embeddedWindow
+            ? undefined
+            : {
+                url: oauthPopupWaitingUrl(),
+                onOpened: () => {
+                  popupLoadsWaitingPage = true;
+                },
+              },
+        );
         if (opened) activePopupRef.current = opened;
         if (!opened) {
           if (!embeddedWindow) {
@@ -1776,7 +1809,7 @@ export function useBuilderConnectFlow(
             connectAttemptIdRef.current === connectAttemptId &&
             connectStartedAtRef.current === started &&
             cancelledConnectAttemptIdRef.current !== connectAttemptId;
-          const popupReady = embeddedWindow
+          const popupReady = popupLoadsWaitingPage
             ? waitForBuilderConnectPopupLoad(
                 opened,
                 () => !isCurrentConnectAttempt() || isPopupClosed(opened),

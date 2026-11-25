@@ -1,5 +1,40 @@
 # @agent-native/dispatch
 
+## 0.43.1
+
+### Patch Changes
+
+- 969523d: Show readable suggested action details and open an existing workspace app when creation finds it.
+- 88e0754: Take the sidebar toggle from the visible workspace app after another app was kept alive, so a retained app's hidden frame no longer shadows the one on screen.
+- 7188162: Make an embedded app's chat rail on `/dispatch/apps/:appId` send the app frame's own browser tab id instead of Dispatch's, so asking the app chat to open something navigates the app frame instead of bouncing Dispatch to its overview.
+- f3ff142: Fix workspace app chat session routing for cross-origin mounted apps.
+- 98cd62f: Use a caller's scoped remote MCP OAuth connection for app actions and provide an authorization link when a target requires a connection.
+- 6cd1113: Allow embedded workspace apps and browser pages to request fullscreen.
+- df6374d: Route email and message requests to Mail before matching service pointers, while routing GitHub issues and pull requests to Tasks.
+- Release all public npm packages with a patch version bump.
+- b1197d4: Fix A2A browser tab and viewport mode propagation, add turn-scoped foreground viewport lock and early open_app pane commit, upgrade AppCapabilityManifest to v2 with route template validation, and add rendered screen verification receipts.
+- Updated dependencies [6f4b56e]
+- Updated dependencies [a57a58f]
+- Updated dependencies [c71955a]
+- Updated dependencies [a57a58f]
+- Updated dependencies [a57a58f]
+- Updated dependencies [7c866e8]
+- Updated dependencies [6f84c01]
+- Updated dependencies [a57a58f]
+- Updated dependencies [a57a58f]
+- Updated dependencies [c541b37]
+- Updated dependencies
+- Updated dependencies [a57a58f]
+- Updated dependencies [c3bcccd]
+- Updated dependencies [bb20dd7]
+- Updated dependencies [2a7cf8c]
+- Updated dependencies [4b68858]
+- Updated dependencies [b755252]
+- Updated dependencies [87dfdb6]
+- Updated dependencies [a57a58f]
+  - @agent-native/toolkit@0.233.0
+  - @agent-native/agentkit@0.233.0
+
 ## 0.43.0
 
 ### Minor Changes
@@ -1683,11 +1718,5 @@
 - Release all public npm packages with a patch version bump.
 - Updated dependencies
   - @agent-native/toolkit@0.16.12
-
-## 0.31.16
-
-### Patch Changes
-
-- 36c79f9: Use the authenticated workspace app registry for hosted Dispatch app lists so inaccessible apps do not get an Open app action.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

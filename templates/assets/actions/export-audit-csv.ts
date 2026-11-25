@@ -192,14 +192,14 @@ export default defineAction({
     const csvBody = "﻿" + [header, ...lines].join("\n") + "\n";
     const buffer = Buffer.from(csvBody, "utf-8");
     const objectKey = `audits/${nowIso().slice(0, 10)}/audit-${nanoid()}.csv`;
-    await putObject({
+    const stored = await putObject({
       key: objectKey,
       body: buffer,
       contentType: "text/csv; charset=utf-8",
     });
 
     const presigned = await getPresignedObjectUrl(
-      objectKey,
+      stored.key,
       args.expiresInSeconds,
     );
 
@@ -210,7 +210,9 @@ export default defineAction({
       downloadUrl:
         presigned?.url ??
         absoluteUrl(`/api/audits/${encodeURIComponent(objectKey)}`),
-      downloadUrlExpiresAt: presigned?.expiresAt ?? null,
+      downloadUrlExpiresAt: presigned?.url.includes("X-Amz-Signature=")
+        ? presigned.expiresAt
+        : null,
       generatedAt: nowIso(),
     };
   },

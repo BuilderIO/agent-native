@@ -5,9 +5,16 @@ import type {
   BookingLink,
   ConferencingConfig,
 } from "../../shared/api.js";
+import { isBookingReminderMinutes } from "../../shared/api.js";
 import { schema } from "../db/index.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export const bookingReminderMinutesSchema = z
+  .union([z.number(), z.string().trim().regex(/^\d+$/).transform(Number)])
+  .refine(isBookingReminderMinutes, {
+    message: "Use 0 for no reminder, 60 for 1 hour or 1440 for 1 day.",
+  });
 const httpUrlSchema = z
   .string()
   .url()
@@ -165,6 +172,7 @@ export function rowToBookingLink(
       row.conferencing,
       undefined,
     ),
+    reminderMinutes: row.reminderMinutes,
     color: row.color ?? undefined,
     isActive: row.isActive,
     visibility: row.visibility,

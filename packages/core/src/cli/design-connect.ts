@@ -27,6 +27,7 @@ import {
   rewriteReferenceCss,
   ReferenceCopyError,
 } from "./design-reference-copy.js";
+import { runMatchedCheckCommand } from "./matched-check.js";
 
 const DEFAULT_BRIDGE_PORT = 7331;
 const ROUTE_MANIFEST_FILE = path.join(".agent-native", "design-routes.json");
@@ -5644,6 +5645,9 @@ export async function runDesign(argv: string[]) {
     console.log(JSON.stringify(body.pending ?? null, null, 2));
     return 0;
   }
+  if (subcommand === "matched-check") {
+    return runMatchedCheckCommand(argv.slice(1));
+  }
   if (subcommand !== "connect") {
     if (
       subcommand === "help" ||
@@ -5654,7 +5658,7 @@ export async function runDesign(argv: string[]) {
       return 0;
     }
     console.error(
-      "Usage: agent-native design connect [options] | agent-native design pending [options]",
+      "Usage: agent-native design connect [options] | agent-native design pending [options] | agent-native design matched-check <spec.json> [--out dir]",
     );
     return 1;
   }

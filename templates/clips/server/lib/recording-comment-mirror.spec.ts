@@ -590,6 +590,65 @@ describe("Clips comments in the review kit", () => {
     });
   });
 
+  it("deletes an agent's reply through the kit in a thread Clips deleted, and keeps one in a thread Clips kept", async () => {
+    await createRecording("rec-orphan");
+    const add = (content: string) =>
+      as(OWNER, () =>
+        addComment.run({
+          recordingId: "rec-orphan",
+          content,
+          videoTimestampMs: 0,
+        }),
+      );
+    const gone = await add("Deleted by a server on the old code");
+    const here = await add("Still in Clips");
+    const at = "2026-11-20T12:00:00.000Z";
+    const kitReply = (id: string, threadId: string) => ({
+      id,
+      threadId,
+      parentCommentId: threadId,
+      anchor: { videoTimestampMs: 0 },
+      anchorKind: "video-time",
+      anchorVersion: 1,
+      body: "A reply through the kit's own actions",
+      authorEmail: OWNER,
+      authorName: null,
+      createdBy: "agent" as const,
+      resolved: false,
+      createdAt: at,
+      updatedAt: at,
+    });
+    await mirrorReviewComments(
+      { resourceType: "recording", resourceId: "rec-orphan" },
+      [
+        kitReply("kit-recording-reply-gone", gone.id),
+        kitReply("kit-recording-reply-here", here.id),
+      ],
+    );
+    const { getDb, schema } = dbModule;
+    await getDb()
+      .delete(schema.recordingComments)
+      .where(eq(schema.recordingComments.id, gone.id));
+
+    const report = await mirror.copyRecordingCommentsToReviewKit();
+
+    expect(report.failedRecordings).toEqual([]);
+    expect(report.differences).toEqual([]);
+    for (const id of [gone.id, "kit-recording-reply-gone"]) {
+      expect(await stored(id)).toMatchObject({ status: "deleted", body: "" });
+    }
+    expect(report.orphanedReplies).toEqual([
+      { recordingId: "rec-orphan", id: "kit-recording-reply-gone" },
+    ]);
+    expect(await stored("kit-recording-reply-here")).toMatchObject({
+      status: "open",
+    });
+    expect(report.kitWrittenComments).toContainEqual({
+      recordingId: "rec-orphan",
+      id: "kit-recording-reply-here",
+    });
+  });
+
   it("refuses recording comment writes through the kit's own actions", async () => {
     await createRecording("rec-kit-write");
     const comment = await as(OWNER, () =>

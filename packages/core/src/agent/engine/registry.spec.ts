@@ -1628,6 +1628,7 @@ describe("AgentEngine registry", () => {
         };
       });
       vi.doMock("../../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         isLocalDatabase: () => true,
         isTransientDatabaseError: () => false,
         getDbExec: () => ({
@@ -1665,6 +1666,7 @@ describe("AgentEngine registry", () => {
       process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: hosted requests must ignore deployment model credentials
       process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc"; // guard:allow-env-credential — fixture: hosted requests must ignore deployment model credentials
       vi.doMock("../../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         isLocalDatabase: () => false,
         getDbExec: () => ({ execute: async () => ({ rows: [] }) }),
       }));
@@ -4335,6 +4337,7 @@ describe("AgentEngine registry", () => {
         };
       });
       vi.doMock("../../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         isLocalDatabase: () => false,
         getDbExec: () => ({
           execute: async () => ({ rows: [] }),
@@ -4409,6 +4412,7 @@ describe("AgentEngine registry", () => {
         };
       });
       vi.doMock("../../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         isLocalDatabase: () => false,
         getDbExec: () => ({
           execute: async () => ({ rows: [] }),
@@ -4612,6 +4616,7 @@ describe("AgentEngine registry", () => {
         readAppSecrets: readAppSecretsFromSingles(readAppSecret),
       }));
       vi.doMock("../../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         isLocalDatabase: () => false,
         getDbExec: () => ({
           execute: async () => ({ rows: [] }),

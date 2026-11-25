@@ -29,7 +29,7 @@ test("a screen and its document are one object", async ({ app }) => {
   await rows.first().click();
   await expect.poll(() => app.selectedLayers()).toEqual(["Home"]);
   await expect(
-    app.page.getByRole("heading", { name: "Screen", exact: true, level: 3 }),
+    app.page.getByRole("heading", { name: "Page", exact: true, level: 3 }),
   ).toBeVisible();
   await expect
     .poll(() =>

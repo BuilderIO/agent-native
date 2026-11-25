@@ -739,6 +739,76 @@ describe("useBuilderConnectFlow", () => {
     expect(container.textContent).not.toContain("Popup blocked");
   });
 
+  it("opens the waiting page when the host refuses a top-level blank popup", async () => {
+    const popup = createPopupStub();
+    openSpy.mockImplementation((url: string) =>
+      url === "about:blank" ? null : popup,
+    );
+
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await flushAfterPaint();
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(openSpy.mock.calls).toEqual([
+      ["about:blank", "_blank", "width=600,height=700"],
+      [
+        expect.stringContaining("/_agent-native/oauth/popup?"),
+        "_blank",
+        "width=600,height=700",
+      ],
+    ]);
+    expect(popup.location.href).toBe("");
+
+    await act(async () => {
+      popup.fireLoad();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(withoutConnectAttempt(popup.location.href)).toBe(
+      expectedConnectUrl(signedConnectUrl),
+    );
+    expect(container.textContent).not.toContain("Allow popups");
+    const events = vi.mocked(trackEvent).mock.calls.map(([name]) => name);
+    expect(
+      events.filter((name) => name === "builder connect clicked"),
+    ).toHaveLength(1);
+    expect(events).not.toContain("builder connect popup blocked");
+  });
+
+  it("reports a blocked popup once when the browser refuses both windows", async () => {
+    await act(async () => {
+      root.render(<BuilderConnectProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await flushAfterPaint();
+
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(openSpy).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain("Allow popups and try again.");
+    const events = vi.mocked(trackEvent).mock.calls.map(([name]) => name);
+    expect(
+      events.filter((name) => name === "builder connect popup blocked"),
+    ).toHaveLength(1);
+  });
+
   it("tracks the sign-in popup click with its connect URL kind", async () => {
     setUserAgent("Mozilla/5.0 Chrome/140.0");
     openSpy.mockReturnValue(createPopupStub());

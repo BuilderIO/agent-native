@@ -1,10 +1,17 @@
 import type { AgentActionScope } from "../agent/types.js";
+import { registerViewportModeProbe } from "../application-state/navigate-write-guard.js";
 import type { TrackingEventScope } from "../observability/tracing.js";
 import { registerBackgroundWorkerProbe } from "../provider-api/interactive-scope.js";
 import type { ContextStatus } from "../shared/context-status.js";
 import type { FirstRunBuilderCreditsV2RequestAssignment } from "../shared/first-run-builder-credits-experiment.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
+import {
+  normalizeViewportMode,
+  type ViewportMode,
+} from "../shared/viewport-mode.js";
 import type { SignupAttributionContext } from "./attribution.js";
+
+export { normalizeViewportMode, type ViewportMode };
 
 type AsyncLocalStorageLike<T> = {
   getStore(): T | undefined;
@@ -85,13 +92,17 @@ export interface RequestRunContext {
   /** The browser tab the request came from. */
   browserTabId?: string;
   /**
-   * For an MCP tool call by a signed-in user, which came from no tab: the tab
-   * whose tab-scoped app state (navigation, navigate commands, selection) the
-   * call reads and writes. Unlike `browserTabId`, it doesn't make the call
-   * that tab's own, so the tab still sees the call's changes as someone
-   * else's.
+   * For an MCP or A2A call from no tab: the tab whose tab-scoped app state
+   * (navigation, navigate commands, selection) the call reads and writes.
+   * Unlike `browserTabId`, it doesn't make the call that tab's own, so the tab
+   * still sees the call's changes as someone else's.
    */
   browserTabTarget?: BrowserTabTargetSlot;
+  /**
+   * Whether a cross-app request is acting on the visible foreground viewport
+   * or running a background lookup that must not hijack foreground navigation.
+   */
+  viewportMode?: ViewportMode;
   chatScope?: {
     type: string;
     id: string;
@@ -780,3 +791,4 @@ export function ensureRequestRunContext(): RequestRunContext | undefined {
 registerBackgroundWorkerProbe(
   () => getRequestRunContext()?.isBackgroundWorker === true,
 );
+registerViewportModeProbe(() => getRequestRunContext()?.viewportMode);
