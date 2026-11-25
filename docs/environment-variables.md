@@ -452,9 +452,9 @@ Read by `.github/workflows/labs-qa-probe.yml`, `.github/workflows/labs-qa-identi
 | `LABS_HOST`    | Host the signed-in smoke test targets. Defaults to `labs.agent-native.com`.                                    |
 | `QA_SLOT`      | Slot of the `qa-fleet-N` identity a smoke or live-verify run uses.                                             |
 | `INPUT_APPS`   | Apps input passed to the smoke matrix builder. Workflow-internal.                                              |
-| `QA_TARGET`    | Live-verify target: a preset (`forms-seeded`), an app name, or JSON with app, path, steps.                    |
-| `QA_PROVIDER`  | Live-verify browser: `browserbase` (remote session with a replay) or `local` (headless).                      |
-| `QA_OUT_DIR`   | Directory the live-verify receipt and before/after screenshots are written to.                                |
+| `QA_TARGET`    | Live-verify target: a preset (`forms-seeded`), an app name, or JSON with app, path, steps.                     |
+| `QA_PROVIDER`  | Live-verify browser: `browserbase` (remote session with a replay) or `local` (headless).                       |
+| `QA_OUT_DIR`   | Directory the live-verify receipt and before/after screenshots are written to.                                 |
 
 ### Deploy-path check
 
