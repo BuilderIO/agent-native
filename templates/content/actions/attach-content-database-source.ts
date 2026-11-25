@@ -626,11 +626,9 @@ export default defineAction({
               sourceTable,
               now,
               existingRows: [],
+              importedEntriesByDocumentId,
             })
           : undefined;
-      for (const [documentId, entry] of importedEntriesByDocumentId) {
-        additionalEntriesByDocumentId?.set(documentId, entry);
-      }
       await seedMockSourceFields({
         sourceId: additionalSourceId,
         ownerEmail: database.ownerEmail,
@@ -759,11 +757,9 @@ export default defineAction({
             sourceTable,
             now,
             existingRows: existingSourceRows,
+            importedEntriesByDocumentId,
           })
         : undefined;
-    for (const [documentId, entry] of importedEntriesByDocumentId) {
-      builderEntriesByDocumentId?.set(documentId, entry);
-    }
 
     await (async () => {
       await seedMockSourceFields({
