@@ -2,7 +2,16 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { TEMPLATES } from "../cli/templates-meta.js";
 import {
@@ -75,7 +84,35 @@ vi.mock("../settings/index.js", () => ({
   putSetting: vi.fn(),
 }));
 
+let isolatedCwd: string;
+let defaultCwdSpy: ReturnType<typeof vi.spyOn> | undefined;
+
 describe("agent discovery", () => {
+  beforeAll(() => {
+    isolatedCwd = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-discovery-cwd-"),
+    );
+    fs.mkdirSync(path.join(isolatedCwd, "packages/core/src/server"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(isolatedCwd, "packages/core/src/server/agent-discovery.ts"),
+      "",
+    );
+    fs.mkdirSync(path.join(isolatedCwd, "templates"), { recursive: true });
+    fs.writeFileSync(
+      path.join(isolatedCwd, "package.json"),
+      JSON.stringify({
+        name: "agentnative",
+        "agent-native": { workspaceCore: "@agent-native/core" },
+      }),
+    );
+  });
+
+  afterAll(() => {
+    fs.rmSync(isolatedCwd, { recursive: true, force: true });
+  });
+
   it("preserves the deprecated plural handle helper for public subpath imports", () => {
     expect(agentHandleNumberVariant("reports")).toBe("report");
     expect(agentHandleNumberVariant("report")).toBe("reports");
@@ -96,10 +133,13 @@ describe("agent discovery", () => {
     ) as typeof previousEnv;
     for (const key of DISCOVERY_ENV_KEYS) delete process.env[key];
     process.env.NODE_ENV = "test";
+    defaultCwdSpy = vi.spyOn(process, "cwd").mockReturnValue(isolatedCwd);
     resetBuiltinAgentsConfigForTests();
   });
 
   afterEach(() => {
+    defaultCwdSpy?.mockRestore();
+    defaultCwdSpy = undefined;
     for (const key of DISCOVERY_ENV_KEYS) restoreEnv(key, previousEnv[key]);
     resetBuiltinAgentsConfigForTests();
   });

@@ -73,7 +73,7 @@ export default defineAction({
 });
 ```
 
-É o mesmo catálogo da lista `mcp: { connectorCatalog: [...] }` do plugin, declarado na action em vez de em um array separado que precisa ser mantido em sincronia conforme as actions são renomeadas. As duas formas funcionam, e um app pode migrar uma action de cada vez. Tudo que fica de fora continua descobrível pelo `tool-search`.
+É o mesmo catálogo da lista `mcp: { connectorCatalog: [...] }` do plugin, declarado na action em vez de em um array separado que precisa ser mantido em sincronia conforme as actions são renomeadas. As duas formas funcionam, e um app pode migrar uma action de cada vez. Uma action deixada de fora não aparece no catálogo padrão dos agentes externos. `mcpTool: "search"` oferece a action sem listá-la: o `tool-search` a encontra e o `call-tool` a executa. Para qualquer outra action que o seu agente possa chamar, o `tool-search` aponta as correspondências próximas como não oferecidas, para que um agente externo com login possa passar essa tarefa ao `ask_app`.
 
 Combinar as duas flags ao contrário — `agentTool: false` com `mcpTool: true` — torna a action **exclusiva de MCP**: agentes externos a recebem e o agente do seu próprio app nunca a vê. Use para a exportação, a sincronização ou a entrega que uma ferramenta externa precisa e que o seu agente não tem motivo para chamar.
 
@@ -206,6 +206,8 @@ Quando ocorre `approval_required`, a UI de chat renderiza um controle de **Aprov
 - **Negar** descarta o controle localmente. Nada é reenviado, então a action nunca roda.
 
 `approvedToolCalls` é um campo na requisição de chat (`AgentChatRequest.approvedToolCalls`). Chaves que não estão presentes nele continuam pausadas. Aprovar uma chamada nunca aprova nenhuma outra chamada. Como a chave é content-addressed (derivada do conteúdo da chamada), uma aprovação só autoriza aquela chamada exata, com aqueles argumentos exatos. Se o modelo depois propuser um envio diferente, isso vira uma nova chave e precisa da sua própria aprovação, feita do zero.
+
+O turno reemitido também carrega o id da solicitação pendente da chamada em `approvedToolCallAskIds`. O servidor executa a chamada somente enquanto essa solicitação ainda estiver pendente para o mesmo usuário e a mesma conversa, então uma chave sozinha não aprova nada, e apenas as próprias páginas do app podem repassar uma aprovação por `agentNative.submitChat`.
 
 ### Ponta a ponta {#flow}
 

@@ -10,6 +10,7 @@ export default defineAction({
     "List the user's pending and processing scheduled jobs (snoozes and scheduled sends).",
   schema: z.object({}),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async () => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("Unauthenticated");

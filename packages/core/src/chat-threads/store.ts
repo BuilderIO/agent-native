@@ -65,6 +65,7 @@ import { registerShareableResource } from "../sharing/registry.js";
 import { roleSatisfies, type ShareRole } from "../sharing/schema.js";
 import { emitChatThreadChange } from "./emitter.js";
 import {
+  AUTOMATION_THREAD_SOURCE_BACKFILL_SQL,
   CHAT_THREAD_SCHEMA_MIGRATIONS,
   CHAT_THREAD_SCHEMA_MIGRATIONS_TABLE,
 } from "./schema-migrations.js";
@@ -115,6 +116,7 @@ export function withThreadDataLock<T>(
   return next as Promise<T>;
 }
 
+// raw-sql-ok: the data migration's SQL is a static constant with no interpolated values
 export const chatThreadsStore = defineStore({
   id: "chat_threads",
   migrations: [
@@ -329,6 +331,11 @@ export const chatThreadsStore = defineStore({
         `ALTER TABLE chat_threads ADD COLUMN IF NOT EXISTS edit_root_id TEXT`,
         `ALTER TABLE chat_threads ADD COLUMN IF NOT EXISTS edit_prefix_count BIGINT`,
       ],
+    },
+    {
+      name: "automation-thread-source-app-backfill",
+      kind: "data",
+      sql: AUTOMATION_THREAD_SOURCE_BACKFILL_SQL,
     },
   ],
 });
@@ -1875,6 +1882,11 @@ export interface ListThreadsOptions {
   scope?: { type: string; id: string };
   /** When true, returns only threads with no scope (general chats). */
   unscopedOnly?: boolean;
+  /**
+   * Scope types to leave out when `scope` is not given, such as the chats a
+   * quiet background run makes. Asking for one of those scopes still lists it.
+   */
+  excludeScopeTypes?: readonly string[];
   orgId?: string | null;
   /**
    * Include archived threads in the results. Defaults to false: archived
@@ -2038,6 +2050,8 @@ export async function listThreads(
     args.push(opts.scope.type, opts.scope.id);
   } else if (opts.unscopedOnly) {
     filters.push(`scope_type IS NULL`);
+  } else {
+    pushExcludedScopeTypes(filters, args, opts.excludeScopeTypes);
   }
   if (opts.collapseEdits) {
     filters.push(
@@ -2057,6 +2071,19 @@ export async function listThreads(
     .filter((r): r is ChatThreadListRow => r !== null);
 }
 
+function pushExcludedScopeTypes(
+  filters: string[],
+  args: (string | number)[],
+  scopeTypes: readonly string[] | undefined,
+): void {
+  const types = [...new Set(scopeTypes ?? [])].filter(Boolean);
+  if (types.length === 0) return;
+  filters.push(
+    `(scope_type IS NULL OR scope_type NOT IN (${types.map(() => "?").join(", ")}))`,
+  );
+  args.push(...types);
+}
+
 function escapeLike(s: string): string {
   return s.replace(/[!%_]/g, (match) => `!${match}`);
 }
@@ -2067,6 +2094,7 @@ export async function searchThreads(
   limit = 50,
   options: {
     scope?: { type: string; id: string };
+    excludeScopeTypes?: readonly string[];
     orgId?: string | null;
     collapseEdits?: boolean;
     /** See `ListThreadsOptions.includeArchived` — defaults to false. */
@@ -2135,6 +2163,8 @@ export async function searchThreads(
   if (options.scope) {
     filters.push(`scope_type = ? AND scope_id = ?`);
     args.push(options.scope.type, options.scope.id);
+  } else {
+    pushExcludedScopeTypes(filters, args, options.excludeScopeTypes);
   }
   if (options.collapseEdits) {
     filters.push(
@@ -3332,6 +3362,22 @@ export async function listQueuedSubmissionReceipts(
   );
 }
 
+/**
+ * When the signed server sweep next has a queued submission to drain, as epoch
+ * ms, or `null` when the queue is empty. A receipt with no retry time is due
+ * now and answers `0`.
+ */
+export async function nextQueuedSubmissionDueAt(): Promise<number | null> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT MIN(COALESCE(retry_after, 0)) AS due_at
+          FROM agent_chat_submission_inbox WHERE state = 'queued'`,
+    args: [],
+  });
+  const dueAt = (rows[0] as { due_at?: unknown } | undefined)?.due_at;
+  return dueAt === null || dueAt === undefined ? null : Number(dueAt);
+}
+
 /** Records a run admission in the same transaction that persists its user message. */
 export async function markQueuedSubmissionSubmitted(
   tx: DbExec,
@@ -4034,6 +4080,17 @@ export async function mutateThreadQueuedMessages(
                 (message) => message.id === mutation.messageId,
               );
               if (!selected) {
+                const consumedRunId = submittedQueuedMessageRunId(
+                  repository,
+                  mutation.messageId,
+                );
+                if (consumedRunId) {
+                  response = {
+                    alreadySubmitted: true,
+                    submittedRunId: consumedRunId,
+                  };
+                  break;
+                }
                 throw new Error(
                   `Unknown queued message: ${mutation.messageId}`,
                 );
@@ -4149,6 +4206,17 @@ export async function mutateThreadQueuedMessages(
                 (message) => message.id === mutation.messageId,
               );
               if (index < 0) {
+                const consumedRunId = submittedQueuedMessageRunId(
+                  repository,
+                  mutation.messageId,
+                );
+                if (consumedRunId) {
+                  response = {
+                    alreadySubmitted: true,
+                    submittedRunId: consumedRunId,
+                  };
+                  break;
+                }
                 throw new Error(
                   `Unknown queued message: ${mutation.messageId}`,
                 );

@@ -26,7 +26,10 @@ const messages = {
       noteToSelf: "Note to Self",
     },
     inbox: {
-      atLeastCount: "At least {{count}}",
+      conversationsCount: "Conversations: {{count}}",
+      conversationsAtLeastCount: "Conversations: at least {{count}}",
+      unreadCount: "Unread conversations: {{count}}",
+      draftsToReviewCount: "Drafts to review: {{count}}",
       syncing: "Syncing inbox…",
     },
     sort: {
@@ -43,7 +46,7 @@ const messages = {
         "Turn this feedback pattern into an importance or auto-archive rule.",
       priorityFeedbackAskAgent: "Ask agent to suggest rules",
       aiSetupTitle: "Set up your AI inbox",
-      aiSetupTagLabel: "Create an AI tag",
+      aiSetupTagLabel: "Create an AI label",
       aiSetupImportanceLabel: "Important mail",
       aiSetupSpamLabel: "Spam",
       aiSetupArchiveLabel: "Skip inbox",
@@ -112,7 +115,7 @@ const messages = {
       aiSetupImportantExample:
         "Anything from my boss, Priya (priya@company.com)…",
       aiSetupTagsDescription:
-        "AI tags matching mail and gives each tag its own tab next to your inbox.",
+        "AI labels matching mail and gives each label its own tab next to your inbox.",
       aiSetupImportantDescription:
         "AI adds the Important label to matching mail so it appears in your Important tab.",
       aiSetupSkipInboxDescription:
@@ -148,11 +151,9 @@ const messages = {
       compose: "Compose",
       composeShortcut: "Compose (C)",
       accounts: "Accounts",
-      pinSidebar: "Pin sidebar",
-      unpinSidebar: "Unpin sidebar",
       closeSidebar: "Close sidebar",
       settings: "Settings",
-      aiSettings: "Manage tags and rules",
+      aiSettings: "Manage labels and rules",
     },
     search: {
       label: "Search",
@@ -167,7 +168,7 @@ const messages = {
       filtersLimitReached: "You can save up to 20 filters.",
     },
     tabSettings: {
-      splitInbox: "Split inbox",
+      splitInbox: "Split inbox into tabs",
       views: "Views",
       categories: "Categories",
       rename: "Rename",
@@ -175,8 +176,8 @@ const messages = {
       savedFilters: "Saved filters",
       combinedInbox: "Combined inbox",
       allTab: "All tab",
-      help: "Combined inbox shows every account together; turn it off to split mail into tabs.",
-      aiSetup: "Set up AI tags and rules",
+      help: "Shows your chosen views, labels, and saved filters as separate inbox tabs. Turn it off to see all inbox mail in one Inbox tab.",
+      aiSetup: "Set up AI labels and rules",
     },
     accounts: {
       remove: "Remove",
@@ -191,9 +192,20 @@ const messages = {
       markRead: "Mark read",
       markUnread: "Mark unread",
       moveTo: "Move to",
+      labelAs: "Label as",
+      newLabel: "New label…",
       moveToTrash: "Move to Trash",
       star: "Star",
       unstar: "Unstar",
+      copyLink: "Copy link",
+    },
+    labels: {
+      labelAsPlaceholder: "Label as…",
+      moveToPlaceholder: "Move to…",
+      newLabelPlaceholder: "New label name",
+      create: "Create label “{{name}}”",
+      empty: "No labels yet. Type a name to create one.",
+      alreadyExists: "“{{name}}” already exists.",
     },
     compose: {
       addImage: "Add an image",
@@ -203,6 +215,18 @@ const messages = {
       aiAssistPlaceholder: "e.g. make more formal...",
       apply: "Apply",
       attachFile: "Attach file",
+      attachFromContent: "Attach from Content",
+      searchContentPages: "Search Content pages",
+      contentPagesLoading: "Loading pages…",
+      contentPagesFailed: "Couldn't load your Content pages",
+      contentPagesRetry: "Try again",
+      contentPagesEmpty: "No pages found",
+      contentFileMarkdown: "Markdown file",
+      contentFilePdf: "PDF file",
+      contentPageFormat: "Attach pages as",
+      contentFormatPdf: "PDF",
+      contentFormatMarkdown: "Markdown",
+      contentFileCsv: "CSV file",
       bold: "Bold",
       cancel: "Cancel",
       closeAllDrafts: "Close all drafts",
@@ -433,10 +457,13 @@ const messages = {
       tryDifferentKeywords: "Try different keywords",
       nothingHere: "Nothing here yet",
       loadingMore: "Loading more...",
+      loadOlder: "Load older conversations",
       openAllMailForOlder: "Open All Mail for older messages",
     },
     toasts: {
       noEmailSelected: "No email selected.",
+      linkCopied: "Link copied.",
+      linkCopyFailed: "Couldn't copy the link.",
       reportedSpam: "Reported as spam.",
       reportedSpamBlocked: "Reported as spam & blocked {{email}}.",
       noThreadSelected: "No thread selected.",
@@ -449,6 +476,14 @@ const messages = {
         "Moved {{succeeded}} of {{total}} conversations; {{failed}} failed.",
       moveSucceeded: "Moved to {{label}}.",
       moveManySucceeded: "Moved {{count}} conversations to {{label}}.",
+      labelSucceeded: "Added the {{label}} label.",
+      labelManySucceeded:
+        "Added the {{label}} label to {{count}} conversations.",
+      labelPartialFailed:
+        "Labeled {{succeeded}} of {{total}} conversations; {{failed}} failed.",
+      labelFailed: "Couldn't add the label.",
+      labelCreated: "Created the {{label}} label.",
+      createLabelFailed: "Couldn't create the label.",
       trashed: "Moved to Trash.",
       trashedMany: "Trashed {{count}} conversations.",
       scheduledSent: "Scheduled email sent.",
@@ -460,6 +495,14 @@ const messages = {
       uncertainScheduledRetryStarted: "A new copy is being sent.",
       uncertainScheduledRetryFailed: "Failed to retry scheduled email.",
       failedToAttachFile: "Failed to attach file",
+      failedToAttachContentPage: "Failed to attach Content page",
+      contentPagePdfTextUnsupported:
+        "This page has text a PDF can't show yet, such as Chinese, Japanese, Korean, Arabic, Hebrew or Hindi. Attach it as Markdown instead.",
+      contentPagePdfTooLong:
+        "This page is too long or too wide to attach as a PDF. Attach it as Markdown instead.",
+      contentPagePdfUnavailable:
+        "Content couldn't make a PDF of this page. Attach it as Markdown instead.",
+      waitForAttachments: "Wait for attachments to finish, then send.",
       failedToUploadImage: "Failed to upload image",
       storageBuilderRefused:
         "Builder.io refused Mail's file storage connection, so the file wasn't attached. Reconnect Builder.io or use your own storage, then try again.",
@@ -513,8 +556,13 @@ const messages = {
       tryAgain: "Try again",
       rateLimitTitle: "Gmail rate limit hit",
       loadTitle: "Unable to load emails",
+      staleSaved: "Couldn't refresh mail. Showing saved conversations.",
       rateLimitDescription:
         "Too many recent requests to Google. Waiting a moment before retrying.",
+      limitedListFrom:
+        "Last updated {{time}}. Some mail may be missing. Google is limiting Mail's requests.",
+      limitedList:
+        "Some mail may be missing. Google is limiting Mail's requests.",
       failedToConnect: "Failed to connect. Try again.",
       failedToParseJson: "Failed to parse JSON",
       missingGoogleCredentials:
@@ -614,7 +662,7 @@ const messages = {
       instructionsTitle: "Instructions",
       instructionCount: "{{count}} instruction(s)",
       instructionPlaceholder:
-        "e.g. Subjects like “question for you, Steve” are unwanted",
+        "e.g. Subjects like “quick question for you” are unwanted",
       addInstruction: "Add",
       noInstructions: "No instructions yet.",
       instructionExample: "Try “all political campaign emails are unwanted.”",
@@ -656,23 +704,23 @@ const messages = {
       autoArchiveMode: "Auto-archive",
       skipInboxMode: "Skip inbox",
       spamMode: "Spam",
-      tagMode: "Tag",
-      aiTagsTitle: "AI tags",
+      tagMode: "Label",
+      aiTagsTitle: "AI labels",
       ruleHelpLabel: "Explain {{mode}} rules",
       aiTagRuleHelp:
-        "Write a natural-language prompt. Jev adds this tag to matching mail.",
+        "Write a natural-language prompt. Mail adds this label to matching mail.",
       importantRuleHelp:
-        "Write a natural-language prompt. Jev marks matching mail as Important.",
+        "Write a natural-language prompt. Mail marks matching mail as Important.",
       skipInboxRuleHelp:
-        "Write a natural-language prompt. Jev archives matching mail so it skips Inbox.",
+        "Write a natural-language prompt. Mail archives matching mail so it skips Inbox.",
       spamRuleHelp:
-        "Write a natural-language prompt. Jev adds the agent-native-filtered label and archives matching mail. This is not Gmail Spam.",
+        "Write a natural-language prompt. Mail adds the agent-native-filtered label and archives matching mail. This is not Gmail Spam.",
       filteredMode: "Filtered",
       manageSettings: "Manage",
-      askJev: "Ask Jev",
+      askJev: "Ask Mail's agent",
       askJevPrompt:
         "Help me refine this Mail rule: {{condition}}. Ask what I want changed, then update it.",
-      composerPlaceholder: "Ask Jev to organize your inbox…",
+      composerPlaceholder: "Ask Mail's agent to organize your inbox…",
       chatSuggestionFilter: "Filter out messages like this",
       chatSuggestionPriority: "Prioritize emails from…",
       chatSuggestionArchive: "Auto-archive bot notifications",
@@ -698,7 +746,7 @@ const messages = {
       reviewImportant: "View important",
       ruleAdded: "AI rule added.",
       instructionHelp: "Use plain language",
-      tagNamePlaceholder: "Tag name",
+      tagNamePlaceholder: "Label name",
       spamLabelHint: "Matches are labeled and moved out of Inbox.",
       spamPlaceholder: "e.g. Messages that are clearly promotional or unwanted",
       tagPlaceholder: "e.g. Receipts and order confirmations from online shops",
@@ -728,8 +776,8 @@ const messages = {
       previewEmpty: "Run a preview to see likely matches here.",
       previewFailed: "Could not preview recent mail.",
       promptRulesCleared: "Triage rules removed.",
-      tagTabsHelp: "Each tag becomes an inbox tab",
-      addTag: "Add tag",
+      tagTabsHelp: "Each label becomes an inbox tab",
+      addTag: "Add label",
       triageTitle: "AI triage",
       connectJev: "Connect an AI provider",
       connectJevToRunTriage: "Connect an AI provider to run triage",
@@ -808,7 +856,8 @@ const messages = {
     },
   },
   agent: {
-    emptyState: "Ask me anything about your emails",
+    emptyState:
+      "I'm Mail's agent. Ask me about your email, or to sort it for you.",
     suggestionSummarize: "Summarize my unread emails",
     suggestionReplies: "What needs my reply today?",
     suggestionWidget: "Build me a custom widget for my inbox",
@@ -873,6 +922,7 @@ const messages = {
     autocomplete: "Autocomplete",
     sendAndMarkDone: "Send + Mark Done",
     autocompleteSaveFailed: "Could not save the autocomplete setting.",
+    signaturePlaceholder: "Best,\nYour name",
     writingStylePlaceholder: "Short, specific, warm. Avoid formal filler.",
     saveDraftingSettings: "Save drafting settings",
     reset: "Reset",

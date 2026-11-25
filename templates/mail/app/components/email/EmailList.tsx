@@ -1,5 +1,4 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
-import { actionErrorMessage } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { AI_FILTER_LABEL, type AiFilterTarget } from "@shared/ai-filter";
@@ -25,6 +24,8 @@ import {
   IconInbox,
   IconMail,
   IconMailOpened,
+  IconPlus,
+  IconTag,
   IconTrash,
   IconX,
   IconSettings,
@@ -43,7 +44,10 @@ import { ActionTooltip } from "@/components/email/ActionTooltip";
 import { AiFilterDialog } from "@/components/email/AiFilterDialog";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { useSetHeaderActions } from "@/components/layout/HeaderActions";
-import { JevConnectionPrompt } from "@/components/settings/JevConnectionPrompt";
+import {
+  JevConnectionDialog,
+  JevConnectionMenuItem,
+} from "@/components/settings/JevConnectionPrompt";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -88,8 +92,6 @@ import {
   useBulkMarkRead,
   useLabels,
   EMPTY_LABELS,
-  useMoveEmail,
-  MoveEmailPartialFailure,
   releaseOwnedInboxRemoval,
   releaseSuppressionClaims,
   type AccountError,
@@ -119,6 +121,13 @@ import {
   retryNextPage as runPaginationRetry,
   shouldShowPaginationRetry,
 } from "./infinite-pagination";
+import {
+  LabelPicker,
+  useApplyLabel,
+  type LabelChoice,
+  type LabelPickerAction,
+  type LabelPickerRequest,
+} from "./LabelPicker";
 
 type EmailsPage = { emails: EmailMessage[]; nextPageToken?: string };
 type InfiniteEmails = InfiniteData<EmailsPage, string | undefined>;
@@ -446,7 +455,7 @@ const RICH_ROW_HEIGHT_ESTIMATE = 96;
 
 function getRateLimitRetryMs(error: {
   message?: string;
-  retryAfterMs?: number;
+  retryAfterMs?: number | undefined;
 }): number {
   if (
     typeof error.retryAfterMs === "number" &&
@@ -462,20 +471,18 @@ function getRateLimitRetryMs(error: {
   return Math.min(Math.max(seconds * 1000, 15_000), 5 * 60_000);
 }
 
-function EmailErrorState({
+function EmailRetryButton({
   isQuotaError,
   message,
   retryAfterMs,
   isFetching,
   onRetry,
-  containerRef,
 }: {
   isQuotaError: boolean;
   message: string;
-  retryAfterMs?: number;
+  retryAfterMs?: number | undefined;
   isFetching: boolean;
   onRetry: () => unknown;
-  containerRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const t = useT();
   const rateLimitRetryMs = isQuotaError
@@ -515,6 +522,34 @@ function EmailErrorState({
   }
 
   return (
+    <button
+      onClick={handleClick}
+      disabled={buttonDisabled}
+      className="mt-1 inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-4 py-2 text-xs font-medium text-primary-foreground shadow-sm hover:bg-primary/90 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      {isFetching && <Spinner className="h-3 w-3" />}
+      {buttonLabel}
+    </button>
+  );
+}
+
+function EmailErrorState({
+  isQuotaError,
+  message,
+  retryAfterMs,
+  isFetching,
+  onRetry,
+  containerRef,
+}: {
+  isQuotaError: boolean;
+  message: string;
+  retryAfterMs?: number;
+  isFetching: boolean;
+  onRetry: () => unknown;
+  containerRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const t = useT();
+  return (
     <div className="flex h-full flex-col" ref={containerRef}>
       <div className="flex flex-1 flex-col items-center justify-center px-8">
         <div className="flex flex-col items-center gap-3 max-w-xs text-center">
@@ -531,14 +566,9 @@ function EmailErrorState({
               {isQuotaError ? t("mail.error.rateLimitDescription") : message}
             </p>
           </div>
-          <button
-            onClick={handleClick}
-            disabled={buttonDisabled}
-            className="mt-1 inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-4 py-2 text-xs font-medium text-primary-foreground shadow-sm hover:bg-primary/90 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isFetching && <Spinner className="h-3 w-3" />}
-            {buttonLabel}
-          </button>
+          <EmailRetryButton
+            {...{ isQuotaError, message, retryAfterMs, isFetching, onRetry }}
+          />
         </div>
       </div>
     </div>
@@ -616,6 +646,9 @@ export function EmailList({
     action: "filter" | "keep";
     targets: AiFilterTarget[];
   } | null>(null);
+  const [jevDialog, setJevDialog] = useState<"unopened" | "open" | "closed">(
+    "unopened",
+  );
 
   const {
     data: fetchedEmails = [],
@@ -671,7 +704,10 @@ export function EmailList({
     () => new Map(labels.map((label) => [label.id, label.name])),
     [labels],
   );
-  const moveEmail = useMoveEmail();
+  const applyLabel = useApplyLabel(labelParam || undefined);
+  const [labelPicker, setLabelPicker] = useState<LabelPickerRequest | null>(
+    null,
+  );
   const cancelScheduledJob = useDeleteScheduledJob();
   const sendScheduledJobNow = useSendScheduledJobNow();
   const confirmUncertainScheduled = useConfirmUncertainScheduledEmail();
@@ -680,12 +716,13 @@ export function EmailList({
     null,
   );
   const queryClient = useQueryClient();
+  const userLabels = useMemo(
+    () => labels.filter((label) => label.type === "user"),
+    [labels],
+  );
   const movableLabels = useMemo(
-    () =>
-      labels.filter(
-        (label) => label.type === "user" && label.id !== labelParam,
-      ),
-    [labels, labelParam],
+    () => userLabels.filter((label) => label.id !== labelParam),
+    [userLabels, labelParam],
   );
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1225,10 +1262,21 @@ export function EmailList({
     priorityWindowIds,
     rankedPriorityThreads,
   ]);
+  const reportedThreadOrderRef = useRef<string[] | null>(null);
   useEffect(() => {
-    onThreadOrderChange?.(
-      threads.map((t) => t.latestMessage.threadId || t.latestMessage.id),
+    if (!onThreadOrderChange) return;
+    const threadIds = threads.map(
+      (t) => t.latestMessage.threadId || t.latestMessage.id,
     );
+    const reported = reportedThreadOrderRef.current;
+    if (
+      reported?.length === threadIds.length &&
+      reported.every((id, index) => id === threadIds[index])
+    ) {
+      return;
+    }
+    reportedThreadOrderRef.current = threadIds;
+    onThreadOrderChange(threadIds);
   }, [onThreadOrderChange, threads]);
 
   const focusedIndex = threads.findIndex(
@@ -1420,10 +1468,30 @@ export function EmailList({
     setSelectedIds,
   ]);
 
+  const focusAfterRemoving = useCallback(
+    (threadKeys: string[]) => {
+      const removed = new Set(threadKeys);
+      const lastIdx = threads.findIndex(
+        (t) =>
+          (t.latestMessage.threadId || t.latestMessage.id) ===
+          threadKeys[threadKeys.length - 1],
+      );
+      const remaining = threads.filter(
+        (t) => !removed.has(t.latestMessage.threadId || t.latestMessage.id),
+      );
+      const nextThread =
+        remaining.length > 0
+          ? remaining[Math.min(lastIdx, remaining.length - 1)]
+          : undefined;
+      setFocusedId(nextThread ? nextThread.latestMessage.id : null);
+      return nextThread;
+    },
+    [threads, setFocusedId],
+  );
+
   const archiveThreadKeys = useCallback(
     (threadKeys: string[]) => {
       if (threadKeys.length === 0) return;
-      const actionKeySet = new Set(threadKeys);
 
       const targets = threadKeys
         .map((key) =>
@@ -1439,26 +1507,13 @@ export function EmailList({
         threadId: t.latestMessage.threadId || t.latestMessage.id,
       }));
 
-      const lastIdx = threads.findIndex(
-        (t) =>
-          (t.latestMessage.threadId || t.latestMessage.id) ===
-          threadKeys[threadKeys.length - 1],
-      );
-      const remaining = threads.filter(
-        (t) =>
-          !actionKeySet.has(t.latestMessage.threadId || t.latestMessage.id),
-      );
-      if (remaining.length > 0) {
-        const nextIdx = Math.min(lastIdx, remaining.length - 1);
-        const nextThread = remaining[nextIdx];
-        setFocusedId(nextThread.latestMessage.id);
+      const nextThread = focusAfterRemoving(threadKeys);
+      if (nextThread) {
         const nextTid =
           nextThread.latestMessage.threadId || nextThread.latestMessage.id;
         void ensureThread(nextTid, nextThread.latestMessage.accountEmail).catch(
           () => {},
         );
-      } else {
-        setFocusedId(null);
       }
 
       const snapshots: EmailMessage[] = [];
@@ -1576,7 +1631,7 @@ export function EmailList({
       unarchiveEmail,
       onArchived,
       labelParam,
-      setFocusedId,
+      focusAfterRemoving,
       setSelectedIds,
       queryClient,
     ],
@@ -1589,7 +1644,6 @@ export function EmailList({
   const trashThreadKeys = useCallback(
     (threadKeys: string[]) => {
       if (threadKeys.length === 0) return;
-      const actionKeySet = new Set(threadKeys);
 
       const targets = threadKeys
         .map((key) =>
@@ -1604,21 +1658,7 @@ export function EmailList({
         threadId: t.latestMessage.threadId || t.latestMessage.id,
       }));
 
-      const lastIdx = threads.findIndex(
-        (t) =>
-          (t.latestMessage.threadId || t.latestMessage.id) ===
-          threadKeys[threadKeys.length - 1],
-      );
-      const remaining = threads.filter(
-        (t) =>
-          !actionKeySet.has(t.latestMessage.threadId || t.latestMessage.id),
-      );
-      if (remaining.length > 0) {
-        const nextIdx = Math.min(lastIdx, remaining.length - 1);
-        setFocusedId(remaining[nextIdx].latestMessage.id);
-      } else {
-        setFocusedId(null);
-      }
+      focusAfterRemoving(threadKeys);
 
       const snapshots: EmailMessage[] = [];
       for (const key of threadKeys) {
@@ -1724,7 +1764,7 @@ export function EmailList({
       trashEmail,
       bulkTrashEmails,
       untrashEmail,
-      setFocusedId,
+      focusAfterRemoving,
       setSelectedIds,
       queryClient,
     ],
@@ -1881,56 +1921,31 @@ export function EmailList({
     setSelectedIds,
   ]);
 
-  const moveFocusedToLabel = useCallback(
-    async (labelId: string, labelName: string) => {
+  const openLabelPicker = useCallback(
+    (action: LabelPickerAction, createOnly = false) => {
+      if (getActionThreadKeys().length === 0) return;
+      setLabelPicker({ action, createOnly });
+    },
+    [getActionThreadKeys],
+  );
+
+  const labelFocused = useCallback(
+    (action: LabelPickerAction, choice: LabelChoice) => {
       const keys = getActionThreadKeys();
-      if (keys.length === 0) return;
-      const targets = resolveTargets(keys);
-      try {
-        const result = await moveEmail.mutateAsync({
-          id: targets.map((target) => target.latestMessage.id).join(","),
-          label: labelId,
-          removeLabel: labelParam || undefined,
-          accountEmails: targets
-            .map((target) => target.latestMessage.accountEmail ?? "")
-            .join(","),
-          threadIds: targets
-            .map(
-              (target) =>
-                target.latestMessage.threadId || target.latestMessage.id,
-            )
-            .join(","),
-        });
-        setSelectedIds(new Set());
-        toast(
-          targets.length > 1
-            ? t("mail.toasts.moveManySucceeded", {
-                count: result.succeeded.length,
-                label: labelName,
-              })
-            : t("mail.toasts.moveSucceeded", { label: labelName }),
-        );
-      } catch (error) {
-        if (error instanceof MoveEmailPartialFailure) {
-          reportWriteFailure(error, {
-            label: t("mail.toasts.movePartialFailed", {
-              succeeded: error.result.succeeded.length,
-              total: error.result.requested.length,
-              failed: error.result.failed.length,
-            }),
-          });
-        } else {
-          toast.error(actionErrorMessage(error) ?? t("mail.toasts.moveFailed"));
-        }
-      }
+      const targets = resolveTargets(keys).map(
+        (target) => target.latestMessage,
+      );
+      if (targets.length === 0) return;
+      if (action === "move") focusAfterRemoving(keys);
+      setSelectedIds(new Set());
+      void applyLabel(action, choice, targets);
     },
     [
+      applyLabel,
+      focusAfterRemoving,
       getActionThreadKeys,
       resolveTargets,
-      moveEmail,
-      labelParam,
       setSelectedIds,
-      t,
     ],
   );
 
@@ -2052,6 +2067,8 @@ export function EmailList({
       { key: "#", shift: "either", handler: trashFocused },
       { key: "u", handler: toggleFocusedRead },
       { key: "x", handler: toggleFocusedSelection },
+      { key: "l", handler: () => openLabelPicker("label") },
+      { key: "v", handler: () => openLabelPicker("move") },
       { key: "s", handler: starFocused },
       { key: "r", handler: replyFocused },
       { key: "f", handler: forwardFocused },
@@ -2533,7 +2550,7 @@ export function EmailList({
                 </button>
               </DropdownMenuTrigger>
             </ActionTooltip>
-            <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuContent align="end" className="min-w-44">
               <DropdownMenuItem
                 onSelect={() => onSortModeChange?.("newest")}
                 className="justify-between"
@@ -2573,18 +2590,17 @@ export function EmailList({
                   <DropdownMenuItem
                     onSelect={onJevRetry}
                     disabled={jevAvailabilityLoading}
-                    className="justify-between"
+                    className="justify-between gap-4"
                   >
                     {t("mail.sort.priority")}
-                    <span className="text-xs text-muted-foreground">
+                    <span className="whitespace-nowrap text-xs text-muted-foreground">
                       {t("mail.error.tryAgain")}
                     </span>
                   </DropdownMenuItem>
                 ) : (
-                  <JevConnectionPrompt
-                    variant="menu-item"
+                  <JevConnectionMenuItem
                     disabled={jevAvailabilityLoading}
-                    onConnected={onJevConnected}
+                    onSelect={() => setJevDialog("open")}
                   />
                 ))}
             </DropdownMenuContent>
@@ -2599,7 +2615,6 @@ export function EmailList({
       jevConfigured,
       jevAvailabilityLoading,
       jevAvailabilityError,
-      onJevConnected,
       onJevRetry,
       currentSortMode,
       onSortModeChange,
@@ -2672,25 +2687,46 @@ export function EmailList({
                 <IconMail className="h-3.5 w-3.5" />
                 {t("mail.actions.markUnread")}
               </DropdownMenuItem>
-              {movableLabels.length > 0 && (
-                <DropdownMenuSub>
+              {(
+                [
+                  ["label", userLabels, IconTag, "mail.actions.labelAs"],
+                  ["move", movableLabels, IconFolder, "mail.actions.moveTo"],
+                ] as const
+              ).map(([action, choices, Icon, titleKey]) => (
+                <DropdownMenuSub key={action}>
                   <DropdownMenuSubTrigger>
-                    <IconFolder className="h-3.5 w-3.5" />
-                    {t("mail.actions.moveTo")}
+                    <Icon className="h-3.5 w-3.5" />
+                    {t(titleKey)}
                   </DropdownMenuSubTrigger>
                   <DropdownMenuSubContent className="max-h-72 w-56 overflow-y-auto">
-                    {movableLabels.map((label) => (
+                    {choices.map((label) => (
                       <DropdownMenuItem
                         key={label.id}
-                        onClick={() => moveFocusedToLabel(label.id, label.name)}
+                        onClick={() =>
+                          labelFocused(action, {
+                            id: label.id,
+                            name: label.name,
+                            isNew: false,
+                          })
+                        }
                         className="text-xs"
                       >
-                        {label.name}
+                        <span data-an-block className="truncate">
+                          {label.name}
+                        </span>
                       </DropdownMenuItem>
                     ))}
+                    {choices.length > 0 && <DropdownMenuSeparator />}
+                    <DropdownMenuItem
+                      onClick={() => openLabelPicker(action, true)}
+                      className="text-xs"
+                    >
+                      <IconPlus className="h-3.5 w-3.5" />
+                      {t("mail.actions.newLabel")}
+                    </DropdownMenuItem>
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
-              )}
+              ))}
               {view !== "trash" && (
                 <DropdownMenuItem
                   onClick={trashFocused}
@@ -2734,8 +2770,10 @@ export function EmailList({
       archiveFocused,
       markFocusedRead,
       markFocusedUnread,
+      userLabels,
       movableLabels,
-      moveFocusedToLabel,
+      labelFocused,
+      openLabelPicker,
       view,
       trashFocused,
       selectAllThreads,
@@ -2745,24 +2783,60 @@ export function EmailList({
       selectUnstarredThreads,
     ],
   );
+  if (jevConfigured && jevDialog !== "unopened") setJevDialog("unopened");
+  const jevConnectionDialog = useMemo(
+    () =>
+      jevDialog === "unopened" ? null : (
+        <JevConnectionDialog
+          open={jevDialog === "open"}
+          onOpenChange={(open) => setJevDialog(open ? "open" : "closed")}
+          onConnected={() => onJevConnected?.()}
+        />
+      ),
+    [jevDialog, onJevConnected],
+  );
+
   const headerActions = useMemo(
     () =>
-      sortHeaderAction || bulkHeaderActions ? (
+      sortHeaderAction || bulkHeaderActions || jevConnectionDialog ? (
         <>
           {sortHeaderAction}
           {bulkHeaderActions}
+          {jevConnectionDialog}
         </>
       ) : null,
-    [bulkHeaderActions, sortHeaderAction],
+    [bulkHeaderActions, jevConnectionDialog, sortHeaderAction],
   );
   useSetHeaderActions(headerActions);
 
+  const isQuotaError = emailsError
+    ? (emailsError as { status?: number }).status === 429 ||
+      /\((429|403)\)|quota|rate limit/i.test(emailsError.message)
+    : false;
   const cooldownNotice =
-    read && read.freshness !== "live" ? (
+    (emailsError || accountErrors?.length) && emails.length > 0 ? (
+      <div
+        role="status"
+        className="shrink-0 border-b border-border/30 bg-muted/40 px-4 py-1.5 text-xs text-muted-foreground"
+      >
+        {t("mail.error.staleSaved")}
+        {emailsError && (
+          <EmailRetryButton
+            isQuotaError={isQuotaError}
+            message={emailsError.message}
+            retryAfterMs={
+              (emailsError as { retryAfterMs?: number }).retryAfterMs
+            }
+            isFetching={isFetching}
+            onRetry={refetch}
+          />
+        )}
+      </div>
+    ) : read && read.freshness !== "live" ? (
       <GmailCooldownNotice read={read} onRetry={refetch} />
     ) : null;
 
-  if (emailsError) {
+  if (emailsError && emails.length === 0) {
     const needsCredentials =
       emailsError.message?.includes("GOOGLE_CLIENT_ID") ||
       emailsError.message?.includes("GOOGLE_CLIENT_SECRET");
@@ -2774,10 +2848,6 @@ export function EmailList({
         </div>
       );
     }
-
-    const isQuotaError =
-      (emailsError as { status?: number }).status === 429 ||
-      /\((429|403)\)|quota|rate limit/i.test(emailsError.message ?? "");
 
     return (
       <EmailErrorState
@@ -2791,7 +2861,7 @@ export function EmailList({
     );
   }
 
-  if (isLoading) {
+  if (isLoading && emails.length === 0) {
     return <MailLoadingState containerRef={containerRef} rich={readingPane} />;
   }
 
@@ -2932,6 +3002,12 @@ export function EmailList({
           action={aiFilterDialog?.action ?? "filter"}
           targets={aiFilterDialog?.targets ?? []}
           onComplete={() => setSelectedIds(new Set())}
+        />
+        <LabelPicker
+          request={labelPicker}
+          labels={labelPicker?.action === "move" ? movableLabels : userLabels}
+          onClose={() => setLabelPicker(null)}
+          onPick={(choice, action) => labelFocused(action, choice)}
         />
         <div
           style={{

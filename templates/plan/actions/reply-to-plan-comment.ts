@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { ensureReviewTables } from "@agent-native/core/review";
 import {
   getRequestUserEmail,
   getRequestUserName,
@@ -20,6 +21,7 @@ import {
   resolvePlanAccessContext,
   resolvePlanOwnerEmailForWrite,
 } from "../server/lib/local-identity.js";
+import { mirrorPlanComments } from "../server/lib/plan-comment-mirror.js";
 import {
   buildUpdatedPlanCommentRows,
   emitPlanCommented,
@@ -168,9 +170,13 @@ export default defineAction({
 
     const insertedId = commentRow.id ?? newId("cmt");
 
-    await db
-      .insert(schema.planComments)
-      .values({ ...commentRow, id: insertedId });
+    await ensureReviewTables();
+    await db.transaction(async (tx) => {
+      await tx
+        .insert(schema.planComments)
+        .values({ ...commentRow, id: insertedId });
+      await mirrorPlanComments(tx, args.planId, [insertedId]);
+    });
 
     await writeEvent({
       planId: args.planId,

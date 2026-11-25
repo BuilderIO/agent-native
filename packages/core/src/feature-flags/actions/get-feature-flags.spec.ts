@@ -7,6 +7,7 @@ vi.mock("../../action.js", () => ({
 const globalSettings = new Map<string, Record<string, unknown>>();
 const orgSettings = new Map<string, Record<string, unknown>>();
 const failingGlobalKeys = new Set<string>();
+const transientReadErrors = new Map<string, Error>();
 const ORG_KEY_RE = /^o:([^:]+):(.+)$/;
 const getSettingsRawMock = vi.fn(async (keys: readonly string[]) => {
   const failing = keys.find((key) => failingGlobalKeys.has(key));
@@ -22,6 +23,8 @@ const getSettingsRawMock = vi.fn(async (keys: readonly string[]) => {
   );
 });
 const getSettingMock = vi.fn(async (key: string) => {
+  const transientError = transientReadErrors.get(key);
+  if (transientError) throw transientError;
   if (failingGlobalKeys.has(key)) throw new Error(`corrupt setting: ${key}`);
   const match = ORG_KEY_RE.exec(key);
   return match
@@ -37,6 +40,7 @@ vi.mock("../../settings/store.js", async (importOriginal) => ({
   putSetting: vi.fn(),
 }));
 vi.mock("../../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
 }));
 
@@ -55,6 +59,7 @@ beforeEach(() => {
   globalSettings.clear();
   orgSettings.clear();
   failingGlobalKeys.clear();
+  transientReadErrors.clear();
   getSettingsRawMock.mockClear();
   getSettingMock.mockClear();
   captureErrorMock.mockClear();
@@ -126,6 +131,58 @@ describe("get-feature-flags action", () => {
         tags: { source: "feature-flags", op: "get-feature-flags" },
       }),
     );
+  });
+
+  it.each([
+    ["CONNECT_TIMEOUT", "direct"],
+    ["CONNECT_TIMEOUT", "wrapped"],
+    ["DB_CONNECT_COOLDOWN", "direct"],
+    ["DB_CONNECT_COOLDOWN", "wrapped"],
+    ["ECONNREFUSED", "direct"],
+    ["ECONNREFUSED", "wrapped"],
+    ["EAI_AGAIN", "direct"],
+    ["EAI_AGAIN", "wrapped"],
+  ])(
+    "propagates %s database errors (%s) without per-flag reads",
+    async (code, shape) => {
+      registry.registerFeatureFlags([{ key: "flag-a" }, { key: "flag-b" }]);
+      const cause = Object.assign(new Error("Database unavailable"), { code });
+      const error =
+        shape === "wrapped" ? new Error("Failed query", { cause }) : cause;
+      getSettingsRawMock.mockRejectedValueOnce(error);
+
+      await expect(
+        action.run({}, { userEmail: "a@b.com", orgId: "org-1" }),
+      ).rejects.toBe(error);
+      expect(getSettingsRawMock).toHaveBeenCalledTimes(1);
+      expect(getSettingMock).not.toHaveBeenCalled();
+      expect(captureErrorMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("propagates a transient failure during per-flag fallback", async () => {
+    registry.registerFeatureFlags([{ key: "flag-a" }]);
+    const error = Object.assign(new Error("Database unavailable"), {
+      code: "CONNECT_TIMEOUT",
+    });
+    getSettingsRawMock
+      .mockRejectedValueOnce(new Error("invalid batch"))
+      .mockRejectedValueOnce(error);
+
+    await expect(action.run({}, {})).rejects.toBe(error);
+  });
+
+  it("propagates a transient failure while loading migrated lab rules", async () => {
+    registry.registerFeatureFlags([{ key: "capture" }]);
+    labsRegistry.registerLabs([
+      { key: "clips.resilient", legacyFlagKeys: ["capture"] },
+    ]);
+    const error = Object.assign(new Error("Database unavailable"), {
+      code: "CONNECT_TIMEOUT",
+    });
+    transientReadErrors.set("feature-flag:capture", error);
+
+    await expect(action.run({}, { userEmail: "a@b.com" })).rejects.toBe(error);
   });
 
   it("returns an empty object when no flags are registered", async () => {
@@ -207,4 +264,9 @@ describe("get-feature-flags action", () => {
       retry: false,
     });
   });
+});
+
+it("keeps get-feature-flags in the app, off MCP", async () => {
+  const { default: action } = await import("./get-feature-flags.js");
+  expect(action.mcpTool).toBe(false);
 });

@@ -218,6 +218,34 @@ CREATE INDEX IF NOT EXISTS idx_bookings_slug_start ON bookings (slug, "start");`
         ALTER TABLE bookings ADD COLUMN IF NOT EXISTS zoom_account_id TEXT;
       `,
     },
+    {
+      version: 27,
+      name: "booking-link-single-use-tokens",
+      sql: `
+        CREATE TABLE IF NOT EXISTS booking_link_single_use_tokens (
+          -- guard:allow-plaintext-secret-column — a single-use booking URL code its link's editors copy again; it books one meeting and grants no account access
+          token TEXT PRIMARY KEY,
+          booking_link_id TEXT NOT NULL,
+          created_by TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          used_at TEXT,
+          booking_id TEXT,
+          revoked_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS booking_link_single_use_tokens_link_idx
+          ON booking_link_single_use_tokens (booking_link_id);
+      `,
+    },
+    {
+      version: 28,
+      name: "booking-reminders",
+      sql: `
+        ALTER TABLE booking_links ADD COLUMN IF NOT EXISTS reminder_minutes INTEGER NOT NULL DEFAULT 1440;
+        ALTER TABLE bookings ADD COLUMN IF NOT EXISTS reminder_handled_at TEXT;
+        ALTER TABLE bookings ADD COLUMN IF NOT EXISTS reminder_next_attempt_at TEXT;
+        CREATE INDEX IF NOT EXISTS idx_bookings_start ON bookings ("start");
+      `,
+    },
   ],
   { table: "calendar_migrations" },
 );

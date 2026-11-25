@@ -198,7 +198,7 @@ test("Screen mode draws one new top-level screen at the dragged box and no board
   const before = await app.savedRecord(id);
   const boardBefore = await app.savedNodes(id, "__board__.html");
   await app.page.keyboard.press("f");
-  await selectTool(app.page, "Screen");
+  await selectTool(app.page, "Page");
 
   await drawBox(app, { x: 440, y: -200, width: 160, height: 120 });
 

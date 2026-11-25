@@ -1808,6 +1808,8 @@ function AgentPanelInner({
       const activeTab = activeTabId
         ? tabs.find((tab) => tab.id === activeTabId)
         : undefined;
+      const pageTitle =
+        activeTab?.label || (newUiTabLabel ?? t("agentPanel.newChat"));
       const pageHeaderVisible = shouldShowAgentPanelPageHeader(
         tabs,
         activeTabId,
@@ -1859,8 +1861,11 @@ function AgentPanelInner({
               >
                 <div className="flex min-w-0 flex-1 items-center gap-2">
                   {pageHeaderLeadingSlot}
-                  <h1 className="truncate text-xs font-medium text-foreground">
-                    {activeTab?.label || t("agentPanel.newChat")}
+                  <h1
+                    className="truncate text-xs font-medium text-foreground"
+                    title={pageTitle}
+                  >
+                    {pageTitle}
                   </h1>
                   {pageHeaderActions.showPageTitleMenu ? (
                     <DropdownMenu
@@ -1955,6 +1960,7 @@ function AgentPanelInner({
       getChatThreadShareUrl,
       closeHeaderMenuForOverlay,
       headerMenuOpen,
+      newUiTabLabel,
       onAgentShareHandoff,
       onPageHeaderVisibilityChange,
       pageHeaderLeadingSlot,
@@ -2032,7 +2038,7 @@ function AgentPanelInner({
       const chatThreadItems = (): AgentPanelThreadItem[] =>
         mainTabs.map((tab) => ({
           id: tab.id,
-          label: tab.label || t("agentPanel.newChat"),
+          label: tab.label || (newUiTabLabel ?? t("agentPanel.newChat")),
           active: isActiveMainTab(tab),
           running: tab.status === "running",
         }));
@@ -2374,6 +2380,7 @@ function AgentPanelInner({
               agentChatSurface={effectiveAgentChatSurface}
               apiUrl={apiUrl}
               showHeader={false}
+              newChatTitle={newUiTabLabel}
               renderHeader={showHeader ? renderChatHeader : undefined}
               showTabBar={showTabBar}
               renderOverlay={

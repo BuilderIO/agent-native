@@ -58,6 +58,7 @@ import {
 } from "recharts";
 
 import {
+  evenTickValues,
   isCategoryAxis,
   planCategoryAxis,
   trimToWidth,
@@ -78,6 +79,7 @@ import {
   type DualAxisPlan,
 } from "../../dashboard/dual-axis.js";
 import {
+  EventMarkerList,
   renderEventMarkers,
   useEventMarkerAxisPadding,
   useEventMarkerGroups,
@@ -310,6 +312,7 @@ type ChartAxisValues = {
   rows: Record<string, unknown>[];
   keys: string[];
   stacked?: boolean | undefined;
+  stackedKeys?: ReadonlySet<string> | undefined;
 };
 
 // Duration axes step in clean units ("6 hours") rather than the decimal
@@ -324,7 +327,7 @@ function durationAxisProps(values: ChartAxisValues, keys: string[]) {
     for (const key of keys) {
       const value = Number(row[key]);
       if (!Number.isFinite(value)) continue;
-      if (values.stacked) {
+      if (values.stacked || values.stackedKeys?.has(key)) {
         if (value < 0) below += value;
         else above += value;
       } else {
@@ -2889,6 +2892,43 @@ function CategoryAxisTick({
   );
 }
 
+function EvenlySpacedXAxis({
+  rows,
+  dataKey,
+  formatLabel,
+  padding,
+}: {
+  rows: readonly Record<string, unknown>[];
+  dataKey: (row: Record<string, unknown>) => unknown;
+  formatLabel: (value: unknown) => string;
+  padding: { left: number; right: number };
+}) {
+  const plotWidth = usePlotArea()?.width ?? 0;
+  const ticks = useMemo(
+    () =>
+      evenTickValues(
+        rows.map(dataKey),
+        formatLabel,
+        plotWidth,
+        CATEGORY_TICK_FONT_SIZE,
+        padding,
+      ),
+    [rows, dataKey, formatLabel, plotWidth, padding],
+  );
+  return (
+    <XAxis
+      dataKey={dataKey}
+      stroke="hsl(var(--muted-foreground))"
+      fontSize={CATEGORY_TICK_FONT_SIZE}
+      tickLine={false}
+      axisLine={false}
+      tickFormatter={formatLabel}
+      padding={padding}
+      {...(ticks ? { ticks } : {})}
+    />
+  );
+}
+
 /**
  * X axis for named categories: every name is drawn, angled and cut with an
  * ellipsis when the plot is too narrow, since a skipped tick hides a bar's name.
@@ -3037,7 +3077,10 @@ export function BarRenderer({
       drilldownItems={rows.length > 0 ? drilldownItems : undefined}
       onDatumClick={onDatumClick}
       footer={
-        <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
+        <>
+          <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
+          <EventMarkerList groups={eventGroups} />
+        </>
       }
     >
       <ChartResponsiveContainer>
@@ -3053,13 +3096,10 @@ export function BarRenderer({
               formatLabel={xLabelFormatter}
             />
           ) : (
-            <XAxis
+            <EvenlySpacedXAxis
+              rows={rows}
               dataKey={xValue}
-              stroke="hsl(var(--muted-foreground))"
-              fontSize={12}
-              tickLine={false}
-              axisLine={false}
-              tickFormatter={xLabelFormatter}
+              formatLabel={xLabelFormatter}
               padding={xPadding}
             />
           )}
@@ -3137,6 +3177,7 @@ export function ComboRenderer({
   colors,
   yFormatter,
   barKeys,
+  stacked,
   panel,
   onDatumClick,
 }: {
@@ -3146,6 +3187,7 @@ export function ComboRenderer({
   colors: string[];
   yFormatter?: ChartValueFormatter | undefined;
   barKeys: string[];
+  stacked?: boolean;
   panel: SqlPanel;
   onDatumClick?: DatumClickHandler | undefined;
 }) {
@@ -3218,13 +3260,17 @@ export function ComboRenderer({
       drilldownItems={rows.length > 0 ? drilldownItems : undefined}
       onDatumClick={onDatumClick}
       footer={
-        <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
+        <>
+          <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
+          <EventMarkerList groups={eventGroups} />
+        </>
       }
     >
       <ChartResponsiveContainer>
         <ComposedChart
           data={rows}
           margin={chartMargin.margin}
+          stackOffset={stacked ? "sign" : undefined}
           {...chartClick.props}
         >
           {chartClick.locator}
@@ -3235,19 +3281,17 @@ export function ComboRenderer({
               formatLabel={xLabelFormatter}
             />
           ) : (
-            <XAxis
+            <EvenlySpacedXAxis
+              rows={rows}
               dataKey={xValue}
-              stroke="hsl(var(--muted-foreground))"
-              fontSize={12}
-              tickLine={false}
-              axisLine={false}
-              tickFormatter={xLabelFormatter}
+              formatLabel={xLabelFormatter}
               padding={xPadding}
             />
           )}
           {renderChartYAxes(dualAxis, yFormatter, {
             rows,
             keys: yKeys.filter((key) => !hiddenKeys.has(key)),
+            stackedKeys: stacked ? barKeySet : undefined,
           })}
           <CartesianGrid
             strokeDasharray="3 3"
@@ -3285,6 +3329,13 @@ export function ComboRenderer({
                 yAxisId={seriesAxisId(dualAxis, key)}
                 fill={colors[i % colors.length]}
                 radius={[4, 4, 0, 0]}
+                stackId={
+                  stacked
+                    ? dualAxis.enabled
+                      ? `stack-${seriesAxisId(dualAxis, key)}`
+                      : "stack"
+                    : undefined
+                }
                 hide={hiddenKeys.has(key)}
                 isAnimationActive={false}
                 {...chartSeriesClickProps(
@@ -3429,7 +3480,10 @@ export function TimeSeriesRenderer({
         drilldownItems={chartRows.length > 0 ? drilldownItems : undefined}
         onDatumClick={onDatumClick}
         footer={
-          <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
+          <>
+            <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
+            <EventMarkerList groups={eventGroups} />
+          </>
         }
       >
         <ChartResponsiveContainer>
@@ -3439,13 +3493,10 @@ export function TimeSeriesRenderer({
             {...chartClick.props}
           >
             {chartClick.locator}
-            <XAxis
+            <EvenlySpacedXAxis
+              rows={chartRows}
               dataKey={xValue}
-              stroke="hsl(var(--muted-foreground))"
-              fontSize={12}
-              tickLine={false}
-              axisLine={false}
-              tickFormatter={xLabelFormatter}
+              formatLabel={xLabelFormatter}
               padding={xPadding}
             />
             {renderChartYAxes(dualAxis, yFormatter, {
@@ -3549,7 +3600,10 @@ export function TimeSeriesRenderer({
       drilldownItems={chartRows.length > 0 ? drilldownItems : undefined}
       onDatumClick={onDatumClick}
       footer={
-        <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
+        <>
+          <DataNoteLines notes={dataNoteLayout.unplaced} panelId={panel.id} />
+          <EventMarkerList groups={eventGroups} />
+        </>
       }
     >
       <ChartResponsiveContainer>
@@ -3585,13 +3639,10 @@ export function TimeSeriesRenderer({
               ))}
             </defs>
           )}
-          <XAxis
+          <EvenlySpacedXAxis
+            rows={chartRows}
             dataKey={xValue}
-            stroke="hsl(var(--muted-foreground))"
-            fontSize={12}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={xLabelFormatter}
+            formatLabel={xLabelFormatter}
             padding={xPadding}
           />
           {renderChartYAxes(dualAxis, yFormatter, {

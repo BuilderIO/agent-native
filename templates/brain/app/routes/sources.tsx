@@ -55,6 +55,7 @@ import {
 } from "@/components/brain/Surface";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -1777,16 +1778,12 @@ function SourceFact({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
-function ingestSourceKey(source: BrainSource) {
-  const sourceKey = source.config?.sourceKey;
-  return typeof sourceKey === "string" && sourceKey.trim()
-    ? sourceKey.trim()
-    : null;
-}
-
 type MarkdownFileSelection = {
   path: string;
   file: File;
+  transcript: boolean | null;
+  capturedAt: string;
+  participants: string;
 };
 
 function actionErrorMessage(error: unknown) {
@@ -1808,6 +1805,7 @@ function MarkdownImportDialog({
   const inputRef = useRef<HTMLInputElement>(null);
   const filesInputRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<MarkdownFileSelection[]>([]);
+  const [kind, setKind] = useState<"document" | "transcript">("document");
   const [skippedFileCount, setSkippedFileCount] = useState(0);
   const [result, setResult] = useState<MarkdownImportResponse | null>(null);
   const [readError, setReadError] = useState<string | null>(null);
@@ -1815,14 +1813,22 @@ function MarkdownImportDialog({
     MarkdownImportResponse,
     {
       sourceId: string;
-      files: Array<{ path: string; content: string }>;
+      files: Array<{
+        path: string;
+        content: string;
+        kind?: "document" | "transcript";
+        capturedAt?: string;
+        participants?: string[];
+      }>;
       enqueueDistillation: boolean;
+      kind: "document" | "transcript";
     }
   >("import-markdown-files" as any);
 
   useEffect(() => {
     if (!open) {
       setFiles([]);
+      setKind("document");
       setSkippedFileCount(0);
       setResult(null);
       setReadError(null);
@@ -1834,7 +1840,14 @@ function MarkdownImportDialog({
     const byPath = new Map<string, MarkdownFileSelection>();
     for (const file of selected) {
       const path = file.webkitRelativePath || file.name;
-      if (documentImportFormat(path)) byPath.set(path, { path, file });
+      if (documentImportFormat(path))
+        byPath.set(path, {
+          path,
+          file,
+          transcript: null,
+          capturedAt: "",
+          participants: "",
+        });
     }
     setFiles(Array.from(byPath.values()));
     setSkippedFileCount(selected.length - byPath.size);
@@ -1848,14 +1861,35 @@ function MarkdownImportDialog({
     setReadError(null);
     try {
       const payload = await Promise.all(
-        files.map(async ({ path, file }) => ({
-          path,
-          content: await file.text(),
-        })),
+        files.map(
+          async ({ path, file, transcript, capturedAt, participants }) => ({
+            path,
+            content: await file.text(),
+            ...(transcript === null
+              ? {}
+              : {
+                  kind: transcript
+                    ? ("transcript" as const)
+                    : ("document" as const),
+                }),
+            ...(capturedAt
+              ? { capturedAt: new Date(capturedAt).toISOString() }
+              : {}),
+            ...(participants.trim()
+              ? {
+                  participants: participants
+                    .split(",")
+                    .map((name) => name.trim())
+                    .filter(Boolean),
+                }
+              : {}),
+          }),
+        ),
       );
       const nextResult = await importMarkdownFiles.mutateAsync({
         sourceId: source.id,
         files: payload,
+        kind,
         enqueueDistillation: true,
       });
       setResult(nextResult);
@@ -1867,6 +1901,12 @@ function MarkdownImportDialog({
 
   const resultIssues =
     result?.files.filter((file) => file.status !== "imported") ?? [];
+  const incompleteFiles =
+    result?.files.filter(
+      (file) =>
+        file.status === "imported" &&
+        (file.withheldPassages === null || (file.withheldPassages ?? 0) > 0),
+    ) ?? [];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1882,6 +1922,31 @@ function MarkdownImportDialog({
           </DialogHeader>
 
           <div className="grid gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="manual-import-kind">
+                {t("sources.manualImportKind")}
+              </Label>
+              <Select
+                value={kind}
+                onValueChange={(value) => {
+                  setKind(value as "document" | "transcript");
+                  setResult(null);
+                }}
+                disabled={importMarkdownFiles.isPending}
+              >
+                <SelectTrigger id="manual-import-kind">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="document">
+                    {t("sources.manualImportDocument")}
+                  </SelectItem>
+                  <SelectItem value="transcript">
+                    {t("sources.manualImportTranscript")}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <input
               ref={inputRef}
               type="file"
@@ -1944,18 +2009,68 @@ function MarkdownImportDialog({
 
             {files.length ? (
               <div className="grid max-h-48 gap-1 overflow-y-auto rounded-md border border-border p-3 text-xs text-muted-foreground">
-                {files.slice(0, 20).map(({ path }) => (
-                  <p key={path} className="truncate font-mono">
-                    {path}
-                  </p>
+                {files.map((item) => (
+                  <details key={item.path}>
+                    <summary className="cursor-pointer truncate font-mono">
+                      {item.path}
+                    </summary>
+                    <div className="grid gap-2 py-2">
+                      <label className="grid gap-1">
+                        {t("sources.importCaptureTime")}
+                        <Input
+                          type="datetime-local"
+                          value={item.capturedAt}
+                          onChange={(event) =>
+                            setFiles((current) =>
+                              current.map((entry) =>
+                                entry.path === item.path
+                                  ? { ...entry, capturedAt: event.target.value }
+                                  : entry,
+                              ),
+                            )
+                          }
+                        />
+                      </label>
+                      <label className="grid gap-1">
+                        {t("sources.importParticipants")}
+                        <Input
+                          value={item.participants}
+                          onChange={(event) =>
+                            setFiles((current) =>
+                              current.map((entry) =>
+                                entry.path === item.path
+                                  ? {
+                                      ...entry,
+                                      participants: event.target.value,
+                                    }
+                                  : entry,
+                              ),
+                            )
+                          }
+                        />
+                      </label>
+                      <label className="flex items-center gap-2">
+                        <Checkbox
+                          checked={
+                            item.transcript === null
+                              ? "indeterminate"
+                              : item.transcript
+                          }
+                          onCheckedChange={(checked) =>
+                            setFiles((current) =>
+                              current.map((entry) =>
+                                entry.path === item.path
+                                  ? { ...entry, transcript: checked === true }
+                                  : entry,
+                              ),
+                            )
+                          }
+                        />
+                        {t("sources.importTranscript")}
+                      </label>
+                    </div>
+                  </details>
                 ))}
-                {files.length > 20 ? (
-                  <p>
-                    {t("sources.manualImportMoreFiles", {
-                      count: (files.length - 20).toLocaleString(),
-                    })}
-                  </p>
-                ) : null}
               </div>
             ) : null}
 
@@ -1969,6 +2084,14 @@ function MarkdownImportDialog({
                     blocked: result.summary.blocked.toLocaleString(),
                   })}
                 </p>
+                {incompleteFiles.map((file) => (
+                  <p key={file.path} className="text-xs text-destructive">
+                    <span className="font-mono">{file.path}</span>:{" "}
+                    {t("common.incompleteTranscript", {
+                      count: file.withheldPassages ?? "?",
+                    })}
+                  </p>
+                ))}
                 {resultIssues.length ? (
                   <div className="grid gap-1 text-xs leading-5 text-muted-foreground">
                     {resultIssues.slice(0, 5).map((file) => (
@@ -1976,7 +2099,9 @@ function MarkdownImportDialog({
                         <span className="font-mono">{file.path}</span>:{" "}
                         {file.errorCode === "screening_unavailable"
                           ? t("sources.manualImportScreeningUnavailable")
-                          : (file.error ?? t("sources.manualImportBlocked"))}
+                          : file.errorCode === "capture_concurrent"
+                            ? t("sources.manualImportConcurrent")
+                            : (file.error ?? t("sources.manualImportBlocked"))}
                       </p>
                     ))}
                     {resultIssues.length > 5 ? (
@@ -2174,7 +2299,10 @@ function SourceListItem({
                   </DropdownMenuItem>
                 ) : null}
                 {onRotateIngestToken ? (
-                  <DropdownMenuItem onSelect={onRotateIngestToken}>
+                  <DropdownMenuItem
+                    disabled={syncPending || updating}
+                    onSelect={onRotateIngestToken}
+                  >
                     <IconRefresh className="size-4" />
                     {t("sources.rotateIngestToken")}
                   </DropdownMenuItem>
@@ -2311,6 +2439,7 @@ export default function SourcesRoute() {
   const [setupOpen, setSetupOpen] = useState(false);
   const [ingestHandoff, setIngestHandoff] =
     useState<OneTimeIngestHandoff | null>(null);
+  const rotatingIngestToken = useRef(false);
   const [copiedHandoffField, setCopiedHandoffField] = useState<string | null>(
     null,
   );
@@ -2384,7 +2513,7 @@ export default function SourcesRoute() {
     Record<string, never>
   >("ensure-company-context-source", { errorNotification: "caller" });
   const rotateSourceIngestToken = useActionMutation<
-    CreateSourceResponse,
+    CreateSourceResponse & { sourceKey: string; ingestToken: string },
     { sourceId: string }
   >("rotate-source-ingest-token", { errorNotification: "caller" });
   const syncSource = useActionMutation<unknown, { sourceId: string }>(
@@ -2636,19 +2765,26 @@ export default function SourcesRoute() {
     setArchiveSource(null);
   }
 
-  async function rotateIngestToken(source: BrainSource) {
-    const sourceKey = ingestSourceKey(source);
-    if (!sourceKey) return;
-    const result = await rotateSourceIngestToken.mutateAsync({
-      sourceId: source.id,
-    });
-    const handoff = createOneTimeIngestHandoff({
-      origin: window.location.origin,
-      provider: source.provider ?? "",
-      result,
-      sourceKey,
-    });
-    if (handoff) setIngestHandoff(handoff);
+  function rotateIngestToken(source: BrainSource) {
+    if (rotatingIngestToken.current) return;
+    rotatingIngestToken.current = true;
+    rotateSourceIngestToken.mutate(
+      { sourceId: source.id },
+      {
+        onSuccess: (result) => {
+          const handoff = createOneTimeIngestHandoff({
+            origin: window.location.origin,
+            provider: source.provider ?? "",
+            result,
+            sourceKey: result.sourceKey,
+          });
+          if (handoff) setIngestHandoff(handoff);
+        },
+        onSettled: () => {
+          rotatingIngestToken.current = false;
+        },
+      },
+    );
   }
 
   function toggleCaptureSelection(captureId: string, checked: boolean) {
@@ -2742,8 +2878,8 @@ export default function SourcesRoute() {
                 onRotateIngestToken={
                   (source.provider === "clips" ||
                     source.provider === "generic") &&
-                  ingestSourceKey(source)
-                    ? () => void rotateIngestToken(source)
+                  source.hasIngestSourceKey
+                    ? () => rotateIngestToken(source)
                     : undefined
                 }
                 // Manual sources have no remote, so sync only reports an error.
@@ -2784,7 +2920,6 @@ export default function SourcesRoute() {
         connectionProvidersQuery.isError ||
         updateSource.isError ||
         createSource.isError ||
-        rotateSourceIngestToken.isError ||
         syncSource.isError ||
         syncDueSources.isError ||
         enqueueCapturesDistillation.isError ||
@@ -2793,6 +2928,25 @@ export default function SourcesRoute() {
             <EmptyActionState
               title={t("sources.actionFailedTitle")}
               detail={t("sources.actionFailedDetail")}
+            />
+          </div>
+        ) : null}
+
+        {rotateSourceIngestToken.isError ? (
+          <div>
+            <EmptyActionState
+              title={t("sources.actionFailedTitle")}
+              detail={
+                rotateSourceIngestToken.error instanceof Error &&
+                hasErrorCode(
+                  rotateSourceIngestToken.error,
+                  "source_config_conflict",
+                ) &&
+                "status" in rotateSourceIngestToken.error &&
+                rotateSourceIngestToken.error.status === 409
+                  ? t("sources.rotationConflictDetail")
+                  : t("sources.actionFailedDetail")
+              }
             />
           </div>
         ) : null}

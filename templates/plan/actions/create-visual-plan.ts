@@ -17,7 +17,6 @@ import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
 import {
   createPlanContentFromSections,
   normalizePlanContent,
-  sanitizeStoredPlanHtml,
   serializePlanContent,
 } from "../server/plan-content.js";
 import {
@@ -57,48 +56,44 @@ function inferImportedPlanTitle(planText: string): string {
 const CONTENT_DESCRIPTION =
   "Structured editable plan content. Prefer this for rich text, inline diagrams, annotated code, question-form open questions, and optional canvas/prototype UI surfaces. Call the get-plan-blocks tool FIRST for the authoritative block catalog, visual frame guidance, authoring rules, and style tokens — do not author from memory. Key rules: canvas frames use wireframe data.html/html semantic HTML, not legacy kit-tree screen arrays; use diagram blocks with .diagram-* primitives and --wf-* tokens (no hex/rgb/hsl, no custom fonts); for file maps use annotated-code blocks in a vertical tabs block; put unresolved decisions in a bottom question-form block.";
 
-const createVisualPlanSchema = z.object({
-  title: z.string().optional().describe("Short plan title"),
-  brief: z
-    .string()
-    .optional()
-    .describe(
-      "One short sentence summarizing the plan, shown as the lede under the title. Keep it to a single tight line — the document body carries the detail, not this summary.",
-    ),
-  goal: z.string().optional().describe("Alias for brief."),
-  planText: z
-    .string()
-    .min(1)
-    .optional()
-    .describe(
-      "Existing Codex, Claude Code, Markdown, or pasted plan text to preserve and turn into a visual review plan.",
-    ),
-  source: planSourceSchema.optional(),
-  repoPath: z.string().optional().describe("Repository path for the run"),
-  currentFocus: z.string().optional().describe("Current plan focus"),
-  status: planStatusSchema.optional().default("review"),
-  html: z
-    .string()
-    .optional()
-    .describe(
-      "Legacy: a standalone HTML document. Setting this NULLS structured content — blocks, contentPatches, inline editing, and MDX round-trip all stop working for this plan. Only for preserving a pre-existing HTML artifact; never author new plans this way.",
-    ),
-  content: planContentSchema.optional().describe(CONTENT_DESCRIPTION),
-  markdown: z
-    .string()
-    .optional()
-    .describe("Markdown/text fallback or source plan"),
-  sections: z
-    .array(sectionInputSchema)
-    .optional()
-    .default([])
-    .describe("Readable plan sections and visual blocks"),
-  comments: z
-    .array(commentInputSchema)
-    .optional()
-    .default([])
-    .describe("Initial annotations or review prompts"),
-});
+const createVisualPlanSchema = z
+  .object({
+    title: z.string().optional().describe("Short plan title"),
+    brief: z
+      .string()
+      .optional()
+      .describe(
+        "One short sentence summarizing the plan, shown as the lede under the title. Keep it to a single tight line — the document body carries the detail, not this summary.",
+      ),
+    goal: z.string().optional().describe("Alias for brief."),
+    planText: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        "Existing Codex, Claude Code, Markdown, or pasted plan text to preserve and turn into a visual review plan.",
+      ),
+    source: planSourceSchema.optional(),
+    repoPath: z.string().optional().describe("Repository path for the run"),
+    currentFocus: z.string().optional().describe("Current plan focus"),
+    status: planStatusSchema.optional().default("review"),
+    content: planContentSchema.optional().describe(CONTENT_DESCRIPTION),
+    markdown: z
+      .string()
+      .optional()
+      .describe("Markdown/text fallback or source plan"),
+    sections: z
+      .array(sectionInputSchema)
+      .optional()
+      .default([])
+      .describe("Readable plan sections and visual blocks"),
+    comments: z
+      .array(commentInputSchema)
+      .optional()
+      .default([])
+      .describe("Initial annotations or review prompts"),
+  })
+  .strict();
 
 export default defineAction({
   description:
@@ -160,7 +155,7 @@ export default defineAction({
     const sections =
       args.sections.length > 0
         ? args.sections
-        : importedPlanText && !args.content && !args.html
+        : importedPlanText && !args.content
           ? deriveSectionsFromText(importedPlanText)
           : [
               {
@@ -187,19 +182,17 @@ export default defineAction({
             ];
     const content = args.content
       ? normalizePlanContent(args.content)
-      : args.html
-        ? null
-        : createPlanContentFromSections({
-            title,
-            brief,
-            sections: sections.map((section, index) => ({
-              id: section.id ?? `section-${index + 1}`,
-              type: section.type,
-              title: section.title,
-              body: section.body,
-              html: section.html,
-            })),
-          });
+      : createPlanContentFromSections({
+          title,
+          brief,
+          sections: sections.map((section, index) => ({
+            id: section.id ?? `section-${index + 1}`,
+            type: section.type,
+            title: section.title,
+            body: section.body,
+            ...(section.html !== undefined ? { html: section.html } : {}),
+          })),
+        });
 
     await getDb()
       .insert(schema.plans)
@@ -211,7 +204,7 @@ export default defineAction({
         source: args.source ?? (importedPlanText ? "imported" : "manual"),
         repoPath: args.repoPath ?? null,
         currentFocus: args.currentFocus ?? "visual review",
-        html: args.html != null ? sanitizeStoredPlanHtml(args.html) : null,
+        html: null,
         markdown: args.markdown ?? importedPlanText ?? null,
         content: content ? serializePlanContent(content) : null,
         createdAt: now,

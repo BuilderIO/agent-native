@@ -130,6 +130,13 @@ description: "defineAction() の構造 (スキーマ、run、HTTP 設定) と、
             "true のとき（または述語が true を返すとき）、このアクション自身の書き込みの後の失敗は、現在のターンの残りでツールをブロックせず、モデルが修正して再試行できる既知の失敗として扱われます。任意のエラーの後でも安全に再実行できるアクションに限定してください。書き込み前の拒否にはこのオプションは不要です。下記の「再試行しても安全な書き込み」を参照してください。",
         },
         {
+          name: "automatic",
+          type: "boolean | ((input) => boolean)",
+          optional: true,
+          description:
+            'ユーザーの操作なしにアプリが自ら行う書き込みを示します（読み込み時、マウント時、タイマー、実験や利用状況の記録など）。その action_started、action_completed、action_failed イベントは action_kind が "write" ではなく "automatic" になり、製品利用の集計から除外されます。述語を渡すと、true を返した呼び出しだけが対象になります。影響するのは分析だけです。書き込みを目立たなくするために readOnly を設定してはいけません。',
+        },
+        {
           name: "agentTool",
           type: "boolean",
           optional: true,

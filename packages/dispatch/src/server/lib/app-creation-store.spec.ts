@@ -127,6 +127,7 @@ const mocks = vi.hoisted(() => {
         })),
       })),
     })),
+    resolveBuilderRequestAuthorization: vi.fn(),
     resolveBuilderCredentialsDetailed: vi.fn(async () => ({
       privateKey: null as string | null,
       publicKey: null as string | null,
@@ -233,6 +234,8 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
   return {
     ...actual,
     readOrgMemberRole: (...args: any[]) => mocks.readOrgMemberRole(...args),
+    resolveBuilderRequestAuthorization: (...args: unknown[]) =>
+      mocks.resolveBuilderRequestAuthorization(...args),
     resolveBuilderCredentialsDetailed: (...args: any[]) =>
       mocks.resolveBuilderCredentialsDetailed(...args),
     createBuilderProject: (...args: any[]) =>
@@ -320,6 +323,7 @@ afterEach(() => {
   }));
   mocks.resolveAccess.mockReset();
   mocks.resolveAccess.mockResolvedValue({ role: "viewer", resource: {} });
+  mocks.resolveBuilderRequestAuthorization.mockReset();
   mocks.resolveBuilderCredentialsDetailed.mockResolvedValue({
     privateKey: null,
     publicKey: null,
@@ -387,6 +391,25 @@ describe("getAppCreationSettings", () => {
 });
 
 describe("listWorkspaceApps", () => {
+  let isolatedCwd: string | null = null;
+  let isolatedCwdSpy: ReturnType<typeof vi.spyOn> | null = null;
+
+  beforeEach(() => {
+    isolatedCwd = fs.mkdtempSync(
+      path.join(os.tmpdir(), "dispatch-list-workspace-apps-"),
+    );
+    isolatedCwdSpy = vi.spyOn(process, "cwd").mockReturnValue(isolatedCwd);
+  });
+
+  afterEach(() => {
+    isolatedCwdSpy?.mockRestore();
+    isolatedCwdSpy = null;
+    if (isolatedCwd) {
+      fs.rmSync(isolatedCwd, { recursive: true, force: true });
+      isolatedCwd = null;
+    }
+  });
+
   function stubNoPendingContext() {
     for (const key of [
       "BRANCH",
@@ -3329,6 +3352,48 @@ describe("startWorkspaceAppCreation", () => {
     });
   });
 
+  it("gives local and hosted builders the same mounted route and readiness gates", async () => {
+    const local = await create();
+    expect(local.mode).toBe("local-agent");
+    if (local.mode !== "local-agent")
+      throw new Error("Expected a local prompt");
+    expect(local.prompt).toContain(
+      "The default workspace mount is /onboarding",
+    );
+    expect(local.prompt).toContain("resolve the actual mount and home");
+    expect(local.prompt).toContain("reuse the existing scoped connection");
+    expect(local.prompt).toContain('navigate("/review")');
+    expect(local.prompt).not.toContain("/apps/onboarding");
+    for (const requirement of [
+      "app-quality-bar/patterns/",
+      "apps/onboarding/DESIGN.md",
+      "apps/onboarding/app.manifest.ts",
+      "screens, entities, viewPolicy, and suggestableCapabilities",
+      "chosen and rejected UX options",
+      "12-row rubric and automatic fails",
+      "blind reviewer",
+      "60-second automated Playwright",
+      "empty, populated, narrow split pane at 520 px or less, and error",
+      "every nav item",
+      "three manifest-driven chat prompts",
+      "visible Loading..., native alert/confirm/prompt, or unexpected full-page reloads",
+    ]) {
+      expect(local.prompt).toContain(requirement);
+    }
+
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.runBuilderAgent.mockResolvedValueOnce({
+      branchName: "onboarding",
+      url: "https://builder.io/app/projects/project-1/branch/onboarding",
+      status: "processing",
+    });
+    await expect(create()).resolves.toMatchObject({ mode: "builder" });
+    expect(mocks.runBuilderAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ prompt: local.prompt }),
+    );
+  });
+
   it("persists the curated source id for local-agent app creation", async () => {
     const result = await runWithRequestContext(
       { userEmail: "dev@example.test", orgId: "org-123" },
@@ -3920,6 +3985,114 @@ describe("startWorkspaceAppCreation", () => {
       ),
     ).rejects.toMatchObject({ errorCode: "invalid_attachment" });
     expect(mocks.runBuilderAgent).not.toHaveBeenCalled();
+  });
+
+  function stubBuilderBranchStarted() {
+    mocks.runBuilderAgent.mockResolvedValueOnce({
+      branchName: "onboarding",
+      url: "https://builder.io/app/projects/project-1/branch/onboarding",
+      status: "processing",
+    });
+  }
+
+  it.each([
+    [400, "qa@example.test"],
+    [422, "member@example.test"],
+  ])(
+    "starts the branch after an email lookup rejection (%i)",
+    async (builderStatus, userEmail) => {
+      stubHostedRuntime();
+      stubBuilderProjectConfigured();
+      mocks.state.orgRole = "member";
+      mocks.resolveBuilderRequestAuthorization.mockResolvedValueOnce({
+        source: "legacy",
+        userId: "connected-space-user",
+      });
+      mocks.runBuilderAgent.mockRejectedValueOnce(
+        Object.assign(new Error("User not found for the provided email"), {
+          builderStatus,
+        }),
+      );
+      stubBuilderBranchStarted();
+
+      const result = await create("onboarding", {
+        userEmail,
+        orgId: "org-123",
+      });
+
+      expect(result).toMatchObject({ mode: "builder", appId: "onboarding" });
+      expect(mocks.resolveBuilderRequestAuthorization).toHaveBeenCalledWith({
+        requiredScope: "builder:agents:run",
+      });
+      expect(mocks.runBuilderAgent).toHaveBeenCalledTimes(2);
+      expect(mocks.runBuilderAgent).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ projectId: leakedProjectId, userEmail }),
+      );
+      expect(mocks.runBuilderAgent).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          projectId: leakedProjectId,
+          userId: "connected-space-user",
+        }),
+      );
+      expect(mocks.runBuilderAgent.mock.calls[1]?.[0]).not.toHaveProperty(
+        "userEmail",
+      );
+      expect(
+        mocks.settings.get("dispatch-app-creation-settings:org:org-123"),
+      ).toMatchObject({
+        pendingApps: [
+          expect.objectContaining({ id: "onboarding", createdBy: userEmail }),
+        ],
+      });
+    },
+  );
+
+  it("keeps missing workspace actor actionable and releases the reservation", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderRequestAuthorization.mockResolvedValueOnce({
+      source: "oauth",
+    });
+    mocks.runBuilderAgent.mockRejectedValueOnce(
+      Object.assign(new Error("User not found for the provided email"), {
+        builderStatus: 400,
+      }),
+    );
+
+    await expect(create()).resolves.toMatchObject({
+      mode: "builder-unavailable",
+      message: expect.stringContaining(
+        "check the connected account and space membership",
+      ),
+    });
+    expect(mocks.runBuilderAgent).toHaveBeenCalledOnce();
+    stubBuilderBranchStarted();
+    await expect(create()).resolves.toMatchObject({ mode: "builder" });
+  });
+
+  it("retains membership guidance when the fallback actor lookup fails", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderRequestAuthorization.mockRejectedValueOnce(
+      new Error("Unable to look up the workspace actor"),
+    );
+    mocks.runBuilderAgent.mockRejectedValueOnce(
+      Object.assign(new Error("User not found for the provided email"), {
+        builderStatus: 400,
+      }),
+    );
+
+    await expect(create()).resolves.toMatchObject({
+      mode: "builder-unavailable",
+      message: expect.stringContaining(
+        "check the connected account and space membership",
+      ),
+    });
+    expect(mocks.runBuilderAgent).toHaveBeenCalledOnce();
+    stubBuilderBranchStarted();
+    await expect(create()).resolves.toMatchObject({ mode: "builder" });
   });
 
   it("logs why Builder could not start the branch", async () => {

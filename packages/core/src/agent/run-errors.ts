@@ -33,6 +33,58 @@ export const AGENT_RUN_NO_OUTPUT_ERROR_CODE = "agent_run_no_output";
 export const AGENT_RUN_NO_OUTPUT_MESSAGE =
   "The agent run ended without producing a response.";
 
+export const TOOL_CALL_JOURNAL_UNREADABLE_ERROR_CODE =
+  "tool_call_journal_unreadable";
+export const TOOL_CALL_JOURNAL_UNREADABLE_MESSAGE =
+  "I stopped because I could not read this turn's run ledger, so I could not tell which steps had already finished. " +
+  "Retrying would risk repeating a step that already completed. Please send the request again.";
+
+export const PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE =
+  "private_history_unrecoverable";
+export const PRIVATE_HISTORY_UNRECOVERABLE_MESSAGE =
+  "I stopped because this turn's private steps could not be safely resumed, so I could not confirm whether an earlier step already finished. Check what was saved before sending the request again.";
+
+export const PRIVATE_HISTORY_PROVENANCE_UNAVAILABLE_ERROR_CODE =
+  "private_history_provenance_unavailable";
+export const PRIVATE_HISTORY_PROVENANCE_UNAVAILABLE_MESSAGE =
+  "Private turn provenance is unavailable. Please send the request again.";
+
+export const WRITE_TOOL_OUTCOME_UNKNOWN_ERROR_CODE =
+  "write_tool_outcome_unknown";
+export const PRIVATE_WRITE_TOOL_OUTCOME_UNKNOWN_MESSAGE =
+  "I stopped before running a write action again because an earlier attempt may have already saved changes and I could not confirm the result. Check what was saved before retrying.";
+
+export const PRIVATE_SAFE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
+  [RUN_STREAM_ENDED_ERROR_CODE]: RUN_STREAM_ENDED_MESSAGE,
+  [AGENT_RUN_NO_OUTPUT_ERROR_CODE]: AGENT_RUN_NO_OUTPUT_MESSAGE,
+  run_timeout: RUN_TIMEOUT_MESSAGE,
+  loop_limit: RUN_LOOP_LIMIT_MESSAGE,
+  no_progress: RUN_NO_PROGRESS_MESSAGE,
+  gateway_timeout: RUN_GATEWAY_TIMEOUT_MESSAGE,
+  network_interrupted: RUN_NETWORK_INTERRUPTED_MESSAGE,
+  rate_limited: RUN_RATE_LIMITED_MESSAGE,
+  [PRIVATE_HISTORY_UNRECOVERABLE_ERROR_CODE]:
+    PRIVATE_HISTORY_UNRECOVERABLE_MESSAGE,
+  [TOOL_CALL_JOURNAL_UNREADABLE_ERROR_CODE]:
+    TOOL_CALL_JOURNAL_UNREADABLE_MESSAGE,
+  [PRIVATE_HISTORY_PROVENANCE_UNAVAILABLE_ERROR_CODE]:
+    PRIVATE_HISTORY_PROVENANCE_UNAVAILABLE_MESSAGE,
+  [WRITE_TOOL_OUTCOME_UNKNOWN_ERROR_CODE]:
+    PRIVATE_WRITE_TOOL_OUTCOME_UNKNOWN_MESSAGE,
+};
+
+const PRIVATE_SAFE_ERROR_MESSAGE_MAP: ReadonlyMap<string, string> = new Map(
+  Object.entries(PRIVATE_SAFE_ERROR_MESSAGES),
+);
+
+export function resolvePrivateSafeError(
+  errorCode: unknown,
+): { errorCode: string; message: string } | null {
+  if (typeof errorCode !== "string") return null;
+  const message = PRIVATE_SAFE_ERROR_MESSAGE_MAP.get(errorCode);
+  return message === undefined ? null : { errorCode, message };
+}
+
 export function incompleteAgentRunFailure(input: {
   dispatchedModelCalls: number;
   hasVisibleText: boolean;

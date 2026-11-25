@@ -51,6 +51,20 @@ let dbDir: string;
 let previousDatabaseUrl: string | undefined;
 let previousPlanDatabaseUrl: string | undefined;
 
+const mirrorMock = vi.hoisted(() => ({
+  comments: vi.fn(async (..._args: unknown[]) => undefined),
+  deleted: vi.fn(async (..._args: unknown[]) => undefined),
+}));
+
+vi.mock("@agent-native/core/review", () => ({
+  ensureReviewTables: vi.fn(async () => undefined),
+}));
+
+vi.mock("../server/lib/plan-comment-mirror.js", () => ({
+  mirrorPlanComments: mirrorMock.comments,
+  deleteMirroredPlanComments: mirrorMock.deleted,
+}));
+
 vi.mock("@agent-native/core/collab", () => ({
   deleteCollabState: async (docId: string) => {
     await client?.query(
@@ -391,6 +405,7 @@ describe("delete-visual-plan", () => {
     });
     expect(await countRows("plans", "id")).toBe(0);
     expect(await countRows("plan_comments")).toBe(0);
+    expect(mirrorMock.deleted).toHaveBeenCalledWith(PLAN_ID, "all", OWNER);
     expect(await countRows("plan_sections")).toBe(0);
     expect(await countRows("plan_events")).toBe(0);
     expect(await countRows("plan_reports")).toBe(0);

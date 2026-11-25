@@ -2134,9 +2134,98 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
   const deckId = String(created.id ?? created.deckId);
   const readDeck = () =>
     action<any>(page, "get-deck", { id: deckId, compact: "false" }, "GET");
-  const surfaceText = (locator: any) => locator.inputValue();
-  const waitForText = (locator: any, expected: string) =>
+  type TextSurfaceWindow = Window & {
+    __textSurfaceRefs?: Record<string, HTMLElement>;
+  };
+  type TextSurfaceLocator = {
+    evaluate<Result, Arg>(
+      run: (element: HTMLElement, arg: Arg) => Result,
+      arg?: Arg,
+    ): Promise<Result>;
+    fill(text: string): Promise<void>;
+    press(key: string): Promise<void>;
+  };
+  const surfaceText = (locator: TextSurfaceLocator): Promise<string> =>
+    locator.evaluate((element: HTMLElement) =>
+      element.isContentEditable
+        ? Array.from(element.children, (block) => block.textContent).join("\n")
+        : (element as HTMLInputElement | HTMLTextAreaElement).value,
+    );
+  const waitForText = (locator: TextSurfaceLocator, expected: string) =>
     waitFor(async () => (await surfaceText(locator)) === expected, 4000, 50);
+  const caretToEnd = (locator: TextSurfaceLocator) =>
+    locator.evaluate((element: HTMLElement) => {
+      const { editor } = element as HTMLElement & {
+        editor?: { commands: { focus: (position: "end") => boolean } };
+      };
+      if (editor) {
+        editor.commands.focus("end");
+        return;
+      }
+      const field = element as HTMLInputElement | HTMLTextAreaElement;
+      field.setSelectionRange(field.value.length, field.value.length);
+    });
+  const replaceTyped = async (locator: TextSurfaceLocator, text: string) => {
+    if (
+      !(await locator.evaluate(
+        (element: HTMLElement) => element.isContentEditable,
+      ))
+    ) {
+      await locator.fill(text);
+      return;
+    }
+    const current = await surfaceText(locator);
+    let kept = 0;
+    while (
+      kept < current.length &&
+      kept < text.length &&
+      current.charAt(kept) === text.charAt(kept)
+    ) {
+      kept += 1;
+    }
+    for (let index = kept; index < current.length; index += 1) {
+      await locator.press("Backspace");
+    }
+    if (text.length > kept) await page.keyboard.insertText(text.slice(kept));
+  };
+  const surfaceState = (
+    locator: TextSurfaceLocator,
+    ref = "",
+  ): Promise<{
+    value: string;
+    caret: number | null;
+    focused: boolean;
+    sameNode: boolean;
+  }> =>
+    locator.evaluate((element: HTMLElement, key: string) => {
+      const blocksText = (root: ParentNode) =>
+        Array.from(root.children, (block) => block.textContent).join("\n");
+      let value: string;
+      let caret: number | null = null;
+      if (element.isContentEditable) {
+        value = blocksText(element);
+        const selection = window.getSelection();
+        if (selection?.focusNode && element.contains(selection.focusNode)) {
+          const range = document.createRange();
+          range.setStart(element, 0);
+          range.setEnd(selection.focusNode, selection.focusOffset);
+          const head = document.createElement("div");
+          head.append(range.cloneContents());
+          caret = blocksText(head).length;
+        }
+      } else {
+        const field = element as HTMLInputElement | HTMLTextAreaElement;
+        value = field.value;
+        caret = field.selectionStart;
+      }
+      return {
+        value,
+        caret,
+        focused: document.activeElement === element,
+        sameNode:
+          element === (window as TextSurfaceWindow).__textSurfaceRefs?.[key],
+      };
+    }, ref);
   const emitComposition = async (
     locator: any,
     type:
@@ -2189,11 +2278,7 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
       : null;
     const before = await surfaceText(locator);
     await locator.focus();
-    await locator.evaluate(
-      (element: HTMLInputElement | HTMLTextAreaElement) => {
-        element.setSelectionRange(element.value.length, element.value.length);
-      },
-    );
+    await caretToEnd(locator);
     await locator.evaluate((element: HTMLElement) => {
       (window as any).__textSurfaceCompositionEvents = [];
       for (const type of [
@@ -2225,18 +2310,13 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
       });
     } else {
       await emitComposition(locator, "compositionstart", "に");
-      await locator.fill(`${before}に`);
+      await replaceTyped(locator, `${before}に`);
       await emitComposition(locator, "beforeinput", "に");
     }
     const candidateVisible = await waitForText(locator, `${before}に`);
     if (!candidateVisible) {
-      const failedCandidate = await locator.evaluate(
-        (element: HTMLInputElement | HTMLTextAreaElement) => ({
-          value: element.value,
-          caret: element.selectionStart,
-          focused: document.activeElement === element,
-        }),
-      );
+      const { value, caret, focused } = await surfaceState(locator);
+      const failedCandidate = { value, caret, focused };
       const events = await page.evaluate(
         () => (window as any).__textSurfaceCompositionEvents ?? [],
       );
@@ -2250,7 +2330,7 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
           selectionEnd: 0,
         });
       } else {
-        await locator.fill(before);
+        await replaceTyped(locator, before);
         await emitComposition(locator, "compositionend", "");
       }
       await waitFor(
@@ -2292,7 +2372,7 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
         selectionEnd: 0,
       });
     } else {
-      await locator.fill(before);
+      await replaceTyped(locator, before);
       await emitComposition(locator, "compositionend", "");
     }
     await waitFor(
@@ -2340,21 +2420,19 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
     await locator.waitFor({ state: "visible", timeout: 10_000 });
     await locator.focus();
     const key = `text-surface-${label}`;
-    await locator.evaluate(
-      (element: HTMLInputElement | HTMLTextAreaElement, ref: string) => {
-        (window as any).__textSurfaceRefs ??= {};
-        (window as any).__textSurfaceRefs[ref] = element;
-        element.setSelectionRange(element.value.length, element.value.length);
-      },
-      key,
-    );
+    await locator.evaluate((element: HTMLElement, ref: string) => {
+      const surfaces = window as TextSurfaceWindow;
+      surfaces.__textSurfaceRefs ??= {};
+      surfaces.__textSurfaceRefs[ref] = element;
+    }, key);
+    await caretToEnd(locator);
     const start = await surfaceText(locator);
     await page.evaluate(
       (text: string) => navigator.clipboard.writeText(text),
-      " paste",
+      "paste",
     );
     await locator.press(`${modifier}+V`);
-    let expected = `${start} paste`;
+    let expected = `${start}paste`;
     if (!(await waitForText(locator, expected))) {
       problems.push(
         `${label}: native clipboard paste did not land at the caret`,
@@ -2375,9 +2453,7 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
       problems.push(`${label}: undo did not restore the pre-paste text`);
     }
 
-    await locator.evaluate((element: HTMLInputElement | HTMLTextAreaElement) =>
-      element.setSelectionRange(element.value.length, element.value.length),
-    );
+    await caretToEnd(locator);
     expected = start;
     await locator.pressSequentially(" fast");
     await sleep(600);
@@ -2423,7 +2499,7 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
       });
     } else {
       await emitComposition(locator, "compositionstart", "に");
-      await locator.fill(`${expected}に`);
+      await replaceTyped(locator, `${expected}に`);
       await emitComposition(locator, "beforeinput", "に");
     }
     if (!(await waitForText(locator, `${expected}に`))) {
@@ -2432,22 +2508,15 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
     if (cdp) {
       await cdp.send("Input.insertText", { text: "日" });
     } else {
-      await locator.fill(`${expected}日`);
+      await replaceTyped(locator, `${expected}日`);
       await emitComposition(locator, "compositionend", "日");
+      await sleep(600);
     }
     expected += "日";
     if (!(await waitForText(locator, expected))) {
       problems.push(`${label}: IME commit changed the text unexpectedly`);
     }
-    const state = await locator.evaluate(
-      (element: HTMLInputElement | HTMLTextAreaElement, ref: string) => ({
-        value: element.value,
-        caret: element.selectionStart,
-        focused: document.activeElement === element,
-        sameNode: element === (window as any).__textSurfaceRefs?.[ref],
-      }),
-      key,
-    );
+    const state = await surfaceState(locator, key);
     if (state.value !== expected)
       problems.push(`${label}: final value did not match the typed text`);
     if (state.caret !== expected.length)
@@ -2844,24 +2913,25 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
     const commentsHeading = page.getByText("Comments", { exact: true }).last();
     const addComment = commentsHeading.locator("..").locator("button").first();
     await addComment.click();
-    const comment = page.getByPlaceholder("Add a comment...");
+    const comment = page.getByRole("textbox", {
+      name: "Add comment",
+      exact: true,
+    });
     if (!(await composingEscape(comment, "comment composer"))) {
       await addComment.click();
     }
     await exerciseControl(comment, "comment composer", true, "Shift+Enter");
     await comment.press("Escape");
     await addComment.click();
-    const rootComposer = page.getByPlaceholder("Add a comment...");
-    await rootComposer.fill("Text surface QA root");
-    await rootComposer.press(`${modifier}+Enter`);
-    const rootComment = page.getByText("Text surface QA root", {
+    await comment.fill("Text surface QA root");
+    await comment.press(`${modifier}+Enter`);
+    const threadCard = page.locator("[data-slide-comment-thread]").filter({
+      has: page.getByText("Text surface QA root", { exact: true }),
+    });
+    await threadCard.waitFor({ state: "visible", timeout: 5000 });
+    const rootComment = threadCard.getByText("Text surface QA root", {
       exact: true,
     });
-    await rootComment.waitFor({ state: "visible", timeout: 5000 });
-    const threadCard = page
-      .locator("[data-slide-comment-thread]")
-      .filter({ has: rootComment });
-    await threadCard.waitFor({ state: "visible", timeout: 5000 });
     await threadCard.hover();
     const replyButton = threadCard.getByRole("button", {
       name: "Reply",
@@ -2869,19 +2939,27 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
     });
     await replyButton.waitFor({ state: "visible", timeout: 5000 });
     await replyButton.click();
-    const reply = page.getByPlaceholder("Reply...");
+    const reply = page.getByRole("textbox", { name: "Reply", exact: true });
     if (!(await composingEscape(reply, "comment reply"))) {
       await replyButton.click();
       await reply.waitFor({ state: "visible", timeout: 5000 });
     }
     await exerciseControl(reply, "comment reply", true, "Shift+Enter");
     await reply.press("Escape");
-    await rootComment.hover();
-    await page.getByRole("button", { name: "Edit comment" }).click();
-    const editComment = page.getByRole("textbox", { name: "Edit comment" });
-    if (!(await composingEscape(editComment, "comment edit"))) {
+    const openEdit = async () => {
       await rootComment.hover();
-      await page.getByRole("button", { name: "Edit comment" }).click();
+      await threadCard.getByRole("button", { name: /^More actions/ }).click();
+      await page
+        .getByRole("menuitem", { name: "Edit comment", exact: true })
+        .click();
+    };
+    await openEdit();
+    const editComment = page.getByRole("textbox", {
+      name: "Edit comment",
+      exact: true,
+    });
+    if (!(await composingEscape(editComment, "comment edit"))) {
+      await openEdit();
     }
     await exerciseControl(editComment, "comment edit", true, "Shift+Enter");
     await editComment.press("Escape");
@@ -2889,7 +2967,7 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
     if (!pinTarget)
       throw new Error("second slide has no comment anchor target");
     await page.mouse.click(pinTarget.point.x, pinTarget.point.y);
-    const pinComment = page.locator("[data-pin-popover] textarea");
+    const pinComment = page.locator('[data-pin-popover] [role="textbox"]');
     await pinComment.waitFor({ state: "visible", timeout: 5000 });
     if (!(await composingEscape(pinComment, "pinned comment composer"))) {
       await page.mouse.click(pinTarget.point.x, pinTarget.point.y);
@@ -2902,7 +2980,7 @@ async function runTextSurfaceQa(page: Page, base: string, browserName: string) {
       "Shift+Enter",
     );
     await pinComment.press("Escape");
-    await page.getByRole("button", { name: "More" }).click();
+    await page.getByRole("button", { name: "More", exact: true }).click();
     await page.getByRole("menuitem", { name: /^Comments/ }).click();
 
     const deckTitle = page

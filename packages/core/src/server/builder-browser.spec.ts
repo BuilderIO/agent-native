@@ -99,6 +99,8 @@ import {
   verifyBuilderConnectTokenAndGetOwner,
   verifyBuilderRelayRequest,
   type BuilderRelayCredentials,
+  createBuilderBrowserCallbackErrorPage,
+  createBuilderBrowserCallbackPage,
 } from "./builder-browser.js";
 
 describe("Builder account provisioning", () => {
@@ -2492,5 +2494,34 @@ describe("getBuilderWorkspaceUrl", () => {
 
   it("is null when the workspace is not linked to Builder", () => {
     expect(getBuilderWorkspaceUrl({})).toBeNull();
+  });
+});
+
+describe("Builder callback pages", () => {
+  const closingTag = "</script><script>window.ran=1</script>\u2028";
+
+  function inlineScripts(html: string): string[] {
+    return [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(
+      (match) => match[1],
+    );
+  }
+
+  it("keeps a caller-supplied attempt id inside its script", () => {
+    for (const html of [
+      createBuilderBrowserCallbackErrorPage(closingTag, {
+        attemptId: closingTag,
+        code: closingTag,
+      }),
+      createBuilderBrowserCallbackPage(
+        `https://app.example.test/?q="${closingTag}`,
+        { attemptId: closingTag },
+      ),
+    ]) {
+      expect(html).not.toContain("<script>window.ran");
+      for (const script of inlineScripts(html)) {
+        expect(script).not.toContain("</");
+        expect(script).not.toContain("\u2028");
+      }
+    }
   });
 });

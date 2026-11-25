@@ -1,5 +1,17 @@
 # @agent-native/recap-cli
 
+## 0.5.108
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.5.107
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.5.106
 
 ### Patch Changes
@@ -625,17 +637,5 @@
 ### Patch Changes
 
 - Release all public npm packages with a patch version bump.
-
-## 0.5.8
-
-### Patch Changes
-
-- Release all public npm packages with a patch version bump.
-
-## 0.5.7
-
-### Patch Changes
-
-- 95d9d70: Bound public-site monitor requests and clarify unified-diff framing in visual recap authoring prompts.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

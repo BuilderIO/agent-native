@@ -736,30 +736,6 @@ export function useEditorModes({
     [],
   );
 
-  const handleSidebarScreenOverview = useCallback(() => {
-    const restoredOverviewSelection = getRestoredOverviewSelection();
-    explicitOverviewScreenSelectionRef.current = restoredOverviewSelection;
-    pendingOverviewScreenSelectionRef.current = null;
-    pendingOverviewLayerSelectionRef.current = null;
-    clearPendingOverviewLayerSelectionTimer();
-    setCreatedOverviewLayerSelection(null);
-    setOverviewSelectedScreenIds(restoredOverviewSelection);
-    setSelectedLayerIdsState(restoredOverviewSelection);
-    if (viewModeRef.current === "overview") {
-      setPinMode(false);
-      setMode("edit");
-      setSelectedElement(null);
-      setHoveredElement(null);
-      setActiveTool("move");
-      return;
-    }
-    enterOverviewFromZoom();
-  }, [
-    clearPendingOverviewLayerSelectionTimer,
-    enterOverviewFromZoom,
-    getRestoredOverviewSelection,
-  ]);
-
   const handleExitReviewCommentMode = useCallback(() => {
     const exit = resolveCommentModeExit(
       commentReturnOptionsRef.current,
@@ -1354,7 +1330,6 @@ export function useEditorModes({
     handleSidebarScreenSelect,
     handleReviewNodeRewrite,
     handleReviewPendingScreen,
-    handleSidebarScreenOverview,
     handleExitReviewCommentMode,
     handleOverviewCommentPin,
     handlePinToolToggle,

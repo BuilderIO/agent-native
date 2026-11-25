@@ -59,6 +59,7 @@ export default defineAction({
     requiresAuth: true,
     isConsequential: true,
   },
+  mcpTool: "search",
   run: async (input) => {
     const result = await reviewContextItems(input);
     return {

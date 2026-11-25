@@ -1,0 +1,91 @@
+/*
+ * Part: inset
+ *
+ *   <div class="card" ...>
+ *     <div class="inset" data-side="all|x|y|top|bottom|left|right"
+ *          data-clip="border-box|padding-box">
+ *       <img>                              media that runs to the card's edge
+ *
+ * Radix Themes' inset: it pulls its content out over its container's
+ * padding on the sides `side` names, and rounds the corners it reaches to
+ * the container's. `border-box` stops inside the container's hairline,
+ * `padding-box` runs under it.
+ *
+ * A container opts in by setting these, as Card does; outside one, an
+ * inset pulls nothing:
+ *   --inset-padding-top|right|bottom|left  its padding, less its edge
+ *   --inset-border-width                   its edge's width
+ *   --inset-border-radius                  its corner radius
+ */
+
+@layer components {
+  .inset {
+    --_inset-radius: calc(
+      var(--inset-border-radius, 0px) - var(--inset-border-width, 0px)
+    );
+    --_inset-top: var(--inset-padding-top, 0px);
+    --_inset-right: var(--inset-padding-right, 0px);
+    --_inset-bottom: var(--inset-padding-bottom, 0px);
+    --_inset-left: var(--inset-padding-left, 0px);
+
+    box-sizing: border-box;
+    overflow: hidden;
+    corner-shape: var(--corner-shape, round);
+  }
+
+  .inset[data-clip="padding-box"] {
+    --_inset-radius: var(--inset-border-radius, 0px);
+    --_inset-top: calc(
+      var(--inset-padding-top, 0px) + var(--inset-border-width, 0px)
+    );
+    --_inset-right: calc(
+      var(--inset-padding-right, 0px) + var(--inset-border-width, 0px)
+    );
+    --_inset-bottom: calc(
+      var(--inset-padding-bottom, 0px) + var(--inset-border-width, 0px)
+    );
+    --_inset-left: calc(
+      var(--inset-padding-left, 0px) + var(--inset-border-width, 0px)
+    );
+  }
+
+  .inset[data-side="all"] {
+    margin: calc(var(--_inset-top) * -1) calc(var(--_inset-right) * -1)
+      calc(var(--_inset-bottom) * -1) calc(var(--_inset-left) * -1);
+    border-radius: var(--_inset-radius);
+  }
+
+  .inset[data-side="x"] {
+    margin-right: calc(var(--_inset-right) * -1);
+    margin-left: calc(var(--_inset-left) * -1);
+  }
+
+  .inset[data-side="y"] {
+    margin-top: calc(var(--_inset-top) * -1);
+    margin-bottom: calc(var(--_inset-bottom) * -1);
+  }
+
+  .inset[data-side="top"] {
+    margin: calc(var(--_inset-top) * -1) calc(var(--_inset-right) * -1) 0
+      calc(var(--_inset-left) * -1);
+    border-radius: var(--_inset-radius) var(--_inset-radius) 0 0;
+  }
+
+  .inset[data-side="bottom"] {
+    margin: 0 calc(var(--_inset-right) * -1) calc(var(--_inset-bottom) * -1)
+      calc(var(--_inset-left) * -1);
+    border-radius: 0 0 var(--_inset-radius) var(--_inset-radius);
+  }
+
+  .inset[data-side="left"] {
+    margin: calc(var(--_inset-top) * -1) 0 calc(var(--_inset-bottom) * -1)
+      calc(var(--_inset-left) * -1);
+    border-radius: var(--_inset-radius) 0 0 var(--_inset-radius);
+  }
+
+  .inset[data-side="right"] {
+    margin: calc(var(--_inset-top) * -1) calc(var(--_inset-right) * -1)
+      calc(var(--_inset-bottom) * -1) 0;
+    border-radius: 0 var(--_inset-radius) var(--_inset-radius) 0;
+  }
+}

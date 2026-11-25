@@ -25,6 +25,7 @@ const rawClient = {
 };
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => rawClient,
   isConnectionError: () => false,
   isLocalDatabase: () => true,
@@ -63,7 +64,7 @@ function useApp(id: string): void {
 
 beforeEach(async () => {
   useApp("design");
-  postgres = await createTestPglite();
+  postgres = await createTestPglite({ reuseEmptyBootstrap: true });
   await postgres.exec(`CREATE TABLE IF NOT EXISTS application_state (
     session_id TEXT NOT NULL,
     key TEXT NOT NULL,

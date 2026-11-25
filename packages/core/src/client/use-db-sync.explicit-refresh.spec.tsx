@@ -20,8 +20,8 @@ it("refreshes an active action query without opening realtime when explicitly re
   let cards = 3;
   const read = vi.fn(async () => cards);
   function Screen() {
-    useDbSync({ queryClient: client });
-    useDbSync({ queryClient: client });
+    useDbSync({ queryClient: client, realtime: false });
+    useDbSync({ queryClient: client, realtime: false });
     const query = useQuery({
       queryKey: ["action", "get-deck", "owned"],
       queryFn: read,

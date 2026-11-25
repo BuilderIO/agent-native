@@ -112,10 +112,12 @@ export async function assertContentDatabaseViewerAccess(databaseId: string) {
 export async function readPersonalDatabaseViewOverrides(
   userEmail: string,
   databaseId: string,
+  options?: Parameters<typeof getUserSetting>[2],
 ) {
   const stored = await getUserSetting(
     userEmail,
     personalDatabaseViewSettingKey(databaseId),
+    options,
   );
   if (stored === null) return null;
   const parsed = personalViewOverridesSchema.safeParse(stored);

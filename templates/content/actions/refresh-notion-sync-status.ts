@@ -9,6 +9,7 @@ import {
 
 export default defineAction({
   description: "Refresh Notion sync status for a linked Content document.",
+  automatic: true,
   schema: z.object({
     documentId: z.string().optional().describe("Document ID (required)"),
     id: z.string().optional().describe("Alias for --documentId"),

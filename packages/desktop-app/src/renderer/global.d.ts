@@ -996,6 +996,10 @@ interface ElectronAPI {
   };
 
   setActiveApp(appId: string): void;
+  setWebviewBackgroundThrottling(
+    webContentsId: number,
+    throttle: boolean,
+  ): void;
   setActiveWebview(target: {
     appId: string;
     webContentsId?: number;

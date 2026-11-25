@@ -13,6 +13,7 @@ vi.mock("../db/client.js", async () => {
       dbMocks.execute(input),
   };
   return {
+    getEnclosingTransactionDbExec: () => undefined,
     getDbExec: () => exec,
     retryOnDdlRace: async (fn: () => Promise<unknown>) => fn(),
   };

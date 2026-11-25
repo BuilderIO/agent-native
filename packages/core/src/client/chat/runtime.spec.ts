@@ -281,6 +281,166 @@ describe("createHttpAgentChatRuntime", () => {
     expect(fetchMock.mock.calls[1][0]).toBe("/agent/runs/run-runtime/cancel");
   });
 
+  it("tells the server on Stop the last event it handed on, and hands on no more", async () => {
+    const encoder = new TextEncoder();
+    let stream!: ReadableStreamDefaultController<Uint8Array>;
+    const send = (event: unknown) =>
+      stream.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              stream = controller;
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "text/event-stream",
+              "X-Run-Id": "run-runtime",
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true })));
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      cancelEndpoint: ({ runId }) => `/agent/runs/${runId}/abort`,
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession({ id: "thread-1" })
+    ).startTurn({ prompt: "Count to ten" });
+    const events = turn.events[Symbol.asyncIterator]();
+
+    send({
+      type: "message-start",
+      message: { id: "m1", role: "assistant", content: [] },
+      seq: 0,
+    });
+    send({
+      type: "message-delta",
+      messageId: "m1",
+      delta: { type: "text", text: "One," },
+      seq: 1,
+    });
+    expect((await events.next()).value).toMatchObject({
+      type: "message-start",
+    });
+    expect((await events.next()).value).toMatchObject({
+      type: "message-delta",
+    });
+    send({
+      type: "message-delta",
+      messageId: "m1",
+      delta: { type: "text", text: " two," },
+      seq: 2,
+    });
+
+    await turn.cancel?.({ reason: "user" });
+
+    expect(fetchMock.mock.calls[1][0]).toBe("/agent/runs/run-runtime/abort");
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toMatchObject({
+      reason: "user",
+      shownThroughSeq: 1,
+    });
+    expect((await events.next()).done).toBe(true);
+  });
+
+  it("tells the server it showed nothing when it stops before the first event", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(sseResponse([]))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true })));
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      cancelEndpoint: ({ runId }) => `/agent/runs/${runId}/abort`,
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession({ id: "thread-1" })
+    ).startTurn({ prompt: "Count to ten" });
+
+    await turn.cancel?.({ reason: "user" });
+
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toMatchObject({
+      shownThroughSeq: -1,
+    });
+  });
+
+  it("sends no cutoff after an event without a sequence number", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([
+          {
+            type: "message-start",
+            message: { id: "m1", role: "assistant", content: [] },
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true })));
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      cancelEndpoint: ({ runId }) => `/agent/runs/${runId}/abort`,
+      fetch: fetchMock as typeof fetch,
+    });
+    const turn = await (
+      await runtime.createSession({ id: "thread-1" })
+    ).startTurn({ prompt: "Count to ten" });
+    await turn.events[Symbol.asyncIterator]().next();
+
+    await turn.cancel?.({ reason: "user" });
+
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[1][1]?.body)),
+    ).not.toHaveProperty("shownThroughSeq");
+  });
+
+  it("doesn't count a server event as shown until all it maps to is handed on", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse([{ type: "text", text: "One,", seq: 0 }]),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true })));
+    const runtime = createHttpAgentChatRuntime({
+      endpoint: "/agent/chat",
+      cancelEndpoint: ({ runId }) => `/agent/runs/${runId}/abort`,
+      fetch: fetchMock as typeof fetch,
+      mapEvent: (event) => [
+        {
+          type: "message-start",
+          message: { id: "m1", role: "assistant", content: [] },
+        },
+        {
+          type: "message-delta",
+          messageId: "m1",
+          delta: {
+            type: "text",
+            text: String((event as { text?: unknown }).text),
+          },
+        },
+      ],
+    });
+    const turn = await (
+      await runtime.createSession({ id: "thread-1" })
+    ).startTurn({ prompt: "Count to ten" });
+    const events = turn.events[Symbol.asyncIterator]();
+    expect((await events.next()).value).toMatchObject({
+      type: "message-start",
+    });
+
+    await turn.cancel?.({ reason: "user" });
+
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toMatchObject({
+      shownThroughSeq: -1,
+    });
+    expect((await events.next()).done).toBe(true);
+  });
+
   it("closes an unconsumed response stream without cancelling its run", async () => {
     const fetchMock = vi.fn().mockResolvedValue(sseResponse([]));
     const runtime = createHttpAgentChatRuntime({
@@ -3392,6 +3552,85 @@ describe("createAgentNativeChatRuntime", () => {
     expect(calls[0]?.id).toBe("call-2");
     expect(calls.at(-1)?.id).toBe("call-65");
     expect(results).toHaveLength(64);
+  });
+
+  it("carries configured history limits into the follow-up message", async () => {
+    const toolContent = Array.from({ length: 120 }, (_, index) => {
+      const id = `call-${index + 1}`;
+      return [
+        {
+          type: "tool-call" as const,
+          toolCallId: id,
+          toolName: "search",
+          input: { query: id },
+        },
+        {
+          type: "tool-result" as const,
+          toolCallId: id,
+          result: index === 0 ? "x".repeat(80 * 1024) : { result: id },
+        },
+      ];
+    }).flat();
+    const send = async (historyLimits?: {
+      maxToolCalls?: number;
+      maxBytes?: number;
+      maxValueBytes?: number;
+    }) => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(sseResponse([{ type: "done" }]));
+      const runtime = createAgentNativeChatRuntime({
+        apiUrl: "/_agent-native/agent-chat",
+        threadId: "thread-configured-history-limits",
+        fetch: fetchMock as typeof fetch,
+        ...(historyLimits ? { historyLimits } : {}),
+      });
+      const turn = await (
+        await runtime.createSession()
+      ).startTurn({
+        prompt: "Continue",
+        messages: [
+          { id: "assistant-tools", role: "assistant", content: toolContent },
+          {
+            id: "user-current",
+            role: "user",
+            content: [{ type: "text", text: "Continue" }],
+          },
+        ],
+      });
+      await drain(turn.events);
+      const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+      const parts = (
+        body.structuredHistory as Array<{
+          content: Array<{ type: string; id?: string; text?: string }>;
+        }>
+      ).flatMap((message) => message.content);
+      return parts;
+    };
+
+    const defaults = await send();
+    expect(defaults.filter((part) => part.type === "tool-call")).toHaveLength(
+      64,
+    );
+
+    const raised = await send({
+      maxToolCalls: 120,
+      maxBytes: 1024 * 1024,
+      maxValueBytes: 128 * 1024,
+    });
+    const raisedCalls = raised.filter((part) => part.type === "tool-call");
+    expect(raisedCalls).toHaveLength(120);
+    expect(raisedCalls[0]?.id).toBe("call-1");
+    expect(JSON.stringify(raised)).not.toContain("exceeds 64 KiB");
+    expect(JSON.stringify(raised)).not.toContain("history was omitted");
+
+    const lowered = await send({ maxToolCalls: 10 });
+    expect(lowered.filter((part) => part.type === "tool-call")).toHaveLength(
+      10,
+    );
+    expect(JSON.stringify(lowered)).toContain(
+      "within 256 KiB and 10 tool entries",
+    );
   });
 
   it("omits unmatched boundary results when their calls fall outside the source window", async () => {

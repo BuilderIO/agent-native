@@ -285,3 +285,131 @@ function computeSuggestionTextPresentationForSource(
           ),
   );
 }
+
+function presentedText(node: SuggestionPresentationNode): string {
+  if (node.type === "lineBreak") return "\n";
+  if ("value" in node) return node.value;
+  return node.children.map(presentedText).join("");
+}
+
+export function suggestionPresentationLength(
+  nodes: readonly SuggestionPresentationNode[],
+): number {
+  return nodes.map(presentedText).join("").length;
+}
+
+function slicePresentation(
+  nodes: readonly SuggestionPresentationNode[],
+  from: number,
+  to: number,
+  resumesAt = Infinity,
+): SuggestionPresentationNode[] {
+  const sliced: SuggestionPresentationNode[] = [];
+  let offset = 0;
+  for (const node of nodes) {
+    const start = offset;
+    const length = presentedText(node).length;
+    offset += length;
+    if (start + length <= from || start >= to) continue;
+    if (start >= from && start + length <= to) sliced.push(node);
+    else if ("value" in node)
+      sliced.push({
+        ...node,
+        value: node.value.slice(Math.max(0, from - start), to - start),
+      });
+    else if ("children" in node) {
+      const children = slicePresentation(
+        node.children,
+        from - start,
+        to - start,
+        resumesAt - start,
+      );
+      sliced.push(
+        node.type === "link" && start + length > resumesAt
+          ? { type: "underline", children }
+          : { ...node, children },
+      );
+    }
+  }
+  return sliced;
+}
+
+const CLIP_SLACK = 16;
+const CLIPPED_URL = 40;
+
+function hasLongUrl(nodes: readonly SuggestionPresentationNode[]): boolean {
+  return nodes.some(
+    (node) =>
+      (node.type === "link" && node.url.length > CLIPPED_URL) ||
+      ("children" in node && hasLongUrl(node.children)),
+  );
+}
+
+function shortenUrls(
+  nodes: readonly SuggestionPresentationNode[],
+): SuggestionPresentationNode[] {
+  return nodes.map((node) =>
+    node.type === "link"
+      ? {
+          ...node,
+          url:
+            node.url.length > CLIPPED_URL
+              ? `${node.url.slice(0, graphemeBoundary(node.url, CLIPPED_URL))}…`
+              : node.url,
+          children: shortenUrls(node.children),
+        }
+      : "children" in node
+        ? { ...node, children: shortenUrls(node.children) }
+        : node,
+  );
+}
+
+const graphemes = new (
+  Intl as unknown as {
+    Segmenter: new (
+      locales: undefined,
+      options: { granularity: "grapheme" },
+    ) => {
+      segment(text: string): {
+        containing(
+          index: number,
+        ): { index: number; segment: string } | undefined;
+      };
+    };
+  }
+).Segmenter(undefined, { granularity: "grapheme" });
+
+function graphemeBoundary(text: string, index: number, forward = false) {
+  const grapheme = graphemes.segment(text).containing(index);
+  if (!grapheme || grapheme.index === index) return index;
+  return forward ? grapheme.index + grapheme.segment.length : grapheme.index;
+}
+
+export function clipSuggestionPresentation(
+  nodes: SuggestionPresentationNode[],
+  { head, tail }: { head: number; tail: number },
+): SuggestionPresentationNode[] {
+  const text = nodes.map(presentedText).join("");
+  if (text.length <= head + tail + CLIP_SLACK)
+    return hasLongUrl(nodes) ? shortenUrls(nodes) : nodes;
+  const headSpace = text.slice(0, head + 1).search(/\s\S*$/);
+  const headEnd = graphemeBoundary(
+    text,
+    headSpace > head / 2 ? headSpace : head,
+  );
+  const tailFrom = text.length - tail;
+  const tailSpace = text.slice(tailFrom - 1).search(/\s/);
+  const tailStart = graphemeBoundary(
+    text,
+    tailSpace >= 0 && tailSpace < tail / 2 ? tailFrom + tailSpace : tailFrom,
+    true,
+  );
+  const ellipsis = `${headEnd === headSpace ? " " : ""}…${
+    /\s/.test(text[tailStart - 1] ?? "") ? " " : ""
+  }`;
+  return shortenUrls([
+    ...slicePresentation(nodes, 0, headEnd, tailStart),
+    { type: "text", value: ellipsis },
+    ...slicePresentation(nodes, tailStart, text.length),
+  ]);
+}

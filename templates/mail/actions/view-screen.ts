@@ -347,7 +347,7 @@ async function fetchEmailList(
     let emails = await readLocalEmails(ownerEmail);
     switch (effectiveView) {
       case "inbox":
-        emails = buildLocalInboxItems(emails);
+        emails = buildLocalInboxItems(emails, ownerEmail);
         break;
       case "unread":
         emails = emails.filter(
@@ -475,7 +475,7 @@ async function buildInboxTabsSummary(
         readLocalEmails(ownerEmail),
         getUserSetting(ownerEmail, "labels"),
       ]);
-      items = buildLocalInboxItems(emails);
+      items = buildLocalInboxItems(emails, ownerEmail);
       labels = Array.isArray(localSettings?.labels)
         ? (localSettings.labels as Label[])
         : [];
@@ -521,6 +521,7 @@ export default defineAction({
   }),
   http: false,
   readOnly: true,
+  mcpTool: "search",
   run: async () => {
     const navigation = await readAppStateForCurrentTab("navigation", {
       fallbackToGlobal: false,

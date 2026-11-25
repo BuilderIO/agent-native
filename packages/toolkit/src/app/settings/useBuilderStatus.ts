@@ -455,6 +455,11 @@ function isAgentNativeDesktop() {
   return /AgentNativeDesktop/i.test(navigator.userAgent || "");
 }
 
+function isDesktopHostRenderer() {
+  if (typeof window === "undefined") return false;
+  return Boolean((window as Window & { electronAPI?: unknown }).electronAPI);
+}
+
 function hasSignedConnectToken(url: string | null | undefined): boolean {
   if (!url || typeof window === "undefined") return false;
   try {
@@ -656,12 +661,21 @@ export interface OpenBuilderConnectPopupOptions {
   features?: string;
 }
 
-export function openBuilderConnectPopup({
-  url,
-  source = "builder_connect",
-  flow,
-  features = "noopener,noreferrer",
-}: OpenBuilderConnectPopupOptions = {}): Window | null {
+export function openBuilderConnectPopup(
+  options: OpenBuilderConnectPopupOptions = {},
+): Window | null {
+  return openConnectWindow(options);
+}
+
+function openConnectWindow(
+  {
+    url,
+    source = "builder_connect",
+    flow,
+    features = "noopener,noreferrer",
+  }: OpenBuilderConnectPopupOptions,
+  fallback?: { url: string; onOpened: () => void },
+): Window | null {
   if (typeof window === "undefined") return null;
   const origin = getCallbackOrigin() || window.location.origin;
   const href =
@@ -682,7 +696,18 @@ export function openBuilderConnectPopup({
     connect_url_kind: connectUrlKind,
   });
   try {
-    const opened = window.open(trackedHref, "_blank", features);
+    let opened = window.open(trackedHref, "_blank", features);
+    if (!opened && fallback) {
+      opened = window.open(
+        withBuilderConnectTrackingParams(fallback.url, {
+          source,
+          ...(flow !== undefined ? { flow } : {}),
+        }),
+        "_blank",
+        features,
+      );
+      if (opened) fallback.onOpened();
+    }
     if (!opened && !/AgentNativeDesktop/i.test(navigator.userAgent || "")) {
       trackEvent("builder connect popup blocked", {
         feature: "builder",
@@ -1554,7 +1579,7 @@ export function useBuilderConnectFlow(
         cachedFreshUrl ?? signedPropUrl ?? fallbackUrl,
       );
 
-      if (isAgentNativeDesktop()) {
+      if (isAgentNativeDesktop() && (transport || isDesktopHostRenderer())) {
         const openDesktopConnectUrl = transport?.openConnectUrl;
         if (!openDesktopConnectUrl) {
           connectStartedAtRef.current = null;
@@ -1632,14 +1657,82 @@ export function useBuilderConnectFlow(
             );
           }
         })();
+      } else if (isAgentNativeDesktop()) {
+        const openDesktopWebviewUrl = (url: string) => {
+          const opened = openBuilderConnectPopup({
+            url,
+            source: clickTrackingSource,
+            ...(clickTrackingFlow !== undefined
+              ? { flow: clickTrackingFlow }
+              : {}),
+          });
+          if (opened) activePopupRef.current = opened;
+        };
+
+        if (cachedFreshUrl || signedPropUrl) {
+          openDesktopWebviewUrl(directUrl);
+        } else {
+          void (async () => {
+            const status = await fetchStatus(undefined, connectAttemptId);
+            const isCurrentAttempt = () =>
+              mountedRef.current &&
+              connectAttemptIdRef.current === connectAttemptId &&
+              cancelledConnectAttemptIdRef.current !== connectAttemptId;
+            if (!isCurrentAttempt()) return;
+            if (!status) {
+              markStatusUnavailable();
+              connectStartedAtRef.current = null;
+              setConnecting(false);
+              restoreExistingAccount();
+              return;
+            }
+            markStatusAvailable();
+            setHasFetchedStatus(true);
+            setStatusResolved(true);
+            setConfigured(!!status.configured);
+            setCodeChangeConfigured(isCodeChangeConfigured(status));
+            setEnvManaged(!!status.envManaged);
+            setCredentialSource(status.credentialSource ?? null);
+            setConnections(builderConnectionsFromStatus(status));
+            setCanDisconnect(!!status.canDisconnect);
+            setAgentNativeProvisioningEnabled(
+              !!status.agentNativeProvisioningEnabled,
+            );
+            setAgentNativeProvisioningToken(
+              status.agentNativeProvisioningToken ?? null,
+            );
+            setAccountExists(status.connectError?.code === "account_exists");
+            setBuilderEnabled(!!status.builderEnabled);
+            setOrgName(status.orgName ?? null);
+            const nextConnectUrl = status.connectUrl || null;
+            setStatusConnectUrl(nextConnectUrl);
+            statusConnectUrlAtRef.current = nextConnectUrl ? Date.now() : null;
+            openDesktopWebviewUrl(
+              withConnectAttempt(nextConnectUrl || fallbackUrl),
+            );
+          })();
+        }
       } else {
         const embeddedWindow = isEmbeddedWindow();
-        const opened = openBuilderConnectPopup({
-          url: embeddedWindow ? oauthPopupWaitingUrl() : "about:blank",
-          source: clickTrackingSource,
-          flow: clickTrackingFlow,
-          features: "width=600,height=700",
-        });
+        let popupLoadsWaitingPage = embeddedWindow;
+        const opened = openConnectWindow(
+          {
+            url: embeddedWindow ? oauthPopupWaitingUrl() : "about:blank",
+            source: clickTrackingSource,
+            ...(clickTrackingFlow !== undefined
+              ? { flow: clickTrackingFlow }
+              : {}),
+            features: "width=600,height=700",
+          },
+          embeddedWindow
+            ? undefined
+            : {
+                url: oauthPopupWaitingUrl(),
+                onOpened: () => {
+                  popupLoadsWaitingPage = true;
+                },
+              },
+        );
         if (opened) activePopupRef.current = opened;
         if (!opened) {
           if (!embeddedWindow) {
@@ -1716,7 +1809,7 @@ export function useBuilderConnectFlow(
             connectAttemptIdRef.current === connectAttemptId &&
             connectStartedAtRef.current === started &&
             cancelledConnectAttemptIdRef.current !== connectAttemptId;
-          const popupReady = embeddedWindow
+          const popupReady = popupLoadsWaitingPage
             ? waitForBuilderConnectPopupLoad(
                 opened,
                 () => !isCurrentConnectAttempt() || isPopupClosed(opened),

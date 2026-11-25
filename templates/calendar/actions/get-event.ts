@@ -13,6 +13,7 @@ import {
 import { getGoogleEventColorHex } from "../shared/google-event-colors.js";
 
 export default defineAction({
+  mcpTool: true,
   description: "Fetch a single Google Calendar event by id",
   schema: z.object({
     id: z
@@ -157,6 +158,7 @@ export default defineAction({
           allDay: !evt.start?.dateTime,
           source: "google",
           googleEventId: evt.id || undefined,
+          revision: evt.etag || undefined,
           htmlLink: evt.htmlLink || undefined,
           accountEmail: acctEmail,
           responseStatus: selfAttendee?.responseStatus || undefined,

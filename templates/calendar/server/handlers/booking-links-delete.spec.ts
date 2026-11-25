@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   assertAccessMock,
+  deleteSingleUseLinksForMock,
   getDbMock,
   selectProjectionMock,
   selectRowsMock,
   deleteWhereMock,
 } = vi.hoisted(() => ({
   assertAccessMock: vi.fn(),
+  deleteSingleUseLinksForMock: vi.fn(),
   getDbMock: vi.fn(),
   selectProjectionMock: vi.fn(),
   selectRowsMock: vi.fn(),
@@ -85,6 +87,13 @@ vi.mock("../lib/booking-timezone.js", () => ({
   getOwnerBookingTimeZone: vi.fn(),
 }));
 
+vi.mock("../lib/single-use-links.js", () => ({
+  deleteSingleUseLinksFor: deleteSingleUseLinksForMock,
+  getSingleUseLinkStatus: vi.fn(),
+  readSingleUseToken: vi.fn(),
+  SINGLE_USE_LINK_QUERY_PARAM: "once",
+}));
+
 vi.mock("./booking-usernames.js", () => ({
   ensureBookingUsername: vi.fn(),
 }));
@@ -130,5 +139,11 @@ describe("deleteBookingLinkById", () => {
       title: "booking_links.title",
       duration: "booking_links.duration",
     });
+  });
+
+  it("deletes the link's single-use URLs with it", async () => {
+    await deleteBookingLinkById("booking-link-1");
+
+    expect(deleteSingleUseLinksForMock).toHaveBeenCalledWith("booking-link-1");
   });
 });

@@ -13,8 +13,8 @@ import { join, resolve } from "node:path";
 import { after, describe, it } from "node:test";
 
 import {
-  isTestOnlyChange,
   isTrackedRepositoryTest,
+  needsNoFixProof,
   parseProofCommand,
   parseReports,
 } from "./feedback-fix-proof.ts";
@@ -58,6 +58,14 @@ mkdirSync(join(repo, "e2e"));
 writeFileSync(join(repo, "e2e", "notes.ts"), "deflaked\n");
 git("add", "-A");
 git("commit", "-qm", "test-only change");
+const testOnly = git("rev-parse", "--short=9", "HEAD");
+git("checkout", "-q", "-b", "docs-only");
+mkdirSync(join(repo, "docs"));
+writeFileSync(join(repo, "docs", "guide.mdx"), "# Guide\n");
+writeFileSync(join(repo, "README.md"), "# Demo\n");
+git("add", "-A");
+git("commit", "-qm", "docs-only change");
+git("checkout", "-q", "main");
 
 const proven = (command: string) =>
   `  \`fix-proof: proven, red at 000000000 (exit 1), green at ${fix}: ${command}\``;
@@ -200,15 +208,36 @@ describe("parseReports", () => {
     ]);
   });
 
+  it("skips Fleet problem links, which are not reports", () => {
+    const reports = parseReports(
+      [
+        "https://beta.agent-workspace.builder.io/fleet/inbox/12",
+        "## Reports",
+        "- https://app.slack.com/archives/C1/p1 ([Fleet](https://beta.agent-workspace.builder.io/fleet/inbox/7221))",
+        "  https://agent-workspace.builder.io/fleet/inbox/7221/",
+        proven("node --test app.test.mjs"),
+        "",
+        "https://beta.agent-workspace.builder.io/fleet/inbox/7221",
+      ].join("\n"),
+    );
+    assert.deepEqual(reports, [
+      {
+        link: "https://app.slack.com/archives/C1/p1",
+        proven: [`${fix}\tnode --test app.test.mjs`],
+        visual: null,
+      },
+    ]);
+  });
+
   it("returns null without a Reports section", () => {
     assert.equal(parseReports("## Summary\n- https://example.com"), null);
   });
 });
 
-describe("isTestOnlyChange", () => {
+describe("needsNoFixProof", () => {
   it("is true only when every changed path is a test, doc, or changeset", () => {
     assert.equal(
-      isTestOnlyChange([
+      needsNoFixProof([
         "packages/core/src/a.spec.ts",
         "templates/mail/e2e/inbox.ts",
         "packages/x/__tests__/y.ts",
@@ -218,21 +247,39 @@ describe("isTestOnlyChange", () => {
       true,
     );
     assert.equal(
-      isTestOnlyChange([
+      needsNoFixProof([
         "packages/core/src/a.spec.ts",
         "packages/core/src/a.ts",
       ]),
       false,
     );
+    assert.equal(needsNoFixProof(["packages/core/src/tests/helper.ts"]), false);
+    assert.equal(needsNoFixProof(["tests/unit/a.ts"]), true);
     assert.equal(
-      isTestOnlyChange(["packages/core/src/tests/helper.ts"]),
+      needsNoFixProof([
+        "packages/core/docs/content/organizations-teams-permissions.mdx",
+        "packages/core/docs/content/locales/de-DE/organizations-teams-permissions.mdx",
+        ".changeset/org-domain-docs.md",
+      ]),
+      true,
+    );
+    assert.equal(needsNoFixProof(["README.md"]), true);
+    assert.equal(
+      needsNoFixProof([
+        "templates/mail/changelog/2026-11-20-fix.md",
+        "templates/mail/app/inbox.tsx",
+      ]),
       false,
     );
-    assert.equal(isTestOnlyChange(["tests/unit/a.ts"]), true);
-    assert.equal(isTestOnlyChange([".changeset/flaky.md"]), false);
-    assert.equal(isTestOnlyChange([".agents/skills/x/SKILL.md"]), false);
-    assert.equal(isTestOnlyChange(["README.md"]), false);
-    assert.equal(isTestOnlyChange([]), false);
+    assert.equal(needsNoFixProof([".changeset/flaky.md"]), false);
+    assert.equal(
+      needsNoFixProof(["templates/mail/changelog/2026-11-20-fix.md"]),
+      false,
+    );
+    assert.equal(needsNoFixProof([".agents/skills/x/SKILL.md"]), false);
+    assert.equal(needsNoFixProof(["templates/mail/AGENTS.md"]), false);
+    assert.equal(needsNoFixProof(["packages/core/docs/app.ts"]), false);
+    assert.equal(needsNoFixProof([]), false);
   });
 });
 
@@ -353,7 +400,7 @@ describe("feedback-fix-proof", () => {
 
     assert.match(
       workflow,
-      /pull_request:\s*\n\s+types:\s*\[[^\]]*edited[^\]]*\]/,
+      /pull_request:\s*\n\s+types:\s*\[[^\]]*synchronize[^\]]*\]/,
     );
     assert.equal(
       [...workflow.matchAll(/uses: actions\/checkout@[^\n]+/g)].length,
@@ -365,6 +412,11 @@ describe("feedback-fix-proof", () => {
     );
     const lintJob = /^  lint:\n([\s\S]*?)(?=^  [\w-]+:\n)/m.exec(workflow)?.[1];
     assert.ok(lintJob, "the required Lint & format job exists");
+    assert.match(
+      lintJob,
+      /if: needs\.change-scope\.outputs\.has_reports == 'true' && contains\(github\.event\.pull_request\.body, 'query-content-database-items\.navigation\.postgres\.integration\.test\.ts'\)[\s\S]*?trap 'rm -rf "\$DOCKER_CONFIG"' EXIT[\s\S]*?docker pull ghcr\.io\/builderio\/agent-native-ci-postgres-fallback:17-alpine[\s\S]*?docker logout ghcr\.io[\s\S]*?unset DOCKER_CONFIG GH_TOKEN[\s\S]*?docker run --pull=never/,
+    );
+    assert.match(lintJob, /pg_isready -h 127\.0\.0\.1 -U postgres/);
     assert.match(
       lintJob,
       /if: \$\{\{ !cancelled\(\) && \(needs\.change-scope\.result != 'success' \|\| needs\.change-scope\.outputs\.lint == 'true' \|\| needs\.change-scope\.outputs\.has_reports == 'true'\) \}\}/,
@@ -417,7 +469,35 @@ describe("feedback-fix-proof", () => {
       workflow,
       /if: steps\.find\.outputs\.has_reports == 'true'[\s\S]*?feedback-fix-proof\.ts/,
     );
-    assert.doesNotMatch(workflow, /pull_request_target|secrets\.|GITHUB_TOKEN/);
+    const provision =
+      /      - name: Start PostgreSQL for navigation proof\n[\s\S]*?(?=\n      - name: Re-run each report's proof)/.exec(
+        workflow,
+      )?.[0];
+    assert.ok(provision, "the conditional PostgreSQL provision step exists");
+    assert.match(provision, /pg_isready -h 127\.0\.0\.1 -U postgres/);
+    const proofPath =
+      "actions/./query-content-database-items.navigation.postgres.integration.test.ts";
+    assert.ok(
+      proofPath.includes(
+        "query-content-database-items.navigation.postgres.integration.test.ts",
+      ),
+    );
+    assert.notEqual(
+      parseProofCommand(`pnpm --filter content exec vitest run ${proofPath}`),
+      null,
+    );
+    assert.match(
+      provision,
+      /if: steps\.find\.outputs\.has_reports == 'true' && contains\(github\.event\.pull_request\.body, 'query-content-database-items\.navigation\.postgres\.integration\.test\.ts'\)/,
+    );
+    assert.match(
+      provision,
+      /trap 'rm -rf "\$DOCKER_CONFIG"' EXIT[\s\S]*?docker pull ghcr\.io\/builderio\/agent-native-ci-postgres-fallback:17-alpine[\s\S]*?docker logout ghcr\.io[\s\S]*?rm -rf "\$DOCKER_CONFIG"[\s\S]*?unset DOCKER_CONFIG GH_TOKEN[\s\S]*?docker run --pull=never/,
+    );
+    assert.doesNotMatch(
+      workflow.replace(provision, ""),
+      /pull_request_target|secrets\.|GITHUB_TOKEN|GH_TOKEN/,
+    );
   });
 
   it("passes when every report's proof holds on re-run", () => {
@@ -517,7 +597,7 @@ describe("feedback-fix-proof", () => {
     assert.equal(r.status, 0, r.stdout + r.stderr);
     assert.match(
       r.stdout,
-      /test-only PR \(2 changed files[^)]*\); 2 reports need no fix proof/,
+      /test-only or docs-only PR \(2 changed files[^)]*\); 2 reports need no fix proof/,
     );
   });
 
@@ -537,6 +617,54 @@ describe("feedback-fix-proof", () => {
     );
     assert.equal(r.status, 1, r.stdout + r.stderr);
     assert.match(r.stdout, /NO PROOF: https:\/\/app.slack.com\/a/);
+  });
+
+  it("passes a docs-only PR whose reports say so", () => {
+    git("checkout", "-q", "docs-only");
+    try {
+      const r = gate(
+        "## Reports\n- https://github.com/o/r/issues/1\n  fix-proof: docs-only\n\nhttps://beta.agent-workspace.builder.io/fleet/inbox/3349\n",
+        testOnly,
+      );
+      assert.equal(r.status, 0, r.stdout + r.stderr);
+      assert.match(
+        r.stdout,
+        /docs-only PR \(2 changed files[^)]*\); 1 reports need no fix proof/,
+      );
+    } finally {
+      git("checkout", "-q", "main");
+    }
+  });
+
+  it("still requires proof when a docs-only claim sits on a source change", () => {
+    const r = gate(
+      "## Reports\n- https://app.slack.com/a\n  fix-proof: docs-only\n",
+    );
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stdout, /NO PROOF: https:\/\/app.slack.com\/a/);
+  });
+
+  it("does not ask for proof of the Fleet problem link", () => {
+    const r = gate(
+      [
+        "## Reports",
+        "- https://app.slack.com/a",
+        proven("node --test app.test.mjs"),
+        "",
+        "https://beta.agent-workspace.builder.io/fleet/inbox/7221",
+      ].join("\n"),
+    );
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.doesNotMatch(r.stdout, /NO PROOF/);
+    assert.match(r.stdout, /all 1 reports machine-proven/);
+  });
+
+  it("cannot run when the Reports section holds only a Fleet problem link", () => {
+    const r = gate(
+      "## Reports\nhttps://beta.agent-workspace.builder.io/fleet/inbox/7221\n",
+    );
+    assert.equal(r.status, 2, r.stdout + r.stderr);
+    assert.match(r.stderr, /lists no report links \(Fleet problem links/);
   });
 
   it("has nothing to check without a Reports section", () => {

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getThemeFamilyInitScript } from "../appearance/theme-family.js";
 import {
+  THEME_STORAGE_KEY_ATTRIBUTE,
   applyEmbeddedThemeUpdate,
   buildEmbeddedThemeUpdate,
   getThemeInitScript,
@@ -75,6 +76,24 @@ describe("getThemeInitScript", () => {
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
   });
 
+  it("names the key it read on the root so the app can keep it in step", () => {
+    setPrefersDark(false);
+
+    runThemeScript(getThemeInitScript("system", true, "crm"));
+    expect(
+      document.documentElement.getAttribute(THEME_STORAGE_KEY_ATTRIBUTE),
+    ).toBe("crm:theme");
+
+    runThemeScript(
+      getThemeInitScript("system", true, undefined, {
+        storageKey: "theme",
+      }),
+    );
+    expect(
+      document.documentElement.getAttribute(THEME_STORAGE_KEY_ATTRIBUTE),
+    ).toBe("theme");
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -85,6 +104,7 @@ describe("getThemeInitScript", () => {
     window.localStorage.clear();
     document.documentElement.classList.remove("light", "dark");
     document.documentElement.removeAttribute("data-theme");
+    document.documentElement.removeAttribute(THEME_STORAGE_KEY_ATTRIBUTE);
     document.documentElement.removeAttribute("data-appearance");
     document.documentElement.removeAttribute("data-theme-family");
     document.documentElement.removeAttribute("data-theme-family-status");

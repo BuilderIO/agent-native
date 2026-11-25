@@ -116,7 +116,7 @@ export function createToolSearchEntry(
   return frameworkMcpTool({
     tool: {
       description:
-        "Find actions and connected MCP tools by what they do or by exact name. The system prompt's Tool index lists every deferred tool name grouped by topic; loading several exact names in one call is the fastest path. A targeted search returns concise details and adds matches allowed in the current mode, with their full schemas, to the NEXT model step, not this one, so request every tool you need in one call (`queries` and/or `names`) and call them on the next step. If every match is already callable, call it directly instead of searching again. Results rank by words, not intent: before calling one marked `destructive`, confirm the user wants that change. Omit query for a bounded alphabetical menu; menu entries are informational until you search for a capability or name.",
+        "Find actions and connected MCP tools by what they do or by exact name. The system prompt's Tool index lists every deferred tool name grouped by topic; loading several exact names in one call is the fastest path. A query makes the matching tools callable, with their full schemas, on the NEXT model step, not this one, so request every tool you need in one call (`queries` and/or `names`) and call them on the next step. When you already know the names, pass them as one comma-separated query (`list-projects, get-project`) and only those tools load. If every match is already callable, call it directly instead of searching again. Results rank by words, not intent: before calling one marked `destructive`, confirm the user wants that change. Omit query for a bounded alphabetical menu; menu entries are informational until you search for a capability or name.",
       parameters: {
         type: "object",
         properties: {
@@ -151,7 +151,7 @@ export function createToolSearchEntry(
           includeSchemas: {
             type: "boolean",
             description:
-              "Accepted for compatibility. Full schemas are supplied automatically for tools returned by a targeted search.",
+              "Only set this when you need the schema JSON in the result text. Matching tools already load with their full schemas for your next call.",
           },
           readOnlyOnly: {
             type: "boolean",
@@ -259,9 +259,18 @@ export function searchToolRegistry(
           message: [output.message, truncationNote].filter(Boolean).join(" "),
         }
       : output;
+  const exactNames = [...names];
+  const fuzzyQueries: string[] = [];
+  for (const query of queries) {
+    const queryNames = knownActionNames(registry, query);
+    if (queryNames) exactNames.push(...queryNames);
+    else fuzzyQueries.push(query);
+  }
   const targets: SearchTarget[] = [
-    ...queries.map((query) => ({ query })),
-    ...(names.length > 0 ? [{ names }] : []),
+    ...fuzzyQueries.map((query) => ({ query })),
+    ...(exactNames.length > 0
+      ? [{ names: [...new Set(exactNames)].slice(0, MAX_NAMES) }]
+      : []),
   ];
   if (targets.length <= 1) {
     return withTruncationNote(
@@ -298,6 +307,27 @@ export function searchToolRegistry(
     ...(message ? { message } : {}),
     results,
   });
+}
+
+function knownActionNames(
+  registry: Record<string, ActionEntry>,
+  query: string,
+): string[] | undefined {
+  const words = query.split(/[\s,]+/).filter(Boolean);
+  if (words.length === 0) return undefined;
+  const byLowerName = new Map<string, string>();
+  for (const name of Object.keys(registry)) {
+    if (name !== TOOL_SEARCH_ACTION_NAME) {
+      byLowerName.set(name.toLowerCase(), name);
+    }
+  }
+  const resolved: string[] = [];
+  for (const word of words) {
+    const name = byLowerName.get(word.toLowerCase());
+    if (!name) return undefined;
+    resolved.push(name);
+  }
+  return resolved;
 }
 
 type SearchTarget = { query: string } | { names: string[] };
@@ -873,6 +903,86 @@ export function isTargetedToolSearch(args: object): boolean {
     parsedNames.kept.length > 0 ||
     (typeof task === "string" && task.trim().length > 0)
   );
+}
+
+/**
+ * Whether a search should also name tools the caller can't call: a targeted
+ * search that hasn't asked for read-only tools only, since the tool those
+ * names point the caller to (`ask_app`) isn't read-only.
+ */
+export function namesUnservedTools(args: object): boolean {
+  return (
+    isTargetedToolSearch(args) &&
+    !parseBoolean((args as ToolSearchArgs).readOnlyOnly)
+  );
+}
+
+/**
+ * The best matches in `registry` for a targeted search's queries, names and
+ * task, ranked as a query search ranks them but outside its repeat guard, by
+ * name and a short description only. A menu search matches nothing. MCP's
+ * `tool-search` runs it over the actions a caller can't call, to name the ones
+ * the app's own agent could run for it.
+ */
+export function closestToolMatches(
+  registry: Record<string, ActionEntry>,
+  args: object,
+  limit: number,
+): Array<{ name: string; description: string }> {
+  const { parsedQueries, parsedNames } = parseToolSearchLists(args);
+  const task = (args as ToolSearchArgs).task;
+  const texts = [
+    ...parsedQueries.kept,
+    ...(typeof task === "string" && task.trim() ? [task.trim()] : []),
+  ];
+  const exactNames = new Set(
+    parsedNames.kept.map((name) => name.toLowerCase()),
+  );
+  const rankable: RankableTool[] = [];
+  for (const [name, entry] of Object.entries(registry)) {
+    if (name === TOOL_SEARCH_ACTION_NAME) continue;
+    if (isActionHiddenFromEveryAgentSurface(entry)) continue;
+    if (parseMcpToolName(name)) continue;
+    const description = normalizeWhitespace(entry.tool.description);
+    rankable.push({
+      candidate: {
+        name,
+        kind: "action",
+        description: truncate(description, MAX_SUGGESTION_DESCRIPTION_CHARS),
+        score: 0,
+        callable: false,
+        planAvailability: getPlanAvailability(name, entry),
+        parameters: [],
+      },
+      prior: 1,
+      fields: searchDocumentFields({
+        name,
+        source: undefined,
+        hints: entry.searchHints,
+        description,
+        parameters: summarizeParameters(entry.tool.parameters),
+      }),
+    });
+  }
+  const best = new Map<string, ToolSearchResult>();
+  const keep = (match: ToolSearchResult) => {
+    const earlier = best.get(match.name);
+    if (!earlier || match.score > earlier.score) best.set(match.name, match);
+  };
+  for (const { candidate } of rankable) {
+    if (exactNames.has(candidate.name.toLowerCase())) {
+      keep({ ...candidate, score: EXACT_NAME_SCORE });
+    }
+  }
+  for (const text of texts) {
+    for (const match of rankByBm25(text, tokenize(text), rankable)) {
+      keep(match);
+    }
+  }
+  return [...best.values()]
+    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
+    .slice(0, limit)
+    .map(({ name, description }) => ({ name, description }));
 }
 
 /** Callable matches of a targeted search; empty for a menu or an error. */

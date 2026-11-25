@@ -10,10 +10,12 @@ import { runWithRequestContext } from "../server/request-context.js";
 import type { ActionEntry } from "./production-agent.js";
 import {
   attachToolSearch,
+  closestToolMatches,
   createToolSearchEntry,
   extractToolSearchResultNames,
   filterActionsForAgentDiscovery,
   isTargetedToolSearch,
+  namesUnservedTools,
   readLoadedToolNames,
   searchToolRegistry,
   searchToolRegistryForRequest,
@@ -309,6 +311,60 @@ describe("tool-search", () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+  });
+
+  it("loads exactly the named tools when the whole query is known action names", () => {
+    const registry = {
+      "list-projects": action("List projects"),
+      "get-project": action("Get one project by id"),
+      "list-project-members": action("List project members"),
+      "archive-project": action("Archive a project"),
+    };
+    for (const query of [
+      "list-projects, get-project",
+      "list-projects get-project",
+      "LIST-PROJECTS,get-project",
+    ]) {
+      const result = searchToolRegistry(registry, { query });
+      expect(result.results.map((r) => r.name).sort()).toEqual([
+        "get-project",
+        "list-projects",
+      ]);
+    }
+    const viaQueries = searchToolRegistry(registry, {
+      queries: ["list-projects", "get-project"],
+    });
+    expect(viaQueries.results.map((r) => r.name).sort()).toEqual([
+      "get-project",
+      "list-projects",
+    ]);
+  });
+
+  it("falls back to fuzzy search when any word is not a known action name", () => {
+    const registry = {
+      "list-projects": action("List projects"),
+      "get-project": action("Get one project by id"),
+      "archive-project": action("Archive a project"),
+    };
+    const result = searchToolRegistry(registry, {
+      query: "list-projects, project",
+    });
+    expect(result.results.map((r) => r.name)).toContain("archive-project");
+  });
+
+  it("still applies the read-only filter to an exact-name query", () => {
+    const registry = {
+      "list-projects": action("List projects"),
+      "delete-project": {
+        ...action("Delete a project"),
+        readOnly: false,
+      } as ActionEntry,
+    };
+    const result = searchToolRegistry(registry, {
+      query: "list-projects, delete-project",
+      readOnlyOnly: true,
+    });
+    expect(result.results.map((r) => r.name)).toEqual(["list-projects"]);
   });
 
   it("searches action names, descriptions, and parameter metadata", () => {
@@ -1601,5 +1657,124 @@ describe("tool-search zero-hit fallback", () => {
 
     expect(result.suggestions).toBeUndefined();
     expect(result.message).not.toContain("No tool matched");
+  });
+});
+
+describe("closestToolMatches", () => {
+  const registry = (): Record<string, ActionEntry> => ({
+    "send-report-now": action("Email a saved report to its subscribers now."),
+    "list-reports": action("List the saved reports."),
+    "archive-report": action("Archive a saved report."),
+    "list-events": action("List calendar events"),
+  });
+  const names = (matches: Array<{ name: string }>) =>
+    matches.map((match) => match.name);
+
+  it("ranks a query's matches best first, up to the limit", () => {
+    const matches = closestToolMatches(
+      registry(),
+      { query: "email report subscribers" },
+      2,
+    );
+    expect(matches).toHaveLength(2);
+    expect(matches[0]).toEqual({
+      name: "send-report-now",
+      description: "Email a saved report to its subscribers now.",
+    });
+    expect(names(matches)).not.toContain("list-events");
+  });
+
+  it("ranks every query and the task, keeping each tool once at its best score", () => {
+    const matches = closestToolMatches(
+      registry(),
+      {
+        queries: ["archive report", "calendar events"],
+        task: "  email the subscribers  ",
+      },
+      10,
+    );
+    expect(names(matches)).toEqual(
+      expect.arrayContaining([
+        "archive-report",
+        "list-events",
+        "send-report-now",
+      ]),
+    );
+    expect(new Set(names(matches)).size).toBe(matches.length);
+  });
+
+  it("puts a tool asked for by name first, whatever its case", () => {
+    const matches = closestToolMatches(
+      registry(),
+      { names: ["List-Reports"], query: "email report subscribers" },
+      3,
+    );
+    expect(names(matches)[0]).toBe("list-reports");
+  });
+
+  it("names nothing for a menu search or a blank task", () => {
+    expect(closestToolMatches(registry(), {}, 3)).toEqual([]);
+    expect(closestToolMatches(registry(), { task: "   " }, 3)).toEqual([]);
+  });
+
+  it("leaves out tool-search, tools hidden from every agent and other servers' tools", () => {
+    const matches = closestToolMatches(
+      {
+        ...registry(),
+        [TOOL_SEARCH_ACTION_NAME]: action("Find a report tool by email"),
+        "export-report-pdf": {
+          ...action("Email a report as a PDF"),
+          uiOnly: true,
+        },
+        mcp__mailer__send_report: action("Email a report to subscribers"),
+      },
+      { query: "email report" },
+      10,
+    );
+    expect(names(matches)).toContain("send-report-now");
+    expect(names(matches)).not.toContain(TOOL_SEARCH_ACTION_NAME);
+    expect(names(matches)).not.toContain("export-report-pdf");
+    expect(names(matches)).not.toContain("mcp__mailer__send_report");
+  });
+
+  it("describes each tool in one short line", () => {
+    const [match] = closestToolMatches(
+      {
+        "send-report-now": action(
+          `Email a saved report
+
+  to its subscribers ${"now ".repeat(60)}`,
+        ),
+      },
+      { query: "email report" },
+      1,
+    );
+    expect(match.description).toMatch(
+      /^Email a saved report to its subscribers now/,
+    );
+    expect(match.description).not.toMatch(/\s{2}|\n/);
+    expect(match.description.length).toBeLessThanOrEqual(120);
+    expect(match.description.endsWith("…")).toBe(true);
+  });
+});
+
+describe("namesUnservedTools", () => {
+  it("is true for a targeted search", () => {
+    expect(namesUnservedTools({ query: "email report" })).toBe(true);
+    expect(namesUnservedTools({ names: ["send-report-now"] })).toBe(true);
+    expect(namesUnservedTools({ task: "send the report now" })).toBe(true);
+  });
+
+  it("is false for a menu search or one for read-only tools", () => {
+    expect(namesUnservedTools({})).toBe(false);
+    expect(namesUnservedTools({ query: "email", readOnlyOnly: true })).toBe(
+      false,
+    );
+    expect(namesUnservedTools({ query: "email", readOnlyOnly: "yes" })).toBe(
+      false,
+    );
+    expect(namesUnservedTools({ query: "email", readOnlyOnly: false })).toBe(
+      true,
+    );
   });
 });

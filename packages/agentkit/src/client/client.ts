@@ -5027,15 +5027,27 @@ export class AgentKitClient implements AgentKitController {
       this.transport.cancelRun({ threadId, runId }, context),
     );
     this.assertActive();
-    const status = this.getThread(threadId).runs[runId]?.status;
-    if (status && this.isTerminalStatus(status)) return;
-    this.markRunCancelled(threadId, runId);
     const key = this.runKey(threadId, runId);
+    const run = this.findRun(threadId, runId);
+    if (run && this.isTerminalStatus(run.status)) {
+      await this.consumers.get(key)?.catch(() => undefined);
+      return;
+    }
+    this.markRunCancelled(threadId, runId);
     const hasOtherConsumers = [...this.consumers.keys()].some(
       (candidate) => candidate !== key,
     );
     this.stopConsumer(threadId, runId, "cancelled");
     if (!hasOtherConsumers) this.setConnection("connected");
+    const persistenceError =
+      await this.persistThreadSnapshotToTransport(threadId);
+    if (
+      persistenceError &&
+      !this.disposed &&
+      !isExpectedThreadSnapshotDeferral(persistenceError.error)
+    ) {
+      this.fail(persistenceError.error, "thread_snapshot_persist_failed");
+    }
   }
 
   public async submitFeedback(
@@ -5326,12 +5338,7 @@ export class AgentKitClient implements AgentKitController {
                 "must match the subscribed thread",
               );
             }
-            if (event.runId !== runId) {
-              throw new AgentProtocolValidationError(
-                "event.runId",
-                "must match the subscribed run",
-              );
-            }
+            if (event.runId !== runId) continue;
             this.applyEvent(event);
             if (
               event.type === "approval.requested" ||
@@ -7224,6 +7231,10 @@ export class AgentKitClient implements AgentKitController {
     status: AgentRunSnapshot["status"],
   ): status is "completed" | "failed" | "cancelled" {
     return ["completed", "failed", "cancelled"].includes(status);
+  }
+
+  private findRun(threadId: ThreadId, runId: RunId): AgentRunState | undefined {
+    return this.getThread(threadId).runs[runId];
   }
 
   private scheduleQueuePromotion(threadId: ThreadId, expedite = false): void {

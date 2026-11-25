@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { ActionRunContext } from "../action.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import { createFetchToolEntry } from "./fetch-tool.js";
 
@@ -1255,5 +1256,54 @@ describe("createFetchToolEntry", () => {
     });
 
     await expect(result).rejects.toThrow("Unsafe regex rejected");
+  });
+});
+
+describe("web-request approval", () => {
+  const gate = async (args: Record<string, unknown>, ctx: ActionRunContext) => {
+    const needsApproval = createFetchToolEntry()["web-request"].needsApproval;
+    if (typeof needsApproval !== "function") throw new Error("no gate");
+    return needsApproval(args, ctx);
+  };
+  const chat = { caller: "tool" };
+  const automation = {
+    caller: "tool",
+    automation: { triggerId: "t1", triggerName: "digest" },
+  };
+
+  it("does not ask for GET or HEAD", async () => {
+    expect(await gate({ url: "https://example.com" }, chat)).toBe(false);
+    expect(
+      await gate({ url: "https://example.com", method: "GET" }, chat),
+    ).toBe(false);
+    expect(
+      await gate({ url: "https://example.com", method: "head" }, chat),
+    ).toBe(false);
+  });
+
+  it("asks for other methods in chat", async () => {
+    for (const method of ["POST", "PUT", "PATCH", "DELETE", "post"]) {
+      expect(await gate({ url: "https://example.com", method }, chat)).toBe(
+        true,
+      );
+    }
+  });
+
+  it("does not ask inside an automation run", async () => {
+    expect(
+      await gate({ url: "https://example.com", method: "POST" }, automation),
+    ).toBe(false);
+    expect(
+      await gate(
+        { url: "https://example.com", method: "POST" },
+        { caller: "automation" },
+      ),
+    ).toBe(false);
+  });
+
+  it("still allows persistent approval", () => {
+    expect(
+      createFetchToolEntry()["web-request"].allowPersistentApproval,
+    ).toBeUndefined();
   });
 });

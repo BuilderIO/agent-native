@@ -30,6 +30,8 @@ When a workflow is research, analysis, generation, recommendation, or synthesis 
 
 **One action per file, default-exported. The filename is the action name** (kebab-case): `actions/list-meals.ts` is the `list-meals` action. Don't put several `defineAction`s as named exports in one file — the registry keys actions by filename and only the default export is registered, so extra named exports never become callable and won't match `.generated/action-types.d.ts`.
 
+Subfolders group actions by domain: the name is the relative path with `-` between segments, so `actions/billing/create-invoice.ts` is `billing-create-invoice`. Two files that resolve to the same name (that one and a flat `actions/billing-create-invoice.ts`) fail boot. Folders and files starting with `_` are helpers and are never registered.
+
 ```ts
 // actions/list-meals.ts
 import { z } from "zod";
@@ -217,6 +219,7 @@ Everything else — CRUD, settings, search, list/detail reads, auth state, anyth
 - **Do** validate inputs before the first write. A rejection raised before any write the framework can see is "nothing saved", so the agent can fix its request and retry. Don't reorder code just to add labels. See *Failed Writes*.
 - **Do** render `actionErrorMessage(error) ?? yourCopy` in UI, never bare `error.message`. The message keeps an `Action <name> failed:` prefix that belongs in a console, so a toast built from it reads "Action update-brand-kit failed: That name is taken." The helper returns only what the action wrote, and `undefined` when nothing did (network drop, proxy HTML page), which is why the fallback is not optional.
 - **Do** pass a real `errorCode` when the agent should branch on the failure rather than re-read it. Codes other than the default `action_failed` are appended to the tool result as `(errorCode: not_found)`, on both the in-app agent and MCP. `details` follow as an `Error details: {...}` JSON line, and as `structuredContent.error` over MCP, capped at 2,000 characters, so keep them to what the agent acts on next: ids, limits, field names. The status never reaches either.
+- **Do** set `automatic: true` on a write the app makes with no user gesture behind it: on load, on mount, on a timer, or experiment and usage bookkeeping. Its action events then say `action_kind: "automatic"` instead of `"write"`, so it is not counted as product use. Only a call from the app's own UI can be automatic; a call from an agent, an MCP client, or the CLI stays `"write"`. When only some UI calls are automatic, pass a predicate of the input and the call's context instead (a background sync that is automatic unless a refresh button forces it). A call the action's `planMode` declares a read already says `"read"`. Never set `readOnly` on a write to keep it out of analytics.
 - **Don't** re-export actions as REST — `/_agent-native/actions/:name` is already the REST surface; duplicating it under `/api/*` hides the operation from agents.
 - **Don't** reach for provider integrations, `authorize`, `needsApproval`, or `_agentImages` without checking `references/` first — each has sharp edges covered there, not here.
 

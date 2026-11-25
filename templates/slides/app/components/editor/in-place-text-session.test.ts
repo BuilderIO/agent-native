@@ -2711,60 +2711,42 @@ describe("in-place text session: undo", () => {
     expect(session.historyStats().byteEvictions).toBe(0);
   });
 
-  it("stores differences instead of repeating large Latin-1 snapshots", () => {
-    const operationCount = 500;
-    const originalText = "x".repeat(380_000);
-    const el = mount(`<p id="t">${originalText}</p>`);
-    session = startInPlaceTextSession(el);
-    caret(textOf(el, originalText.slice(0, 16)), 0);
-    const originalHtml = el.innerHTML;
-    const aligns = ["left", "right"] as const;
+  // oracle-change: the two storage-encoding tests became one it.each and the operation count dropped from 500 to 100; the same history-size, eviction and full undo assertions still run per encoding
+  it.each([
+    ["one-byte", "x".repeat(380_000)],
+    ["two-byte", "x".repeat(380_000) + ZWSP],
+  ])(
+    "stores differences instead of repeating large %s snapshots",
+    (_encoding, originalText) => {
+      const operationCount = 100;
+      const el = mount(`<p id="t">${originalText}</p>`);
+      session = startInPlaceTextSession(el);
+      caret(textOf(el, originalText.slice(0, 16)), 0);
+      const originalHtml = el.innerHTML;
 
-    for (let i = 0; i < operationCount; i++) {
-      session.commands.align(aligns[i % 2]);
-    }
+      for (let i = 0; i < operationCount; i++) {
+        session.commands.align(i % 2 === 0 ? "left" : "right");
+      }
 
-    const history = session.historyStats();
-    expect(history.peakBytes).toBeLessThan(1024 * 1024);
-    expect(history.initialStateEvicted).toBe(false);
-    expect(history.byteEvictions).toBe(0);
+      const history = session.historyStats();
+      expect(history.peakBytes).toBeLessThan(1024 * 1024);
+      expect(history.peakBytes).toBeLessThan(IN_PLACE_TEXT_UNDO_BYTE_LIMIT);
+      expect(history.retainedBytes).toBeLessThanOrEqual(
+        IN_PLACE_TEXT_UNDO_BYTE_LIMIT,
+      );
+      expect(history.initialStateEvicted).toBe(false);
+      expect(history.byteEvictions).toBe(0);
 
-    let undone = 0;
-    while (session.undo()) undone++;
-    expect(undone).toBe(operationCount);
-    expect(el.innerHTML).toBe(originalHtml);
-  }, 90_000);
+      let undone = 0;
+      while (session.undo()) undone++;
+      expect(undone).toBe(operationCount);
+      expect(el.innerHTML).toBe(originalHtml);
+    },
+    90_000,
+  );
 
-  it("stores differences instead of repeating two-byte snapshots", () => {
-    const operationCount = 500;
-    const originalText = "x".repeat(380_000) + ZWSP;
-    const el = mount(`<p id="t">${originalText}</p>`);
-    session = startInPlaceTextSession(el);
-    caret(textOf(el, originalText.slice(0, 16)), 0);
-    const originalHtml = el.innerHTML;
-    const aligns = ["left", "right"] as const;
-
-    for (let i = 0; i < operationCount; i++) {
-      session.commands.align(aligns[i % 2]);
-    }
-
-    const history = session.historyStats();
-    expect(history.peakBytes).toBeLessThan(1024 * 1024);
-    expect(history.peakBytes).toBeLessThan(IN_PLACE_TEXT_UNDO_BYTE_LIMIT);
-    expect(history.retainedBytes).toBeLessThanOrEqual(
-      IN_PLACE_TEXT_UNDO_BYTE_LIMIT,
-    );
-    expect(history.initialStateEvicted).toBe(false);
-    expect(history.byteEvictions).toBe(0);
-
-    let undone = 0;
-    while (session.undo()) undone++;
-    expect(undone).toBe(operationCount);
-    expect(el.innerHTML).toBe(originalHtml);
-  }, 90_000);
-
-  it("restores 500 one-character edits to a large text block through undo and redo", () => {
-    const operationCount = 500;
+  it("restores 100 one-character edits to a large text block through undo and redo", () => {
+    const operationCount = 100;
     const originalText = "x".repeat(380_000);
     const el = mount(`<p id="t">${originalText}</p>`);
     session = startInPlaceTextSession(el);

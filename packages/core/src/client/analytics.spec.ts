@@ -1741,6 +1741,30 @@ describe("browser analytics pageviews", () => {
     );
   });
 
+  it("sends the session status trigger only when the caller names one", async () => {
+    installBrowser();
+    const { trackSessionStatus } = await freshAnalytics();
+
+    trackSessionStatus(true, "focus");
+    trackSessionStatus(false);
+
+    expect(tracingMock.recordTrackingEvent).toHaveBeenCalledWith(
+      "session status",
+      expect.objectContaining({ signed_in: true, trigger: "focus" }),
+      "client",
+    );
+    expect(tracingMock.recordTrackingEvent).toHaveBeenCalledWith(
+      "session status",
+      expect.objectContaining({ signed_in: false }),
+      "client",
+    );
+    expect(tracingMock.recordTrackingEvent).not.toHaveBeenCalledWith(
+      "session status",
+      expect.objectContaining({ signed_in: false, trigger: expect.anything() }),
+      "client",
+    );
+  });
+
   it("prefers the isolated GA channel over a host-provided gtag", async () => {
     const { gtag } = installBrowser();
     const isolatedGtag = vi.fn();

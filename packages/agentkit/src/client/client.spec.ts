@@ -8282,6 +8282,30 @@ describe("AgentKitClient", () => {
     ).toEqual([1]);
   });
 
+  it("ignores events from a run other than the subscribed one instead of failing the chat", async () => {
+    const transport = createTransport([]);
+    transport.subscribeToRun = async function* () {
+      yield protocolEvent(1, { type: "run.started" });
+      yield {
+        ...protocolEvent(739, { type: "run.started" }),
+        runId: "run-old",
+      };
+      yield protocolEvent(2, { type: "run.completed" });
+    };
+    const client = new AgentKitClient({
+      transport,
+      reconnect: { attempts: 0, delayMs: () => 0 },
+    });
+
+    const run = await client.sendMessage({ threadId: "thread-1", text: "Go" });
+    await run.completed;
+
+    const thread = client.getThread("thread-1");
+    expect(thread.runs["run-1"]?.lastSequence).toBe(2);
+    expect(thread.runs["run-old"]).toBeUndefined();
+    expect(client.getSnapshot().error).toBeUndefined();
+  });
+
   it("rejects a stream that closes without an explicit terminal event", async () => {
     const client = new AgentKitClient({
       transport: createTransport([protocolEvent(1, { type: "run.started" })]),
@@ -11917,6 +11941,109 @@ describe("AgentKitClient", () => {
     );
     expect(thread.activities["activity-1"]?.status).toBe("cancelled");
     expect(thread.tools["tool-1"]?.status).toBe("cancelled");
+  });
+
+  it("saves the stopped reply when cancellation stops the stream before its terminal event", async () => {
+    const subscribed = Promise.withResolvers<void>();
+    let persistedSnapshot: AgentThreadSnapshot | undefined;
+    const persistThreadSnapshot = vi.fn(
+      async ({ snapshot }: { snapshot: AgentThreadSnapshot }) => {
+        persistedSnapshot = snapshot;
+      },
+    );
+    const transport: AgentTransport = {
+      async startRun() {
+        return { runId: "run-1" };
+      },
+      async *subscribeToRun({ signal }) {
+        yield protocolEvent(1, { type: "run.started" });
+        yield protocolEvent(2, {
+          type: "message.created",
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            status: "streaming",
+            parts: [
+              { type: "text", text: "44. A salmon rests in the shadow." },
+            ],
+          },
+        });
+        subscribed.resolve();
+        await new Promise<void>((resolve) =>
+          signal?.addEventListener("abort", () => resolve(), { once: true }),
+        );
+      },
+      async cancelRun() {},
+      persistThreadSnapshot,
+    };
+    const client = new AgentKitClient({ transport });
+    const run = await client.sendMessage({ threadId: "thread-1", text: "Go" });
+    await subscribed.promise;
+    persistThreadSnapshot.mockClear();
+
+    await run.cancel();
+
+    expect(persistThreadSnapshot).toHaveBeenCalledOnce();
+    expect(persistedSnapshot?.runs).toContainEqual(
+      expect.objectContaining({ id: "run-1", status: "cancelled" }),
+    );
+    expect(persistedSnapshot?.messages).toContainEqual(
+      expect.objectContaining({
+        id: "assistant-1",
+        parts: [
+          expect.objectContaining({
+            text: "44. A salmon rests in the shadow.",
+          }),
+        ],
+      }),
+    );
+  });
+
+  it("resolves a Stop that the run's end overtook once that end is saved", async () => {
+    const subscribed = Promise.withResolvers<void>();
+    const stopSent = Promise.withResolvers<void>();
+    const saveReleased = Promise.withResolvers<void>();
+    let holdSaves = false;
+    const persistThreadSnapshot = vi.fn(async () => {
+      if (holdSaves) await saveReleased.promise;
+    });
+    const transport: AgentTransport = {
+      async startRun() {
+        return { runId: "run-1" };
+      },
+      async *subscribeToRun() {
+        yield protocolEvent(1, { type: "run.started" });
+        subscribed.resolve();
+        await stopSent.promise;
+        yield protocolEvent(2, { type: "run.cancelled" });
+      },
+      async cancelRun() {
+        stopSent.resolve();
+        // fixed-sleep-ok: the Stop request returns after the run's end has arrived
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      },
+      persistThreadSnapshot,
+    };
+    const client = new AgentKitClient({ transport });
+    const run = await client.sendMessage({ threadId: "thread-1", text: "Go" });
+    await subscribed.promise;
+    holdSaves = true;
+    persistThreadSnapshot.mockClear();
+
+    let resolved = false;
+    const cancelling = run.cancel().then(() => {
+      resolved = true;
+    });
+    await vi.waitFor(() => expect(persistThreadSnapshot).toHaveBeenCalled());
+    // fixed-sleep-ok: gives the Stop time to resolve early, before its save does
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(resolved).toBe(false);
+
+    saveReleased.resolve();
+    await cancelling;
+    expect(client.getThread("thread-1").runs["run-1"]?.status).toBe(
+      "cancelled",
+    );
   });
 
   it("isolates consumers by thread when providers reuse a run id", async () => {

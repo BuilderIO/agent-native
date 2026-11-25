@@ -20,6 +20,8 @@ import * as schema from "../db/schema.js";
 const harness = vi.hoisted(() => ({
   db: null as unknown,
   autoRedactEmails: false,
+  beforeTransaction: null as null | (() => Promise<void>),
+  editedOnAssert: null as { id: string; body: string } | null,
 }));
 const email = "qa-fleet@builder.io";
 
@@ -39,6 +41,8 @@ vi.mock(
   }),
 );
 vi.mock("@agent-native/core/settings", () => ({
+  getOrgSetting: async () => null,
+  mutateOrgSetting: async () => undefined,
   getSetting: vi.fn(async () => ({
     privacyClassifier: "deterministic",
     defaultPublishTier: "company",
@@ -79,6 +83,12 @@ vi.mock("@agent-native/core/sharing", async () => {
       const access = await resolve(type, id);
       if (!access || access.resource.ownerEmail !== "qa-fleet@builder.io")
         throw new Error("Access denied");
+      const edited = harness.editedOnAssert;
+      if (edited?.id === id)
+        return {
+          ...access,
+          resource: { ...access.resource, body: edited.body },
+        };
       return access;
     },
   };
@@ -94,6 +104,7 @@ import askBrainAction from "../../actions/ask-brain.js";
 import getEntityGraphAction from "../../actions/get-entity-graph.js";
 import getKnowledge from "../../actions/get-knowledge.js";
 import getPilotReport from "../../actions/get-pilot-report.js";
+import importMarkdownFiles from "../../actions/import-markdown-files.js";
 import listIntelligenceAction from "../../actions/list-intelligence.js";
 import listKnowledgeAction from "../../actions/list-knowledge.js";
 import readPrioritiesAction from "../../actions/read-priorities.js";
@@ -101,7 +112,11 @@ import searchKnowledgeAction from "../../actions/search-knowledge.js";
 import verifyKnowledgeAction from "../../actions/verify-knowledge.js";
 import writeIntelligenceAction from "../../actions/write-intelligence.js";
 import { intelligenceItemSchema } from "../../shared/intelligence.js";
-import { searchKnowledgeRows, assertDerivedAudienceAccess } from "./brain.js";
+import {
+  searchKnowledgeRows,
+  assertDerivedAudienceAccess,
+  setKnowledgeCanonicalResource,
+} from "./brain.js";
 import { runBrainDemoEval } from "./demo.js";
 import {
   writeIntelligence,
@@ -119,6 +134,11 @@ const database = drizzle(client, { schema });
 function first<T>(values: readonly T[]): T {
   const value = values.find((_entry, index) => index === 0);
   if (value === undefined) throw new Error("Expected a fixture record");
+  return value;
+}
+
+function required<T>(value: T | undefined): T {
+  if (value === undefined) throw new Error("Expected a capture");
   return value;
 }
 
@@ -151,11 +171,17 @@ beforeAll(async () => {
   await client.exec(
     "CREATE UNIQUE INDEX audience_principal_unique ON brain_audience_members (audience_id, principal_type, principal_id)",
   );
+  await client.exec(
+    "CREATE UNIQUE INDEX capture_audience_unique ON brain_capture_audiences (capture_id, audience_id)",
+  );
   harness.db = new Proxy(database, {
     get(target, property, receiver) {
       if (property === "transaction")
-        return (callback: (tx: unknown) => Promise<unknown>) =>
-          target.transaction(async (tx) => {
+        return async (callback: (tx: unknown) => Promise<unknown>) => {
+          const beforeTransaction = harness.beforeTransaction;
+          harness.beforeTransaction = null;
+          if (beforeTransaction) await beforeTransaction();
+          return target.transaction(async (tx) => {
             const original = harness.db;
             harness.db = tx;
             try {
@@ -164,6 +190,7 @@ beforeAll(async () => {
               harness.db = original;
             }
           });
+        };
       return Reflect.get(target, property, receiver);
     },
   });
@@ -172,6 +199,8 @@ afterAll(async () => client.close());
 
 beforeEach(async () => {
   harness.autoRedactEmails = false;
+  harness.beforeTransaction = null;
+  harness.editedOnAssert = null;
   for (const table of Object.values(schema)) await database.delete(table);
   const now = "2026-11-18T10:00:00.000Z";
   await database.insert(schema.brainSources).values({
@@ -297,6 +326,695 @@ function input() {
 }
 
 describe("evidence-backed intelligence", () => {
+  it.each(["org", "private"] as const)(
+    "imports per-file provenance with screened metadata and the %s source audience",
+    async (visibility) => {
+      await database
+        .update(schema.brainSources)
+        .set({ visibility })
+        .where(eq(schema.brainSources.id, "source-a"));
+      const importSchema = (
+        importMarkdownFiles as unknown as {
+          schema: {
+            parse: (
+              value: unknown,
+            ) => Parameters<typeof importMarkdownFiles.run>[0];
+          };
+        }
+      ).schema;
+      const result = await importMarkdownFiles.run(
+        importSchema.parse({
+          sourceId: "source-a",
+          files: [
+            {
+              path: "meeting.md",
+              content: "The product launch is approved.",
+              kind: "transcript",
+              capturedAt: "2026-05-20T15:00:00.000Z",
+              participants: ["Avery", "Jordan"],
+            },
+            {
+              path: "other-meeting.md",
+              content: "The product launch is approved.",
+              kind: "transcript",
+              participants: ["Casey"],
+            },
+            {
+              path: "empty-participants.md",
+              content: "The product launch is approved.",
+              participants: [],
+            },
+          ],
+          enqueueDistillation: false,
+        }),
+      );
+      expect(result.files).toEqual([
+        expect.objectContaining({ status: "imported" }),
+        expect.objectContaining({ status: "imported" }),
+        expect.objectContaining({ status: "imported" }),
+      ]);
+      expect(result.summary).toMatchObject({
+        imported: 3,
+        failed: 0,
+        blocked: 0,
+      });
+      const capture = first(
+        await database
+          .select()
+          .from(schema.brainRawCaptures)
+          .where(eq(schema.brainRawCaptures.externalId, "markdown:meeting.md")),
+      );
+      expect(capture).toMatchObject({
+        kind: "transcript",
+        capturedAt: "2026-05-20T15:00:00.000Z",
+      });
+      expect(JSON.parse(capture.metadataJson)).toMatchObject({
+        capturedAtSource: "manual-markdown",
+        participantsCount: 2,
+      });
+      expect(JSON.parse(capture.metadataJson)).not.toHaveProperty(
+        "participants",
+      );
+      expect(JSON.stringify(capture)).not.toContain("Avery");
+      expect(JSON.stringify(capture)).not.toContain("Jordan");
+      const otherCapture = first(
+        await database
+          .select()
+          .from(schema.brainRawCaptures)
+          .where(
+            eq(schema.brainRawCaptures.externalId, "markdown:other-meeting.md"),
+          ),
+      );
+      const emptyCapture = first(
+        await database
+          .select()
+          .from(schema.brainRawCaptures)
+          .where(
+            eq(
+              schema.brainRawCaptures.externalId,
+              "markdown:empty-participants.md",
+            ),
+          ),
+      );
+      expect(JSON.parse(otherCapture.metadataJson)).toMatchObject({
+        participantsCount: 1,
+      });
+      expect(JSON.stringify(otherCapture)).not.toContain("Casey");
+      // oracle-change: an empty list is padding, not a request to store zero.
+      expect(JSON.parse(emptyCapture.metadataJson)).not.toHaveProperty(
+        "participantsCount",
+      );
+      const audience = first(
+        await database
+          .select()
+          .from(schema.brainAudiences)
+          .innerJoin(
+            schema.brainCaptureAudiences,
+            eq(
+              schema.brainCaptureAudiences.audienceId,
+              schema.brainAudiences.id,
+            ),
+          )
+          .where(eq(schema.brainCaptureAudiences.captureId, capture.id)),
+      );
+      expect(audience.brain_audiences.kind).toBe(
+        visibility === "org" ? "org" : "restricted",
+      );
+      const members = await database
+        .select()
+        .from(schema.brainAudienceMembers)
+        .where(
+          eq(
+            schema.brainAudienceMembers.audienceId,
+            audience.brain_audiences.id,
+          ),
+        );
+      expect(
+        members.map((member) => [member.principalType, member.principalId]),
+      ).toEqual(visibility === "org" ? [["org", "qa-org"]] : [["user", email]]);
+    },
+  );
+  it("preserves screened participant counts and knowledge on omitted or empty reimports", async () => {
+    const file = {
+      path: "participants.md",
+      content: "Morgan will ship Atlas.",
+      kind: "transcript" as const,
+    };
+    const firstImport = await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [{ ...file, participants: ["Avery", "Jordan"] }],
+      enqueueDistillation: false,
+    });
+    const imported = first(firstImport.files);
+    if (imported.status !== "imported") throw new Error("Import failed");
+    const { item } = await writeIntelligence({
+      ...input(),
+      dueDate: null,
+      entities: [],
+      evidence: [{ captureId: imported.captureId, quote: file.content }],
+    });
+    await database
+      .update(schema.brainRawCaptures)
+      .set({ status: "distilled", distilledAt: "2026-05-20T15:00:00.000Z" })
+      .where(eq(schema.brainRawCaptures.id, imported.captureId));
+    for (const participants of [undefined, []]) {
+      const result = await importMarkdownFiles.run({
+        sourceId: "source-a",
+        files: [{ ...file, ...(participants ? { participants } : {}) }],
+        enqueueDistillation: false,
+      });
+      expect(first(result.files)).toMatchObject({
+        status: "imported",
+        captureId: imported.captureId,
+      });
+      const capture = first(
+        await database
+          .select()
+          .from(schema.brainRawCaptures)
+          .where(eq(schema.brainRawCaptures.id, imported.captureId)),
+      );
+      expect(capture.status).toBe("distilled");
+      expect(JSON.parse(capture.metadataJson).participantsCount).toBe(2);
+      expect(JSON.stringify(capture)).not.toMatch(/Avery|Jordan/);
+      expect(
+        (await listIntelligence({ id: item.id })).records.map(
+          (record) => record.id,
+        ),
+      ).toEqual([item.id]);
+    }
+    await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [{ ...file, participants: ["Casey"] }],
+      enqueueDistillation: false,
+    });
+    const changed = first(
+      await database
+        .select()
+        .from(schema.brainRawCaptures)
+        .where(eq(schema.brainRawCaptures.id, imported.captureId)),
+    );
+    expect(JSON.parse(changed.metadataJson).participantsCount).toBe(1);
+    expect(JSON.stringify(changed)).not.toContain("Casey");
+    expect(changed.status).toBe("queued");
+    expect((await listIntelligence({ id: item.id })).records).toEqual([]);
+  });
+
+  it("cites supplied meeting time but not an import-time fallback", async () => {
+    const result = await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [
+        {
+          path: "dated.md",
+          content: "Avery: Launch approved.",
+          kind: "transcript",
+          capturedAt: "2026-05-20T15:00:00.000Z",
+        },
+        {
+          path: "undated.md",
+          content: "Jordan: Launch approved.",
+          kind: "transcript",
+        },
+      ],
+      enqueueDistillation: false,
+    });
+    const captures = result.files.map((file) => {
+      if (file.status !== "imported") throw new Error("Import failed");
+      return file.captureId;
+    });
+    const { item } = await writeIntelligence({
+      ...input(),
+      owner: null,
+      dueDate: null,
+      ownershipConfidence: "ambiguous",
+      entities: [],
+      evidence: [
+        { captureId: first(captures), quote: "Avery: Launch approved." },
+        {
+          captureId: first(captures.slice(1)),
+          quote: "Jordan: Launch approved.",
+        },
+      ],
+    });
+    expect(item.evidence[0]).toMatchObject({
+      capturedAt: "2026-05-20T15:00:00.000Z",
+    });
+    expect(item.evidence[1]).not.toHaveProperty("capturedAt");
+    await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [
+        {
+          path: "dated.md",
+          content: "Avery: Launch approved.",
+          kind: "transcript",
+        },
+      ],
+      enqueueDistillation: false,
+    });
+    expect(
+      first((await listIntelligence({ id: item.id })).records).evidence,
+    ).toEqual(item.evidence);
+    const search = await searchEverythingWithLanes({
+      query: "Ship Atlas",
+      type: "knowledge",
+    });
+    expect(
+      search.rows.find((row) => row.id === item.id)?.citation,
+    ).toMatchObject({ capturedAt: "2026-05-20T15:00:00.000Z" });
+    await database
+      .update(schema.brainAudienceMembers)
+      .set({ status: "revoked" })
+      .where(eq(schema.brainAudienceMembers.audienceId, item.audienceId));
+    expect((await listIntelligence({ id: item.id })).records).toEqual([]);
+  });
+
+  it("omits an unknown Markdown meeting time from raw search and answer citations", async () => {
+    const imported = await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [
+        { path: "undated-raw.md", content: "Galileo launch planning notes." },
+        {
+          path: "dated-raw.md",
+          content: "Galileo launch planning notes.",
+          capturedAt: "2026-05-20T15:00:00.000Z",
+        },
+      ],
+      enqueueDistillation: false,
+    });
+    const undated = first(imported.files);
+    const dated = first(imported.files.slice(1));
+    if (undated.status !== "imported" || dated.status !== "imported")
+      throw new Error("Import failed");
+    const searched = await searchEverythingWithLanes({
+      query: "Galileo",
+      type: "capture",
+    });
+    expect(
+      searched.rows.find((entry) => entry.id === undated.captureId)?.capturedAt,
+    ).toBeUndefined();
+    expect(
+      searched.rows.find((entry) => entry.id === dated.captureId)?.capturedAt,
+    ).toBe("2026-05-20T15:00:00.000Z");
+    expect(
+      searched.rows.find((entry) => entry.id === dated.captureId)?.citation
+        ?.capturedAt,
+    ).toBe("2026-05-20T15:00:00.000Z");
+    expect(
+      searched.rows.find((entry) => entry.id === undated.captureId)?.citation
+        ?.capturedAt,
+    ).toBeUndefined();
+    const answer = await askBrainAction.run({
+      question: "Galileo",
+      mode: "cited",
+    });
+    const citation = answer.citations.find(
+      (entry) => "captureId" in entry && entry.captureId === undated.captureId,
+    );
+    expect(citation).toBeDefined();
+    expect(citation?.capturedAt).toBeNull();
+    const persisted = first(
+      await database
+        .select()
+        .from(schema.brainRawCaptures)
+        .where(eq(schema.brainRawCaptures.id, undated.captureId)),
+    );
+    expect(answer.answer).not.toContain(persisted.capturedAt.slice(0, 10));
+  });
+
+  it("does not cite connector fallback times or legacy untrusted citation dates", async () => {
+    await database
+      .update(schema.brainSources)
+      .set({ provider: "granola" })
+      .where(eq(schema.brainSources.id, "source-a"));
+    const { createCapture } = await import("./brain.js");
+    const capture = required(
+      await createCapture({
+        sourceId: "source-a",
+        externalId: "granola:meeting",
+        title: "Meeting",
+        kind: "transcript",
+        content: "Morgan will ship Atlas.",
+        capturedAt: "2026-05-20T15:00:00.000Z",
+      }),
+    );
+    expect(JSON.parse(capture.metadataJson)).not.toHaveProperty(
+      "capturedAtExplicit",
+    );
+    const { item } = await writeIntelligence({
+      ...input(),
+      dueDate: null,
+      entities: [],
+      evidence: [{ captureId: capture.id, quote: capture.content }],
+    });
+    expect(first(item.evidence)).not.toHaveProperty("capturedAt");
+    const row = first(
+      await database
+        .select()
+        .from(schema.brainKnowledge)
+        .where(eq(schema.brainKnowledge.id, item.id)),
+    );
+    const legacyEvidence = JSON.parse(row.evidenceJson);
+    legacyEvidence[0].capturedAt = "2026-05-20T15:00:00.000Z";
+    await database
+      .update(schema.brainKnowledge)
+      .set({ evidenceJson: JSON.stringify(legacyEvidence) })
+      .where(eq(schema.brainKnowledge.id, item.id));
+    const revised = first(
+      await database
+        .select()
+        .from(schema.brainKnowledge)
+        .where(eq(schema.brainKnowledge.id, item.id)),
+    );
+    await database
+      .update(schema.brainKnowledgeIntelligence)
+      .set({ knowledgeRevision: await knowledgeContentRevision(revised) })
+      .where(eq(schema.brainKnowledgeIntelligence.knowledgeId, item.id));
+    expect(
+      first(first((await listIntelligence({ id: item.id })).records).evidence),
+    ).not.toHaveProperty("capturedAt");
+    const search = await searchEverythingWithLanes({
+      query: "Ship Atlas",
+      type: "knowledge",
+    });
+    expect(
+      search.rows.find((entry) => entry.id === item.id)?.citation?.capturedAt,
+    ).toBeUndefined();
+  });
+
+  it("invalidates undated Markdown evidence when a meeting time is explicitly supplied on reimport", async () => {
+    const file = {
+      path: "meeting-time.md",
+      content: "Morgan will ship Atlas.",
+      kind: "transcript" as const,
+    };
+    const imported = await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [file],
+      enqueueDistillation: false,
+    });
+    const entry = first(imported.files);
+    if (entry.status !== "imported") throw new Error("Import failed");
+    const capture = first(
+      await database
+        .select()
+        .from(schema.brainRawCaptures)
+        .where(eq(schema.brainRawCaptures.id, entry.captureId)),
+    );
+    const { item } = await writeIntelligence({
+      ...input(),
+      dueDate: null,
+      entities: [],
+      evidence: [{ captureId: entry.captureId, quote: file.content }],
+    });
+    expect(first(item.evidence)).not.toHaveProperty("capturedAt");
+    await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [{ ...file, capturedAt: capture.capturedAt }],
+      enqueueDistillation: false,
+    });
+    expect((await listIntelligence({ id: item.id })).records).toEqual([]);
+    const refreshed = await writeIntelligence({
+      ...input(),
+      dueDate: null,
+      entities: [],
+      evidence: [{ captureId: entry.captureId, quote: file.content }],
+    });
+    expect(first(refreshed.item.evidence).capturedAt).toBe(capture.capturedAt);
+  });
+
+  it.each(["date", "content"] as const)(
+    "retains knowledge on a legacy connector resync but invalidates a real %s change",
+    async (change) => {
+      const { createCapture } = await import("./brain.js");
+      const captureInput = {
+        sourceId: "source-a",
+        externalId: "connector:legacy",
+        title: "Meeting",
+        kind: "transcript" as const,
+        content: "Morgan will ship Atlas.",
+        capturedAt: "2026-05-20T15:00:00.000Z",
+        metadata: { location: "Launch" },
+      };
+      const capture = required(await createCapture(captureInput));
+      const metadata = JSON.parse(capture.metadataJson);
+      delete metadata.capturedAtExplicit;
+      await database
+        .update(schema.brainRawCaptures)
+        .set({
+          metadataJson: JSON.stringify(metadata),
+          status: "distilled",
+          distilledAt: "2026-05-20T15:00:00.000Z",
+        })
+        .where(eq(schema.brainRawCaptures.id, capture.id));
+      const { item } = await writeIntelligence({
+        ...input(),
+        dueDate: null,
+        entities: [],
+        evidence: [{ captureId: capture.id, quote: captureInput.content }],
+      });
+      const same = required(await createCapture(captureInput));
+      expect(same.status).toBe("distilled");
+      expect(JSON.parse(same.metadataJson)).not.toHaveProperty(
+        "capturedAtSource",
+      );
+      expect(
+        (await listIntelligence({ id: item.id })).records.map(
+          (record) => record.id,
+        ),
+      ).toEqual([item.id]);
+      const changed = required(
+        await createCapture({
+          ...captureInput,
+          ...(change === "date"
+            ? { capturedAt: "2026-05-21T15:00:00.000Z" }
+            : { content: "Morgan will ship Atlas tomorrow." }),
+        }),
+      );
+      expect(changed.status).toBe("queued");
+      expect((await listIntelligence({ id: item.id })).records).toEqual([]);
+    },
+  );
+
+  it("preserves knowledge when reimporting an equivalent meeting instant", async () => {
+    const file = {
+      path: "same-instant.md",
+      content: "Morgan will ship Atlas.",
+      kind: "transcript" as const,
+      capturedAt: "2026-05-20T15:00:00.000Z",
+    };
+    const imported = await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [file],
+      enqueueDistillation: false,
+    });
+    const entry = first(imported.files);
+    if (entry.status !== "imported") throw new Error("Import failed");
+    const { item } = await writeIntelligence({
+      ...input(),
+      dueDate: null,
+      entities: [],
+      evidence: [{ captureId: entry.captureId, quote: file.content }],
+    });
+    await database
+      .update(schema.brainRawCaptures)
+      .set({ status: "distilled", distilledAt: file.capturedAt })
+      .where(eq(schema.brainRawCaptures.id, entry.captureId));
+    await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [{ ...file, capturedAt: "2026-05-20T10:00:00-05:00" }],
+      enqueueDistillation: false,
+    });
+    const capture = first(
+      await database
+        .select()
+        .from(schema.brainRawCaptures)
+        .where(eq(schema.brainRawCaptures.id, entry.captureId)),
+    );
+    expect(capture.status).toBe("distilled");
+    expect(capture.capturedAt).toBe(file.capturedAt);
+    expect(
+      (await listIntelligence({ id: item.id })).records.map(
+        (record) => record.id,
+      ),
+    ).toEqual([item.id]);
+  });
+
+  it("rejects a stale reimport rather than overwriting a concurrent capture update", async () => {
+    const { createCapture } = await import("./brain.js");
+    const file = {
+      sourceId: "source-a",
+      externalId: "markdown:race.md",
+      title: "Race",
+      kind: "transcript" as const,
+      content: "Morgan will ship Atlas.",
+      privacyClassifier: "deterministic" as const,
+    };
+    const capture = required(
+      await createCapture({
+        ...file,
+        capturedAt: "2026-05-20T15:00:00.000Z",
+        capturedAtSource: "manual-markdown",
+        metadata: { participantsCount: 1 },
+      }),
+    );
+    harness.beforeTransaction = async () => {
+      await database
+        .update(schema.brainRawCaptures)
+        .set({
+          capturedAt: "2026-05-21T15:00:00.000Z",
+          metadataJson: JSON.stringify({
+            participantsCount: 2,
+            capturedAtSource: "manual-markdown",
+          }),
+        })
+        .where(eq(schema.brainRawCaptures.id, capture.id));
+    };
+    // oracle-change: the stale-reimport rejection is the shared concurrent-change error.
+    await expect(createCapture(file)).rejects.toThrow(
+      "Capture changed concurrently",
+    );
+    const current = first(
+      await database
+        .select()
+        .from(schema.brainRawCaptures)
+        .where(eq(schema.brainRawCaptures.id, capture.id)),
+    );
+    expect(current.capturedAt).toBe("2026-05-21T15:00:00.000Z");
+    expect(JSON.parse(current.metadataJson)).toMatchObject({
+      participantsCount: 2,
+      capturedAtSource: "manual-markdown",
+    });
+  });
+
+  it("preserves transcript kind on an unspecified Markdown reimport and permits an explicit document transition", async () => {
+    const file = { path: "meeting.md", content: "Morgan will ship Atlas." };
+    const initial = await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [{ path: "new.md", content: file.content }],
+      enqueueDistillation: false,
+    });
+    const newEntry = first(initial.files);
+    if (newEntry.status !== "imported") throw new Error("Import failed");
+    expect(
+      first(
+        await database
+          .select()
+          .from(schema.brainRawCaptures)
+          .where(eq(schema.brainRawCaptures.id, newEntry.captureId)),
+      ).kind,
+    ).toBe("document");
+    const imported = await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [{ ...file, kind: "transcript" }],
+      enqueueDistillation: false,
+    });
+    const entry = first(imported.files);
+    if (entry.status !== "imported") throw new Error("Import failed");
+    const { item } = await writeIntelligence({
+      ...input(),
+      dueDate: null,
+      entities: [],
+      evidence: [{ captureId: entry.captureId, quote: file.content }],
+    });
+    await database
+      .update(schema.brainRawCaptures)
+      .set({ status: "distilled", distilledAt: "2026-05-20T15:00:00.000Z" })
+      .where(eq(schema.brainRawCaptures.id, entry.captureId));
+    await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [file],
+      enqueueDistillation: false,
+    });
+    const unchanged = first(
+      await database
+        .select()
+        .from(schema.brainRawCaptures)
+        .where(eq(schema.brainRawCaptures.id, entry.captureId)),
+    );
+    expect(unchanged).toMatchObject({
+      kind: "transcript",
+      status: "distilled",
+    });
+    expect(
+      (await listIntelligence({ id: item.id })).records.map(
+        (record) => record.id,
+      ),
+    ).toEqual([item.id]);
+    await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [{ ...file, kind: "document" }],
+      enqueueDistillation: false,
+    });
+    const changed = first(
+      await database
+        .select()
+        .from(schema.brainRawCaptures)
+        .where(eq(schema.brainRawCaptures.id, entry.captureId)),
+    );
+    expect(changed).toMatchObject({
+      kind: "document",
+      status: "queued",
+      distilledAt: null,
+    });
+    expect((await listIntelligence({ id: item.id })).records).toEqual([]);
+  });
+
+  it("invalidates derived knowledge when only the capture kind changes", async () => {
+    const file = { path: "change.md", content: "Morgan will ship Atlas." };
+    const imported = await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [file],
+      enqueueDistillation: false,
+    });
+    const entry = first(imported.files);
+    if (entry.status !== "imported") throw new Error("Import failed");
+    const { item } = await writeIntelligence({
+      ...input(),
+      dueDate: null,
+      entities: [],
+      evidence: [{ captureId: entry.captureId, quote: file.content }],
+    });
+    await database
+      .update(schema.brainRawCaptures)
+      .set({ status: "distilled", distilledAt: "2026-05-20T15:00:00.000Z" })
+      .where(eq(schema.brainRawCaptures.id, entry.captureId));
+    await importMarkdownFiles.run({
+      sourceId: "source-a",
+      files: [{ ...file, kind: "transcript" }],
+      enqueueDistillation: false,
+    });
+    const capture = first(
+      await database
+        .select()
+        .from(schema.brainRawCaptures)
+        .where(eq(schema.brainRawCaptures.id, entry.captureId)),
+    );
+    expect(capture).toMatchObject({
+      kind: "transcript",
+      status: "queued",
+      distilledAt: null,
+    });
+    expect((await listIntelligence({ id: item.id })).records).toEqual([]);
+  });
+
+  it("does not authorize an owner by expanding an exact quote", async () => {
+    await database
+      .update(schema.brainRawCaptures)
+      .set({
+        kind: "transcript",
+        content: "Alex: not Jordan; I will ship Atlas.",
+      })
+      .where(eq(schema.brainRawCaptures.id, "capture-a"));
+    await expect(
+      writeIntelligence({
+        ...input(),
+        owner: "Alex",
+        dueDate: null,
+        entities: [],
+        evidence: [{ captureId: "capture-a", quote: "I will ship Atlas." }],
+      }),
+    ).rejects.toMatchObject({ errorCode: "owner_not_in_evidence" });
+  });
+
   async function seedStaleCandidates(
     count: number,
     dueDate: string | null = "2020-01-01",
@@ -684,6 +1402,58 @@ describe("evidence-backed intelligence", () => {
     expect((await readPriorities()).highConfidence).toEqual([]);
   });
 
+  it("keeps a supplied transcript speaker in the exact evidence quote", async () => {
+    const content =
+      "Avery: Atlas is approved for launch.\nJordan: Plan the rollout.";
+    await database
+      .update(schema.brainRawCaptures)
+      .set({ kind: "transcript", content })
+      .where(eq(schema.brainRawCaptures.id, "capture-a"));
+    const { item } = await writeIntelligence({
+      ...input(),
+      owner: null,
+      dueDate: null,
+      ownershipConfidence: "ambiguous",
+      entities: [],
+      evidence: [
+        {
+          captureId: "capture-a",
+          quote: "Avery: Atlas is approved for launch.",
+        },
+      ],
+    });
+    expect(first(item.evidence).quote).toBe(
+      "Avery: Atlas is approved for launch.",
+    );
+    expect(content.includes(first(item.evidence).quote)).toBe(true);
+  });
+
+  it.each([
+    {
+      kind: "transcript" as const,
+      content: "Avery: Launch approved.\nJordan: Launch approved.",
+    },
+    { kind: "document" as const, content: "Decision: Launch approved." },
+    { kind: "transcript" as const, content: "Launch approved." },
+  ])(
+    "does not infer a speaker from ambiguous or non-transcript evidence",
+    async ({ kind, content }) => {
+      await database
+        .update(schema.brainRawCaptures)
+        .set({ kind, content })
+        .where(eq(schema.brainRawCaptures.id, "capture-a"));
+      const { item } = await writeIntelligence({
+        ...input(),
+        owner: null,
+        dueDate: null,
+        ownershipConfidence: "ambiguous",
+        entities: [],
+        evidence: [{ captureId: "capture-a", quote: "Launch approved." }],
+      });
+      expect(first(item.evidence).quote).toBe("Launch approved.");
+    },
+  );
+
   it("rejects fabricated quotes, entities and explicit owners", async () => {
     await expect(
       writeIntelligence({
@@ -842,6 +1612,42 @@ describe("evidence-backed intelligence", () => {
     ).rejects.toMatchObject({ errorCode: "save_conflict" });
   });
 
+  it("refuses a stale verification of a record that no longer matches its details as out of date, never with an empty current record", async () => {
+    const { item } = await writeIntelligence(input());
+    const rows = () =>
+      database
+        .select()
+        .from(schema.brainKnowledge)
+        .where(eq(schema.brainKnowledge.id, item.id));
+    const before = await rows();
+    harness.editedOnAssert = {
+      id: item.id,
+      body: "Changed through generic knowledge editor",
+    };
+    const refused = await verifyKnowledge({
+      knowledgeId: item.id,
+      state: "verified",
+      attested: true,
+      expectedRevision: "stale",
+    }).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    harness.editedOnAssert = null;
+    expect(refused).toMatchObject({
+      errorCode: "intelligence_out_of_date",
+      statusCode: 409,
+    });
+    expect(String(refused)).toContain("write-intelligence");
+    expect(await rows()).toEqual(before);
+    expect(
+      await database
+        .select()
+        .from(schema.brainKnowledgeVerifications)
+        .where(eq(schema.brainKnowledgeVerifications.knowledgeId, item.id)),
+    ).toEqual([]);
+  });
+
   it("keeps deprecated facts out of shared answers and resets generic-edited structured facts until re-extracted", async () => {
     const { item } = await writeIntelligence(input());
     await verifyKnowledge({
@@ -883,6 +1689,7 @@ describe("evidence-backed intelligence", () => {
     await expect(
       writeKnowledgeRecord({
         knowledgeId: item.id,
+        expectedRevision: item.revision,
         title: item.title,
         body: item.body,
         evidence: item.evidence,
@@ -1147,4 +1954,272 @@ describe("evidence-backed intelligence", () => {
       expect(await lookupKnowledgeReferences("Atlas")).toEqual([]);
     },
   );
+  it("persists a verification reminder interval and clears it when status is cleared", async () => {
+    const { item } = await writeIntelligence(input());
+    const verified = await verifyKnowledge({
+      knowledgeId: item.id,
+      state: "verified",
+      attested: true,
+      expectedRevision: item.revision,
+      remindInDays: 90,
+    });
+    expect(verified.verification.state).toBe("verified");
+    const { remindAt, verifiedAt } = verified.verification;
+    expect(remindAt).toBeTruthy();
+    expect(verifiedAt).toBeTruthy();
+    if (!remindAt || !verifiedAt)
+      throw new Error("Expected remindAt and verifiedAt timestamps");
+    const deltaDays = Math.round(
+      (Date.parse(remindAt) - Date.parse(verifiedAt)) / 86_400_000,
+    );
+    expect(deltaDays).toBe(90);
+
+    const reverified = await verifyKnowledge({
+      knowledgeId: item.id,
+      state: "verified",
+      attested: true,
+      expectedRevision: verified.revision,
+    });
+    expect(reverified.verification.state).toBe("verified");
+    expect(reverified.verification.remindAt).toBe(remindAt);
+
+    await database
+      .update(schema.brainKnowledgeVerifications)
+      .set({ remindAt: "2020-01-01T00:00:00.000Z" })
+      .where(eq(schema.brainKnowledgeVerifications.knowledgeId, item.id));
+    const reverifiedOverdue = await verifyKnowledge({
+      knowledgeId: item.id,
+      state: "verified",
+      attested: true,
+      expectedRevision: reverified.revision,
+    });
+    expect(reverifiedOverdue.verification.state).toBe("verified");
+    expect(reverifiedOverdue.verification.remindAt).toBeNull();
+
+    const cleared = await verifyKnowledge({
+      knowledgeId: item.id,
+      state: "unverified",
+      attested: true,
+      expectedRevision: reverifiedOverdue.revision,
+    });
+    expect(cleared.verification.state).toBe("unverified");
+    expect(cleared.verification.remindAt).toBeNull();
+  });
+});
+
+describe("intelligence writes send the revision they read", () => {
+  const storedState = async () => ({
+    knowledge: await database.select().from(schema.brainKnowledge),
+    details: await database.select().from(schema.brainKnowledgeIntelligence),
+    verifications: await database
+      .select()
+      .from(schema.brainKnowledgeVerifications),
+  });
+
+  it("counts an exact resend of a structured change as applied, without writing again", async () => {
+    const { item } = await writeIntelligence(input());
+    const change = {
+      ...input(),
+      id: item.id,
+      expectedRevision: item.revision,
+      status: "completed" as const,
+      owner: null,
+      ownershipConfidence: "ambiguous" as const,
+      dueDate: null,
+      entities: [{ type: "project" as const, name: "Atlas" }],
+      publishTier: undefined,
+    };
+    const saved = await writeIntelligence(change);
+    expect(saved.item).toMatchObject({ status: "completed", owner: null });
+    expect(saved.item.revision).not.toBe(item.revision);
+    const applied = await storedState();
+    const resent = await writeIntelligence(change);
+    expect(resent.item).toEqual(saved.item);
+    expect(await storedState()).toEqual(applied);
+  });
+
+  it.each([
+    ["task status", { status: "dismissed" as const }],
+    ["owner", { owner: null, ownershipConfidence: "ambiguous" as const }],
+    ["due date", { dueDate: null }],
+    ["title", { title: "Ship Atlas soon" }],
+  ])(
+    "refuses a stale write that differs in %s, returning the current record",
+    async (_field, difference) => {
+      const { item } = await writeIntelligence(input());
+      const saved = await writeIntelligence({
+        ...input(),
+        id: item.id,
+        expectedRevision: item.revision,
+        status: "completed",
+      });
+      const applied = await storedState();
+      await expect(
+        writeIntelligence({
+          ...input(),
+          id: item.id,
+          expectedRevision: item.revision,
+          status: "completed",
+          ...difference,
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "save_conflict",
+        statusCode: 409,
+        details: {
+          current: { id: item.id, status: "completed" },
+          currentRevision: saved.item.revision,
+        },
+      });
+      expect(await storedState()).toEqual(applied);
+    },
+  );
+
+  it("refuses the second of two opposing verifications made on the same read", async () => {
+    const { item } = await writeIntelligence(input());
+    const verified = await verifyKnowledge({
+      knowledgeId: item.id,
+      state: "verified",
+      attested: true,
+      expectedRevision: item.revision,
+    });
+    const listed = first((await listIntelligence({ id: item.id })).records);
+    expect(listed.revision).toBe(verified.revision);
+    expect(listed.revision).not.toBe(item.revision);
+    const applied = await storedState();
+    await expect(
+      verifyKnowledge({
+        knowledgeId: item.id,
+        state: "deprecated",
+        attested: true,
+        expectedRevision: item.revision,
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      details: {
+        current: { id: item.id, verification: { state: "verified" } },
+        currentRevision: verified.revision,
+      },
+    });
+    expect(await storedState()).toEqual(applied);
+
+    const resent = await verifyKnowledge({
+      knowledgeId: item.id,
+      state: "verified",
+      attested: true,
+      expectedRevision: item.revision,
+    });
+    expect(resent).toEqual(verified);
+    expect(await storedState()).toEqual(applied);
+
+    await expect(
+      writeIntelligence({
+        ...input(),
+        id: item.id,
+        expectedRevision: item.revision,
+        status: "completed",
+      }),
+    ).rejects.toMatchObject({ errorCode: "save_conflict" });
+    const deprecated = await verifyKnowledge({
+      knowledgeId: item.id,
+      state: "deprecated",
+      attested: true,
+      expectedRevision: verified.revision,
+    });
+    expect(deprecated.verification.state).toBe("deprecated");
+  });
+
+  it("keeps an older revision stale after an unpublish that has nothing to remove", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-18T12:00:00.000Z"));
+    try {
+      const { item } = await writeIntelligence(input());
+      const verified = await verifyKnowledge({
+        knowledgeId: item.id,
+        state: "verified",
+        attested: true,
+        expectedRevision: item.revision,
+      });
+      expect(verified.revision).not.toBe(item.revision);
+      const unpublished = await setKnowledgeCanonicalResource(
+        item.id,
+        false,
+        verified.revision,
+      );
+      expect(unpublished.revision).toBe(verified.revision);
+      const applied = await storedState();
+      await expect(
+        verifyKnowledge({
+          knowledgeId: item.id,
+          state: "deprecated",
+          attested: true,
+          expectedRevision: item.revision,
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "save_conflict",
+        details: {
+          current: { id: item.id, verification: { state: "verified" } },
+          currentRevision: verified.revision,
+        },
+      });
+      expect(await storedState()).toEqual(applied);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ["timestamp", { timestampMs: 90_000 }],
+    ["source URL", { sourceUrl: "https://example.test/atlas" }],
+  ])(
+    "refuses a resend on the old revision whose citation %s differs",
+    async (_field, citation) => {
+      const { item } = await writeIntelligence(input());
+      const change = {
+        ...input(),
+        id: item.id,
+        expectedRevision: item.revision,
+        status: "completed" as const,
+      };
+      const saved = await writeIntelligence(change);
+      const applied = await storedState();
+      await expect(
+        writeIntelligence({
+          ...change,
+          evidence: change.evidence.map((entry) => ({ ...entry, ...citation })),
+        }),
+      ).rejects.toMatchObject({
+        errorCode: "save_conflict",
+        statusCode: 409,
+        details: {
+          current: { id: item.id, status: "completed" },
+          currentRevision: saved.item.revision,
+        },
+      });
+      expect(await storedState()).toEqual(applied);
+    },
+  );
+
+  it("refuses a resent verification that asks for a different reminder", async () => {
+    const { item } = await writeIntelligence(input());
+    const verify = {
+      knowledgeId: item.id,
+      state: "verified" as const,
+      attested: true as const,
+      expectedRevision: item.revision,
+      remindInDays: 7,
+    };
+    const verified = await verifyKnowledge(verify);
+    const applied = await storedState();
+    expect(await verifyKnowledge(verify)).toEqual(verified);
+    await expect(
+      verifyKnowledge({ ...verify, remindInDays: 30 }),
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      details: {
+        current: { id: item.id, verification: { state: "verified" } },
+        currentRevision: verified.revision,
+      },
+    });
+    expect(await storedState()).toEqual(applied);
+  });
 });

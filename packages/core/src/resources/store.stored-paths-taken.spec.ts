@@ -8,6 +8,7 @@ import { createTestPglite } from "../a2a/test-pglite.js";
 import type { DbExec } from "../db/client.js";
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => sharedClient,
   isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
@@ -65,6 +66,56 @@ describe("resourceStoredPathsTaken", () => {
     await expect(
       resourceStoredPathsTaken("erin@example.test", []),
     ).resolves.toEqual(new Set());
+  });
+
+  it("counts only the shared files from before organizations that the organization can see", async () => {
+    const { SHARED_OWNER, ensureResourceStoreReady, resourceStoredPathsTaken } =
+      await import("./store.js");
+    await ensureResourceStoreReady();
+    const orgFile = (orgId: string) =>
+      JSON.stringify({
+        source: "workspace-files",
+        scope: "org",
+        scopeId: orgId,
+      });
+    await pglite.query(
+      `INSERT INTO resources (id, path, owner, content, created_at, updated_at, metadata)
+       VALUES
+         ('legacy-a', 'plans/q1.md', $1, 'a', 1, 1, $2),
+         ('legacy-b', 'plans/q1-2.md', $1, 'b', 1, 1, $3),
+         ('shared', 'plans/q1-3.md', $1, 'c', 1, 1, NULL)`,
+      [SHARED_OWNER, orgFile("org-a"), orgFile("org-b")],
+    );
+    const paths = ["plans/q1.md", "plans/q1-2.md", "plans/q1-3.md"];
+
+    await expect(
+      resourceStoredPathsTaken(SHARED_OWNER, paths, { orgId: "org-a" }),
+    ).resolves.toEqual(new Set(["plans/q1.md", "plans/q1-3.md"]));
+    await expect(
+      resourceStoredPathsTaken(SHARED_OWNER, paths),
+    ).resolves.toEqual(new Set(paths));
+  });
+
+  it("counts only the rows holding exactly the content and type asked for", async () => {
+    const { ensureResourceStoreReady, resourceStoredPathsTaken } =
+      await import("./store.js");
+    await ensureResourceStoreReady();
+    await pglite.exec(`
+      INSERT INTO resources (id, path, owner, content, mime_type, created_at, updated_at)
+      VALUES
+        ('same', 'drafts/a.md', 'kim@example.test', '# Same', 'text/markdown', 1, 1),
+        ('other-text', 'drafts/a-2.md', 'kim@example.test', '# Other', 'text/markdown', 1, 1),
+        ('other-type', 'drafts/a-3.md', 'kim@example.test', '# Same', 'text/plain', 1, 1),
+        ('other-owner', 'drafts/a-4.md', 'lee@example.test', '# Same', 'text/markdown', 1, 1);
+    `);
+
+    await expect(
+      resourceStoredPathsTaken(
+        "kim@example.test",
+        ["drafts/a.md", "drafts/a-2.md", "drafts/a-3.md", "drafts/a-4.md"],
+        { holding: { content: "# Same", mimeType: "text/markdown" } },
+      ),
+    ).resolves.toEqual(new Set(["drafts/a.md"]));
   });
 
   it("finds local workspace files on disk, not rows", async () => {

@@ -20,12 +20,9 @@ import {
   IconSearch,
   IconUsers,
 } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
 import {
   format,
   startOfWeek,
-  addMonths,
-  subMonths,
   addWeeks,
   subWeeks,
   addDays,
@@ -35,13 +32,13 @@ import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 
+import { CalendarEventsStatus } from "@/components/calendar/CalendarEventsStatus";
 import type { QuickCreateEvent } from "@/components/calendar/CommandPalette";
 import { CommandPalette } from "@/components/calendar/CommandPalette";
 import { CreateEventPopover } from "@/components/calendar/CreateEventDialog";
 import { DayView } from "@/components/calendar/DayView";
 import { DeleteEventDialog } from "@/components/calendar/DeleteEventDialog";
 import { EventDetailPanel } from "@/components/calendar/EventDetailPanel";
-import { GoogleConnectBanner } from "@/components/calendar/GoogleConnectBanner";
 import {
   shouldPromptGuests,
   useGuestNotificationPrompt,
@@ -88,7 +85,6 @@ import {
   useRsvpEvent,
   findEventByCurrentOrReplacedId,
   findVisibleSelectedEvent,
-  prefetchEvents,
   shouldShowEventsSkeleton,
 } from "@/hooks/use-events";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
@@ -538,7 +534,6 @@ export default function CalendarView({
     });
   }, [viewMode]);
 
-  const queryClient = useQueryClient();
   const googleStatus = useGoogleAuthStatus();
   const googleCalendars = useGoogleCalendars();
   const defaultAccountEmail = googleStatus.data?.accounts?.[0]?.email;
@@ -576,6 +571,8 @@ export default function CalendarView({
     () => enabledGoogleSources?.map((source) => source.sourceKey),
     [enabledGoogleSources],
   );
+  const sourceLoadError =
+    googleCalendars.error ?? googleCalendars.failureReason;
   const googleHiddenPersonEmails = useMemo(() => {
     const hidden = new Set<string>();
     for (const source of googleCalendars.data ?? []) {
@@ -702,11 +699,50 @@ export default function CalendarView({
   const {
     data: rawEventsData,
     error: eventsError,
-    isLoading,
+    failureReason: eventsFailureReason,
+    isLoading: eventsAreLoading,
     isFetching,
     isPlaceholderData,
-  } = useEvents(from, to, overlayEmails, enabledGoogleCalendarSourceKeys);
-  const rawEvents = Array.isArray(rawEventsData) ? rawEventsData : [];
+    refetch: refetchEvents,
+  } = useEvents(
+    from,
+    to,
+    overlayEmails,
+    enabledGoogleCalendarSourceKeys,
+    (Boolean(googleCalendars.data) &&
+      (!sourceLoadError || googleCalendars.hasPartialData)) ||
+      (!googleCalendars.data && Boolean(sourceLoadError)),
+    !googleCalendars.data && Boolean(sourceLoadError),
+  );
+  const isLoading =
+    eventsAreLoading || (googleCalendars.isLoading && !sourceLoadError);
+  const eventsLoadError = (sourceLoadError ??
+    eventsError ??
+    eventsFailureReason) as (Error & { code?: string }) | null;
+  const googleAuthorizationRequired = [
+    sourceLoadError,
+    eventsError,
+    eventsFailureReason,
+  ].some((error) => {
+    const failure = error as {
+      code?: string;
+      details?: { authRequired?: boolean };
+    } | null;
+    return (
+      failure?.code === "calendar_auth_required" ||
+      failure?.details?.authRequired === true
+    );
+  });
+  const rawEvents = useMemo(() => {
+    if (!Array.isArray(rawEventsData)) return [];
+    const rangeStart = Date.parse(from);
+    const rangeEnd = Date.parse(to);
+    return rawEventsData.filter(
+      (event) =>
+        Date.parse(event.end) >= rangeStart &&
+        Date.parse(event.start) <= rangeEnd,
+    );
+  }, [rawEventsData, from, to]);
   const draftEvent = useMemo(
     () => (eventDraft ? draftToCalendarEvent(eventDraft, selectedDate) : null),
     [eventDraft, selectedDate],
@@ -736,70 +772,6 @@ export default function CalendarView({
     eventDraft,
     googleStatus.data?.accounts,
     setEventDraft,
-  ]);
-
-  useEffect(() => {
-    if (isLoading) return;
-    const ranges = (() => {
-      switch (viewMode) {
-        case "month": {
-          const next = addMonths(selectedDate, 1);
-          const prev = subMonths(selectedDate, 1);
-          return [next, prev].map((date) =>
-            getViewDateRange("month", date, displayTimezone, weekStartsOn),
-          );
-        }
-        case "week": {
-          const step = normalizeNumberOfDays(viewPrefs.numberOfDays);
-          const currentPeriodStart =
-            step === 7
-              ? dateKeyToDate(
-                  dateToCalendarDateKey(
-                    startOfWeek(selectedDate, { weekStartsOn }),
-                  ),
-                )
-              : selectedDate;
-          const next = addDays(currentPeriodStart, step);
-          const next2 = addDays(currentPeriodStart, step * 2);
-          const prev = subDays(currentPeriodStart, step);
-          return [next, next2, prev].map((date) =>
-            getViewDateRange(
-              "week",
-              date,
-              displayTimezone,
-              weekStartsOn,
-              viewPrefs.numberOfDays,
-            ),
-          );
-        }
-        case "day": {
-          const next = addDays(selectedDate, 1);
-          const prev = subDays(selectedDate, 1);
-          return [next, prev].map((date) =>
-            getViewDateRange("day", date, displayTimezone, weekStartsOn),
-          );
-        }
-      }
-    })();
-    for (const range of ranges) {
-      void prefetchEvents(
-        queryClient,
-        range.from,
-        range.to,
-        overlayEmails,
-        enabledGoogleCalendarSourceKeys,
-      );
-    }
-  }, [
-    displayTimezone,
-    enabledGoogleCalendarSourceKeys,
-    isLoading,
-    overlayEmails,
-    queryClient,
-    selectedDate,
-    viewMode,
-    viewPrefs.numberOfDays,
-    weekStartsOn,
   ]);
 
   const rangeKey = `${from}|${to}`;
@@ -2055,15 +2027,15 @@ export default function CalendarView({
       <div className="flex h-full min-w-0">
         {/* Left: calendar area (header + grid) */}
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          {/* Google Calendar connect banner — show when there's a credentials error */}
-          {eventsError ? <GoogleConnectBanner /> : null}
-
-          {/* Error detail */}
-          {eventsError && (
-            <div className="shrink-0 border-b border-destructive/20 bg-destructive/[0.06] px-4 py-1.5 text-xs text-destructive/70">
-              {eventsError.message}
-            </div>
-          )}
+          <CalendarEventsStatus
+            error={eventsLoadError}
+            retrying={isFetching || googleCalendars.isFetching}
+            authRequired={googleAuthorizationRequired}
+            onRetry={() => {
+              if (sourceLoadError) void googleCalendars.refetch();
+              else void refetchEvents();
+            }}
+          />
 
           {/* Top bar */}
           <div className="flex h-12 shrink-0 items-center gap-1 border-b border-border px-2 sm:gap-3 sm:px-3">

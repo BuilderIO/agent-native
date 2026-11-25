@@ -63,11 +63,11 @@ test("the wheel, a pinch, a middle or Space drag and the zoom keys leave the Int
   await frameIsUnmoved("zoom keys");
   // Still in Interact: the gestures did not leave it either.
   await expect(
-    page.locator('[data-design-top-bar] [data-design-mode="interact"]'),
+    page.locator('[data-design-bottom-toolbar] button[aria-label="Interact"]'),
   ).toHaveAttribute("aria-pressed", "true");
 });
 
-const ZOOM = "[data-design-top-bar] [data-design-interact-zoom]";
+const ZOOM = "[data-design-toolbar-zoom] [data-design-interact-zoom]";
 
 test("the zoom control scales the preview, keeps its choice across devices and resets on exit", async ({
   page,
@@ -99,7 +99,9 @@ test("the zoom control scales the preview, keeps its choice across devices and r
   // The device picks the viewport and the zoom scales it: 402 CSS px at 100%.
   await choose("100%");
   await page
-    .locator("[data-design-top-bar] [data-design-interact-device]")
+    .locator(
+      "[data-design-interact-floating-bar] [data-design-interact-device]",
+    )
     .click();
   await page.getByRole("option", { name: /iPhone 17\b(?! P)/ }).click();
   await expect(zoom).toHaveText("100%");
@@ -111,9 +113,11 @@ test("the zoom control scales the preview, keeps its choice across devices and r
 
   // Leaving Interact forgets the choice: the next visit starts at Fit.
   await choose("150%");
-  await page.locator('[data-design-top-bar] [data-design-mode="edit"]').click();
   await page
-    .locator('[data-design-top-bar] [data-design-mode="interact"]')
+    .locator('[data-design-bottom-toolbar] button[aria-label="Edit"]')
+    .click();
+  await page
+    .locator('[data-design-bottom-toolbar] button[aria-label="Interact"]')
     .click();
   await expect(frame).toBeVisible();
   await expect(zoom).not.toHaveText("150%");
