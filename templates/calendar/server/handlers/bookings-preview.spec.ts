@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   getUserSetting: vi.fn(),
   getDefaultAccountSelection: vi.fn(),
   createGoogleEvent: vi.fn(),
+  deleteGoogleEvent: vi.fn(),
   sendBookingCancellationEmails: vi.fn(),
   sendBookingConfirmationEmails: vi.fn(),
   dbUpdates: [] as Array<Record<string, unknown>>,
@@ -90,7 +91,7 @@ vi.mock("../db/index.js", async () => {
 
 vi.mock("../lib/google-calendar.js", () => ({
   createEvent: mocks.createGoogleEvent,
-  deleteEvent: vi.fn(),
+  deleteEvent: mocks.deleteGoogleEvent,
   getDefaultAccountSelection: mocks.getDefaultAccountSelection,
   getFreeBusy: mocks.getFreeBusy,
   isConnected: mocks.isConnected,
@@ -605,6 +606,41 @@ describe("draft booking availability previews", () => {
           "https://calendar.example.com/calendar/book/saved-meeting",
       }),
     );
+  });
+
+  it("marks a host-cancelled booking cancelled before telling the guest", async () => {
+    mocks.getDb.mockReturnValue(
+      createDb({
+        requiredLinkRole: "editor",
+        bookings: [
+          {
+            id: "booking-1",
+            slug: "saved-meeting",
+            status: "confirmed",
+            start: "2026-08-17T09:00:00.000Z",
+            end: "2026-08-17T09:30:00.000Z",
+            googleEventId: "google-event-1",
+          },
+        ],
+      }),
+    );
+    const updatesWhenSent: Array<Record<string, unknown>> = [];
+    const updatesWhenGoogleNotified: Array<Record<string, unknown>> = [];
+    mocks.sendBookingCancellationEmails.mockImplementation(async () => {
+      updatesWhenSent.push(...mocks.dbUpdates);
+    });
+    mocks.deleteGoogleEvent.mockImplementation(async () => {
+      updatesWhenGoogleNotified.push(...mocks.dbUpdates);
+    });
+
+    await cancelBookingById("booking-1");
+
+    expect(updatesWhenSent).toEqual([
+      expect.objectContaining({ status: "cancelled" }),
+    ]);
+    expect(updatesWhenGoogleNotified).toEqual([
+      expect.objectContaining({ status: "cancelled" }),
+    ]);
   });
 
   it("releases the slot when Zoom creation never starts", async () => {
