@@ -105,7 +105,7 @@ describe("queued draft send claims (PGlite)", () => {
 });
 
 describe("Mail's millisecond timestamps (PGlite)", () => {
-  it("stores every *_at and *_until column as BIGINT on a new database", async () => {
+  it("stores every *_at, *_date and *_until column as BIGINT on a new database", async () => {
     const { default: initializeMailDb } = await import("./db.js");
     await initializeMailDb({});
 
@@ -113,10 +113,28 @@ describe("Mail's millisecond timestamps (PGlite)", () => {
       sql: `SELECT table_name, column_name FROM information_schema.columns
             WHERE table_schema = 'public'
               AND data_type = 'integer'
-              AND (right(column_name, 3) = '_at' OR right(column_name, 6) = '_until')
+              AND (right(column_name, 3) = '_at' OR right(column_name, 5) = '_date' OR right(column_name, 6) = '_until')
             ORDER BY table_name, column_name`,
     });
     expect(rows).toEqual([]);
+  });
+
+  it("declares every *_at, *_date and *_until column as bigint", async () => {
+    const { is } = await import("drizzle-orm");
+    const { PgTable, getTableConfig } = await import("drizzle-orm/pg-core");
+    const schema = await import("../db/schema.js");
+    const narrow = Object.values(schema).flatMap((value) => {
+      if (!is(value, PgTable)) return [];
+      const { name, columns } = getTableConfig(value);
+      return columns
+        .filter(
+          (column) =>
+            /_(at|date|until)$/.test(column.name) &&
+            column.getSQLType() !== "bigint",
+        )
+        .map((column) => `${name}.${column.name}`);
+    });
+    expect(narrow).toEqual([]);
   });
 
   it("schedules a send at a millisecond timestamp", async () => {
@@ -132,6 +150,6 @@ describe("Mail's millisecond timestamps (PGlite)", () => {
     const { rows } = await exec.execute(
       `SELECT run_at FROM scheduled_jobs WHERE id = 'job-1'`,
     );
-    expect(Number(rows[0]?.run_at)).toBe(now + 60_000);
+    expect(rows.map((row) => Number(row.run_at))).toEqual([now + 60_000]);
   });
 });

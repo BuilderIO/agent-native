@@ -300,7 +300,7 @@ export const mailInboxThreads = table(
     isStarred: integer("is_starred"),
     isImportant: integer("is_important"),
     isAutomated: integer("is_automated"),
-    latestDate: integer("latest_date").notNull(),
+    latestDate: bigint("latest_date", { mode: "number" }).notNull(),
     latestMessageId: text("latest_message_id"),
     subject: text("subject"),
     snippet: text("snippet"),
