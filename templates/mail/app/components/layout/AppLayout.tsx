@@ -77,6 +77,7 @@ import {
   DRAFT_SAVE_FAILED_EVENT,
   useComposeState,
 } from "@/hooks/use-compose-state";
+import { useCopyEmailLink } from "@/hooks/use-copy-email-link";
 import { useQueuedDraftCount } from "@/hooks/use-draft-queue";
 import {
   useLabels,
@@ -124,6 +125,7 @@ import {
   resolveInboxEmailQueryScope,
   filterInboxTabEmails,
 } from "@/lib/inbox-tabs";
+import { mailViewHasThreadLinks } from "@/lib/mail-routes";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import {
   clearThreadCache,
@@ -1091,6 +1093,9 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       { onSuccess: () => toast(t("mail.toasts.threadMuted")) },
     );
   }, [threadId, targetEmail, muteThread, dismissEmail, t]);
+
+  const copyEmailLink = useCopyEmailLink();
+  const copyLinkThreadId = mailViewHasThreadLinks(view) ? threadId : undefined;
 
   const applyLabel = useApplyLabel();
   const [newLabelOpen, setNewLabelOpen] = useState(false);
@@ -2103,6 +2108,15 @@ function AppLayoutInner({ children }: AppLayoutProps) {
         onSpam={handleSpam}
         onBlockSender={handleBlockSender}
         onMuteThread={handleMuteThread}
+        onCopyLink={
+          copyLinkThreadId
+            ? () =>
+                void copyEmailLink(
+                  copyLinkThreadId,
+                  searchParams.get("accountEmail") ?? targetEmail?.accountEmail,
+                )
+            : undefined
+        }
         hasEmail={!!targetEmail}
         isComposeContext={paletteOpenedFromCompose}
         onSend={

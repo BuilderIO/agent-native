@@ -187,6 +187,7 @@ const messages = {
       moveToTrash: "移到垃圾箱",
       star: "加星标",
       unstar: "取消星标",
+      copyLink: "复制链接",
     },
     labels: {
       labelAsPlaceholder: "添加标签…",
@@ -451,6 +452,8 @@ const messages = {
     },
     toasts: {
       noEmailSelected: "未选择邮件。",
+      linkCopied: "链接已复制。",
+      linkCopyFailed: "无法复制链接。",
       reportedSpam: "已举报为垃圾邮件。",
       reportedSpamBlocked: "已举报为垃圾邮件并屏蔽 {{email}}。",
       noThreadSelected: "未选择会话。",

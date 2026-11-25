@@ -187,6 +187,7 @@ const messages = {
       moveToTrash: "移到垃圾桶",
       star: "加上星號",
       unstar: "移除星號",
+      copyLink: "複製連結",
     },
     labels: {
       labelAsPlaceholder: "加上標籤…",
@@ -449,6 +450,8 @@ const messages = {
     },
     toasts: {
       noEmailSelected: "未選取郵件。",
+      linkCopied: "連結已複製。",
+      linkCopyFailed: "無法複製連結。",
       reportedSpam: "已舉報為垃圾郵件。",
       reportedSpamBlocked: "已舉報為垃圾郵件並屏蔽 {{email}}。",
       noThreadSelected: "未選取工作階段。",

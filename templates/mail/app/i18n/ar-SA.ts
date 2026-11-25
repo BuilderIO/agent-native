@@ -199,6 +199,7 @@ const messages = {
       moveToTrash: "نقل إلى المهملات",
       star: "وضع نجمة",
       unstar: "إزالة النجمة",
+      copyLink: "انسخ الرابط",
     },
     labels: {
       labelAsPlaceholder: "إضافة تصنيف…",
@@ -463,6 +464,8 @@ const messages = {
     },
     toasts: {
       noEmailSelected: "لم يتم تحديد بريد.",
+      linkCopied: "تم نسخ الرابط.",
+      linkCopyFailed: "تعذر نسخ الرابط.",
       reportedSpam: "تم الإبلاغ عنه كرسائل غير مرغوب فيها.",
       reportedSpamBlocked: "Reported as spam & blocked {{email}}.",
       noThreadSelected: "لم يتم تحديد سلسلة.",

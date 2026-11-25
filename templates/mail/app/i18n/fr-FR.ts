@@ -210,6 +210,7 @@ const messages = {
       moveToTrash: "Déplacer vers la corbeille",
       star: "Ajouter une étoile",
       unstar: "Retirer l’étoile",
+      copyLink: "Copier le lien",
     },
     labels: {
       labelAsPlaceholder: "Ajouter le libellé…",
@@ -478,6 +479,8 @@ const messages = {
     },
     toasts: {
       noEmailSelected: "Aucun email sélectionné.",
+      linkCopied: "Lien copié.",
+      linkCopyFailed: "Impossible de copier le lien.",
       reportedSpam: "Signalé comme spam.",
       reportedSpamBlocked: "Reported as spam & blocked {{email}}.",
       noThreadSelected: "Aucune conversation sélectionnée.",

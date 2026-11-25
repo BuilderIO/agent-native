@@ -195,6 +195,7 @@ const messages = {
       moveToTrash: "휴지통으로 이동",
       star: "별표 표시",
       unstar: "별표 제거",
+      copyLink: "링크 복사",
     },
     labels: {
       labelAsPlaceholder: "라벨 지정…",
@@ -461,6 +462,8 @@ const messages = {
     },
     toasts: {
       noEmailSelected: "선택한 이메일이 없습니다.",
+      linkCopied: "링크가 복사되었습니다.",
+      linkCopyFailed: "링크를 복사할 수 없습니다.",
       reportedSpam: "스팸으로 신고했습니다.",
       reportedSpamBlocked: "Reported as spam & blocked {{email}}.",
       noThreadSelected: "선택한 스레드가 없습니다.",

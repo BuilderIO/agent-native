@@ -207,6 +207,7 @@ const messages = {
       moveToTrash: "Mover a la papelera",
       star: "Marcar con estrella",
       unstar: "Quitar estrella",
+      copyLink: "Copiar enlace",
     },
     labels: {
       labelAsPlaceholder: "Etiquetar como…",
@@ -475,6 +476,8 @@ const messages = {
     },
     toasts: {
       noEmailSelected: "No hay email seleccionado.",
+      linkCopied: "Enlace copiado.",
+      linkCopyFailed: "No se pudo copiar el enlace.",
       reportedSpam: "Marcado como spam.",
       reportedSpamBlocked: "Reported as spam & blocked {{email}}.",
       noThreadSelected: "No hay conversación seleccionada.",

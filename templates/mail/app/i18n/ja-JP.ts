@@ -199,6 +199,7 @@ const messages = {
       moveToTrash: "ゴミ箱へ移動",
       star: "スターを付ける",
       unstar: "スターを外す",
+      copyLink: "リンクをコピー",
     },
     labels: {
       labelAsPlaceholder: "ラベルを付ける…",
@@ -465,6 +466,8 @@ const messages = {
     },
     toasts: {
       noEmailSelected: "メールが選択されていません。",
+      linkCopied: "リンクをコピーしました。",
+      linkCopyFailed: "リンクをコピーできませんでした。",
       reportedSpam: "迷惑メールとして報告しました。",
       reportedSpamBlocked: "Reported as spam & blocked {{email}}.",
       noThreadSelected: "スレッドが選択されていません。",
