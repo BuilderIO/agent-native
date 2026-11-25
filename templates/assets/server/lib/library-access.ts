@@ -360,6 +360,19 @@ export async function assertCanDeleteAsset(asset: {
   return assertCanDraftAuthoredBy(asset.libraryId, author, "A draft");
 }
 
+export async function isSomeoneElsesDraft(asset: {
+  role?: string | null;
+  status?: string | null;
+  generationRunId?: string | null;
+}): Promise<boolean> {
+  if (asset.role !== "generated" || asset.status !== "candidate") return false;
+  const author = asset.generationRunId
+    ? await draftAuthorEmail(asset.generationRunId)
+    : null;
+  const caller = normalizeEmail(getRequestUserEmail());
+  return !caller || caller !== normalizeEmail(author);
+}
+
 async function draftAuthorEmail(runId: string): Promise<string | null> {
   const [run] = await getDb()
     .select({ ownerEmail: schema.assetGenerationRuns.ownerEmail })

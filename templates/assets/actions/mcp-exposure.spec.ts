@@ -1,5 +1,48 @@
 import type { ActionRunContext } from "@agent-native/core/action";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+const ME = "me@example.com";
+const TEAMMATE = "teammate@example.com";
+
+type StoredAsset = {
+  role: string;
+  status: string;
+  generationRunId: string | null;
+};
+
+const stored = vi.hoisted(() => ({
+  asset: null as StoredAsset | null,
+  runOwner: null as string | null,
+}));
+
+vi.mock(
+  "@agent-native/core/server/request-context",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@agent-native/core/server/request-context")
+    >()),
+    getRequestUserEmail: vi.fn(() => "me@example.com"),
+  }),
+);
+
+vi.mock("../server/db/index.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../server/db/index.js")>()),
+  getDb: () => ({
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          limit: async () =>
+            stored.runOwner ? [{ ownerEmail: stored.runOwner }] : [],
+        }),
+      }),
+    }),
+  }),
+}));
+
+vi.mock("./_helpers.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./_helpers.js")>()),
+  getAssetOrThrow: vi.fn(async () => stored.asset),
+}));
 
 const SERVED = [
   "analyze-collection-style",
@@ -43,11 +86,9 @@ const SERVED = [
   "refresh-generation-run",
   "rerun-generation-run",
   "restyle-image",
-  "save-generated-image",
   "search-assets",
   "set-canonical-logo",
   "unarchive-library",
-  "update-asset",
   "update-collection",
   "update-folder",
   "update-generation-preset",
@@ -75,6 +116,45 @@ const IN_APP_ONLY = [
   "is-audit-admin",
   "list-audit-runs",
   "update-assets-notification-prefs",
+] as const;
+
+type StoredState = readonly [asset: StoredAsset, runOwner: string | null];
+
+const DRAFT = { role: "generated", status: "candidate" };
+const TEAMMATES_DRAFT: StoredState = [
+  { ...DRAFT, generationRunId: "run-1" },
+  TEAMMATE,
+];
+const MY_DRAFT: StoredState = [
+  { ...DRAFT, generationRunId: "run-1" },
+  ` ${ME.toUpperCase()} `,
+];
+const DRAFT_WITHOUT_RUN: StoredState = [
+  { ...DRAFT, generationRunId: null },
+  null,
+];
+const SAVED: StoredState = [
+  { role: "generated", status: "saved", generationRunId: "run-1" },
+  TEAMMATE,
+];
+
+const ASKS_FIRST = [
+  ["save-generated-image", { assetId: "a-1" }, TEAMMATES_DRAFT],
+  ["save-generated-image", { assetId: "a-1" }, DRAFT_WITHOUT_RUN],
+  ["save-generated-image", { slotId: "slot-1" }, SAVED],
+  ["update-asset", { id: "a-1", status: "saved" }, TEAMMATES_DRAFT],
+  ["update-asset", { id: "a-1", status: "archived" }, TEAMMATES_DRAFT],
+  ["update-asset", { id: "a-1", role: "style_reference" }, TEAMMATES_DRAFT],
+] as const;
+
+const RUNS_WITHOUT_ASKING = [
+  ["save-generated-image", { assetId: "a-1" }, MY_DRAFT],
+  ["save-generated-image", { assetId: "a-1" }, SAVED],
+  ["update-asset", { id: "a-1", status: "saved" }, MY_DRAFT],
+  ["update-asset", { id: "a-1", status: "saved" }, SAVED],
+  ["update-asset", { id: "a-1", title: "Hero" }, TEAMMATES_DRAFT],
+  ["update-asset", { id: "a-1", status: "candidate" }, TEAMMATES_DRAFT],
+  ["update-asset", { id: "a-1", role: "generated" }, TEAMMATES_DRAFT],
 ] as const;
 
 const ALIASES = [
@@ -134,6 +214,28 @@ describe("Assets actions over MCP", () => {
     expect(await approves({ dryRun: true }, OUTSIDE_AGENT)).toBe(false);
     expect(await approves({ dryRun: false }, IN_APP_AGENT)).toBe(false);
   });
+
+  it.each(ASKS_FIRST)(
+    "asks an outside agent before %s with %o when it takes someone else's draft into the kit",
+    async (name, args, [asset, runOwner]) => {
+      stored.asset = asset;
+      stored.runOwner = runOwner;
+      const approves = await approvalRule(name);
+      expect(await approves(args, OUTSIDE_AGENT)).toBe(true);
+      expect(await approves(args, IN_APP_AGENT)).toBe(false);
+      expect(await approves(args, APP_UI)).toBe(false);
+    },
+  );
+
+  it.each(RUNS_WITHOUT_ASKING)(
+    "lets an outside agent call %s with %o without asking",
+    async (name, args, [asset, runOwner]) => {
+      stored.asset = asset;
+      stored.runOwner = runOwner;
+      const approves = await approvalRule(name);
+      expect(await approves(args, OUTSIDE_AGENT)).toBe(false);
+    },
+  );
 
   it.each(ALIASES)(
     "decides %s once, as the same action as %s",
