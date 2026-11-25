@@ -73,13 +73,12 @@ import {
   TooltipTrigger,
   TooltipProvider,
 } from "@/components/ui/tooltip";
-import { useEvent, useUpdateEvent } from "@/hooks/use-events";
+import { useEventAtEditStart } from "@/hooks/use-event-at-edit-start";
+import { useEventSave } from "@/hooks/use-event-save";
+import { useEvent } from "@/hooks/use-events";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
-import {
-  getCalendarEventRenderKey,
-  withCalendarEventSourceIdentity,
-} from "@/lib/calendar-event-identity";
+import { getCalendarEventRenderKey } from "@/lib/calendar-event-identity";
 import { addCalendarDays } from "@/lib/calendar-timezone";
 import {
   getDateKeyInTimezone,
@@ -510,6 +509,8 @@ export function EventDetailPopover({
   const editableLocationValue = event.location || "";
 
   const [editingField, setEditingField] = useState<string | null>(null);
+  const titleBase = useEventAtEditStart(event, isEditingTitle ? "title" : null);
+  const fieldBase = useEventAtEditStart(event, editingField);
   const [showMoreOptions, setShowMoreOptions] = useState(false);
   const [findTimeOpen, setFindTimeOpen] = useState(false);
   const [editDescription, setEditDescription] = useState(
@@ -558,7 +559,7 @@ export function EventDetailPopover({
   const isOverlay = isReadOnlySource;
   const ownerLabel = event.ownerName || event.overlayEmail;
 
-  const updateEvent = useUpdateEvent();
+  const updateEvent = useEventSave();
   const masterEventId =
     open && event.recurringEventId ? `google-${event.recurringEventId}` : "";
   const masterEvent = useEvent(masterEventId, event.calendarSourceKey);
@@ -636,15 +637,11 @@ export function EventDetailPopover({
             return;
           }
           updateEvent.mutate(
-            withCalendarEventSourceIdentity(
-              {
-                id: event.id,
-                accountEmail: event.accountEmail,
-                targetAccountEmail,
-                ...guestNotification,
-              },
-              event,
-            ),
+            event,
+            {
+              targetAccountEmail,
+              ...guestNotification,
+            },
             {
               onSuccess: () => toast.success(t("eventForm.eventUpdated")),
               onError: (error) => {
@@ -819,15 +816,11 @@ export function EventDetailPopover({
             return;
           }
           updateEvent.mutate(
-            withCalendarEventSourceIdentity(
-              {
-                id: event.id,
-                accountEmail: event.accountEmail,
-                ...updates,
-                ...guestNotification,
-              },
-              event,
-            ),
+            fieldBase,
+            {
+              ...updates,
+              ...guestNotification,
+            },
             {
               onError: (error) => reportWriteFailure(error),
               onSettled: endAction,
@@ -841,6 +834,7 @@ export function EventDetailPopover({
     },
     [
       event,
+      fieldBase,
       isDraft,
       isRecurringEvent,
       beginAction,
@@ -923,15 +917,11 @@ export function EventDetailPopover({
           return;
         }
         updateEvent.mutate(
-          withCalendarEventSourceIdentity(
-            {
-              id: event.id,
-              accountEmail: event.accountEmail,
-              ...updates,
-              ...guestNotification,
-            },
-            event,
-          ),
+          event,
+          {
+            ...updates,
+            ...guestNotification,
+          },
           {
             onSuccess: () => toast(t("eventForm.googleMeetAdded")),
             onError: (error) =>
@@ -984,15 +974,11 @@ export function EventDetailPopover({
           return;
         }
         updateEvent.mutate(
-          withCalendarEventSourceIdentity(
-            {
-              id: event.id,
-              accountEmail: event.accountEmail,
-              ...updates,
-              ...guestNotification,
-            },
-            event,
-          ),
+          event,
+          {
+            ...updates,
+            ...guestNotification,
+          },
           {
             onSuccess: () => toast(t("eventForm.zoomAdded")),
             onError: (error) =>
@@ -1108,15 +1094,11 @@ export function EventDetailPopover({
           return;
         }
         updateEvent.mutate(
-          withCalendarEventSourceIdentity(
-            {
-              id: event.id,
-              accountEmail: event.accountEmail,
-              ...updates,
-              ...guestNotification,
-            },
-            event,
-          ),
+          event,
+          {
+            ...updates,
+            ...guestNotification,
+          },
           {
             onError: (error) =>
               reportWriteFailure(error, { label: t("eventForm.updateFailed") }),
@@ -1196,7 +1178,7 @@ export function EventDetailPopover({
         return;
       }
       if (!beginAction()) return;
-      updateEvent.mutate(withCalendarEventSourceIdentity(update, event), {
+      updateEvent.mutate(event, update, {
         onError: (error) =>
           reportWriteFailure(error, {
             label: t("calendarView.failedUpdateEvent"),
@@ -1599,7 +1581,7 @@ export function EventDetailPopover({
         let savedPendingChange = false;
         if (isEditingTitle) {
           if (trimmedTitle) {
-            onTitleSave?.(event, trimmedTitle);
+            onTitleSave?.(titleBase, trimmedTitle);
             isNewEventRef.current = false;
             savedPendingChange = true;
           }
@@ -1635,6 +1617,7 @@ export function EventDetailPopover({
       isEditingTitle,
       editingTitle,
       event,
+      titleBase,
       onTitleSave,
       onDismissNew,
       editingField,
@@ -1794,7 +1777,7 @@ export function EventDetailPopover({
                       e.preventDefault();
                       const trimmed = editingTitle.trim();
                       if (trimmed) {
-                        onTitleSave?.(event, trimmed);
+                        onTitleSave?.(titleBase, trimmed);
                         isNewEventRef.current = false;
                       }
                       setIsEditingTitle(false);
@@ -1820,7 +1803,7 @@ export function EventDetailPopover({
                   onBlur={() => {
                     const trimmed = editingTitle.trim();
                     if (trimmed && trimmed !== getEditableEventTitle(event)) {
-                      onTitleSave?.(event, trimmed);
+                      onTitleSave?.(titleBase, trimmed);
                       isNewEventRef.current = false;
                     }
                     setIsEditingTitle(false);

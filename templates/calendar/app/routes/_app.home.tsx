@@ -1,5 +1,6 @@
 import { useSearchParams } from "react-router";
 
+import { EventSaveProvider } from "@/hooks/use-event-save";
 import { parseCalendarSlotPrefill } from "@/lib/calendar-slot-prefill";
 import CalendarView from "@/pages/CalendarView";
 
@@ -25,5 +26,9 @@ export function meta() {
 
 export default function HomeRoute() {
   const [searchParams] = useSearchParams();
-  return <CalendarView slotPrefill={parseCalendarSlotPrefill(searchParams)} />;
+  return (
+    <EventSaveProvider>
+      <CalendarView slotPrefill={parseCalendarSlotPrefill(searchParams)} />
+    </EventSaveProvider>
+  );
 }
