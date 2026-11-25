@@ -11,6 +11,12 @@ export default defineAction({
   description:
     "Start a stopped Ask AI operation over in a new agent thread, from the comment discussion as it is now. The old thread can no longer act for it.",
   toolCallable: false,
+  mcpTool: false,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   schema: z.object({
     requestId: z.string().uuid(),
     expectedUpdatedAt: z.string(),
