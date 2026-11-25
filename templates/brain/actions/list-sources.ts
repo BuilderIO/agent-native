@@ -18,6 +18,7 @@ import { listAccessibleAudienceIdsBySource } from "../server/lib/audiences.js";
 import { sourceHealthState } from "../server/lib/brain-health.js";
 import { parseJson, serializeSource } from "../server/lib/brain.js";
 import { personalGoogleSourceFilter } from "../server/lib/source-access.js";
+import { sourceKeyFor } from "../server/lib/source-ingest.js";
 import { sourceProviderSchema } from "./_schemas.js";
 
 async function sourceRecordCounts(sourceIds: string[]) {
@@ -151,6 +152,9 @@ export default defineAction({
       const nextSyncAt = nextBrainSourceSyncAt(row);
       return {
         ...serializeSource(row),
+        hasIngestSourceKey:
+          (row.provider === "clips" || row.provider === "generic") &&
+          Boolean(sourceKeyFor(row)),
         recordCount: recordCounts.get(row.id) ?? 0,
         latestRun: latest,
         nextSyncAt,

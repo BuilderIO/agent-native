@@ -22,6 +22,19 @@ describe("open_app MCP App metadata", () => {
     vi.clearAllMocks();
   });
 
+  it("tells the model to open the pane for show, draft, chart, and calendar asks", () => {
+    for (const ask of [
+      "show",
+      "open",
+      "draft",
+      "chart",
+      "calendar",
+      "dashboard",
+    ]) {
+      expect(openAppAction.tool.description).toContain(ask);
+    }
+  });
+
   it("uses exact granted app origins instead of broad HTTPS CSP", async () => {
     mocks.listGrantedDispatchMcpAppOrigins.mockResolvedValue([
       "https://dispatch.agent-native.com",

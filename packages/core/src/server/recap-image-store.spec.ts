@@ -50,6 +50,7 @@ function createMemoryDb() {
 const mockDb = createMemoryDb();
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => mockDb,
   retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
 }));

@@ -1808,6 +1808,8 @@ function AgentPanelInner({
       const activeTab = activeTabId
         ? tabs.find((tab) => tab.id === activeTabId)
         : undefined;
+      const pageTitle =
+        activeTab?.label || (newUiTabLabel ?? t("agentPanel.newChat"));
       const pageHeaderVisible = shouldShowAgentPanelPageHeader(
         tabs,
         activeTabId,
@@ -1859,9 +1861,11 @@ function AgentPanelInner({
               >
                 <div className="flex min-w-0 flex-1 items-center gap-2">
                   {pageHeaderLeadingSlot}
-                  <h1 className="truncate text-xs font-medium text-foreground">
-                    {activeTab?.label ||
-                      (newUiTabLabel ?? t("agentPanel.newChat"))}
+                  <h1
+                    className="truncate text-xs font-medium text-foreground"
+                    title={pageTitle}
+                  >
+                    {pageTitle}
                   </h1>
                   {pageHeaderActions.showPageTitleMenu ? (
                     <DropdownMenu

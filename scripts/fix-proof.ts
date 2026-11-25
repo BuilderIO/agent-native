@@ -27,7 +27,11 @@ import {
 } from "node:fs";
 import { dirname } from "node:path";
 
-import { parseProofCommand, TEST_PATH } from "./feedback-fix-proof.ts";
+import {
+  DOC_PATH,
+  parseProofCommand,
+  TEST_PATH,
+} from "./feedback-fix-proof.ts";
 
 const argv = process.argv.slice(2);
 const dash = argv.indexOf("--");
@@ -151,6 +155,10 @@ const source = changes.filter(
 if (source.length === 0)
   couldNotRun(
     `no non-test changes between ${base.slice(0, 9)} and HEAD; a test-only change needs no fix proof`,
+  );
+if (source.every(({ path }) => DOC_PATH.test(path)))
+  couldNotRun(
+    `only docs changed between ${base.slice(0, 9)} and HEAD; a docs-only change needs no fix proof (write \`fix-proof: docs-only\` under its reports)`,
   );
 const all = source.map(({ path }) => path);
 

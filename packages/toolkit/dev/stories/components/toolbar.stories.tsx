@@ -16,13 +16,14 @@ import {
   ToolbarSeparator,
 } from "../../../src/ui/base-ui/toolbar.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./toolbar.docs.md?raw";
 
 const controls = propControls(toolbarProps);
 
 const meta = {
   title: "Components/Toolbar",
   component: Toolbar,
-  parameters: { layout: "padded" },
+  parameters: { docs: { description: { component: guide } }, layout: "padded" },
   args: controls.args,
   argTypes: controls.argTypes,
 } satisfies Meta<typeof Toolbar>;

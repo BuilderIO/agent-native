@@ -186,6 +186,7 @@ beforeEach(async () => {
   emitted = [];
   vi.resetModules();
   vi.doMock("../db/client.js", () => ({
+    getEnclosingTransactionDbExec: () => undefined,
     getDbExec: () => dbScope.getStore() ?? database.scoped ?? database.exec,
     getScopedDbExec: () => dbScope.getStore() ?? database.scoped,
     withDbExec: <T>(db: DbExec, run: () => T) => dbScope.run(db, run),

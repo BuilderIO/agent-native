@@ -1,5 +1,17 @@
 # @agent-native/pinpoint
 
+## 0.1.120
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.119
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.1.118
 
 ### Patch Changes
@@ -591,20 +603,5 @@
 ### Patch Changes
 
 - Release all public npm packages with a patch version bump.
-
-## 0.1.20
-
-### Patch Changes
-
-- Release all public npm packages with a patch version bump.
-
-## 0.1.19
-
-### Patch Changes
-
-- f499dff: Add `@agent-native/core/vitest-config`, a base vitest config that caps a suite's
-  worker pool so concurrent test runs no longer oversubscribe the CPU. Defaults to
-  25% of cores; override with `VITEST_CONCURRENCY`. Every template and package
-  config merges it in.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

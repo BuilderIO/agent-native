@@ -39,7 +39,10 @@ describe("Progress part", () => {
   });
 
   it("refuses a variant it doesn't have instead of drawing the default", () => {
-    const props = { variant: "classic" } as unknown as ProgressProps;
+    const props = { variant: "classic" } as unknown as Pick<
+      ProgressProps,
+      "variant"
+    >;
     expect(() =>
       render(<Progress value={40} aria-label="Uploading" {...props} />),
     ).toThrow(/variant="classic" is not one of/);

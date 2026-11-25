@@ -623,7 +623,7 @@ export function useEditorScreenRendering({
 
   const zoomLabel = `${Math.round(zoom)}%`;
   const [openZoomControl, setOpenZoomControl] = useState<
-    "toolbar" | "inspector" | "topbar" | null
+    "toolbar" | "inspector" | null
   >(null);
   const zoomInputDigits = String(Math.round(zoom));
   const [zoomInputValue, setZoomInputValue] = useState(zoomInputDigits);

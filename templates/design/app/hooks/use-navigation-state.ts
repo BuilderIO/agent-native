@@ -30,8 +30,8 @@ export interface NavigationState {
   inspectorTab?: string;
   /** Alias for `inspectorTab`. */
   inspector?: string;
-  leftPanel?: DesignLeftPanel;
-  panel?: DesignLeftPanel;
+  leftPanel?: DesignLeftPanel | "tokens";
+  panel?: DesignLeftPanel | "tokens";
   fileId?: string;
   screenId?: string;
   filename?: string;
@@ -42,6 +42,7 @@ export interface NavigationState {
   interactDevice?: string;
   interactTheme?: InteractThemeMode;
   path?: string;
+  search?: string;
 }
 
 export interface DesignEditorCommand {
@@ -149,6 +150,27 @@ export function editorPathFromCommand(cmd: NavigationState): string | null {
   return `/design/${encodeURIComponent(cmd.designId)}${query ? `?${query}` : ""}`;
 }
 
+export function homeSearchFromSearchParams(
+  searchParams: URLSearchParams,
+): string | undefined {
+  return searchParams.get("search")?.trim() || undefined;
+}
+
+export function commandPathFromNavigation(cmd: NavigationState): string {
+  const editorPath = editorPathFromCommand(cmd);
+  if (editorPath) return editorPath;
+  if (cmd.view === "templates") {
+    return cmd.templateId
+      ? `/templates?templateId=${encodeURIComponent(cmd.templateId)}`
+      : "/templates";
+  }
+  if (cmd.view === "present" && cmd.designId) return `/present/${cmd.designId}`;
+  if (cmd.view === "settings") return "/settings";
+  const search = cmd.search?.trim();
+  if (search) return `/home?${new URLSearchParams({ search }).toString()}`;
+  return "/home";
+}
+
 export function editorCommandFromNavigate(
   cmd: NavigationState,
   path: string,
@@ -216,6 +238,7 @@ export function useNavigationState(enabled = true) {
 
   useAgentRouteState<NavigationState>({
     browserTabId,
+    writeDebounceMs: 300,
     getNavigationState: ({ pathname, search }) => {
       const state: NavigationState = { view: "list" };
       const searchParams = new URLSearchParams(search);
@@ -258,21 +281,14 @@ export function useNavigationState(enabled = true) {
       const templateId = searchParams.get("templateId");
       if (templateId) state.templateId = templateId;
 
+      if (state.view === "list") {
+        const homeSearch = homeSearchFromSearchParams(searchParams);
+        if (homeSearch) state.search = homeSearch;
+      }
+
       return state;
     },
-    getCommandPath: (cmd) => {
-      const editorPath = editorPathFromCommand(cmd);
-      if (editorPath) return editorPath;
-      if (cmd.view === "templates") {
-        return cmd.templateId
-          ? `/templates?templateId=${encodeURIComponent(cmd.templateId)}`
-          : "/templates";
-      }
-      if (cmd.view === "present" && cmd.designId)
-        return `/present/${cmd.designId}`;
-      if (cmd.view === "settings") return "/settings";
-      return "/home";
-    },
+    getCommandPath: commandPathFromNavigation,
     onNavigate: (cmd, path) => {
       const command = editorCommandFromNavigate(cmd, path);
       if (command) sendDesignEditorCommand(command, browserTabId);

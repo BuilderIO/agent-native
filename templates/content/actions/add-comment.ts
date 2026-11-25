@@ -29,6 +29,7 @@ import {
 import { notifyDocumentComment } from "../server/lib/comment-notifications.js";
 import { commentSubmissionSource } from "../server/lib/comment-submission-source.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
+import { displayNameFromEmail } from "../shared/author-name.js";
 import {
   COMMENT_ANCHOR_BLOCK_TYPES,
   nfmCommentAnchorBlocks,
@@ -56,15 +57,6 @@ import {
   listPropertiesForAllDocumentDatabases,
   listPropertiesForDocument,
 } from "./_property-utils.js";
-
-function displayNameFromEmail(email: string): string {
-  const localPart = email.split("@")[0] ?? "";
-  const words = localPart
-    .split(/[._-]+/)
-    .filter(Boolean)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1));
-  return words.join(" ");
-}
 
 const commentSchema = z.object({
   documentId: z.string().describe("Document ID"),

@@ -30,13 +30,19 @@ export default defineAction({
     "`type` is the one saved when it was created (apply-design-token-edit " +
     "`type`, or a DTCG `$type` on import), else a guess from its name and " +
     "value. Also returns `groups`: tokens in panel sections (color, " +
-    "typography, spacing, radius, shadow, other) derived from each type.",
+    "typography, spacing, radius, shadow, other) derived from each type. " +
+    "Pass `compact` to leave out the per-file `sources` and `sourceValues`, " +
+    "which grow with every screen a token appears in.",
   schema: z.object({
     designId: z.string().describe("Design project ID"),
+    compact: z
+      .boolean()
+      .optional()
+      .describe("Omit each token's per-file `sources` and `sourceValues`."),
   }),
   readOnly: true,
   http: { method: "GET" },
-  run: async ({ designId }) => {
+  run: async ({ designId, compact }) => {
     const access = await resolveAccess("design", designId);
     if (!access) {
       fail("Design not found", { errorCode: "not_found", statusCode: 404 });
@@ -164,8 +170,10 @@ export default defineAction({
         value,
         type: tokenTypes[cssVar] ?? guessTokenType(cssVar, value),
         source,
-        ...(sources.length > 1 ? { sources } : {}),
-        ...(sourceValues && new Set(Object.values(sourceValues)).size > 1
+        ...(!compact && sources.length > 1 ? { sources } : {}),
+        ...(!compact &&
+        sourceValues &&
+        new Set(Object.values(sourceValues)).size > 1
           ? { sourceValues }
           : {}),
         isTweakOverride: tweakCssVars.has(cssVar),

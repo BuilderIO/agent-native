@@ -120,17 +120,16 @@ afterEach(() => {
 });
 
 describe("useBuilderSourceReviewBatches", () => {
-  it("loads a whole source's changed pages while it finds the rest", async () => {
+  it("loads a whole source's changed pages before it finds the rest", async () => {
     const listing = deferred<PreviewBuilderSourceReviewResponse>();
+    const firstBatch = deferred<PreviewBuilderSourceReviewResponse>();
     callAction.mockImplementation(async (_name: string, params: Request) => {
       if (params.batchSize === 0) return listing.promise;
       const ids = params.documentIds ?? [];
       if (params.bodyComparison === "blocks") {
         return response([row("c3-blocks", "doc-3")]);
       }
-      if (ids.includes("doc-1")) {
-        return response([row("c1", "doc-1"), row("c2", "doc-2")]);
-      }
+      if (ids.includes("doc-1")) return firstBatch.promise;
       return response([row("c3", "doc-3")], {
         blocksCheckDocumentIds: ["doc-3"],
       });
@@ -150,12 +149,19 @@ describe("useBuilderSourceReviewBatches", () => {
     await settle();
 
     expect(requests()).toEqual([
-      expect.objectContaining({ scope: "all", batchSize: 0 }),
       expect.objectContaining({
         scope: "selected",
         documentIds: ["doc-2", "doc-1"],
         bodyComparison: "text",
       }),
+    ]);
+    expect(latest.loadingFirstBatch).toBe(true);
+
+    firstBatch.resolve(response([row("c1", "doc-1"), row("c2", "doc-2")]));
+    await settle();
+
+    expect(requests().slice(1)).toEqual([
+      expect.objectContaining({ scope: "all", batchSize: 0 }),
     ]);
     expect(latest.loadingFirstBatch).toBe(false);
     expect(latest.data?.review?.rows.map((entry) => entry.changeSetId)).toEqual(
@@ -189,6 +195,124 @@ describe("useBuilderSourceReviewBatches", () => {
     expect(latest.selectionChangeSetIdMap).toEqual({ c3: "c3-blocks" });
     expect(latest.progress).toBeNull();
     expect(latest.error).toBeNull();
+  });
+
+  it("quick-starts a whole source with no changed pages known, then lists the rest", async () => {
+    const quickStart = deferred<PreviewBuilderSourceReviewResponse>();
+    const listing = deferred<PreviewBuilderSourceReviewResponse>();
+    callAction.mockImplementation(async (_name: string, params: Request) => {
+      if (params.quickStart) return quickStart.promise;
+      if (params.batchSize === 0) return listing.promise;
+      const ids = params.documentIds ?? [];
+      return response(ids.map((id) => row(`c-${id}`, id)));
+    });
+
+    act(() =>
+      root.render(
+        <Probe documentId="page-1" sourceId="source-1" scope="all" enabled />,
+      ),
+    );
+    await settle();
+
+    expect(requests()).toEqual([
+      expect.objectContaining({
+        scope: "all",
+        quickStart: true,
+        bodyComparison: "text",
+        batchSize: 5,
+      }),
+    ]);
+
+    quickStart.resolve(
+      response([row("c-doc-1", "doc-1"), row("c-doc-2", "doc-2")], {
+        documentIds: ["doc-1", "doc-2"],
+      }),
+    );
+    await settle();
+
+    expect(requests().slice(1)).toEqual([
+      expect.objectContaining({ scope: "all", batchSize: 0 }),
+    ]);
+    expect(latest.loadingFirstBatch).toBe(false);
+    expect(latest.data?.review?.rows.map((entry) => entry.changeSetId)).toEqual(
+      ["c-doc-1", "c-doc-2"],
+    );
+    expect(latest.progress).toEqual({ kind: "listing", pageCount: 0 });
+
+    listing.resolve(
+      response([], {
+        documentIds: [],
+        remainingDocumentIds: ["doc-1", "doc-2", "doc-3"],
+      }),
+    );
+    await settle();
+
+    expect(requests().slice(2)).toEqual([
+      expect.objectContaining({
+        scope: "selected",
+        documentIds: ["doc-3"],
+        bodyComparison: "text",
+      }),
+    ]);
+    expect(latest.data?.review?.rows.map((entry) => entry.changeSetId)).toEqual(
+      ["c-doc-1", "c-doc-2", "c-doc-3"],
+    );
+    expect(latest.progress).toBeNull();
+    expect(latest.error).toBeNull();
+  });
+
+  it("keeps the first rows when the listing fails, and Retry asks only for the listing", async () => {
+    let failListing = true;
+    callAction.mockImplementation(async (_name: string, params: Request) => {
+      if (params.batchSize === 0) {
+        if (failListing) {
+          failListing = false;
+          throw new Error("Listing failed");
+        }
+        return response([], {
+          documentIds: [],
+          remainingDocumentIds: ["doc-1", "doc-2"],
+        });
+      }
+      const ids = params.documentIds ?? [];
+      return response(ids.map((id) => row(`c-${id}`, id)));
+    });
+
+    act(() =>
+      root.render(
+        <Probe
+          documentId="page-1"
+          sourceId="source-1"
+          scope="all"
+          priorityDocumentIds={["doc-1"]}
+          enabled
+        />,
+      ),
+    );
+    await settle();
+
+    expect(latest.error?.message).toBe("Listing failed");
+    expect(latest.data?.review?.rows.map((entry) => entry.changeSetId)).toEqual(
+      ["c-doc-1"],
+    );
+
+    const sentBeforeRetry = requests().length;
+    act(() => latest.retry());
+    await settle();
+
+    expect(requests().slice(sentBeforeRetry)).toEqual([
+      expect.objectContaining({ scope: "all", batchSize: 0 }),
+      expect.objectContaining({
+        scope: "selected",
+        documentIds: ["doc-2"],
+        bodyComparison: "text",
+      }),
+    ]);
+    expect(latest.error).toBeNull();
+    expect(latest.progress).toBeNull();
+    expect(latest.data?.review?.rows.map((entry) => entry.changeSetId)).toEqual(
+      ["c-doc-1", "c-doc-2"],
+    );
   });
 
   it("loads a few batches at once, keeps rows when one fails, and Retry finishes", async () => {

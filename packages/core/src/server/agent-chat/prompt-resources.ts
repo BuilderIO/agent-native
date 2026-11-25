@@ -2057,119 +2057,11 @@ export async function loadResourcesForPrompt(
   }
 
   const workspaceOwner = workspaceResourceOwner(orgId);
-  const workspaceAgents = await loadAgentsResourceForPrompt(
-    workspaceOwner,
-    "workspace",
-    promptResourceMaxChars,
-    orgId,
-    resourceReadHint,
-  );
-  addSection(workspaceAgents, "required");
-  addSections(
-    await loadInstructionResourcesForPrompt(
-      workspaceOwner,
-      "workspace-instruction",
-      promptResourceMaxChars,
-      compact && runtimeToolHints,
-      orgId,
-      resourceReadHint,
-    ),
-  );
-
   const organizationOwner = sharedResourceOwner(orgId);
-
-  const appDefaultAgents = await loadAgentsResourceForPrompt(
-    SHARED_OWNER,
-    organizationOwner === SHARED_OWNER ? "shared" : "app-default",
-    promptResourceMaxChars,
-    orgId,
-    resourceReadHint,
-  );
-  addSection(appDefaultAgents, "required");
-  addSections(
-    await loadInstructionResourcesForPrompt(
-      SHARED_OWNER,
-      organizationOwner === SHARED_OWNER
-        ? "shared-instruction"
-        : "app-default-instruction",
-      promptResourceMaxChars,
-      compact && runtimeToolHints,
-      orgId,
-      resourceReadHint,
-    ),
-  );
-
-  if (organizationOwner !== SHARED_OWNER) {
-    const organizationAgents = await loadAgentsResourceForPrompt(
-      organizationOwner,
-      "organization",
-      promptResourceMaxChars,
-      orgId,
-      resourceReadHint,
-    );
-    addSection(organizationAgents, "required");
-    addSections(
-      await loadInstructionResourcesForPrompt(
-        organizationOwner,
-        "organization-instruction",
-        promptResourceMaxChars,
-        compact && runtimeToolHints,
-        orgId,
-        resourceReadHint,
-      ),
-    );
-  }
-
-  if (owner !== SHARED_OWNER && !isWorkspaceResourceOwner(owner)) {
-    const personalAgents = await loadAgentsResourceForPrompt(
-      owner,
-      "personal",
-      promptResourceMaxChars,
-      orgId,
-      resourceReadHint,
-    );
-    addSection(personalAgents, "required");
-    addSections(
-      await loadInstructionResourcesForPrompt(
-        owner,
-        "personal-instruction",
-        promptResourceMaxChars,
-        compact && runtimeToolHints,
-        orgId,
-        resourceReadHint,
-      ),
-      "user",
-    );
-
-    let memoryInstructions: Awaited<ReturnType<typeof resourceGetByPath>>;
-    try {
-      memoryInstructions = await resourceGetByPath(
-        owner,
-        "memory/INSTRUCTIONS.md",
-        { orgId },
-      );
-    } catch (error) {
-      throw new Error(
-        `Unable to read personal memory instructions for ${owner}. The run cannot safely continue without them.`,
-        { cause: error },
-      );
-    }
-    if (memoryInstructions?.content.trim()) {
-      addSection(
-        promptResourceBlock({
-          name: "memory/INSTRUCTIONS.md",
-          scope: "personal",
-          path: "memory/INSTRUCTIONS.md",
-          content: memoryInstructions.content,
-          maxChars: promptResourceMaxChars,
-          readHint: runtimeToolHints
-            ? 'Use the `resources` tool with `action: "read"` and `path: "memory/INSTRUCTIONS.md"` to read the full instructions.'
-            : null,
-        }),
-        "required",
-      );
-    }
-  }
+  const includePersonalResources =
+    owner !== SHARED_OWNER && !isWorkspaceResourceOwner(owner);
+  const includeOrganizationResources = organizationOwner !== SHARED_OWNER;
+  const includePersonalMemoryIndex = owner !== SHARED_OWNER;
 
   const appDiscoveryPromise = frameworkGroupEnabled(
     opts?.disabledFrameworkGroups,
@@ -2200,24 +2092,196 @@ export async function loadResourcesForPrompt(
       })()
     : undefined;
 
-  const resourceSkillsBlock = await loadResourceSkillsPromptBlock(
-    owner,
-    orgId,
-    runtimeToolHints,
-    includeSupportingFiles,
-  );
+  const [
+    workspaceAgents,
+    workspaceInstructions,
+    appDefaultAgents,
+    appDefaultInstructions,
+    organizationAgents,
+    organizationInstructions,
+    personalAgents,
+    personalInstructions,
+    memoryInstructionsResult,
+    resourceSkillsBlock,
+    organizationLearningsResult,
+    appDefaultLearnings,
+    memoryIndex,
+    workspaceResourceIndex,
+    appDefaultResourceIndex,
+    organizationResourceIndex,
+    promptContextProviderBlocks,
+  ] = await Promise.all([
+    loadAgentsResourceForPrompt(
+      workspaceOwner,
+      "workspace",
+      promptResourceMaxChars,
+      orgId,
+      resourceReadHint,
+    ),
+    loadInstructionResourcesForPrompt(
+      workspaceOwner,
+      "workspace-instruction",
+      promptResourceMaxChars,
+      compact && runtimeToolHints,
+      orgId,
+      resourceReadHint,
+    ),
+    loadAgentsResourceForPrompt(
+      SHARED_OWNER,
+      includeOrganizationResources ? "app-default" : "shared",
+      promptResourceMaxChars,
+      orgId,
+      resourceReadHint,
+    ),
+    loadInstructionResourcesForPrompt(
+      SHARED_OWNER,
+      includeOrganizationResources
+        ? "app-default-instruction"
+        : "shared-instruction",
+      promptResourceMaxChars,
+      compact && runtimeToolHints,
+      orgId,
+      resourceReadHint,
+    ),
+    includeOrganizationResources
+      ? loadAgentsResourceForPrompt(
+          organizationOwner,
+          "organization",
+          promptResourceMaxChars,
+          orgId,
+          resourceReadHint,
+        )
+      : Promise.resolve(null),
+    includeOrganizationResources
+      ? loadInstructionResourcesForPrompt(
+          organizationOwner,
+          "organization-instruction",
+          promptResourceMaxChars,
+          compact && runtimeToolHints,
+          orgId,
+          resourceReadHint,
+        )
+      : Promise.resolve([]),
+    includePersonalResources
+      ? loadAgentsResourceForPrompt(
+          owner,
+          "personal",
+          promptResourceMaxChars,
+          orgId,
+          resourceReadHint,
+        )
+      : Promise.resolve(null),
+    includePersonalResources
+      ? loadInstructionResourcesForPrompt(
+          owner,
+          "personal-instruction",
+          promptResourceMaxChars,
+          compact && runtimeToolHints,
+          orgId,
+          resourceReadHint,
+        )
+      : Promise.resolve([]),
+    includePersonalResources
+      ? resourceGetByPath(owner, "memory/INSTRUCTIONS.md", { orgId }).then(
+          (value) => ({ ok: true as const, value }),
+          (error) => ({ ok: false as const, error }),
+        )
+      : Promise.resolve({
+          ok: true as const,
+          value: null as Awaited<ReturnType<typeof resourceGetByPath>>,
+        }),
+    loadResourceSkillsPromptBlock(
+      owner,
+      orgId,
+      runtimeToolHints,
+      includeSupportingFiles,
+    ),
+    includeOrganizationResources
+      ? resourceGetByPath(organizationOwner, "LEARNINGS.md", { orgId }).then(
+          (value) => ({ ok: true as const, value }),
+          (error) => ({ ok: false as const, error }),
+        )
+      : Promise.resolve({ ok: true as const, value: null }),
+    resourceGetByPath(SHARED_OWNER, "LEARNINGS.md", { orgId }).catch(
+      () => null,
+    ),
+    includePersonalMemoryIndex
+      ? resourceGetByPath(owner, "memory/MEMORY.md", { orgId }).catch(
+          (error) => {
+            console.warn(
+              "[agent-chat] Could not load personal memory index:",
+              error,
+            );
+            return null;
+          },
+        )
+      : Promise.resolve(null),
+    runtimeToolHints
+      ? loadResourceIndexForPrompt(workspaceOwner, "workspace", orgId)
+      : Promise.resolve(null),
+    runtimeToolHints
+      ? loadResourceIndexForPrompt(SHARED_OWNER, "shared", orgId)
+      : Promise.resolve(null),
+    runtimeToolHints && includeOrganizationResources
+      ? loadResourceIndexForPrompt(organizationOwner, "shared", orgId)
+      : Promise.resolve(null),
+    loadPromptContextProviderBlocks({
+      owner,
+      compact,
+      ...(selfAppId !== undefined ? { selfAppId } : {}),
+      orgId,
+    }),
+  ]);
+
+  if (!memoryInstructionsResult.ok) {
+    throw new Error(
+      `Unable to read personal memory instructions for ${owner}. The run cannot safely continue without them.`,
+      { cause: memoryInstructionsResult.error },
+    );
+  }
+
+  addSection(workspaceAgents, "required");
+  addSections(workspaceInstructions);
+
+  addSection(appDefaultAgents, "required");
+  addSections(appDefaultInstructions);
+
+  if (includeOrganizationResources) {
+    addSection(organizationAgents, "required");
+    addSections(organizationInstructions);
+  }
+
+  if (includePersonalResources) {
+    addSection(personalAgents, "required");
+    addSections(personalInstructions, "user");
+
+    const memoryInstructions = memoryInstructionsResult.value;
+    if (memoryInstructions?.content.trim()) {
+      addSection(
+        promptResourceBlock({
+          name: "memory/INSTRUCTIONS.md",
+          scope: "personal",
+          path: "memory/INSTRUCTIONS.md",
+          content: memoryInstructions.content,
+          maxChars: promptResourceMaxChars,
+          readHint: runtimeToolHints
+            ? 'Use the `resources` tool with `action: "read"` and `path: "memory/INSTRUCTIONS.md"` to read the full instructions.'
+            : null,
+        }),
+        "required",
+      );
+    }
+  }
+
   addSection(resourceSkillsBlock);
 
-  let sharedLearnings: Awaited<ReturnType<typeof resourceGetByPath>> = null;
-  try {
-    sharedLearnings =
-      (organizationOwner !== SHARED_OWNER
-        ? await resourceGetByPath(organizationOwner, "LEARNINGS.md", {
-            orgId,
-          })
-        : null) ??
-      (await resourceGetByPath(SHARED_OWNER, "LEARNINGS.md", { orgId }));
-  } catch {}
+  if (!organizationLearningsResult.ok) {
+    throw new Error("Unable to read organization learnings.", {
+      cause: organizationLearningsResult.error,
+    });
+  }
+  const sharedLearnings =
+    organizationLearningsResult.value ?? appDefaultLearnings;
 
   if (compact) {
     if (sharedLearnings?.content?.trim()) {
@@ -2250,67 +2314,37 @@ export async function loadResourcesForPrompt(
     }
   }
 
-  if (owner !== SHARED_OWNER) {
-    try {
-      const memoryIndex = await resourceGetByPath(owner, "memory/MEMORY.md", {
-        orgId,
+  if (includePersonalMemoryIndex && memoryIndex) {
+    const trimmedMemoryIndex = memoryIndex.content.trim();
+    const hasMemoryContent =
+      trimmedMemoryIndex.length > 0 &&
+      (!compact || trimmedMemoryIndex !== "# Memory Index");
+    if (hasMemoryContent) {
+      const block = promptResourceBlock({
+        name: "memory/MEMORY.md",
+        scope: "personal",
+        path: "memory/MEMORY.md",
+        content: memoryIndex.content,
+        maxChars: compact
+          ? COMPACT_PROMPT_RESOURCE_MAX_CHARS
+          : SHARED_PROMPT_RESOURCE_MAX_CHARS,
+        ...(resourceReadHint === undefined
+          ? {}
+          : { readHint: resourceReadHint }),
       });
-      const trimmedMemoryIndex = memoryIndex?.content.trim() ?? "";
-      const hasMemoryContent =
-        trimmedMemoryIndex.length > 0 &&
-        (!compact || trimmedMemoryIndex !== "# Memory Index");
-      if (memoryIndex && hasMemoryContent) {
-        const block = promptResourceBlock({
-          name: "memory/MEMORY.md",
-          scope: "personal",
-          path: "memory/MEMORY.md",
-          content: memoryIndex.content,
-          maxChars: compact
-            ? COMPACT_PROMPT_RESOURCE_MAX_CHARS
-            : SHARED_PROMPT_RESOURCE_MAX_CHARS,
-          ...(resourceReadHint === undefined
-            ? {}
-            : { readHint: resourceReadHint }),
-        });
-        addSection(block, "user");
-      }
-    } catch (error) {
-      console.warn("[agent-chat] Could not load personal memory index:", error);
+      addSection(block, "user");
     }
   }
 
   if (runtimeToolHints) {
-    const workspaceResourceIndex = await loadResourceIndexForPrompt(
-      workspaceOwner,
-      "workspace",
-      orgId,
-    );
     addSection(workspaceResourceIndex);
-
-    const appDefaultResourceIndex = await loadResourceIndexForPrompt(
-      SHARED_OWNER,
-      "shared",
-      orgId,
-    );
     addSection(appDefaultResourceIndex);
-    if (organizationOwner !== SHARED_OWNER) {
-      const organizationResourceIndex = await loadResourceIndexForPrompt(
-        organizationOwner,
-        "shared",
-        orgId,
-      );
+    if (includeOrganizationResources) {
       addSection(organizationResourceIndex);
     }
   }
 
-  addSections(
-    await loadPromptContextProviderBlocks({
-      owner,
-      compact,
-      selfAppId,
-      orgId,
-    }),
-  );
+  addSections(promptContextProviderBlocks);
 
   if (appDiscoveryPromise) {
     const discovery = await appDiscoveryPromise;

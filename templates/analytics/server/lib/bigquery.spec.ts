@@ -1005,7 +1005,8 @@ describe("runQuery cancellation", () => {
   });
 
   it.each([
-    ["a next page token", { nextPageToken: "page-2" }],
+    ["a page token", { pageToken: "page-2", totalRows: "1" }],
+    ["fewer rows than its total row count", { totalRows: "2" }],
     ["no total row count", {}],
   ])(
     "marks BigQuery rows incomplete when the response has %s",

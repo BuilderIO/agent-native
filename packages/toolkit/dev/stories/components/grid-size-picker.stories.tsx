@@ -1,20 +1,23 @@
 import { COLORS, gridSizePickerProps } from "@agent-native/design-system";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import * as React from "react";
+import { expect, waitFor, within } from "storybook/test";
 
 import {
   type GridSize,
   GridSizePicker,
   type GridSizePickerProps,
 } from "../../../src/ui/base-ui/grid-size-picker.js";
+import { ThemeProvider } from "../../../src/ui/base-ui/theme-provider.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./grid-size-picker.docs.md?raw";
 
 const controls = propControls(gridSizePickerProps);
 
 const meta = {
   title: "Components/Grid Size Picker",
   component: GridSizePicker,
-  parameters: { layout: "padded" },
+  parameters: { layout: "padded", docs: { description: { component: guide } } },
   args: {
     ...controls.args,
     defaultValue: { columns: 4, rows: "auto" },
@@ -97,4 +100,44 @@ export const States: Story = {
       <GridSizePicker {...args} disabled />
     </div>
   ),
+};
+
+export const RightToLeft: Story = {
+  render: (args) => (
+    <ThemeProvider dir="rtl">
+      <GridSizePicker {...args} defaultValue={{ columns: 2, rows: 2 }} />
+    </ThemeProvider>
+  ),
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    const trigger = canvas.getByRole("button", { name: "2 × 2" });
+    await userEvent.click(trigger);
+    const page = within(canvasElement.ownerDocument.body);
+    const grid = await page.findByRole("grid", { name: "Columns and rows" });
+    const cell = (name: string) => within(grid).getByRole("gridcell", { name });
+    const initial = cell("2 × 2");
+    initial.focus();
+    await userEvent.keyboard("{Control>}{Alt>}{ArrowLeft}{/Alt}{/Control}");
+    await expect(initial).toHaveFocus();
+    await userEvent.keyboard("{ArrowLeft}");
+    const next = cell("3 × 2");
+    await expect(next).toHaveFocus();
+    await expect(next.getBoundingClientRect().x).toBeLessThan(
+      initial.getBoundingClientRect().x,
+    );
+    await userEvent.hover(cell("8 × 4"));
+    await expect(next.tabIndex).toBe(0);
+    await userEvent.unhover(cell("8 × 4"));
+    await expect(page.getByRole("status")).toHaveTextContent("3 × 2");
+    await userEvent.keyboard("{Home}");
+    await expect(cell("1 × 2")).toHaveFocus();
+    await userEvent.keyboard("{Control>}{End}{/Control}");
+    await expect(cell("12 × 8")).toHaveFocus();
+    await userEvent.keyboard(" ");
+    await expect(trigger).toHaveTextContent("12 × 8");
+    await expect(
+      page.queryByRole("button", { name: "Open grid settings" }),
+    ).toBeNull();
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(trigger).toHaveFocus());
+  },
 };

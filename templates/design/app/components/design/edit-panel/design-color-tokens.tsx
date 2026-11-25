@@ -76,7 +76,10 @@ function TokenLoader({
   designId: string;
   onTokens: (tokens: DesignColorTokens) => void;
 }) {
-  const query = useActionQuery<unknown>("index-design-tokens", { designId });
+  const query = useActionQuery<unknown>("index-design-tokens", {
+    designId,
+    compact: true,
+  });
   const tokens = useMemo(
     () => readColorTokens({ data: query.data, isError: query.isError }),
     [query.data, query.isError],

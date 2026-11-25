@@ -15,6 +15,7 @@ import {
   Popover,
   PopoverPopup,
   PopoverDescription,
+  PopoverArrow,
   PopoverTitle,
   PopoverTrigger,
 } from "./popover.js";
@@ -37,6 +38,9 @@ describe("Popover", () => {
           Open
         </PopoverTrigger>
         <PopoverPopup className="w-auto">
+          <PopoverArrow
+            className={({ open }) => (open ? "active-arrow" : undefined)}
+          />
           <PopoverTitle>Dimensions</PopoverTitle>
           <PopoverDescription>Set the size.</PopoverDescription>
         </PopoverPopup>
@@ -47,6 +51,7 @@ describe("Popover", () => {
     const popup = await screen.findByRole("dialog");
     expect(popup.classList.contains("popover-popup")).toBe(true);
     expect(popup.classList.contains("w-auto")).toBe(true);
+    expect(popup.querySelector(".popover-arrow.active-arrow")).not.toBeNull();
     expect(popup.parentElement?.classList.contains("popover-positioner")).toBe(
       true,
     );
