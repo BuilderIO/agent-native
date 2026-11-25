@@ -3808,6 +3808,7 @@ export function createAgentChatPlugin(
             : {}),
           ...(mcpOptions.readOnlyResources ? { readOnlyResources: true } : {}),
           ...(mcpOptions.servesAnSkill ? { servesAnSkill: true } : {}),
+          ...(mcpOptions.skills?.length ? { skills: mcpOptions.skills } : {}),
           ...(mcpOptions.connectorCatalog
             ? { connectorCatalog: mcpOptions.connectorCatalog }
             : {}),

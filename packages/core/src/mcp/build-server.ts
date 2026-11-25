@@ -118,9 +118,12 @@ import { runWithMcpChatTurnCall } from "./chat-turn-scope.js";
 import { isFrameworkMcpTool } from "./framework-tools.js";
 import {
   MCP_SKILLS_EXTENSION_ID,
-  getMcpSkill,
-  listMcpSkills,
-  readMcpSkillFile,
+  createMcpSkillCatalog,
+  filterAuthorizedMcpSkills,
+  resolveConfiguredMcpSkills,
+  type McpSkillAuthContext,
+  type McpSkillCatalog,
+  type McpSkillConfig,
 } from "./skills-extension.js";
 import {
   admitWithMcpTurnGrantAdmitters,
@@ -297,6 +300,8 @@ export interface MCPConfig {
   readOnlyResources?: boolean;
   /** Serve the `an` skill through the MCP Skills extension (SEP-2640). */
   servesAnSkill?: boolean;
+  /** Serve explicitly configured, exported app skills through the MCP Skills extension (SEP-2640). */
+  skills?: readonly McpSkillConfig[];
   /** Server-only candidate source; it must enforce current workspace grants. */
   taskCandidates?: (input: {
     callableActionNames: readonly string[];
@@ -423,6 +428,71 @@ export function hasVerifiedMcpUserIdentity(
     identity?.identityAssurance === "user" &&
     Boolean(identity.userEmail?.trim())
   );
+}
+
+function hasEligibleMcpSkillsIdentity(
+  identity: MCPCallerIdentity | undefined,
+): identity is MCPCallerIdentity & { userEmail: string } {
+  return (
+    Boolean(identity?.userEmail?.trim()) &&
+    identity?.identityAssurance !== "organization" &&
+    hasMcpOAuthScope(identity?.oauthScopes, "mcp:read")
+  );
+}
+
+function buildMcpSkillsAuthContext(
+  identity: MCPCallerIdentity,
+  userEmail: string,
+  orgId: string | null,
+): McpSkillAuthContext {
+  return {
+    userEmail,
+    orgId,
+    ...(identity.identityAssurance !== undefined
+      ? { identityAssurance: identity.identityAssurance }
+      : {}),
+    ...(identity.oauthScopes !== undefined
+      ? { oauthScopes: identity.oauthScopes }
+      : {}),
+  };
+}
+
+function assertMcpSkillsCallerContext(
+  identity: MCPCallerIdentity | undefined,
+  resolvedOrgId: string | undefined,
+): McpSkillAuthContext {
+  const context = getRequestContext();
+  if (
+    !hasEligibleMcpSkillsIdentity(identity) ||
+    !context?.userEmail ||
+    context.userEmail !== identity.userEmail
+  ) {
+    throw new Error("Verified MCP caller context required");
+  }
+  const userEmail = identity.userEmail.trim();
+  if (identity.orgId === null) {
+    if (context.orgScope !== "personal" || context.orgId != null) {
+      throw new Error("Verified MCP caller context required");
+    }
+    return buildMcpSkillsAuthContext(identity, userEmail, null);
+  }
+  if (typeof identity.orgId === "string") {
+    if (
+      !identity.orgId.trim() ||
+      context.orgScope === "personal" ||
+      context.orgId !== identity.orgId
+    ) {
+      throw new Error("Verified MCP caller context required");
+    }
+    return buildMcpSkillsAuthContext(identity, userEmail, identity.orgId);
+  }
+  const expectedOrgId = resolvedOrgId ?? null;
+  const contextOrgId =
+    context.orgScope === "personal" ? null : (context.orgId ?? null);
+  if (contextOrgId !== expectedOrgId) {
+    throw new Error("Verified MCP caller context required");
+  }
+  return buildMcpSkillsAuthContext(identity, userEmail, expectedOrgId);
 }
 
 export const MCP_ACTION_APPROVAL_INPUT_KEY = "actionApproval";
@@ -3936,8 +4006,15 @@ export async function createMCPServerForRequest(
     scriptCatalogOffered && !scriptCatalog
       ? await scriptCatalogForPointer()
       : undefined;
+  const configuredSkills = resolveConfiguredMcpSkills({
+    ...(config.servesAnSkill !== undefined
+      ? { servesAnSkill: config.servesAnSkill }
+      : {}),
+    ...(config.skills !== undefined ? { skills: config.skills } : {}),
+  });
   const servesSkills =
-    config.servesAnSkill === true && Boolean(effectiveIdentity?.userEmail);
+    configuredSkills.length > 0 &&
+    hasEligibleMcpSkillsIdentity(effectiveIdentity);
   const server = new Server(mcpServerInfo(config, requestMeta), {
     instructions: directoryCatalog
       ? config.directoryProfile?.instructions
@@ -5049,6 +5126,37 @@ export async function createMCPServerForRequest(
     },
   );
 
+  async function resolveAuthorizedSkillCatalog(
+    actionName: string,
+  ): Promise<McpSkillCatalog> {
+    await resolveServiceGrant(actionName);
+    return withCallerContext(async () => {
+      const authContext = assertMcpSkillsCallerContext(
+        effectiveIdentity,
+        orgId,
+      );
+      const canCheckLab =
+        hasVerifiedMcpUserIdentity(effectiveIdentity) &&
+        (effectiveIdentity.orgId === null ||
+          (typeof effectiveIdentity.orgId === "string" &&
+            effectiveIdentity.orgId.trim().length > 0));
+      const authorizedSkills = await filterAuthorizedMcpSkills(
+        configuredSkills,
+        authContext,
+        canCheckLab
+          ? {
+              checkLab: async (lab) => {
+                const { getMcpSkillLabEnabled } =
+                  await import("../labs/mcp-skill-lab.js");
+                return getMcpSkillLabEnabled(effectiveIdentity, lab);
+              },
+            }
+          : {},
+      );
+      return createMcpSkillCatalog(authorizedSkills);
+    });
+  }
+
   if (supportsMcpApps) {
     server.setRequestHandler(
       "resources/list",
@@ -5137,12 +5245,24 @@ export async function createMCPServerForRequest(
           });
         };
         try {
+          const uri = request.params?.uri;
+          if (
+            servesSkills &&
+            typeof uri === "string" &&
+            uri.startsWith("skill://")
+          ) {
+            const catalog =
+              await resolveAuthorizedSkillCatalog("mcp:resources/read");
+            const skillFile = catalog.readFile(uri);
+            if (!skillFile) {
+              throw new ResourceNotFoundError(uri, `Skill not found: ${uri}`);
+            }
+            emitRead({ resourceName: uri });
+            return skillFile;
+          }
           const grantedActions =
             await grantedResourceActions("mcp:resources/read");
           return await withCallerContext(async () => {
-            const uri = request.params?.uri;
-            const skillFile = servesSkills ? readMcpSkillFile(uri) : null;
-            if (skillFile) return skillFile;
             let found: {
               actionName: string;
               resource: ResolvedMcpAppResource;
@@ -5210,8 +5330,10 @@ export async function createMCPServerForRequest(
   }
 
   if (servesSkills) {
-    const notFound = (uri: unknown) =>
-      new ResourceNotFoundError(String(uri ?? ""), `Skill not found: ${uri}`);
+    const notFound = (uri: unknown) => {
+      const label = typeof uri === "string" ? uri : "";
+      return new ResourceNotFoundError(label, `Skill not found: ${label}`);
+    };
     const skillParams = z.object({
       uri: z.string().optional(),
       cursor: z.string().optional(),
@@ -5220,29 +5342,31 @@ export async function createMCPServerForRequest(
       "skills/list",
       { params: skillParams },
       async () => {
-        await resolveServiceGrant("mcp:skills/list");
-        return listMcpSkills();
+        const catalog = await resolveAuthorizedSkillCatalog("mcp:skills/list");
+        return catalog.list();
       },
     );
     server.setRequestHandler(
       "skills/get",
       { params: skillParams },
       async (params) => {
-        await resolveServiceGrant("mcp:skills/get");
-        const result = getMcpSkill(params.uri);
+        const catalog = await resolveAuthorizedSkillCatalog("mcp:skills/get");
+        const result = catalog.get(params.uri);
         if (!result) throw notFound(params.uri);
         return result;
       },
     );
     if (!supportsMcpApps) {
-      server.setRequestHandler("resources/list", async () => ({
-        resources: [],
-      }));
+      server.setRequestHandler("resources/list", async () => {
+        await resolveAuthorizedSkillCatalog("mcp:resources/list");
+        return { resources: [] };
+      });
       server.setRequestHandler(
         "resources/read",
         async (request: { params?: { uri?: unknown } }) => {
-          await resolveServiceGrant("mcp:resources/read");
-          const skillFile = readMcpSkillFile(request.params?.uri);
+          const catalog =
+            await resolveAuthorizedSkillCatalog("mcp:resources/read");
+          const skillFile = catalog.readFile(request.params?.uri);
           if (!skillFile) throw notFound(request.params?.uri);
           return skillFile;
         },
