@@ -62,7 +62,7 @@ function requestCanvasImageToken(): void {
       requestInFlight = false;
       console.warn("[canvas-image] token unavailable", error);
       settle();
-      const delay = RETRY_DELAYS_MS.at(retryCount);
+      const delay = RETRY_DELAYS_MS[retryCount];
       retryCount += 1;
       if (delay !== undefined) setTimeout(requestCanvasImageToken, delay);
     },
