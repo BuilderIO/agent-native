@@ -1,5 +1,6 @@
 import { useParams } from "react-router";
 
+import { useCanvasImagesReady } from "@/components/design/design-canvas/canvas-image-sources";
 import {
   DesignStylesheetsContext,
   designStylesheetsKey,
@@ -283,7 +284,9 @@ function DesignEditor() {
     editorGenerationAndAccess.design?.title,
     editorFilesAndSaving.files,
   );
+  const canvasImagesReady = useCanvasImagesReady();
   const view = renderDesignEditorView({
+    canvasImagesReady,
     editorCore,
     editorHistory,
     editorGenerationAndAccess,

@@ -11,22 +11,73 @@ import {
 } from "./canvas-image-url";
 
 const ORIGIN = "https://design.example.test";
+const PROXY = {
+  origin: ORIGIN,
+  route: CANVAS_IMAGE_ROUTE,
+  auth: { subject: "subj_-1", exp: 1893456000, token: "tok_-1" },
+};
 const PHOTO = "https://images.example.test/a/photo.jpg?w=5350&fit=crop";
 
 function proxied(src: string): string {
-  return `${ORIGIN}${CANVAS_IMAGE_ROUTE}?src=${encodeURIComponent(src)}&w=${CANVAS_IMAGE_MAX_EDGE}`;
+  return `${ORIGIN}${CANVAS_IMAGE_ROUTE}?src=${encodeURIComponent(src)}&w=${CANVAS_IMAGE_MAX_EDGE}&u=subj_-1&exp=1893456000&t=tok_-1`;
 }
+
+describe("canvas image token params", () => {
+  it("appends the token and strips it again on every restore path", () => {
+    const out = toCanvasImageUrl(PHOTO, PROXY) ?? "";
+    expect(out).toContain("&u=subj_-1&exp=1893456000&t=tok_-1");
+    expect(fromCanvasImageUrl(out, ORIGIN)).toBe(PHOTO);
+    expect(restoreCanvasImageUrls(out, ORIGIN)).toBe(PHOTO);
+    const html = `<img src="${PHOTO.replace(/&/g, "&amp;")}">`;
+    const rewritten = withCanvasImageSizing(html, PROXY);
+    expect(rewritten).toContain("&amp;t=tok_-1");
+    expect(restoreCanvasImageUrls(rewritten, ORIGIN)).toBe(html);
+    const msg = { a: [`url(${out})`] };
+    restoreCanvasImageUrlsInMessage(msg, ORIGIN);
+    expect(msg.a[0]).toBe(`url(${PHOTO})`);
+  });
+
+  it("still restores URLs saved before tokens existed", () => {
+    const legacy = `${ORIGIN}${CANVAS_IMAGE_ROUTE}?src=${encodeURIComponent(PHOTO)}&w=2048`;
+    expect(restoreCanvasImageUrls(legacy, ORIGIN)).toBe(PHOTO);
+  });
+});
+
+describe("canvas image URLs under a base path", () => {
+  const mounted = { ...PROXY, route: `/design${CANVAS_IMAGE_ROUTE}` };
+
+  it("builds the proxy URL on the mounted route and restores it", () => {
+    const out = toCanvasImageUrl(PHOTO, mounted) ?? "";
+    expect(out.startsWith(`${ORIGIN}/design${CANVAS_IMAGE_ROUTE}?src=`)).toBe(
+      true,
+    );
+    expect(fromCanvasImageUrl(out, ORIGIN)).toBe(PHOTO);
+    expect(restoreCanvasImageUrls(out, ORIGIN)).toBe(PHOTO);
+    const html = `<img src="${PHOTO.replace(/&/g, "&amp;")}"><div style="background:url(/design${CANVAS_IMAGE_ROUTE}?src=${encodeURIComponent(PHOTO)}&w=2048&u=a&exp=1&t=b)"></div>`;
+    const restored = restoreCanvasImageUrls(
+      withCanvasImageSizing(html, mounted),
+      ORIGIN,
+    );
+    expect(restored).toContain(`url(${PHOTO})`);
+    expect(restored).not.toContain(CANVAS_IMAGE_ROUTE);
+  });
+
+  it("does not wrap an already proxied mounted URL again", () => {
+    const out = toCanvasImageUrl(PHOTO, mounted) ?? "";
+    expect(toCanvasImageUrl(out, mounted)).toBeNull();
+  });
+});
 
 describe("toCanvasImageUrl / fromCanvasImageUrl", () => {
   it("rewrites absolute remote URLs and inverts exactly", () => {
-    const out = toCanvasImageUrl(PHOTO, ORIGIN) ?? "";
+    const out = toCanvasImageUrl(PHOTO, PROXY) ?? "";
     expect(out).toBe(proxied(PHOTO));
     expect(fromCanvasImageUrl(out, ORIGIN)).toBe(PHOTO);
   });
 
   it("rewrites protocol-relative URLs and inverts verbatim", () => {
     const src = "//cdn.example.test/x.png";
-    const out = toCanvasImageUrl(src, ORIGIN) ?? "";
+    const out = toCanvasImageUrl(src, PROXY) ?? "";
     expect(out).toBe(proxied(src));
     expect(fromCanvasImageUrl(out, ORIGIN)).toBe(src);
   });
@@ -54,7 +105,7 @@ describe("toCanvasImageUrl / fromCanvasImageUrl", () => {
       "http://[::1]:8080/a.jpg",
       "http://[fd00::1]/a.jpg",
     ]) {
-      expect(toCanvasImageUrl(src, ORIGIN)).toBeNull();
+      expect(toCanvasImageUrl(src, PROXY)).toBeNull();
     }
   });
 
@@ -71,7 +122,7 @@ describe("toCanvasImageUrl / fromCanvasImageUrl", () => {
   });
 
   it("escapes characters that would end an unquoted CSS url()", () => {
-    const out = toCanvasImageUrl("https://a.test/x(1)'!*.png", ORIGIN) ?? "";
+    const out = toCanvasImageUrl("https://a.test/x(1)'!*.png", PROXY) ?? "";
     expect(out).not.toMatch(/[()'!*]/);
     expect(fromCanvasImageUrl(out, ORIGIN)).toBe("https://a.test/x(1)'!*.png");
   });
@@ -79,7 +130,7 @@ describe("toCanvasImageUrl / fromCanvasImageUrl", () => {
 
 describe("withCanvasImageSizing", () => {
   const roundTrip = (html: string) => {
-    const rewritten = withCanvasImageSizing(html, ORIGIN);
+    const rewritten = withCanvasImageSizing(html, PROXY);
     expect(rewritten).not.toBe(html);
     expect(restoreCanvasImageUrls(rewritten, ORIGIN)).toBe(html);
     return rewritten;
@@ -109,13 +160,13 @@ describe("withCanvasImageSizing", () => {
       "https://localhost.example.test/a.jpg",
       "https://11.0.0.1/a.jpg",
     ]) {
-      expect(toCanvasImageUrl(src, ORIGIN)).not.toBeNull();
+      expect(toCanvasImageUrl(src, PROXY)).not.toBeNull();
     }
   });
 
   it("leaves video and audio source src alone", () => {
     const html = `<video autoplay><source src="https://cdn.example.test/hero.mp4" type="video/mp4"></video><audio><source src="https://cdn.example.test/a.mp3"></audio>`;
-    expect(withCanvasImageSizing(html, ORIGIN)).toBe(html);
+    expect(withCanvasImageSizing(html, PROXY)).toBe(html);
   });
 
   it("rewrites srcset candidates and keeps descriptors", () => {
@@ -137,7 +188,7 @@ describe("withCanvasImageSizing", () => {
 
   it("leaves fonts, imports and svg in CSS alone", () => {
     const html = `<style>@import url(https://fonts.test/css?family=A);@font-face{font-family:A;src:url(https://fonts.test/a.woff2)}.x{background:url(https://a.test/a.svg)}</style>`;
-    expect(withCanvasImageSizing(html, ORIGIN)).toBe(html);
+    expect(withCanvasImageSizing(html, PROXY)).toBe(html);
   });
 
   it("does not touch scripts, comments, other tags or data URLs", () => {
@@ -146,7 +197,7 @@ describe("withCanvasImageSizing", () => {
       `<!-- <img src="https://a.test/c.jpg"> -->` +
       `<a href="https://a.test/page"><video poster="https://a.test/p.jpg" src="https://a.test/v.mp4"></video></a>` +
       `<img src="data:image/png;base64,AAAA//BB"><div style="background:url(data:image/png;base64,AA//BB)"></div>`;
-    expect(withCanvasImageSizing(html, ORIGIN)).toBe(html);
+    expect(withCanvasImageSizing(html, PROXY)).toBe(html);
   });
 
   it("rewrites images next to a script without touching the script", () => {
@@ -165,7 +216,7 @@ describe("withCanvasImageSizing", () => {
       `<img src="https://a.test/logo.svg">`,
       `<img src="${ORIGIN}/same.png">`,
     ]) {
-      expect(withCanvasImageSizing(html, ORIGIN)).toBe(html);
+      expect(withCanvasImageSizing(html, PROXY)).toBe(html);
     }
     const plain = "<div>no urls</div>";
     expect(restoreCanvasImageUrls(plain)).toBe(plain);
@@ -174,9 +225,9 @@ describe("withCanvasImageSizing", () => {
   it("is idempotent", () => {
     const once = withCanvasImageSizing(
       `<img src="${PHOTO.replace(/&/g, "&amp;")}">`,
-      ORIGIN,
+      PROXY,
     );
-    expect(withCanvasImageSizing(once, ORIGIN)).toBe(once);
+    expect(withCanvasImageSizing(once, PROXY)).toBe(once);
   });
 
   it("restores canvas-image URLs wherever serialized DOM left them", () => {
@@ -217,7 +268,7 @@ describe("restore precision", () => {
     const authored = `<img src="${PHOTO}">`;
     const rewritten = withCanvasImageSizing(
       authored.replace(/&/g, "&amp;"),
-      ORIGIN,
+      PROXY,
     );
     expect(restoreCanvasImageUrls(rewritten, ORIGIN)).toBe(
       `<img src="${PHOTO.replace(/&/g, "&amp;")}">`,

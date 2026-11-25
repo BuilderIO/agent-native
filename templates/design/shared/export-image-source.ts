@@ -41,21 +41,32 @@ export async function decodeExportImage(
   }
 }
 
-function canvasImageOrigin(image: HTMLImageElement): string | undefined {
+export function canvasImageOrigin(document: Document): string | undefined {
   return (
-    image.ownerDocument
+    document
       .querySelector("script[data-agent-native-canvas-image-bootstrap]")
       ?.getAttribute("data-origin") ?? undefined
   );
 }
 
-function restoreCanvasImageSources(root: Element, origin: string): void {
-  for (const element of [root, ...root.querySelectorAll("img,source")]) {
-    for (const name of ["src", "srcset"]) {
+export function restoreCanvasImageSources(
+  root: Element | Document,
+  origin: string,
+): void {
+  const elements = Array.from(
+    root.querySelectorAll("img,source,style,[style]"),
+  );
+  if (root instanceof Element) elements.unshift(root);
+  for (const element of elements) {
+    for (const name of ["src", "srcset", "style"]) {
       const value = element.getAttribute(name);
       if (!value) continue;
       const restored = restoreCanvasImageUrls(value, origin);
       if (restored !== value) element.setAttribute(name, restored);
+    }
+    if (element.localName === "style" && element.textContent) {
+      const restored = restoreCanvasImageUrls(element.textContent, origin);
+      if (restored !== element.textContent) element.textContent = restored;
     }
   }
 }
@@ -65,7 +76,7 @@ export async function prepareExportImageSource(
   signal: AbortSignal,
 ): Promise<HTMLImageElement> {
   let image = source;
-  const origin = canvasImageOrigin(source);
+  const origin = canvasImageOrigin(source.ownerDocument);
   const proxied =
     origin !== undefined &&
     fromCanvasImageUrl(source.currentSrc, origin) !== null;

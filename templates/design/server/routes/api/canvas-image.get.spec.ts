@@ -42,15 +42,28 @@ vi.mock("@agent-native/core/ingestion", () => ({
   },
 }));
 
+import { mintCanvasImageToken } from "../../lib/canvas-image-token.js";
 import handler from "./canvas-image.get.js";
 
 const run = handler as unknown as (event: {
   query: Record<string, string>;
 }) => Promise<Response>;
 
+function tokenQuery(nowMs = Date.now()): Record<string, string> {
+  const minted = mintCanvasImageToken("viewer@example.test", nowMs);
+  if (minted === null) throw new Error("expected a minted token");
+  return { u: minted.subject, exp: String(minted.exp), t: minted.token };
+}
+
 function call(query: Record<string, string>) {
+  return run({ query: { ...tokenQuery(), ...query } });
+}
+
+function callRaw(query: Record<string, string>) {
   return run({ query });
 }
+
+const CDN_VARY = "query=src|w";
 
 function imageResponse(body: Buffer, type = "image/jpeg") {
   return new Response(new Blob([new Uint8Array(body)]), {
@@ -120,8 +133,9 @@ describe("canvas-image route", () => {
       "public, max-age=86400, stale-while-revalidate=604800",
     );
     expect(res.headers.get("Netlify-CDN-Cache-Control")).toBe(
-      "public, max-age=86400, stale-while-revalidate=604800",
+      "public, durable, max-age=86400, stale-while-revalidate=604800",
     );
+    expect(res.headers.get("Netlify-Vary")).toBe(CDN_VARY);
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
     expect(res.headers.get("Cross-Origin-Resource-Policy")).toBe(
       "cross-origin",
@@ -149,6 +163,26 @@ describe("canvas-image route", () => {
     const out = await sharp(Buffer.from(await res.arrayBuffer())).metadata();
     expect(out.width).toBe(512);
     expect(out.hasAlpha).toBe(true);
+  });
+
+  it("keeps the source format when it resizes PNG, WebP and GIF", async () => {
+    const base = sharp({
+      create: { width: 1600, height: 800, channels: 3, background: "#c00" },
+    });
+    const sources = {
+      png: await base.clone().png().toBuffer(),
+      webp: await base.clone().webp().toBuffer(),
+      gif: await base.clone().gif().toBuffer(),
+    };
+    for (const [format, bytes] of Object.entries(sources)) {
+      mockFetch.mockResolvedValueOnce(imageResponse(bytes, `image/${format}`));
+      const res = await call({ src: `https://a.test/a.${format}`, w: "512" });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Content-Type")).toBe(`image/${format}`);
+      const out = await sharp(Buffer.from(await res.arrayBuffer())).metadata();
+      expect(out.format).toBe(format);
+      expect(out.width).toBe(512);
+    }
   });
 
   it("returns original bytes for images already within the bucket", async () => {
@@ -183,7 +217,7 @@ describe("canvas-image route", () => {
     expect(svg.headers.get("Location")).toBeNull();
   });
 
-  it("rejects query keys other than src and w", async () => {
+  it("rejects query keys other than src, w and the token params", async () => {
     const res = await call({ src: "https://a.test/x.png", cb: "1" });
     expect(res.status).toBe(400);
     expect(mockFetch).not.toHaveBeenCalled();
@@ -292,5 +326,74 @@ describe("canvas-image route", () => {
       "resize failed",
     );
     expect(Buffer.from(await res.arrayBuffer()).equals(big)).toBe(true);
+  });
+
+  describe("token", () => {
+    const base = { src: "https://a.test/x.png", w: "512" };
+
+    async function expectForbidden(res: Response) {
+      expect(res.status).toBe(403);
+      expect(res.headers.get("Cache-Control")).toBe("no-store");
+      expect(res.headers.get("Netlify-CDN-Cache-Control")).toBe("no-store");
+      expect(res.headers.get("Netlify-Vary")).toBe(CDN_VARY);
+      expect(mockFetch).not.toHaveBeenCalled();
+    }
+
+    it("refuses a missing token before fetching", async () => {
+      await expectForbidden(await callRaw(base));
+    });
+
+    it("refuses each missing token param", async () => {
+      for (const key of ["u", "exp", "t"]) {
+        const { [key]: _omitted, ...rest } = tokenQuery();
+        await expectForbidden(await callRaw({ ...base, ...rest }));
+        mockFetch.mockReset();
+      }
+    });
+
+    it("refuses a tampered subject, expiry or signature", async () => {
+      const good = tokenQuery();
+      const { u = "", exp = "0", t = "" } = good;
+      const tampered = [
+        { ...good, u: `${u}x` },
+        { ...good, exp: String(Number(exp) + 1) },
+        {
+          ...good,
+          t: `${t.slice(0, -1)}${t.endsWith("A") ? "B" : "A"}`,
+        },
+        { ...good, t: "" },
+      ];
+      for (const extra of tampered) {
+        await expectForbidden(await callRaw({ ...base, ...extra }));
+        mockFetch.mockReset();
+      }
+    });
+
+    it("refuses an expired token", async () => {
+      const stale = tokenQuery(Date.now() - 3 * 24 * 60 * 60 * 1000);
+      await expectForbidden(await callRaw({ ...base, ...stale }));
+    });
+
+    it("refuses a non-integer expiry", async () => {
+      await expectForbidden(
+        await callRaw({ ...base, ...tokenQuery(), exp: "1e10" }),
+      );
+    });
+
+    it("refuses an expiry more than 48 hours out", async () => {
+      const far = tokenQuery(Date.now() + 5 * 24 * 60 * 60 * 1000);
+      await expectForbidden(await callRaw({ ...base, ...far }));
+    });
+
+    it("sends Netlify-Vary on errors and fallbacks", async () => {
+      expect(
+        (await call({ src: "ftp://a.test/x" })).headers.get("Netlify-Vary"),
+      ).toBe(CDN_VARY);
+      mockFetch.mockResolvedValueOnce(new Response("no", { status: 500 }));
+      const refused = await call({ src: "https://a.test/y.png" });
+      expect(refused.status).toBe(502);
+      expect(refused.headers.get("Cache-Control")).toBe("no-store");
+      expect(refused.headers.get("Netlify-Vary")).toBe(CDN_VARY);
+    });
   });
 });

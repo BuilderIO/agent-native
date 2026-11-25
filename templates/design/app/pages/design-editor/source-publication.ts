@@ -139,7 +139,7 @@ export function prepareCanonicalSourceContent(
   if (cached?.content === content) {
     canonicalSourceCache.delete(options.fileId);
     canonicalSourceCache.set(options.fileId, cached);
-    return cached.result;
+    return withRestoredImageUrls(cached.result, restoredImageUrls);
   }
   if (cached) removeCanonicalSourceCacheEntry(options.fileId);
 
@@ -162,7 +162,7 @@ export function prepareCanonicalSourceContent(
     let nodeIdMap: Map<string, string> | undefined;
     const result: CanonicalSourceContentResult = {
       content,
-      changed: restoredImageUrls,
+      changed: false,
       get nodeIdMap() {
         nodeIdMap ??= new Map(
           buildCodeLayerProjection(content, { source }).nodes.map((node) => [
@@ -174,7 +174,7 @@ export function prepareCanonicalSourceContent(
       },
     };
     cacheCanonicalSource(options.fileId, content, result);
-    return result;
+    return withRestoredImageUrls(result, restoredImageUrls);
   }
   const before = buildCodeLayerProjection(content, { source });
   const edits: CodeLayerSourceEdit[] = [];
@@ -198,13 +198,27 @@ export function prepareCanonicalSourceContent(
 
   const result = {
     content: prepared.content,
-    changed: prepared.changed || restoredImageUrls,
+    changed: prepared.changed,
     nodeIdMap: prepared.changed
       ? mapSourceNodeIds(before.nodes, after.nodes, edits)
       : new Map(before.nodes.map((node) => [node.id, node.id])),
   };
   cacheCanonicalSource(options.fileId, content, result, after);
-  return result;
+  return withRestoredImageUrls(result, restoredImageUrls);
+}
+
+function withRestoredImageUrls(
+  result: CanonicalSourceContentResult,
+  restoredImageUrls: boolean,
+): CanonicalSourceContentResult {
+  if (!restoredImageUrls || result.changed) return result;
+  return {
+    content: result.content,
+    changed: true,
+    get nodeIdMap() {
+      return result.nodeIdMap;
+    },
+  };
 }
 
 function cacheCanonicalSource(

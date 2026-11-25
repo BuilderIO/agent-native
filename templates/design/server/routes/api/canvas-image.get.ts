@@ -6,6 +6,7 @@ import {
 import { defineEventHandler, getQuery } from "h3";
 
 import { CANVAS_IMAGE_MAX_EDGE } from "../../../shared/canvas-image-url.js";
+import { verifyCanvasImageToken } from "../../lib/canvas-image-token.js";
 
 const WIDTH_BUCKETS = [512, 1024, CANVAS_IMAGE_MAX_EDGE] as const;
 const MAX_SRC_LENGTH = 4096;
@@ -17,7 +18,7 @@ const JPEG_QUALITY = 82;
 const PASS_THROUGH_FORMATS = new Set(["jpeg", "png", "webp", "gif"]);
 const FALLBACK_FORMATS = new Set(["jpeg", "png", "webp", "gif", "avif"]);
 const RASTER_FORMATS = new Set([...FALLBACK_FORMATS, "heif", "tiff"]);
-const ALLOWED_QUERY_KEYS = new Set(["src", "w"]);
+const ALLOWED_QUERY_KEYS = new Set(["src", "w", "u", "exp", "t"]);
 const UNTYPED_CONTENT_TYPES = new Set([
   "",
   "application/octet-stream",
@@ -26,11 +27,17 @@ const UNTYPED_CONTENT_TYPES = new Set([
 const IMAGE_CACHE = "public, max-age=86400, stale-while-revalidate=604800";
 const SHORT_CACHE = "public, max-age=300";
 const UNCACHED = "no-store";
+const CDN_IMAGE_CACHE =
+  "public, durable, max-age=86400, stale-while-revalidate=604800";
+const CDN_VARY = "query=src|w";
 
 export default defineEventHandler(async (event) => {
   const query = getQuery(event);
   if (Object.keys(query).some((key) => !ALLOWED_QUERY_KEYS.has(key))) {
-    return reject(400, "Only src and w are accepted");
+    return reject(400, "Only src, w, u, exp and t are accepted");
+  }
+  if (!verifyCanvasImageToken(query, Date.now())) {
+    return reject(403, "A valid canvas image token is required");
   }
   const src = parseSrc(query.src);
   if (!src) return reject(400, "A valid absolute http(s) src is required");
@@ -145,11 +152,12 @@ function imageResponse(
     "Access-Control-Allow-Origin": "*",
     "X-Content-Type-Options": "nosniff",
     "Content-Security-Policy": "default-src 'none'; sandbox",
+    "Netlify-Vary": CDN_VARY,
   };
   if (fallbackReason) {
     headers["X-Canvas-Image-Fallback"] = headerSafe(fallbackReason);
   } else {
-    headers["Netlify-CDN-Cache-Control"] = IMAGE_CACHE;
+    headers["Netlify-CDN-Cache-Control"] = CDN_IMAGE_CACHE;
   }
   return new Response(new Blob([new Uint8Array(data)]), { headers });
 }
@@ -245,7 +253,16 @@ async function resizeImage(
   const pipeline = open()
     .rotate()
     .resize(edge, edge, { fit: "inside", withoutEnlargement: true });
-  if (meta.hasAlpha) {
+  if (meta.format === "webp") {
+    return {
+      data: await pipeline.webp({ quality: JPEG_QUALITY }).toBuffer(),
+      contentType: "image/webp",
+    };
+  }
+  if (meta.format === "gif") {
+    return { data: await pipeline.gif().toBuffer(), contentType: "image/gif" };
+  }
+  if (meta.format === "png" || meta.hasAlpha) {
     return {
       data: await pipeline.png({ compressionLevel: 9 }).toBuffer(),
       contentType: "image/png",
@@ -260,7 +277,14 @@ async function resizeImage(
 function reject(status: number, error: string): Response {
   return Response.json(
     { error },
-    { status, headers: { "Cache-Control": "no-store" } },
+    {
+      status,
+      headers: {
+        "Cache-Control": UNCACHED,
+        "Netlify-CDN-Cache-Control": UNCACHED,
+        "Netlify-Vary": CDN_VARY,
+      },
+    },
   );
 }
 
@@ -283,6 +307,7 @@ function failure(
         "Cache-Control": status === 502 ? UNCACHED : SHORT_CACHE,
         "X-Canvas-Image-Fallback": headerSafe(reason),
         "Cross-Origin-Resource-Policy": "cross-origin",
+        "Netlify-Vary": CDN_VARY,
       },
     },
   );

@@ -1,12 +1,36 @@
 export const CANVAS_IMAGE_ROUTE = "/api/canvas-image";
 export const CANVAS_IMAGE_MAX_EDGE = 2048;
+export const CANVAS_IMAGE_DENIED_MESSAGE = "agent-native:canvas-image-denied";
 
 const NON_RASTER_PATH = /\.svg$/i;
 const PRIVATE_HOST =
   /^(?:localhost|.+\.localhost|.+\.local|0\.0\.0\.0|127\.\d+\.\d+\.\d+|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+|169\.254\.\d+\.\d+|\[(?:::1?|f[cd][0-9a-f]*:[^\]]*|fe80:[^\]]*)\])$/i;
 const NON_IMAGE_CSS_PATH = /\.(?:svg|woff2?|ttf|otf|eot|css)$/i;
 
-export function toCanvasImageUrl(src: string, origin: string): string | null {
+export interface CanvasImageAuth {
+  subject: string;
+  exp: number;
+  token: string;
+}
+
+export interface CanvasImageProxy {
+  origin: string;
+  route: string;
+  auth: CanvasImageAuth;
+}
+
+export function isCanvasImagePath(pathname: string): boolean {
+  return pathname.endsWith(CANVAS_IMAGE_ROUTE);
+}
+
+function authQuery(auth: CanvasImageAuth): string {
+  return `&u=${encodeURIComponent(auth.subject)}&exp=${auth.exp}&t=${encodeURIComponent(auth.token)}`;
+}
+
+export function toCanvasImageUrl(
+  src: string,
+  proxy: CanvasImageProxy,
+): string | null {
   if (typeof src !== "string" || src === "" || src !== src.trim()) return null;
   const isProtocolRelative = src.startsWith("//");
   if (!isProtocolRelative && !/^https?:\/\//i.test(src)) return null;
@@ -14,11 +38,11 @@ export function toCanvasImageUrl(src: string, origin: string): string | null {
   if (!URL.canParse(absolute)) return null;
   const parsed = new URL(absolute);
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
-  if (parsed.origin === origin) return null;
+  if (parsed.origin === proxy.origin) return null;
   if (PRIVATE_HOST.test(parsed.hostname)) return null;
   if (NON_RASTER_PATH.test(parsed.pathname)) return null;
-  if (parsed.pathname === CANVAS_IMAGE_ROUTE) return null;
-  return `${origin}${CANVAS_IMAGE_ROUTE}?src=${encodeSrc(src)}&w=${CANVAS_IMAGE_MAX_EDGE}`;
+  if (isCanvasImagePath(parsed.pathname)) return null;
+  return `${proxy.origin}${proxy.route}?src=${encodeSrc(src)}&w=${CANVAS_IMAGE_MAX_EDGE}${authQuery(proxy.auth)}`;
 }
 
 const RELATIVE_BASE = "http://canvas-image.invalid";
@@ -31,7 +55,7 @@ export function fromCanvasImageUrl(
   if (!URL.canParse(url, RELATIVE_BASE)) return null;
   const parsed = new URL(url, RELATIVE_BASE);
   if (parsed.origin !== RELATIVE_BASE && parsed.origin !== origin) return null;
-  if (parsed.pathname !== CANVAS_IMAGE_ROUTE) return null;
+  if (!isCanvasImagePath(parsed.pathname)) return null;
   return parsed.searchParams.get("src");
 }
 
@@ -57,7 +81,10 @@ const CSS_DECLARATION_RE =
 const CSS_URL_RE =
   /url\(\s*(?:(&quot;|&#39;|&#x27;|&apos;|"|')([\s\S]*?)\1|([^)\s"']*))\s*\)/gi;
 
-export function withCanvasImageSizing(html: string, origin: string): string {
+export function withCanvasImageSizing(
+  html: string,
+  proxy: CanvasImageProxy,
+): string {
   if (!html.includes("//")) return html;
   return html.replace(
     MARKUP_RE,
@@ -71,7 +98,7 @@ export function withCanvasImageSizing(html: string, origin: string): string {
     ) => {
       if (styleOpen !== undefined) {
         const body = css ?? "";
-        const next = rewriteCss(body, origin, false);
+        const next = rewriteCss(body, proxy, false);
         return next === body ? match : styleOpen + next + styleClose;
       }
       if (tag === undefined) return match;
@@ -96,10 +123,10 @@ export function withCanvasImageSizing(html: string, origin: string): string {
           if (!isSrc && !isSrcset && lower !== "style") return attr;
           const raw = dq ?? sq ?? bare ?? "";
           const next = isSrc
-            ? rewriteAttrUrl(raw, origin)
+            ? rewriteAttrUrl(raw, proxy)
             : isSrcset
-              ? rewriteSrcset(raw, origin)
-              : rewriteCss(raw, origin, true);
+              ? rewriteSrcset(raw, proxy)
+              : rewriteCss(raw, proxy, true);
           if (next === raw) return attr;
           const quote = dq !== undefined ? '"' : sq !== undefined ? "'" : "";
           return `${space}${attrName}${eq}${quote}${next}${quote}`;
@@ -111,7 +138,7 @@ export function withCanvasImageSizing(html: string, origin: string): string {
 }
 
 const RESTORE_RE = new RegExp(
-  `(https?:\\/\\/[^\\s"'()<>\\/]+)?${CANVAS_IMAGE_ROUTE.replace(/[.*+?^${}()|[\]\\\/]/g, "\\$&")}\\?src=([^&\\s"'()<>]*)&(amp;)?w=\\d+`,
+  `(https?:\\/\\/[^\\s"'()<>\\/]+)?(?:\\/[^\\s"'()<>?\\/]+)*${CANVAS_IMAGE_ROUTE.replace(/[.*+?^${}()|[\]\\\/]/g, "\\$&")}\\?src=([^&\\s"'()<>]*)&(amp;)?w=\\d+(?:&(?:amp;)?u=[\\w-]+&(?:amp;)?exp=\\d+&(?:amp;)?t=[\\w-]+)?`,
   "g",
 );
 
@@ -177,12 +204,12 @@ function restoreMatch(match: string, encoded: string, amp?: string): string {
   return amp ? original.replace(/&/g, "&amp;") : original;
 }
 
-function rewriteAttrUrl(raw: string, origin: string): string {
-  const next = toCanvasImageUrl(decodeEntities(raw), origin);
+function rewriteAttrUrl(raw: string, proxy: CanvasImageProxy): string {
+  const next = toCanvasImageUrl(decodeEntities(raw), proxy);
   return next === null ? raw : next.replace(/&/g, "&amp;");
 }
 
-function rewriteSrcset(raw: string, origin: string): string {
+function rewriteSrcset(raw: string, proxy: CanvasImageProxy): string {
   let out = "";
   let i = 0;
   while (i < raw.length) {
@@ -194,7 +221,7 @@ function rewriteSrcset(raw: string, origin: string): string {
     i += token.length;
     const trailing = /,*$/.exec(token)?.[0] ?? "";
     const url = token.slice(0, token.length - trailing.length);
-    out += rewriteAttrUrl(url, origin) + trailing;
+    out += rewriteAttrUrl(url, proxy) + trailing;
     if (trailing) continue;
     const comma = raw.indexOf(",", i);
     const end = comma === -1 ? raw.length : comma;
@@ -204,7 +231,11 @@ function rewriteSrcset(raw: string, origin: string): string {
   return out;
 }
 
-function rewriteCss(css: string, origin: string, inAttribute: boolean): string {
+function rewriteCss(
+  css: string,
+  proxy: CanvasImageProxy,
+  inAttribute: boolean,
+): string {
   if (!css.includes("//")) return css;
   return css.replace(
     CSS_DECLARATION_RE,
@@ -221,7 +252,7 @@ function rewriteCss(css: string, origin: string, inAttribute: boolean): string {
           const decoded = inAttribute ? decodeEntities(raw) : raw;
           if (NON_IMAGE_CSS_PATH.test(decoded.replace(/[?#][\s\S]*$/, "")))
             return whole;
-          const rewritten = toCanvasImageUrl(decoded, origin);
+          const rewritten = toCanvasImageUrl(decoded, proxy);
           if (rewritten === null) return whole;
           const url = inAttribute
             ? rewritten.replace(/&/g, "&amp;")
@@ -265,13 +296,14 @@ function escapeAttr(value: string): string {
 
 const SCRIPT_CLOSE = ["</", "script>"].join("");
 
-export function canvasImageFrameBootstrap(origin: string): string {
+export function canvasImageFrameBootstrap(proxy: CanvasImageProxy): string {
+  const { origin, route, auth } = proxy;
   const literal = (value: unknown) =>
     JSON.stringify(value).replace(/</g, "\\u003c");
   return `<script data-agent-native-canvas-image-bootstrap data-origin="${escapeAttr(origin)}">${String.raw`(function(){try{
-var ORIGIN=${literal(origin)},ROUTE=${literal(CANVAS_IMAGE_ROUTE)},EDGE=${CANVAS_IMAGE_MAX_EDGE};
+var ORIGIN=${literal(origin)},AUTH=${literal(auth)},ROUTE=${literal(CANVAS_IMAGE_ROUTE)},PATH=${literal(route)},DENIED=${literal(CANVAS_IMAGE_DENIED_MESSAGE)},EDGE=${CANVAS_IMAGE_MAX_EDGE};
 var NON_RASTER=/\.svg$/i,PRIVATE_HOST=new RegExp(${literal(PRIVATE_HOST.source)},"i");
-var PROXY="(?:https?://[^\\s\"'()<>/]+)?"+ROUTE+"\\?src=([^&\\s\"'()<>]*)&w=\\d+";
+var PROXY="(?:https?://[^\\s\"'()<>/]+)?(?:/[^\\s\"'()<>?/]+)*"+ROUTE+"\\?src=([^&\\s\"'()<>]*)&w=\\d+(?:&u=[\\w-]+&exp=\\d+&t=[\\w-]+)?";
 var RESTORE=new RegExp(PROXY,"g");
 var failed=new WeakMap(),probes=new Map();
 function enc(s){return encodeURIComponent(s).replace(/[()'!*]/g,function(c){return "%"+c.charCodeAt(0).toString(16).toUpperCase();});}
@@ -283,8 +315,8 @@ var abs=rel?"https:"+src:src;
 if(!URL.canParse(abs))return null;
 var u=new URL(abs);
 if(u.protocol!=="http:"&&u.protocol!=="https:")return null;
-if(u.origin===ORIGIN||PRIVATE_HOST.test(u.hostname)||NON_RASTER.test(u.pathname)||u.pathname===ROUTE)return null;
-return ORIGIN+ROUTE+"?src="+enc(src)+"&w="+EDGE;
+if(u.origin===ORIGIN||PRIVATE_HOST.test(u.hostname)||NON_RASTER.test(u.pathname)||u.pathname.slice(-ROUTE.length)===ROUTE)return null;
+return ORIGIN+PATH+"?src="+enc(src)+"&w="+EDGE+"&u="+encodeURIComponent(AUTH.subject)+"&exp="+AUTH.exp+"&t="+encodeURIComponent(AUTH.token);
 }
 function toSrcset(raw){
 var out="",i=0;
@@ -304,6 +336,7 @@ out+=raw.slice(i,end);i=end;
 }
 return out;
 }
+function denied(){parent.postMessage({type:DENIED},ORIGIN);}
 function restore(s){return s.replace(RESTORE,function(m,e){try{return decodeURIComponent(e);}catch(x){return m;}});}
 function fix(el){
 var tag=el.localName;
@@ -329,7 +362,7 @@ if(state)return;
 probes.set(url,"pending");
 var probe=new Image();
 probe.onload=function(){probes.set(url,"ok");};
-probe.onerror=function(){probes.set(url,"failed");restoreCss(url);};
+probe.onerror=function(){probes.set(url,"failed");restoreCss(url);denied();};
 probe.src=url;
 });
 }
@@ -353,7 +386,7 @@ var t=group[j],touched=false;
 var v=t.getAttribute(name);
 if(v&&v.indexOf(ROUTE)>=0){var r=restore(v);if(r!==v){t.setAttribute(name,r);touched=true;}}
 });
-if(touched)failed.set(t,{src:t.getAttribute("src"),set:t.getAttribute("srcset")});
+if(touched){failed.set(t,{src:t.getAttribute("src"),set:t.getAttribute("srcset")});denied();}
 }
 }
 document.addEventListener("error",function(e){var el=e.target;if(el&&el.localName==="img")fallBack(el);},true);

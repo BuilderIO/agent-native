@@ -905,13 +905,16 @@ export const editorChromeBridgeScript: string = `"use strict";
 
   // shared/canvas-image-url.ts
   var CANVAS_IMAGE_ROUTE = "/api/canvas-image";
+  function isCanvasImagePath(pathname) {
+    return pathname.endsWith(CANVAS_IMAGE_ROUTE);
+  }
   var RELATIVE_BASE = "http://canvas-image.invalid";
   function fromCanvasImageUrl(url, origin) {
     if (typeof url !== "string" || !url.includes(CANVAS_IMAGE_ROUTE)) return null;
     if (!URL.canParse(url, RELATIVE_BASE)) return null;
     const parsed = new URL(url, RELATIVE_BASE);
     if (parsed.origin !== RELATIVE_BASE && parsed.origin !== origin) return null;
-    if (parsed.pathname !== CANVAS_IMAGE_ROUTE) return null;
+    if (!isCanvasImagePath(parsed.pathname)) return null;
     return parsed.searchParams.get("src");
   }
   var ATTRS = \`(?:"[^"]*"|'[^']*'|[^>"'])*\`;
@@ -920,7 +923,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     "gi"
   );
   var RESTORE_RE = new RegExp(
-    \`(https?:\\\\/\\\\/[^\\\\s"'()<>\\\\/]+)?\${CANVAS_IMAGE_ROUTE.replace(/[.*+?^\${}()|[\\]\\\\\\/]/g, "\\\\$&")}\\\\?src=([^&\\\\s"'()<>]*)&(amp;)?w=\\\\d+\`,
+    \`(https?:\\\\/\\\\/[^\\\\s"'()<>\\\\/]+)?(?:\\\\/[^\\\\s"'()<>?\\\\/]+)*\${CANVAS_IMAGE_ROUTE.replace(/[.*+?^\${}()|[\\]\\\\\\/]/g, "\\\\$&")}\\\\?src=([^&\\\\s"'()<>]*)&(amp;)?w=\\\\d+(?:&(?:amp;)?u=[\\\\w-]+&(?:amp;)?exp=\\\\d+&(?:amp;)?t=[\\\\w-]+)?\`,
     "g"
   );
   function restoreCanvasImageUrls(html, origin) {
@@ -1021,22 +1024,30 @@ export const editorChromeBridgeScript: string = `"use strict";
       signal.removeEventListener("abort", onAbort);
     }
   }
-  function canvasImageOrigin(image) {
-    return image.ownerDocument.querySelector("script[data-agent-native-canvas-image-bootstrap]")?.getAttribute("data-origin") ?? void 0;
+  function canvasImageOrigin(document2) {
+    return document2.querySelector("script[data-agent-native-canvas-image-bootstrap]")?.getAttribute("data-origin") ?? void 0;
   }
   function restoreCanvasImageSources(root, origin) {
-    for (const element of [root, ...root.querySelectorAll("img,source")]) {
-      for (const name of ["src", "srcset"]) {
+    const elements = Array.from(
+      root.querySelectorAll("img,source,style,[style]")
+    );
+    if (root instanceof Element) elements.unshift(root);
+    for (const element of elements) {
+      for (const name of ["src", "srcset", "style"]) {
         const value = element.getAttribute(name);
         if (!value) continue;
         const restored = restoreCanvasImageUrls(value, origin);
         if (restored !== value) element.setAttribute(name, restored);
       }
+      if (element.localName === "style" && element.textContent) {
+        const restored = restoreCanvasImageUrls(element.textContent, origin);
+        if (restored !== element.textContent) element.textContent = restored;
+      }
     }
   }
   async function prepareExportImageSource(source, signal) {
     let image = source;
-    const origin = canvasImageOrigin(source);
+    const origin = canvasImageOrigin(source.ownerDocument);
     const proxied = origin !== void 0 && fromCanvasImageUrl(source.currentSrc, origin) !== null;
     if (proxied || source.loading === "lazy" && !source.complete) {
       const picture = source.closest("picture");

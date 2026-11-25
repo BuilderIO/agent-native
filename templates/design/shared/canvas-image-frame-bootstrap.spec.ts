@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   canvasImageFrameBootstrap,
+  CANVAS_IMAGE_DENIED_MESSAGE,
   CANVAS_IMAGE_ROUTE,
   fromCanvasImageUrl,
   toCanvasImageUrl,
@@ -9,6 +10,11 @@ import {
 } from "./canvas-image-url";
 
 const ORIGIN = "https://design.example.test";
+const PROXY = {
+  origin: ORIGIN,
+  route: CANVAS_IMAGE_ROUTE,
+  auth: { subject: "subj_-1", exp: 1893456000, token: "tok_-1" },
+};
 
 interface FakeElement {
   nodeType: 1;
@@ -58,7 +64,7 @@ class FakeImage {
 
 function runBootstrap(styled: FakeElement[] = []) {
   FakeImage.created = [];
-  const script = canvasImageFrameBootstrap(ORIGIN);
+  const script = canvasImageFrameBootstrap(PROXY);
   const body = script.replace(/^<script[^>]*>/, "").replace(/<\/script>$/, "");
   let observe: ((records: Record_[]) => void) | undefined;
   let onError: ((event: { target: FakeElement }) => void) | undefined;
@@ -79,12 +85,19 @@ function runBootstrap(styled: FakeElement[] = []) {
       if (type === "error") onError = listener;
     },
   };
-  new Function("document", "MutationObserver", "Image", body)(
+  const posted: Array<{ message: unknown; target: string }> = [];
+  const parent = {
+    postMessage: (message: unknown, target: string) =>
+      posted.push({ message, target }),
+  };
+  new Function("document", "MutationObserver", "Image", "parent", body)(
     document,
     FakeObserver,
     FakeImage,
+    parent,
   );
   return {
+    posted,
     mutate(target: FakeElement, attributeName?: string) {
       observe?.([{ type: "attributes", target, attributeName }]);
     },
@@ -109,7 +122,7 @@ const SOURCES = [
 
 describe("canvasImageFrameBootstrap", () => {
   it("is an inline script that marks itself and holds no closing tag early", () => {
-    const script = canvasImageFrameBootstrap(ORIGIN);
+    const script = canvasImageFrameBootstrap(PROXY);
     expect(
       script.startsWith(
         `<script data-agent-native-canvas-image-bootstrap data-origin="${ORIGIN}">`,
@@ -123,9 +136,7 @@ describe("canvasImageFrameBootstrap", () => {
     for (const src of SOURCES) {
       const img = element("img", { src });
       frame.mutate(img);
-      expect(img.getAttribute("src")).toBe(
-        toCanvasImageUrl(src, ORIGIN) ?? src,
-      );
+      expect(img.getAttribute("src")).toBe(toCanvasImageUrl(src, PROXY) ?? src);
     }
   });
 
@@ -140,7 +151,7 @@ describe("canvasImageFrameBootstrap", () => {
       const img = element("img", { srcset });
       frame.mutate(img);
       const escaped = srcset.replace(/&/g, "&amp;");
-      const html = withCanvasImageSizing(`<img srcset="${escaped}">`, ORIGIN);
+      const html = withCanvasImageSizing(`<img srcset="${escaped}">`, PROXY);
       const expected = /srcset="([^"]*)"/
         .exec(html)?.[1]
         ?.replace(/&amp;/g, "&");
@@ -170,6 +181,9 @@ describe("canvasImageFrameBootstrap", () => {
     );
     frame.fail(img);
     expect(img.getAttribute("src")).toBe(original);
+    expect(frame.posted).toEqual([
+      { message: { type: CANVAS_IMAGE_DENIED_MESSAGE }, target: ORIGIN },
+    ]);
     frame.mutate(img);
     expect(img.getAttribute("src")).toBe(original);
     frame.fail(img);
@@ -184,7 +198,7 @@ describe("canvasImageFrameBootstrap", () => {
     img.setAttribute("src", "https://images.example.test/b.jpg");
     frame.mutate(img);
     expect(img.getAttribute("src")).toBe(
-      toCanvasImageUrl("https://images.example.test/b.jpg", ORIGIN),
+      toCanvasImageUrl("https://images.example.test/b.jpg", PROXY),
     );
   });
 
@@ -232,7 +246,7 @@ describe("canvasImageFrameBootstrap", () => {
 
   it("puts the original CSS url back when the resized background fails", () => {
     const original = "https://images.example.test/bg.jpg?a=1&b=2";
-    const style = `background-image:url("${toCanvasImageUrl(original, ORIGIN)}")`;
+    const style = `background-image:url("${toCanvasImageUrl(original, PROXY)}")`;
     const target = element("div", { style });
     const other = element("section", { style });
     const frame = runBootstrap([target, other]);
@@ -249,7 +263,7 @@ describe("canvasImageFrameBootstrap", () => {
   });
 
   it("keeps the resized CSS url when it loads", () => {
-    const style = `background:url(${toCanvasImageUrl("https://images.example.test/bg.jpg", ORIGIN)})`;
+    const style = `background:url(${toCanvasImageUrl("https://images.example.test/bg.jpg", PROXY)})`;
     const target = element("div", { style });
     const frame = runBootstrap([target]);
     frame.mutate(target, "style");

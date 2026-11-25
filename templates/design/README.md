@@ -44,6 +44,12 @@ questions for a deployment, set `DESIGN_SKIP_FIRST_PROMPT_QUESTIONS=false` (or
 configure `designFirstPrompt.skipIntakeQuestions: false` in
 `server/plugins/config.ts`).
 
+The canvas image resize proxy (`/api/canvas-image`) only serves requests that
+carry a short-lived signed token. Set `DESIGN_CANVAS_IMAGE_SECRET` (at least 32
+characters) on every hosted deployment; without it the proxy answers 403 and
+canvas images load from their original URLs. Local development generates a
+per-process key automatically.
+
 The first-output next-step experiment assigns eligible signed-in owners 50/50
 to `control` or `next_step` after a verified completed generation. The
 `first_output_next_step_exposed` event records both arms. Join subsequent

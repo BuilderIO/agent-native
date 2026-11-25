@@ -14871,7 +14871,12 @@ const Screen = memo(function Screen({
       ),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fitBodyToFrame, metadata.heightMode, screen.content, staticSrcdocNeeded]);
+  }, [
+    fitBodyToFrame,
+    metadata.heightMode,
+    screen.content,
+    staticSrcdocNeeded,
+  ]);
   const privateScreenshotPreview = useMemo(
     () =>
       preparePrivateReplayScreenshotPreviewDocument(srcdocWithHitTest, {
