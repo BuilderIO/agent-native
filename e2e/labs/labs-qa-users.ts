@@ -36,7 +36,7 @@ function log(line: string) {
   console.log(redact(line));
 }
 
-function derive(user: string): string {
+export function derive(user: string): string {
   const password =
     createHmac("sha256", apiKey).update(user).digest("hex").slice(0, 32) +
     "!Aa1";
@@ -91,6 +91,7 @@ async function sessionEmail(jar: Jar): Promise<string | undefined> {
   if (r.status !== 200) return undefined;
   try {
     return (JSON.parse(r.text) as { email?: string }).email?.toLowerCase();
+    // coercion-ok: a non-JSON session body means not signed in
   } catch {
     return undefined;
   }
@@ -123,12 +124,15 @@ async function followLink(jar: Jar, link: string) {
 }
 
 function resetToken(message: MailosaurMessage): string {
-  const bodies = [message.html?.body, message.text?.body].filter(Boolean);
+  const bodies = [message.html?.body, message.text?.body].filter(
+    (b): b is string => Boolean(b),
+  );
   const urls = [
     ...(message.html?.links ?? []),
     ...(message.text?.links ?? []),
   ].map((l) => l.href ?? "");
-  for (const b of bodies) urls.push(...(b!.match(/https?:\/\/[^\s"'<>]+/g) ?? []));
+  for (const b of bodies)
+    urls.push(...(b.match(/https?:\/\/[^\s"'<>]+/g) ?? []));
   for (const raw of urls) {
     try {
       const u = new URL(raw.replace(/&amp;/g, "&"));
@@ -136,17 +140,24 @@ function resetToken(message: MailosaurMessage): string {
       if (q) return q;
       const m = u.pathname.match(/reset-password\/([^/?]+)/);
       if (m) return decodeURIComponent(m[1]);
+      // coercion-ok: link text that is not a URL carries no token
     } catch {
-      // not a url
+      continue;
     }
   }
   throw new StepError("password-reset: no token in reset email");
 }
 
-async function ensureUser(slot: string): Promise<Jar> {
+export function qaIdentity(slot: string): { email: string; password: string } {
   const user = `qa-fleet-${slot}`;
-  const email = `${user}@${serverId}.mailosaur.net`.toLowerCase();
-  const password = derive(user);
+  return {
+    email: `${user}@${serverId}.mailosaur.net`.toLowerCase(),
+    password: derive(user),
+  };
+}
+
+export async function ensureUser(slot: string): Promise<Jar> {
+  const { email, password } = qaIdentity(slot);
   const jar: Jar = new Map();
 
   let attempt = await signIn(jar, email, password);
@@ -163,7 +174,6 @@ async function ensureUser(slot: string): Promise<Jar> {
   });
   if (up.status !== 200) {
     if (up.status >= 500) fail("sign-up", up);
-    // Account exists but the password did not match: key rotation.
     const rr = Date.now() - 5_000;
     const req = await call(jar, "POST", ba("/request-password-reset"), {
       email,
@@ -196,9 +206,8 @@ async function ensureUser(slot: string): Promise<Jar> {
 }
 
 async function waitForVerificationEmailOrReset(email: string, after: number) {
-  const { waitForVerificationEmail: wait } = await import(
-    "../signup/lib/mailosaur.ts"
-  );
+  const { waitForVerificationEmail: wait } =
+    await import("../signup/lib/mailosaur.ts");
   return wait(email, after);
 }
 
@@ -252,4 +261,4 @@ async function main() {
   if (failed.length) process.exit(1);
 }
 
-await main();
+if (import.meta.main) await main();

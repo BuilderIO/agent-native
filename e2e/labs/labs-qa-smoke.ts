@@ -15,7 +15,10 @@ if (!app || !email || !password) {
   throw new Error("LABS_APP, QA_EMAIL, and QA_PASSWORD are required.");
 }
 
-const host = (process.env.LABS_HOST?.trim() || "labs.agent-native.com").replace(/^https?:\/\//, "");
+const host = (process.env.LABS_HOST?.trim() || "labs.agent-native.com").replace(
+  /^https?:\/\//,
+  "",
+);
 const origin = `https://${host}`;
 const appUrl = `${origin}/${app}/`;
 const artifactDir = `artifacts/labs-qa-${app}`;
@@ -32,6 +35,7 @@ async function readSession(context: import("playwright").BrowserContext) {
   if (!res.ok()) return null;
   try {
     return (await res.json()) as { email?: string };
+    // coercion-ok: a non-JSON session body means no session to reuse
   } catch {
     return null;
   }
@@ -84,7 +88,7 @@ async function ensureSignedIn(
   const continueBtn = page.locator('form button[type="submit"]');
   if ((await continueBtn.count()) > 0) {
     await continueBtn.click();
-    await page.waitForTimeout(2000);
+    await page.waitForLoadState("networkidle");
   }
 
   session = await readSession(context);
@@ -102,8 +106,7 @@ async function run() {
 
   try {
     await ensureSignedIn(context, page);
-    await page.goto(appUrl, { waitUntil: "domcontentloaded", timeout: 60_000 });
-    await page.waitForTimeout(3000);
+    await page.goto(appUrl, { waitUntil: "networkidle", timeout: 60_000 });
     await page.screenshot({ path: `${artifactDir}/${app}-loaded.png` });
 
     const tmpName = `qa-tmp-${Date.now()}`;

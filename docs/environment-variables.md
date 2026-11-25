@@ -433,6 +433,25 @@ store them only as GitHub Actions secrets. See `e2e/signup/README.md`.
 | `SIGNUP_E2E_APPS`         | Comma-separated app ids, or `all`, for the full email signup canary.                          |
 | `SIGNUP_E2E_ENVIRONMENTS` | Comma-separated `beta` and/or `production` environments for the canary.                       |
 
+### Labs QA users and live verification
+
+Read by `.github/workflows/labs-qa-probe.yml`, `labs-qa-identities.yml`,
+`qa-live-verify.yml`, and `e2e/labs/`, never by application runtime code. QA
+user passwords are derived from `MAILOSAUR_API_KEY`, so these runs only work
+inside GitHub Actions.
+
+| Variable       | Purpose                                                                                    |
+| -------------- | ------------------------------------------------------------------------------------------ |
+| `QA_SLOTS`     | Comma-separated QA user slots (1-5) the users probe ensures.                               |
+| `QA_PROBE`     | `1` to seed, read back, and delete a `qa-tmp-` form per user.                              |
+| `QA_PROBE_APP` | Labs app whose auth routes the users probe signs in through (default `forms-2`).           |
+| `QA_SLOT`      | QA user slot a smoke or live-verify run signs in as.                                       |
+| `INPUT_APPS`   | Comma-separated Labs apps, or `all`, for the identities smoke matrix.                      |
+| `LABS_APP`     | Labs app the identities smoke opens.                                                       |
+| `QA_TARGET`    | Live-verify target: a preset (`forms-seeded`), an app name, or JSON with app, path, steps. |
+| `QA_PROVIDER`  | Live-verify browser: `browserbase` (remote session with a replay) or `local` (headless).   |
+| `QA_OUT_DIR`   | Directory the live-verify receipt and before/after screenshots are written to.             |
+
 ### Deploy-path check
 
 Read by `scripts/qa-deploy-paths.ts`, `scripts/reap-deploy-paths.ts`, and
