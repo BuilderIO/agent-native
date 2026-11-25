@@ -41,6 +41,7 @@ import type { CommentImage } from "@shared/comment-images";
 import {
   commentMentionsForText,
   findCommentMentions,
+  isT3AgentMention,
 } from "@shared/comment-mentions";
 import type { CommentPropertyTarget } from "@shared/comment-property-target";
 import { findReplaceSuggestionSummary } from "@shared/suggestion-diff";
@@ -229,7 +230,7 @@ function mentionsJsonFor(
   return commentMentionsForText(
     text,
     mentions.flatMap((entry) =>
-      entry.kind !== "agent"
+      entry.kind !== "agent" || isT3AgentMention(entry)
         ? [draftMention(entry)]
         : agent
           ? [aiRecipientMention(agent)]
