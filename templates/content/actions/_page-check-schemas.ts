@@ -115,6 +115,10 @@ export const pageChecksOutput = z.object({
   checks: z.array(checkSchema),
 });
 
+export const pageCheckAddedOutput = pageChecksOutput.extend({
+  checkId: z.string(),
+});
+
 export const pageCheckTryOutput = z.object({
   reading: z.object({
     parts: z.array(z.union([countPartSchema, unreadPartSchema])),

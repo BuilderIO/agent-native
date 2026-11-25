@@ -31,7 +31,6 @@ import {
   usePageChecksState,
 } from "./page-checks-context";
 
-/** The box that adds a check, or changes one, and shows what it finds first. */
 export function PageCheckDialog() {
   const actions = usePageChecksActions();
   const state = usePageChecksState();
@@ -93,7 +92,6 @@ function PageCheckForm({
         heading: heading.heading,
         level: heading.level,
       }));
-    // A section that's gone stays choosable, so editing its check shows why.
     if (
       scope.kind === "section" &&
       !options.some((option) => sameSection(option, scope))
@@ -269,7 +267,6 @@ function sameSection(
   return a.heading === b.heading && a.level === b.level;
 }
 
-/** What each part of the sentence finds on the page now, before saving. */
 function PageCheckTryLines({
   parts,
   tooManyParts,

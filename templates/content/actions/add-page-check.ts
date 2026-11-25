@@ -5,7 +5,7 @@ import { documentChangeResource } from "../server/lib/document-change-resource.j
 import { addPageCheck } from "../server/lib/page-checks.js";
 import {
   PAGE_CHECK_ANSWERS_HELP,
-  pageChecksOutput,
+  pageCheckAddedOutput,
   pageCheckScopeSchema,
   pageCheckSentenceSchema,
 } from "./_page-check-schemas.js";
@@ -17,7 +17,7 @@ export default defineAction({
     sentence: pageCheckSentenceSchema,
     scope: pageCheckScopeSchema,
   }),
-  outputSchema: pageChecksOutput.extend({ checkId: z.string() }),
+  outputSchema: pageCheckAddedOutput,
   mcpTool: true,
   searchHints: ["word count limit", "length check", "lint my draft"],
   changeResource: (input) => documentChangeResource(input.documentId),

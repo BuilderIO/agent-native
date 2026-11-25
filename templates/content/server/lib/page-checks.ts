@@ -32,7 +32,6 @@ import { firstRow } from "./first-row.js";
 type CheckRow = typeof schema.contentPageChecks.$inferSelect;
 type ResultRow = typeof schema.contentPageCheckResults.$inferSelect;
 
-/** Where a check looks, as asked: a section may name only its heading. */
 export type PageCheckScopeInput =
   | Exclude<PageCheckScope, { kind: "section" }>
   | (Omit<Extract<PageCheckScope, { kind: "section" }>, "headingId"> & {
@@ -54,10 +53,6 @@ function currentUserEmail(): string {
   return email;
 }
 
-/**
- * The page, for someone with at least this role on it. Commenters read checks,
- * editors change and run them, and viewers get nothing.
- */
 export async function pageCheckAccess(
   documentId: string,
   minRole: "commenter" | "editor",
@@ -74,24 +69,16 @@ export async function pageCheckAccess(
   return access;
 }
 
-/**
- * The page body as saved, after asking an open editor to save first. A failed
- * save leaves the last saved body, whose places then show as changed.
- */
 async function savedBody(
   documentId: string,
   options: { editorSaved?: boolean; minRole: "commenter" | "editor" },
 ) {
   if (!options.editorSaved) {
     const access = await pageCheckAccess(documentId, options.minRole);
-    try {
-      await flushOpenDocumentEditorToSql({
-        documentId,
-        ownerEmail: (access.resource.ownerEmail as string | undefined) || null,
-      });
-    } catch {
-      // The saved body is still a body to check.
-    }
+    await flushOpenDocumentEditorToSql({
+      documentId,
+      ownerEmail: (access.resource.ownerEmail as string | undefined) || null,
+    });
   }
   const access = await pageCheckAccess(documentId, options.minRole);
   const markdown = (access.resource.content as string | null | undefined) ?? "";
@@ -102,7 +89,6 @@ async function savedBody(
   };
 }
 
-/** The body's block IDs by path, or none on a page without them. */
 async function bodyIdsByPath(
   documentId: string,
   markdown: string,
@@ -213,7 +199,6 @@ function viewOf(
   };
 }
 
-/** A page's checks and what each place shows in its saved body. Runs nothing. */
 export async function listPageChecks(documentId: string) {
   const access = await pageCheckAccess(documentId, "commenter");
   const markdown = (access.resource.content as string | null | undefined) ?? "";
@@ -247,7 +232,6 @@ function checkNotFound(): ActionContractError {
   });
 }
 
-/** What a sentence would find on the page, without saving it. */
 export async function tryPageCheck(args: {
   documentId: string;
   sentence: string;
@@ -279,11 +263,6 @@ export async function tryPageCheck(args: {
   };
 }
 
-/**
- * Checks every place whose last answer is about other text or wording, stores
- * what it found, and forgets places that are gone. Two runs at once store one
- * answer per place.
- */
 async function checkStalePlaces(args: {
   documentId: string;
   markdown: string;
@@ -347,7 +326,6 @@ async function checkStalePlaces(args: {
   }
 }
 
-/** Checks what changed since the last check and returns every check's answers. */
 export async function runPageChecks(args: {
   documentId: string;
   checkIds?: string[];
@@ -383,10 +361,6 @@ async function loadCheckRow(documentId: string, checkId: string) {
   return row;
 }
 
-/**
- * A section by its heading's block ID when the page has them, so the check
- * follows the heading through a rename or a move.
- */
 function resolveScope(
   scope: PageCheckScopeInput,
   markdown: string,
@@ -516,14 +490,13 @@ export async function deletePageCheck(args: {
   await db
     .delete(schema.contentPageChecks)
     .where(eq(schema.contentPageChecks.id, args.checkId));
-  return { documentId: args.documentId, checkId: args.checkId, deleted: true };
+  return {
+    documentId: args.documentId,
+    checkId: args.checkId,
+    deleted: true as const,
+  };
 }
 
-/**
- * Leaves one place alone until its text changes, or with `undo`, stops leaving
- * it alone. The text is the place's text in the saved body unless the open
- * editor names the text it showed.
- */
 export async function skipPageCheckPlace(args: {
   documentId: string;
   checkId: string;

@@ -1964,7 +1964,6 @@ interface VisualEditorProps {
     | undefined;
   /** Starts a comment on a whole block, such as a video. */
   onBlockComment?: (target: CommentBlockTarget, offsetTop: number) => void;
-  /** The page's body: its checks mark it and can be added from its menus. */
   pageCheckMarks?: boolean;
   commentThreads?: CommentThread[];
   activeThreadId?: string | null;

@@ -199,7 +199,6 @@ export function BlockActionsMenu({
   onTurnTableIntoCollection?: (table: BlockAt) => void;
   onTurnCollectionIntoTable?: (collection: BlockAt) => void;
   onCopyLink?: (block: BlockAt) => void;
-  /** Opens the box that adds a check, starting at the block's section. */
   onAddCheck?: (block: BlockAt) => void;
   /** The page, named to the agent a block is attached to. */
   documentId?: string | null;

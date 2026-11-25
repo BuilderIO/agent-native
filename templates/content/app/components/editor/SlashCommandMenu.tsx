@@ -99,7 +99,6 @@ interface SlashCommandMenuProps {
   notionPageId?: string | null;
   /** The page saves no body; its body is the live copy. */
   bodyIsLiveCopy?: boolean;
-  /** Opens the box that adds a check, starting at this position's section. */
   onAddCheck?: (pos: number) => void;
 }
 

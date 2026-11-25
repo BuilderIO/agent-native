@@ -11796,168 +11796,166 @@ function PageEditorSessionBody({
       </CommentHistoryScrollContainer>
     ) : null;
 
-  return (
-    <PageChecksProvider value={pageChecks}>
-      <BlockRegistryProvider
-        registry={contentBlockRegistry}
-        ctx={blockRenderContext}
-      >
-        {isLinkedLocalSourceDocument && editorCanEdit ? (
-          <LinkedLocalDocumentAgentBridge
-            document={document}
-            getEditorSnapshot={getLinkedLocalEditorSnapshot}
-            onPersisted={handleLinkedLocalAgentPersistence}
-          />
-        ) : null}
-        <div
-          ref={documentLayoutRef}
-          className="relative grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] grid-rows-[auto_minmax(0,1fr)] overflow-hidden"
-          data-document-print-root
-          data-page-editor-owner={pageEditorOwner}
-          onClickCapture={(event) => {
-            const target = event.target as HTMLElement | null;
-            // React bubbles portal clicks (the @ menu, emoji picker, model menu)
-            // through this tree even though they render outside it. Those are
-            // interactions with an open comment, not clicks on the page.
-            if (target && !event.currentTarget.contains(target)) return;
-            const threadId = commentThreadAt(
-              target,
-              hoveredThreadId ?? selectedThreadId,
-            );
-            if (threadId) {
-              activateCommentThread(threadId);
-              return;
-            }
-            if (
-              target?.closest(
-                "[data-comments-sidebar], [data-comments-history], [data-comment-menu], [data-document-utility-panel], [data-discussion-peek]",
-              )
-            ) {
-              return;
-            }
-            dismissCommentFocus();
-          }}
-          {...commentThreadHoverHandlers(
+  const page = (
+    <BlockRegistryProvider
+      registry={contentBlockRegistry}
+      ctx={blockRenderContext}
+    >
+      {isLinkedLocalSourceDocument && editorCanEdit ? (
+        <LinkedLocalDocumentAgentBridge
+          document={document}
+          getEditorSnapshot={getLinkedLocalEditorSnapshot}
+          onPersisted={handleLinkedLocalAgentPersistence}
+        />
+      ) : null}
+      <div
+        ref={documentLayoutRef}
+        className="relative grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] grid-rows-[auto_minmax(0,1fr)] overflow-hidden"
+        data-document-print-root
+        data-page-editor-owner={pageEditorOwner}
+        onClickCapture={(event) => {
+          const target = event.target as HTMLElement | null;
+          // React bubbles portal clicks (the @ menu, emoji picker, model menu)
+          // through this tree even though they render outside it. Those are
+          // interactions with an open comment, not clicks on the page.
+          if (target && !event.currentTarget.contains(target)) return;
+          const threadId = commentThreadAt(
+            target,
             hoveredThreadId ?? selectedThreadId,
-            setHoveredThreadId,
-          )}
+          );
+          if (threadId) {
+            activateCommentThread(threadId);
+            return;
+          }
+          if (
+            target?.closest(
+              "[data-comments-sidebar], [data-comments-history], [data-comment-menu], [data-document-utility-panel], [data-discussion-peek]",
+            )
+          ) {
+            return;
+          }
+          dismissCommentFocus();
+        }}
+        {...commentThreadHoverHandlers(
+          hoveredThreadId ?? selectedThreadId,
+          setHoveredThreadId,
+        )}
+      >
+        <div className="col-span-2 min-w-0">
+          <DocumentToolbar
+            compact={host === "preview"}
+            documentId={documentId}
+            documentTitle={exportTitle}
+            documentContent={exportContent}
+            databaseExportContext={databaseExportContext}
+            breadcrumbItems={
+              host === "page"
+                ? toolbarBreadcrumbItems.map((item) =>
+                    item.id === documentId
+                      ? { ...item, title: exportTitle }
+                      : item,
+                  )
+                : []
+            }
+            documentUpdatedAt={document.updatedAt}
+            prepareHistoryRestore={prepareHistoryRestore}
+            historyRestoreReady={
+              historyRestoreReady &&
+              (Boolean(document.database) || editorHistoryControllerReady)
+            }
+            onHistoryRestored={handleHistoryRestored}
+            restoreUnavailableReason={
+              isLinkedLocalSourceDocument
+                ? t("editor.historyLinkedLocalRestoreUnavailable")
+                : undefined
+            }
+            activeUsers={activeUsers}
+            agentPresent={agentPresent}
+            agentActive={agentActive}
+            currentUserEmail={session?.email}
+            canEdit={editorCanEdit}
+            canShare={!mcpDirectoryWidgetReadOnly || canEdit}
+            readOnly={mcpDirectoryWidgetReadOnly}
+            hideFromSearch={document.hideFromSearch}
+            agentLevel={
+              document.agentLevel ??
+              (document.agentTextLocked ? "comment" : "edit")
+            }
+            canManageAgentTextLock={Boolean(document.canManage)}
+            source={document.source}
+            canDelete={canDelete}
+            deletePending={
+              deleteDocument.isPending || deleteContentDatabase.isPending
+            }
+            onDelete={handleDeleteDocument}
+            isFavorite={document.isFavorite}
+            onToggleFavorite={handleToggleFavorite}
+            utilityPanel={openPanelTab}
+            pageChecksCount={<PageChecksPill />}
+            openCommentCount={openCommentCount}
+            onUtilityPanelChange={handlePagePanelChange}
+            showAgentTab={showAgentTab}
+            panelId={pagePanelId}
+            showCommentsControl={showCommentsTab}
+            commentsTriggerRef={commentsHistoryTriggerRef}
+            utilityPanelFocusFallbackRef={utilityPanelFocusFallbackRef}
+            onOpenBreadcrumbItem={
+              host === "page" ? handleOpenToolbarBreadcrumb : undefined
+            }
+            canUndo={
+              isSuggesting
+                ? editorHistoryStateRef.current.canUndo
+                : editorHistoryState.canUndo
+            }
+            canRedo={
+              isSuggesting
+                ? editorHistoryStateRef.current.canRedo
+                : editorHistoryState.canRedo
+            }
+            onUndo={() => editorHistoryControllerRef.current?.undo()}
+            onRedo={() => editorHistoryControllerRef.current?.redo()}
+            canSuggest={canSuggest}
+            suggesting={isSuggesting}
+            editorEscapeTargetRef={editorEscapeTargetRef}
+            onCaptureEditorSelection={capturePageActionsSelection}
+            onPreserveEditorSelection={preservePageActionsSelection}
+            onRestoreEditorSelection={restorePageActionsSelection}
+            onSuggestingChange={(next) => {
+              void handleSuggestionModeChange(next);
+            }}
+            onImport={canImportPages ? openImport : undefined}
+          />
+        </div>
+        <div
+          className="col-start-1 row-start-2 flex min-h-0 min-w-0 flex-col"
+          inert={pageUnderSheet || undefined}
         >
-          <div className="col-span-2 min-w-0">
-            <DocumentToolbar
-              compact={host === "preview"}
-              documentId={documentId}
-              documentTitle={exportTitle}
-              documentContent={exportContent}
-              databaseExportContext={databaseExportContext}
-              breadcrumbItems={
-                host === "page"
-                  ? toolbarBreadcrumbItems.map((item) =>
-                      item.id === documentId
-                        ? { ...item, title: exportTitle }
-                        : item,
-                    )
-                  : []
-              }
-              documentUpdatedAt={document.updatedAt}
-              prepareHistoryRestore={prepareHistoryRestore}
-              historyRestoreReady={
-                historyRestoreReady &&
-                (Boolean(document.database) || editorHistoryControllerReady)
-              }
-              onHistoryRestored={handleHistoryRestored}
-              restoreUnavailableReason={
-                isLinkedLocalSourceDocument
-                  ? t("editor.historyLinkedLocalRestoreUnavailable")
-                  : undefined
-              }
-              activeUsers={activeUsers}
-              agentPresent={agentPresent}
-              agentActive={agentActive}
-              currentUserEmail={session?.email}
-              canEdit={editorCanEdit}
-              canShare={!mcpDirectoryWidgetReadOnly || canEdit}
-              readOnly={mcpDirectoryWidgetReadOnly}
-              hideFromSearch={document.hideFromSearch}
-              agentLevel={
-                document.agentLevel ??
-                (document.agentTextLocked ? "comment" : "edit")
-              }
-              canManageAgentTextLock={Boolean(document.canManage)}
-              source={document.source}
-              canDelete={canDelete}
-              deletePending={
-                deleteDocument.isPending || deleteContentDatabase.isPending
-              }
-              onDelete={handleDeleteDocument}
-              isFavorite={document.isFavorite}
-              onToggleFavorite={handleToggleFavorite}
-              utilityPanel={openPanelTab}
-              pageChecksCount={<PageChecksPill />}
-              openCommentCount={openCommentCount}
-              onUtilityPanelChange={handlePagePanelChange}
-              showAgentTab={showAgentTab}
-              panelId={pagePanelId}
-              showCommentsControl={showCommentsTab}
-              commentsTriggerRef={commentsHistoryTriggerRef}
-              utilityPanelFocusFallbackRef={utilityPanelFocusFallbackRef}
-              onOpenBreadcrumbItem={
-                host === "page" ? handleOpenToolbarBreadcrumb : undefined
-              }
-              canUndo={
-                isSuggesting
-                  ? editorHistoryStateRef.current.canUndo
-                  : editorHistoryState.canUndo
-              }
-              canRedo={
-                isSuggesting
-                  ? editorHistoryStateRef.current.canRedo
-                  : editorHistoryState.canRedo
-              }
-              onUndo={() => editorHistoryControllerRef.current?.undo()}
-              onRedo={() => editorHistoryControllerRef.current?.redo()}
-              canSuggest={canSuggest}
-              suggesting={isSuggesting}
-              editorEscapeTargetRef={editorEscapeTargetRef}
-              onCaptureEditorSelection={capturePageActionsSelection}
-              onPreserveEditorSelection={preservePageActionsSelection}
-              onRestoreEditorSelection={restorePageActionsSelection}
-              onSuggestingChange={(next) => {
-                void handleSuggestionModeChange(next);
-              }}
-              onImport={canImportPages ? openImport : undefined}
-            />
-          </div>
-          <div
-            className="col-start-1 row-start-2 flex min-h-0 min-w-0 flex-col"
-            inert={pageUnderSheet || undefined}
-          >
-            <ContentImportDialog
-              request={importRequest}
-              parentId={documentId}
-              parentTitle={exportTitle}
-              onClose={closeImport}
-            />
-            {!isLocalFileDocument && !mcpDirectoryWidgetReadOnly ? (
-              <NotionConflictBanner documentId={documentId} canEdit={canEdit} />
-            ) : null}
+          <ContentImportDialog
+            request={importRequest}
+            parentId={documentId}
+            parentTitle={exportTitle}
+            onClose={closeImport}
+          />
+          {!isLocalFileDocument && !mcpDirectoryWidgetReadOnly ? (
+            <NotionConflictBanner documentId={documentId} canEdit={canEdit} />
+          ) : null}
 
-            {localSourceConflict ? (
-              <div
-                className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-4 py-2 text-sm"
-                role="alert"
-                data-local-source-conflict
-              >
-                <span className="me-auto">
-                  {t("editor.localFileChangedWithUnsavedEdits")}
-                </span>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    void writeClipboardText(
-                      localSourceConflict.unsavedText,
-                    ).then((copied) => {
+          {localSourceConflict ? (
+            <div
+              className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-4 py-2 text-sm"
+              role="alert"
+              data-local-source-conflict
+            >
+              <span className="me-auto">
+                {t("editor.localFileChangedWithUnsavedEdits")}
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  void writeClipboardText(localSourceConflict.unsavedText).then(
+                    (copied) => {
                       if (copied) {
                         toast.success(t("editor.unsavedTextCopied"));
                       } else {
@@ -11965,938 +11963,915 @@ function PageEditorSessionBody({
                           t("editor.toolbar.clipboardAccessUnavailable"),
                         );
                       }
-                    });
-                  }}
-                >
-                  {t("editor.copyUnsavedText")}
-                </Button>
-                <Button type="button" size="sm" onClick={useDiskVersion}>
-                  {t("editor.useDiskVersion")}
-                </Button>
-              </div>
-            ) : null}
-
-            {documentReconcileConflict ? (
-              <DocumentReconcileRecovery
-                state={documentReconcileConflict}
-                server={{
-                  title: document.title,
-                  content: document.content,
-                  updatedAt: document.updatedAt ?? null,
-                  revision: document.revision,
+                    },
+                  );
                 }}
-                canEdit={editorCanEdit}
-                onKeepMine={handleResolveReconcile}
-                onUseSaved={(base) =>
-                  resolveLiveRecoveryDraft("use_saved", base)
-                }
-                onSaveSeparately={(base) =>
-                  resolveLiveRecoveryDraft("save_separately", base)
-                }
-                onCopy={copyLiveRecoveryDraft}
-                onClose={focusEditorAfterRecoveryReview}
-              />
-            ) : null}
-
-            {isSuggesting &&
-            (!suggestionCapability.canStart ||
-              suggestionDraftSaveFailed ||
-              suggestionDraftConflicted) ? (
-              <div
-                className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-4 py-2 text-sm"
-                role="alert"
-                data-suggestion-amendment-conflict
               >
-                <span className="me-auto">
-                  {t(
-                    suggestionCapability.canStart && !suggestionDraftSaveFailed
-                      ? "editor.suggestionAmendmentResolved"
-                      : "editor.suggestionCreateFailed",
-                  )}
-                </span>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    void writeClipboardText(suggestionDraft).then((copied) => {
-                      if (copied) toast.success(t("editor.unsavedTextCopied"));
-                      else
-                        toast.error(
-                          t("editor.toolbar.clipboardAccessUnavailable"),
-                        );
-                    });
-                  }}
-                >
-                  {t("editor.copyUnsavedText")}
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={discardConflictedSuggestionDraft}
-                >
-                  {t("editor.discardSuggestionDraft")}
-                </Button>
-              </div>
-            ) : null}
+                {t("editor.copyUnsavedText")}
+              </Button>
+              <Button type="button" size="sm" onClick={useDiskVersion}>
+                {t("editor.useDiskVersion")}
+              </Button>
+            </div>
+          ) : null}
 
-            {/* A tab's draft the server refused would keep the page suggesting,
+          {documentReconcileConflict ? (
+            <DocumentReconcileRecovery
+              state={documentReconcileConflict}
+              server={{
+                title: document.title,
+                content: document.content,
+                updatedAt: document.updatedAt ?? null,
+                revision: document.revision,
+              }}
+              canEdit={editorCanEdit}
+              onKeepMine={handleResolveReconcile}
+              onUseSaved={(base) => resolveLiveRecoveryDraft("use_saved", base)}
+              onSaveSeparately={(base) =>
+                resolveLiveRecoveryDraft("save_separately", base)
+              }
+              onCopy={copyLiveRecoveryDraft}
+              onClose={focusEditorAfterRecoveryReview}
+            />
+          ) : null}
+
+          {isSuggesting &&
+          (!suggestionCapability.canStart ||
+            suggestionDraftSaveFailed ||
+            suggestionDraftConflicted) ? (
+            <div
+              className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-4 py-2 text-sm"
+              role="alert"
+              data-suggestion-amendment-conflict
+            >
+              <span className="me-auto">
+                {t(
+                  suggestionCapability.canStart && !suggestionDraftSaveFailed
+                    ? "editor.suggestionAmendmentResolved"
+                    : "editor.suggestionCreateFailed",
+                )}
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  void writeClipboardText(suggestionDraft).then((copied) => {
+                    if (copied) toast.success(t("editor.unsavedTextCopied"));
+                    else
+                      toast.error(
+                        t("editor.toolbar.clipboardAccessUnavailable"),
+                      );
+                  });
+                }}
+              >
+                {t("editor.copyUnsavedText")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={discardConflictedSuggestionDraft}
+              >
+                {t("editor.discardSuggestionDraft")}
+              </Button>
+            </div>
+          ) : null}
+
+          {/* A tab's draft the server refused would keep the page suggesting,
               since leaving saves it first; discarding it lets the page go. */}
-            {isSuggesting
-              ? fieldSuggestions.refusedDrafts.map(({ fieldId, draft }) => (
-                  <div
-                    key={fieldId}
-                    className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-4 py-2 text-sm"
-                    role="alert"
-                    data-blocks-field-suggestion-refused={fieldId}
+          {isSuggesting
+            ? fieldSuggestions.refusedDrafts.map(({ fieldId, draft }) => (
+                <div
+                  key={fieldId}
+                  className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-4 py-2 text-sm"
+                  role="alert"
+                  data-blocks-field-suggestion-refused={fieldId}
+                >
+                  <span className="me-auto">
+                    <span className="font-medium">
+                      {pageProperties?.find(
+                        (property) => property.definition.id === fieldId,
+                      )?.definition.name ?? ""}
+                    </span>{" "}
+                    {t("editor.suggestionCreateFailed")}
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      void writeClipboardText(draft).then((copied) => {
+                        if (copied)
+                          toast.success(t("editor.unsavedTextCopied"));
+                        else
+                          toast.error(
+                            t("editor.toolbar.clipboardAccessUnavailable"),
+                          );
+                      });
+                    }}
                   >
-                    <span className="me-auto">
-                      <span className="font-medium">
-                        {pageProperties?.find(
-                          (property) => property.definition.id === fieldId,
-                        )?.definition.name ?? ""}
-                      </span>{" "}
-                      {t("editor.suggestionCreateFailed")}
-                    </span>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        void writeClipboardText(draft).then((copied) => {
-                          if (copied)
-                            toast.success(t("editor.unsavedTextCopied"));
-                          else
-                            toast.error(
-                              t("editor.toolbar.clipboardAccessUnavailable"),
-                            );
-                        });
-                      }}
-                    >
-                      {t("editor.copyUnsavedText")}
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={() => void fieldSuggestions.discard(fieldId)}
-                    >
-                      {t("editor.discardSuggestionDraft")}
-                    </Button>
-                  </div>
-                ))
-              : null}
+                    {t("editor.copyUnsavedText")}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => void fieldSuggestions.discard(fieldId)}
+                  >
+                    {t("editor.discardSuggestionDraft")}
+                  </Button>
+                </div>
+              ))
+            : null}
 
-            {localSourceMissing ? (
-              <div
-                className="border-b bg-muted/40 px-4 py-2 text-sm"
-                role="alert"
-                data-local-source-missing
-              >
-                {t("empty.documentNotFound")}
-              </div>
-            ) : null}
+          {localSourceMissing ? (
+            <div
+              className="border-b bg-muted/40 px-4 py-2 text-sm"
+              role="alert"
+              data-local-source-missing
+            >
+              {t("empty.documentNotFound")}
+            </div>
+          ) : null}
 
-            {isLocalFileDocument && localSourceAccess === "unavailable" ? (
-              <div
-                className="border-b bg-muted/20 px-4 py-1.5 text-xs text-muted-foreground"
-                role="status"
-                data-local-source-read-only
-              >
-                {t("editor.localFileReadOnlySnapshot", {
-                  device: "Agent-Native Desktop",
-                  date: new Date(
-                    document.source?.updatedAt ?? document.updatedAt,
-                  ).toLocaleString(),
-                })}
-              </div>
-            ) : null}
+          {isLocalFileDocument && localSourceAccess === "unavailable" ? (
+            <div
+              className="border-b bg-muted/20 px-4 py-1.5 text-xs text-muted-foreground"
+              role="status"
+              data-local-source-read-only
+            >
+              {t("editor.localFileReadOnlySnapshot", {
+                device: "Agent-Native Desktop",
+                date: new Date(
+                  document.source?.updatedAt ?? document.updatedAt,
+                ).toLocaleString(),
+              })}
+            </div>
+          ) : null}
 
-            <SyncedPageBanner document={document} />
+          <SyncedPageBanner document={document} />
 
-            {/* isolate makes the scroller its own stacking context. Safari
+          {/* isolate makes the scroller its own stacking context. Safari
               misorders the layers inside a scroller that isn't one, so the
               Blocks field's sticky tab row could paint across the comment
               card even with the card on its own layer. */}
+          <div
+            ref={scrollContainerRef}
+            className="isolate flex-1 min-h-0 min-w-0 overflow-auto flex flex-col"
+            data-document-print-scroll
+            onKeyDownCapture={cancelPaddingScrollRestore}
+            onPointerDownCapture={cancelPaddingScrollRestore}
+            onWheelCapture={cancelPaddingScrollRestore}
+          >
             <div
-              ref={scrollContainerRef}
-              className="isolate flex-1 min-h-0 min-w-0 overflow-auto flex flex-col"
-              data-document-print-scroll
-              onKeyDownCapture={cancelPaddingScrollRestore}
-              onPointerDownCapture={cancelPaddingScrollRestore}
-              onWheelCapture={cancelPaddingScrollRestore}
+              ref={scrollContentRef}
+              className="relative flex min-h-full w-full min-w-0 flex-col"
+              data-document-scroll-content
             >
               <div
-                ref={scrollContentRef}
-                className="relative flex min-h-full w-full min-w-0 flex-col"
-                data-document-scroll-content
+                ref={pageColumnRef}
+                className={cn(
+                  "w-full min-w-0",
+                  reserveInlineReviewSpace && "pr-80",
+                  !isDatabasePage &&
+                    DOCUMENT_EDITOR_COLUMN_CONTAINER_CLASS_NAME,
+                )}
               >
                 <div
-                  ref={pageColumnRef}
-                  className={cn(
-                    "w-full min-w-0",
-                    reserveInlineReviewSpace && "pr-80",
-                    !isDatabasePage &&
-                      DOCUMENT_EDITOR_COLUMN_CONTAINER_CLASS_NAME,
+                  className={documentEditorTitleRegionClassName(
+                    Boolean(document.database),
+                    host,
                   )}
                 >
-                  <div
-                    className={documentEditorTitleRegionClassName(
-                      Boolean(document.database),
-                      host,
-                    )}
-                  >
-                    <div className="mb-1">
-                      {documentCanonicalMutationsEnabled(
-                        editorCanEdit,
-                        isSuggesting,
-                      ) ? (
-                        <EmojiPicker
-                          icon={document.icon}
-                          assetScopeDocumentId={document.id}
-                          defaultIcon={defaultIcon}
-                          defaultIconLabel={
-                            defaultIconKind === "database" ? "database" : "page"
-                          }
-                          onSelect={async (icon) => {
-                            if (
-                              !documentCanonicalMutationsEnabled(
-                                editorCanEdit,
-                                isSuggesting,
-                              )
-                            ) {
-                              throw new Error(
-                                t("editor.pageSaveBeforeNavigationFailed"),
-                              );
-                            }
-                            const updates = metadataUpdatesWithPendingTitle(
-                              { icon },
-                              localTitleRef.current,
-                              lastSavedTitleRef.current.title,
-                            );
-                            const saved = await persistDocumentUpdates(updates);
-                            if (
-                              isDocumentUpdateConflict(saved) ||
-                              isDocumentUpdateSuperseded(saved) ||
-                              isDocumentUpdatePreservationRequired(saved)
-                            ) {
-                              throw new Error(
-                                t("editor.pageSaveBeforeNavigationFailed"),
-                              );
-                            }
-                            adoptConfirmedSaveWatermarks({
-                              saved,
-                              savedAt:
-                                saved?.updatedAt ?? new Date().toISOString(),
-                              title: localTitleRef.current,
-                              content: localContentRef.current,
-                              updates,
-                              lastSavedTitleRef,
-                              lastSavedContentRef,
-                            });
-                          }}
-                        />
-                      ) : document.icon ? (
-                        // Sized like the picker's button: a library icon draws
-                        // only once its glyph loads.
-                        <div className="flex size-14 items-center justify-center p-1 -ml-1">
-                          <ContentIcon value={document.icon} size={48} />
-                        </div>
-                      ) : defaultIconKind === "database" ? (
-                        <div className="-ml-1 flex size-14 items-center justify-center rounded-md text-muted-foreground">
-                          <IconDatabase
-                            className="size-12"
-                            aria-hidden="true"
-                          />
-                        </div>
-                      ) : canEdit && !isSuggesting ? (
-                        // An editor gets the "Add icon" button once the page
-                        // syncs; its row is held so the title does not move.
-                        <div className="h-7" aria-hidden="true" />
-                      ) : null}
-                    </div>
-                    <textarea
-                      {...(host === "page" ? startupAnchor("title") : {})}
-                      ref={titleInputRef}
-                      rows={1}
-                      wrap="soft"
-                      value={localTitle}
-                      onChange={(e) => {
-                        if (!isSuggesting)
-                          handleTitleChange(normalizeTitleText(e.target.value));
-                      }}
-                      onPaste={handleTitlePaste}
-                      onFocus={() => {
-                        titleFocusedRef.current = true;
-                        onTitleFocused?.();
-                      }}
-                      onBlur={() => {
-                        titleFocusedRef.current = false;
-                      }}
-                      onKeyDown={(e) => {
-                        if (!editorCanEdit || isSuggesting) return;
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          visibleBlockFieldEditor(
-                            documentLayoutRef.current,
-                          )?.focus();
+                  <div className="mb-1">
+                    {documentCanonicalMutationsEnabled(
+                      editorCanEdit,
+                      isSuggesting,
+                    ) ? (
+                      <EmojiPicker
+                        icon={document.icon}
+                        assetScopeDocumentId={document.id}
+                        defaultIcon={defaultIcon}
+                        defaultIconLabel={
+                          defaultIconKind === "database" ? "database" : "page"
                         }
-                      }}
-                      aria-label={t("editor.documentTitle")}
-                      placeholder={t("editor.title")}
-                      readOnly={!editorCanEdit || isSuggesting}
-                      style={{ fieldSizing: "content" } as any}
-                      className={cn(
-                        DOCUMENT_EDITOR_TITLE_CLASS_NAME,
-                        "resize-none overflow-hidden border-none bg-transparent outline-none placeholder:text-muted-foreground/40",
-                        host === "preview" || isDatabasePage
-                          ? DOCUMENT_EDITOR_DATABASE_TITLE_SIZE_CLASS_NAME
-                          : DOCUMENT_EDITOR_PAGE_TITLE_SIZE_CLASS_NAME,
-                      )}
+                        onSelect={async (icon) => {
+                          if (
+                            !documentCanonicalMutationsEnabled(
+                              editorCanEdit,
+                              isSuggesting,
+                            )
+                          ) {
+                            throw new Error(
+                              t("editor.pageSaveBeforeNavigationFailed"),
+                            );
+                          }
+                          const updates = metadataUpdatesWithPendingTitle(
+                            { icon },
+                            localTitleRef.current,
+                            lastSavedTitleRef.current.title,
+                          );
+                          const saved = await persistDocumentUpdates(updates);
+                          if (
+                            isDocumentUpdateConflict(saved) ||
+                            isDocumentUpdateSuperseded(saved) ||
+                            isDocumentUpdatePreservationRequired(saved)
+                          ) {
+                            throw new Error(
+                              t("editor.pageSaveBeforeNavigationFailed"),
+                            );
+                          }
+                          adoptConfirmedSaveWatermarks({
+                            saved,
+                            savedAt:
+                              saved?.updatedAt ?? new Date().toISOString(),
+                            title: localTitleRef.current,
+                            content: localContentRef.current,
+                            updates,
+                            lastSavedTitleRef,
+                            lastSavedContentRef,
+                          });
+                        }}
+                      />
+                    ) : document.icon ? (
+                      // Sized like the picker's button: a library icon draws
+                      // only once its glyph loads.
+                      <div className="flex size-14 items-center justify-center p-1 -ml-1">
+                        <ContentIcon value={document.icon} size={48} />
+                      </div>
+                    ) : defaultIconKind === "database" ? (
+                      <div className="-ml-1 flex size-14 items-center justify-center rounded-md text-muted-foreground">
+                        <IconDatabase className="size-12" aria-hidden="true" />
+                      </div>
+                    ) : canEdit && !isSuggesting ? (
+                      // An editor gets the "Add icon" button once the page
+                      // syncs; its row is held so the title does not move.
+                      <div className="h-7" aria-hidden="true" />
+                    ) : null}
+                  </div>
+                  <textarea
+                    {...(host === "page" ? startupAnchor("title") : {})}
+                    ref={titleInputRef}
+                    rows={1}
+                    wrap="soft"
+                    value={localTitle}
+                    onChange={(e) => {
+                      if (!isSuggesting)
+                        handleTitleChange(normalizeTitleText(e.target.value));
+                    }}
+                    onPaste={handleTitlePaste}
+                    onFocus={() => {
+                      titleFocusedRef.current = true;
+                      onTitleFocused?.();
+                    }}
+                    onBlur={() => {
+                      titleFocusedRef.current = false;
+                    }}
+                    onKeyDown={(e) => {
+                      if (!editorCanEdit || isSuggesting) return;
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        visibleBlockFieldEditor(
+                          documentLayoutRef.current,
+                        )?.focus();
+                      }
+                    }}
+                    aria-label={t("editor.documentTitle")}
+                    placeholder={t("editor.title")}
+                    readOnly={!editorCanEdit || isSuggesting}
+                    style={{ fieldSizing: "content" } as any}
+                    className={cn(
+                      DOCUMENT_EDITOR_TITLE_CLASS_NAME,
+                      "resize-none overflow-hidden border-none bg-transparent outline-none placeholder:text-muted-foreground/40",
+                      host === "preview" || isDatabasePage
+                        ? DOCUMENT_EDITOR_DATABASE_TITLE_SIZE_CLASS_NAME
+                        : DOCUMENT_EDITOR_PAGE_TITLE_SIZE_CLASS_NAME,
+                    )}
+                  />
+                </div>
+                {builderArticleRow ? (
+                  <BuilderArticleRowAutosaveRunner
+                    documentId={documentId}
+                    databaseId={builderArticleRow.definition.databaseId}
+                    canEdit={editorCanEdit}
+                  />
+                ) : null}
+                {host === "preview" &&
+                document.databaseMembership &&
+                !isLocalFileDocument ? (
+                  <div className="mx-auto w-full max-w-3xl px-4 pb-3 sm:px-6">
+                    <PropertyCommentsContext.Provider value={propertyComments}>
+                      <DocumentProperties
+                        documentId={documentId}
+                        databaseId={
+                          databaseId ??
+                          document.databaseMembership.databaseId ??
+                          null
+                        }
+                        databaseDocumentId={
+                          databaseDocumentId ??
+                          document.databaseMembership.databaseDocumentId ??
+                          null
+                        }
+                        rowView={rowView}
+                        rowViewPending={addressRowView.pending}
+                        canEdit={editorCanEdit}
+                        // Edit rights on the row's page wait on its live copy,
+                        // which has no say over the collection's Properties.
+                        schemaRowsExpected={
+                          schemaRowsExpected &&
+                          canEdit &&
+                          !isGitHubSourceDocument &&
+                          !collabInitializationFailed
+                        }
+                        // A syncing body, or a collection's own page, has no
+                        // fields on screen to report it.
+                        leaveReadFailureToPage={
+                          !isDatabasePage &&
+                          !mcpDirectoryWidgetReadOnly &&
+                          !bodyHydrationPending &&
+                          !bodyHydrationError
+                        }
+                        popoversPortalled={false}
+                      />
+                    </PropertyCommentsContext.Provider>
+                  </div>
+                ) : null}
+                {document.database ? (
+                  <div className={documentEditorDatabaseRegionClassName()}>
+                    <DocumentDatabase
+                      document={document}
+                      foreground={foreground}
+                      canEdit={canEdit}
+                      canEditRowsOnly={widgetCanEditDatabaseRows}
+                      viewId={viewId}
+                      onExportContextChange={handleDatabaseExportContextChange}
                     />
                   </div>
-                  {builderArticleRow ? (
-                    <BuilderArticleRowAutosaveRunner
-                      documentId={documentId}
-                      databaseId={builderArticleRow.definition.databaseId}
-                      canEdit={editorCanEdit}
-                    />
-                  ) : null}
-                  {host === "preview" &&
-                  document.databaseMembership &&
-                  !isLocalFileDocument ? (
-                    <div className="mx-auto w-full max-w-3xl px-4 pb-3 sm:px-6">
-                      <PropertyCommentsContext.Provider
-                        value={propertyComments}
-                      >
-                        <DocumentProperties
-                          documentId={documentId}
-                          databaseId={
-                            databaseId ??
-                            document.databaseMembership.databaseId ??
-                            null
-                          }
-                          databaseDocumentId={
-                            databaseDocumentId ??
-                            document.databaseMembership.databaseDocumentId ??
-                            null
-                          }
-                          rowView={rowView}
-                          rowViewPending={addressRowView.pending}
-                          canEdit={editorCanEdit}
-                          // Edit rights on the row's page wait on its live copy,
-                          // which has no say over the collection's Properties.
-                          schemaRowsExpected={
-                            schemaRowsExpected &&
-                            canEdit &&
-                            !isGitHubSourceDocument &&
-                            !collabInitializationFailed
-                          }
-                          // A syncing body, or a collection's own page, has no
-                          // fields on screen to report it.
-                          leaveReadFailureToPage={
-                            !isDatabasePage &&
-                            !mcpDirectoryWidgetReadOnly &&
-                            !bodyHydrationPending &&
-                            !bodyHydrationError
-                          }
-                          popoversPortalled={false}
-                        />
-                      </PropertyCommentsContext.Provider>
-                    </div>
-                  ) : null}
-                  {document.database ? (
-                    <div className={documentEditorDatabaseRegionClassName()}>
-                      <DocumentDatabase
-                        document={document}
-                        foreground={foreground}
-                        canEdit={canEdit}
-                        canEditRowsOnly={widgetCanEditDatabaseRows}
-                        viewId={viewId}
-                        onExportContextChange={
-                          handleDatabaseExportContextChange
-                        }
-                      />
-                    </div>
-                  ) : null}
-
-                  {!isDatabasePage ? (
-                    <div
-                      {...(host === "page" ? startupAnchor("body") : {})}
-                      className={cn(
-                        documentEditorBodyClassName(host),
-                        showNewPageStartingPoints && "content-new-page-body",
-                      )}
-                      onClick={(e) => {
-                        if (e.target === e.currentTarget) {
-                          cancelPaddingScrollRestore();
-                          const scrollContainer = scrollContainerRef.current;
-                          const scrollTop = scrollContainer?.scrollTop;
-                          const restoreScroll = () => {
-                            if (scrollContainer && scrollTop !== undefined) {
-                              scrollContainer.scrollTop = scrollTop;
-                            }
-                            pendingPaddingScrollRestoreRef.current = null;
-                          };
-                          visibleBlockFieldEditor(e.currentTarget)?.focus({
-                            preventScroll: true,
-                          });
-                          restoreScroll();
-                          if (scrollContainer && scrollTop !== undefined) {
-                            pendingPaddingScrollRestoreRef.current =
-                              window.setTimeout(restoreScroll, 50);
-                          }
-                        }
-                      }}
-                    >
-                      {showNewPageStartingPoints ? (
-                        <NewPageStartingPoints
-                          documentId={documentId}
-                          title={localTitle}
-                          onImport={canImportPages ? openImport : undefined}
-                        />
-                      ) : null}
-                      {(() => {
-                        if (bodyHydrationPending) {
-                          return (
-                            <BuilderBodySyncingNotice
-                              title={t(
-                                document.bodyHydration?.provider === "builder"
-                                  ? "editor.builderBodySyncing"
-                                  : "editor.pageBodySyncing",
-                              )}
-                              description={t(
-                                document.bodyHydration?.provider === "builder"
-                                  ? "editor.builderBodySyncingDescription"
-                                  : "editor.pageBodySyncingDescription",
-                              )}
-                            />
-                          );
-                        }
-
-                        if (bodyHydrationError) {
-                          return (
-                            <BuilderBodySyncingNotice
-                              title={t("database.builderBodySyncFailedNotice")}
-                              description={
-                                bodyHydrationError.error ??
-                                t("database.builderBodySyncFailedDescription")
-                              }
-                            />
-                          );
-                        }
-
-                        const visualEditorContent = isLocalFileDocument
-                          ? localContent
-                          : (pendingSuggestionDecisionContent ??
-                            (isSuggesting
-                              ? suggestionDraft
-                              : showLocalCreationDraft
-                                ? localContent
-                                : document.content));
-                        const primaryEditor = (
-                          <>
-                            {canEdit && collabInitializationFailed ? (
-                              <div
-                                data-collab-initialization-error
-                                role="alert"
-                              >
-                                <QueryErrorState
-                                  compact
-                                  onRetry={() => globalThis.location.reload()}
-                                />
-                              </div>
-                            ) : null}
-                            {decisionRefreshFailed &&
-                            (pendingSuggestionDecision ||
-                              pendingProposalDecision) ? (
-                              <div role="alert">
-                                <QueryErrorState
-                                  compact
-                                  onRetry={() => {
-                                    const continueSuggesting =
-                                      pendingSuggestionDecision?.continueSuggesting ??
-                                      pendingProposalDecision?.continueSuggesting ??
-                                      false;
-                                    const owner = pendingProposalDecision
-                                      ? pendingProposalDecision.accepted
-                                        ? "proposal-accepted"
-                                        : "proposal-other"
-                                      : pendingSuggestionDecision?.decision ===
-                                            "accepted" &&
-                                          pendingSuggestionDecision.optimistic
-                                        ? "single-accepted"
-                                        : "single-other";
-                                    const decisionGeneration =
-                                      suggestionDecisionGenerationRef.current;
-                                    void refreshSuggestionDecisionDocument(
-                                      continueSuggesting,
-                                      owner,
-                                    ).then((recovered) => {
-                                      if (
-                                        recovered.status === "refreshed" &&
-                                        (owner === "proposal-accepted" ||
-                                          owner === "proposal-other") &&
-                                        decisionGeneration ===
-                                          suggestionDecisionGenerationRef.current &&
-                                        documentId ===
-                                          suggestionDecisionDocumentIdRef.current
-                                      )
-                                        setPendingProposalDecision((current) =>
-                                          current?.generation ===
-                                          decisionGeneration
-                                            ? {
-                                                ...current,
-                                                readbackContent:
-                                                  recovered.document.content,
-                                              }
-                                            : current,
-                                        );
-                                    });
-                                  }}
-                                />
-                              </div>
-                            ) : null}
-                            {suggestionDraftPreview.status ===
-                            "unsupported-formatting" ? (
-                              <div
-                                role="alert"
-                                className="mb-3 text-sm text-destructive"
-                              >
-                                {t("editor.suggestionFormattingUnsupported")}
-                              </div>
-                            ) : null}
-                            {awaitingLiveCopy ? (
-                              <div className="visual-editor-wrapper">
-                                <StaticDocumentBody
-                                  schema={getContentEditorSchema()}
-                                  content={visualEditorContent}
-                                  documentId={documentId}
-                                />
-                              </div>
-                            ) : (
-                              <WidgetVisualEditorBoundary
-                                key={`${visualEditorInstanceKey({
-                                  documentId,
-                                  documentUpdatedAt:
-                                    suggestionEditorIsolation.contentUpdatedAt,
-                                  isLocalFileDocument,
-                                  canEdit,
-                                  collabEditorEnabled,
-                                  hasYDoc: Boolean(ydoc),
-                                  localFileSyncRevision,
-                                })}:${isSuggesting ? "suggesting" : "canonical"}`}
-                                active={mcpDirectoryWidgetReadOnly}
-                                stage={t("editor.widgetEditorInitStage")}
-                                action="VisualEditor"
-                              >
-                                <VisualEditor
-                                  visitKey={visit.key}
-                                  editorMountMode={
-                                    isSuggesting
-                                      ? "suggesting"
-                                      : canEdit
-                                        ? "editing"
-                                        : "readonly"
-                                  }
-                                  onEscape={handleEditorEscape}
-                                  onImportFiles={
-                                    canImportPages
-                                      ? importDroppedFiles
-                                      : undefined
-                                  }
-                                  acceptedDecisionReadback={
-                                    !isSuggesting &&
-                                    pendingSuggestionDecision?.decision ===
-                                      "accepted" &&
-                                    pendingSuggestionDecision.readbackContent !==
-                                      null
-                                      ? {
-                                          id: pendingSuggestionDecision
-                                            .suggestion.id,
-                                          content:
-                                            pendingSuggestionDecision.readbackContent,
-                                        }
-                                      : null
-                                  }
-                                  onAcceptedDecisionRendered={
-                                    handleAcceptedDecisionRendered
-                                  }
-                                  onAcceptedDecisionReadbackOutdated={
-                                    handleAcceptedDecisionReadbackOutdated
-                                  }
-                                  contentResetKey={
-                                    pendingSuggestionDecision
-                                      ? `${pendingSuggestionDecision.suggestion.id}:${pendingSuggestionDecision.decision}:${pendingSuggestionDecision.optimistic ? "optimistic" : "canonical"}`
-                                      : pendingProposalDecision
-                                        ? `proposal:${pendingProposalDecision.generation}:${pendingProposalDecision.readbackContent === null ? "pending" : "readback"}`
-                                        : null
-                                  }
-                                  proposalDecisionReadback={
-                                    (!isSuggesting ||
-                                      !pendingProposalDecision?.accepted) &&
-                                    pendingProposalDecision?.readbackContent !==
-                                      null &&
-                                    pendingProposalDecision?.readbackContent !==
-                                      undefined
-                                      ? {
-                                          generation:
-                                            pendingProposalDecision.generation,
-                                          content:
-                                            pendingProposalDecision.readbackContent,
-                                          beforeContent:
-                                            pendingProposalDecision.beforeContent,
-                                        }
-                                      : null
-                                  }
-                                  onProposalDecisionRendered={
-                                    handleProposalDecisionRendered
-                                  }
-                                  onProposalDecisionReadbackOutdated={
-                                    handleProposalDecisionReadbackOutdated
-                                  }
-                                  documentId={documentId}
-                                  contentSpaceId={document.spaceId ?? undefined}
-                                  widgetLoadDiagnosticsActive={
-                                    mcpDirectoryWidgetReadOnly
-                                  }
-                                  content={
-                                    isLocalFileDocument
-                                      ? localContent
-                                      : (pendingSuggestionDecisionContent ??
-                                        (isSuggesting
-                                          ? suggestionDraft
-                                          : showLocalCreationDraft
-                                            ? localContent
-                                            : document.content))
-                                  }
-                                  contentUpdatedAt={
-                                    isLocalFileDocument ||
-                                    showLocalCreationDraft
-                                      ? (localContentUpdatedAt ??
-                                        document.updatedAt)
-                                      : suggestionEditorIsolation.contentUpdatedAt
-                                  }
-                                  contentRevision={
-                                    isLocalFileDocument ||
-                                    showLocalCreationDraft ||
-                                    !suggestionEditorIsolation.reconcileCanonical
-                                      ? null
-                                      : (document.revision ?? null)
-                                  }
-                                  acknowledgedLocalSnapshot={
-                                    acknowledgedLocalSnapshot
-                                  }
-                                  mergedLocalSave={mergedLocalSave}
-                                  onBaseAwareReconcile={
-                                    suggestionEditorIsolation.reconcileCanonical
-                                      ? handleBaseAwareReconcile
-                                      : undefined
-                                  }
-                                  onRemoteSnapshotChange={
-                                    suggestionEditorIsolation.reconcileCanonical
-                                      ? handleRemoteSnapshotChange
-                                      : undefined
-                                  }
-                                  isEditorClean={isEditorClean}
-                                  collabContentRevision={
-                                    isLocalFileDocument || isSuggesting
-                                      ? null
-                                      : document.collabContentRevision
-                                  }
-                                  requestCollabSync={requestCollabSync}
-                                  flushCollabUpdates={flushCollabUpdates}
-                                  onChange={
-                                    isSuggesting
-                                      ? handleSuggestionDraftChange
-                                      : handleContentChange
-                                  }
-                                  onSaveContent={
-                                    suggestionEditorIsolation.persistCanonical
-                                      ? handleImmediateContentChange
-                                      : undefined
-                                  }
-                                  ydoc={
-                                    suggestionEditorIsolation.bindCanonicalYDoc
-                                      ? ydoc
-                                      : null
-                                  }
-                                  observeLiveBody={observeLiveBody}
-                                  bodyIsLiveCopy={bodyWritesThroughLiveCopy}
-                                  replacesStoredBody={replacesStoredBody}
-                                  collabSynced={
-                                    collabEditorEnabled ? collabReady : true
-                                  }
-                                  awareness={
-                                    collabEditorEnabled ? awareness : null
-                                  }
-                                  user={currentUser}
-                                  editable={
-                                    suggestionEditorIsolation.editable &&
-                                    !isStartingSuggestion &&
-                                    !isSubmittingSuggestions &&
-                                    !pendingSuggestionDecision &&
-                                    !pendingProposalDecision
-                                  }
-                                  directoryWidgetEditing={
-                                    mcpDirectoryWidgetReadOnly &&
-                                    widgetEditability.canEditDocument
-                                  }
-                                  suggesting={isSuggesting}
-                                  localFileMode={isLocalFileDocument}
-                                  privateImageUploads={privateImageUploads}
-                                  localFilePath={
-                                    isLocalFileDocument
-                                      ? document.source?.path
-                                      : null
-                                  }
-                                  onComment={
-                                    canComment ? handleComment : undefined
-                                  }
-                                  onSuggestEdit={
-                                    canSuggest && !mcpDirectoryWidgetReadOnly
-                                      ? handleSuggestEdit
-                                      : undefined
-                                  }
-                                  onBlockComment={
-                                    canComment ? handleBlockComment : undefined
-                                  }
-                                  pageCheckMarks
-                                  commentThreads={editorCommentThreads}
-                                  activeThreadId={selectedThreadId}
-                                  hoveredThreadId={hoveredThreadId}
-                                  pendingHighlight={
-                                    blockFieldComments.bodyPendingHighlight
-                                  }
-                                  onActivateThread={
-                                    !isLocalFileDocument
-                                      ? activateCommentThread
-                                      : undefined
-                                  }
-                                  suggestions={visualSuggestions}
-                                  activeSuggestionId={activeSuggestionOnPage}
-                                  activeSuggestionUnitIds={activeUnitIds}
-                                  onActivateSuggestion={
-                                    activateInlineSuggestion
-                                  }
-                                  onHoverSuggestion={setHoveredSuggestionId}
-                                  onSuggestionReplacementIntent={
-                                    isSuggesting
-                                      ? handleSuggestionReplacementIntent
-                                      : undefined
-                                  }
-                                  initialSelection={
-                                    visualEditorInitialSelection
-                                  }
-                                  onInitialSelectionApplied={
-                                    onVisualEditorInitialSelectionApplied
-                                  }
-                                  onSuggestionAnchorsChange={
-                                    handleSuggestionAnchorsChange
-                                  }
-                                  showCommentIndicators={showCommentIndicators}
-                                  emptyDocumentPlaceholder={
-                                    showNewPageStartingPoints
-                                      ? t("editor.newPagePlaceholder")
-                                      : null
-                                  }
-                                  onJoinTitle={joinFirstBodyBlockToTitle}
-                                  onOpenNotionPageLink={
-                                    handleOpenNotionPageLink
-                                  }
-                                  notionPageId={document.notionPageId}
-                                  onHistoryControllerChange={
-                                    handleHistoryControllerChange
-                                  }
-                                  onHistoryStateChange={
-                                    handleHistoryStateChange
-                                  }
-                                  onSelectionControllerChange={
-                                    handleSelectionControllerChange
-                                  }
-                                  onPersistenceControllerChange={
-                                    handlePersistenceControllerChange
-                                  }
-                                  onSuggestionPlacementsChange={
-                                    handleSuggestionPlacementsChange
-                                  }
-                                  blockLinks={
-                                    !isLocalFileDocument &&
-                                    !mcpDirectoryWidgetReadOnly
-                                  }
-                                  linkedBlockId={linkedBlockId}
-                                  onBlockIdentityIds={
-                                    isSuggesting
-                                      ? undefined
-                                      : handleBlockIdentityIds
-                                  }
-                                />
-                              </WidgetVisualEditorBoundary>
-                            )}
-                          </>
-                        );
-                        if (
-                          document.databaseMembership &&
-                          !isLocalFileDocument
-                        ) {
-                          return (
-                            <BlockFieldCommentsProvider
-                              value={blockFieldComments.provider}
-                            >
-                              <BlocksFieldSuggestionsProvider
-                                value={fieldSuggestions.provider}
-                              >
-                                <DocumentBlockFields
-                                  documentId={documentId}
-                                  databaseId={
-                                    databaseId ??
-                                    document.databaseMembership.databaseId
-                                  }
-                                  databaseDocumentId={
-                                    databaseDocumentId ??
-                                    document.databaseMembership
-                                      .databaseDocumentId
-                                  }
-                                  canEdit={
-                                    editorCanEdit && !mcpDirectoryWidgetReadOnly
-                                  }
-                                  usePagePropertiesOnly={
-                                    mcpDirectoryWidgetReadOnly
-                                  }
-                                  suggesting={
-                                    isSuggesting || isStartingSuggestion
-                                  }
-                                  enteringSuggestion={isStartingSuggestion}
-                                  onPrimaryFieldAvailabilityChange={
-                                    handlePrimaryFieldAvailabilityChange
-                                  }
-                                  primaryEditor={primaryEditor}
-                                  primaryContent={exportContent}
-                                  privateImageUploads={privateImageUploads}
-                                  onFieldTabChange={
-                                    blockFieldComments.onFieldTabChange
-                                  }
-                                  pageProperties={document.properties}
-                                  onAdditionalContentChange={
-                                    handleAdditionalBlockContentChange
-                                  }
-                                />
-                              </BlocksFieldSuggestionsProvider>
-                            </BlockFieldCommentsProvider>
-                          );
-                        }
-
-                        return primaryEditor;
-                      })()}
-                      {!bodyHydrationPending &&
-                      collabEnabled &&
-                      canEdit &&
-                      !canEditWithoutCollaboration &&
-                      !collabReady ? (
-                        <div
-                          className="mt-4 inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
-                          role="status"
-                        >
-                          <IconLoader2 className="size-3.5 animate-spin" />
-                          {t("editor.collabConnectingReadOnly")}
-                        </div>
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-
-                {showInlineComments && !blockFieldComments.tabSwitchPending ? (
-                  <aside
-                    ref={commentLaneRef}
-                    className={cn(
-                      "absolute right-0 top-0 w-80 transition-opacity duration-[80ms] motion-reduce:transition-none",
-                      pagePanel.marginFading && "opacity-0",
-                    )}
-                    aria-label={t("comments.title")}
-                    data-comments-flow-lane
-                  >
-                    <div
-                      style={{
-                        transform: `translateX(${commentLaneOffset}px)`,
-                      }}
-                    >
-                      <div className="relative min-h-full translate-x-4">
-                        {renderCommentsSidebar()}
-                      </div>
-                    </div>
-                  </aside>
                 ) : null}
 
-                {/* translateZ(0) gives the card its own layer, so Safari can't
+                {!isDatabasePage ? (
+                  <div
+                    {...(host === "page" ? startupAnchor("body") : {})}
+                    className={cn(
+                      documentEditorBodyClassName(host),
+                      showNewPageStartingPoints && "content-new-page-body",
+                    )}
+                    onClick={(e) => {
+                      if (e.target === e.currentTarget) {
+                        cancelPaddingScrollRestore();
+                        const scrollContainer = scrollContainerRef.current;
+                        const scrollTop = scrollContainer?.scrollTop;
+                        const restoreScroll = () => {
+                          if (scrollContainer && scrollTop !== undefined) {
+                            scrollContainer.scrollTop = scrollTop;
+                          }
+                          pendingPaddingScrollRestoreRef.current = null;
+                        };
+                        visibleBlockFieldEditor(e.currentTarget)?.focus({
+                          preventScroll: true,
+                        });
+                        restoreScroll();
+                        if (scrollContainer && scrollTop !== undefined) {
+                          pendingPaddingScrollRestoreRef.current =
+                            window.setTimeout(restoreScroll, 50);
+                        }
+                      }
+                    }}
+                  >
+                    {showNewPageStartingPoints ? (
+                      <NewPageStartingPoints
+                        documentId={documentId}
+                        title={localTitle}
+                        onImport={canImportPages ? openImport : undefined}
+                      />
+                    ) : null}
+                    {(() => {
+                      if (bodyHydrationPending) {
+                        return (
+                          <BuilderBodySyncingNotice
+                            title={t(
+                              document.bodyHydration?.provider === "builder"
+                                ? "editor.builderBodySyncing"
+                                : "editor.pageBodySyncing",
+                            )}
+                            description={t(
+                              document.bodyHydration?.provider === "builder"
+                                ? "editor.builderBodySyncingDescription"
+                                : "editor.pageBodySyncingDescription",
+                            )}
+                          />
+                        );
+                      }
+
+                      if (bodyHydrationError) {
+                        return (
+                          <BuilderBodySyncingNotice
+                            title={t("database.builderBodySyncFailedNotice")}
+                            description={
+                              bodyHydrationError.error ??
+                              t("database.builderBodySyncFailedDescription")
+                            }
+                          />
+                        );
+                      }
+
+                      const visualEditorContent = isLocalFileDocument
+                        ? localContent
+                        : (pendingSuggestionDecisionContent ??
+                          (isSuggesting
+                            ? suggestionDraft
+                            : showLocalCreationDraft
+                              ? localContent
+                              : document.content));
+                      const primaryEditor = (
+                        <>
+                          {canEdit && collabInitializationFailed ? (
+                            <div data-collab-initialization-error role="alert">
+                              <QueryErrorState
+                                compact
+                                onRetry={() => globalThis.location.reload()}
+                              />
+                            </div>
+                          ) : null}
+                          {decisionRefreshFailed &&
+                          (pendingSuggestionDecision ||
+                            pendingProposalDecision) ? (
+                            <div role="alert">
+                              <QueryErrorState
+                                compact
+                                onRetry={() => {
+                                  const continueSuggesting =
+                                    pendingSuggestionDecision?.continueSuggesting ??
+                                    pendingProposalDecision?.continueSuggesting ??
+                                    false;
+                                  const owner = pendingProposalDecision
+                                    ? pendingProposalDecision.accepted
+                                      ? "proposal-accepted"
+                                      : "proposal-other"
+                                    : pendingSuggestionDecision?.decision ===
+                                          "accepted" &&
+                                        pendingSuggestionDecision.optimistic
+                                      ? "single-accepted"
+                                      : "single-other";
+                                  const decisionGeneration =
+                                    suggestionDecisionGenerationRef.current;
+                                  void refreshSuggestionDecisionDocument(
+                                    continueSuggesting,
+                                    owner,
+                                  ).then((recovered) => {
+                                    if (
+                                      recovered.status === "refreshed" &&
+                                      (owner === "proposal-accepted" ||
+                                        owner === "proposal-other") &&
+                                      decisionGeneration ===
+                                        suggestionDecisionGenerationRef.current &&
+                                      documentId ===
+                                        suggestionDecisionDocumentIdRef.current
+                                    )
+                                      setPendingProposalDecision((current) =>
+                                        current?.generation ===
+                                        decisionGeneration
+                                          ? {
+                                              ...current,
+                                              readbackContent:
+                                                recovered.document.content,
+                                            }
+                                          : current,
+                                      );
+                                  });
+                                }}
+                              />
+                            </div>
+                          ) : null}
+                          {suggestionDraftPreview.status ===
+                          "unsupported-formatting" ? (
+                            <div
+                              role="alert"
+                              className="mb-3 text-sm text-destructive"
+                            >
+                              {t("editor.suggestionFormattingUnsupported")}
+                            </div>
+                          ) : null}
+                          {awaitingLiveCopy ? (
+                            <div className="visual-editor-wrapper">
+                              <StaticDocumentBody
+                                schema={getContentEditorSchema()}
+                                content={visualEditorContent}
+                                documentId={documentId}
+                              />
+                            </div>
+                          ) : (
+                            <WidgetVisualEditorBoundary
+                              key={`${visualEditorInstanceKey({
+                                documentId,
+                                documentUpdatedAt:
+                                  suggestionEditorIsolation.contentUpdatedAt,
+                                isLocalFileDocument,
+                                canEdit,
+                                collabEditorEnabled,
+                                hasYDoc: Boolean(ydoc),
+                                localFileSyncRevision,
+                              })}:${isSuggesting ? "suggesting" : "canonical"}`}
+                              active={mcpDirectoryWidgetReadOnly}
+                              stage={t("editor.widgetEditorInitStage")}
+                              action="VisualEditor"
+                            >
+                              <VisualEditor
+                                visitKey={visit.key}
+                                editorMountMode={
+                                  isSuggesting
+                                    ? "suggesting"
+                                    : canEdit
+                                      ? "editing"
+                                      : "readonly"
+                                }
+                                onEscape={handleEditorEscape}
+                                onImportFiles={
+                                  canImportPages
+                                    ? importDroppedFiles
+                                    : undefined
+                                }
+                                acceptedDecisionReadback={
+                                  !isSuggesting &&
+                                  pendingSuggestionDecision?.decision ===
+                                    "accepted" &&
+                                  pendingSuggestionDecision.readbackContent !==
+                                    null
+                                    ? {
+                                        id: pendingSuggestionDecision.suggestion
+                                          .id,
+                                        content:
+                                          pendingSuggestionDecision.readbackContent,
+                                      }
+                                    : null
+                                }
+                                onAcceptedDecisionRendered={
+                                  handleAcceptedDecisionRendered
+                                }
+                                onAcceptedDecisionReadbackOutdated={
+                                  handleAcceptedDecisionReadbackOutdated
+                                }
+                                contentResetKey={
+                                  pendingSuggestionDecision
+                                    ? `${pendingSuggestionDecision.suggestion.id}:${pendingSuggestionDecision.decision}:${pendingSuggestionDecision.optimistic ? "optimistic" : "canonical"}`
+                                    : pendingProposalDecision
+                                      ? `proposal:${pendingProposalDecision.generation}:${pendingProposalDecision.readbackContent === null ? "pending" : "readback"}`
+                                      : null
+                                }
+                                proposalDecisionReadback={
+                                  (!isSuggesting ||
+                                    !pendingProposalDecision?.accepted) &&
+                                  pendingProposalDecision?.readbackContent !==
+                                    null &&
+                                  pendingProposalDecision?.readbackContent !==
+                                    undefined
+                                    ? {
+                                        generation:
+                                          pendingProposalDecision.generation,
+                                        content:
+                                          pendingProposalDecision.readbackContent,
+                                        beforeContent:
+                                          pendingProposalDecision.beforeContent,
+                                      }
+                                    : null
+                                }
+                                onProposalDecisionRendered={
+                                  handleProposalDecisionRendered
+                                }
+                                onProposalDecisionReadbackOutdated={
+                                  handleProposalDecisionReadbackOutdated
+                                }
+                                documentId={documentId}
+                                contentSpaceId={document.spaceId ?? undefined}
+                                widgetLoadDiagnosticsActive={
+                                  mcpDirectoryWidgetReadOnly
+                                }
+                                content={
+                                  isLocalFileDocument
+                                    ? localContent
+                                    : (pendingSuggestionDecisionContent ??
+                                      (isSuggesting
+                                        ? suggestionDraft
+                                        : showLocalCreationDraft
+                                          ? localContent
+                                          : document.content))
+                                }
+                                contentUpdatedAt={
+                                  isLocalFileDocument || showLocalCreationDraft
+                                    ? (localContentUpdatedAt ??
+                                      document.updatedAt)
+                                    : suggestionEditorIsolation.contentUpdatedAt
+                                }
+                                contentRevision={
+                                  isLocalFileDocument ||
+                                  showLocalCreationDraft ||
+                                  !suggestionEditorIsolation.reconcileCanonical
+                                    ? null
+                                    : (document.revision ?? null)
+                                }
+                                acknowledgedLocalSnapshot={
+                                  acknowledgedLocalSnapshot
+                                }
+                                mergedLocalSave={mergedLocalSave}
+                                onBaseAwareReconcile={
+                                  suggestionEditorIsolation.reconcileCanonical
+                                    ? handleBaseAwareReconcile
+                                    : undefined
+                                }
+                                onRemoteSnapshotChange={
+                                  suggestionEditorIsolation.reconcileCanonical
+                                    ? handleRemoteSnapshotChange
+                                    : undefined
+                                }
+                                isEditorClean={isEditorClean}
+                                collabContentRevision={
+                                  isLocalFileDocument || isSuggesting
+                                    ? null
+                                    : document.collabContentRevision
+                                }
+                                requestCollabSync={requestCollabSync}
+                                flushCollabUpdates={flushCollabUpdates}
+                                onChange={
+                                  isSuggesting
+                                    ? handleSuggestionDraftChange
+                                    : handleContentChange
+                                }
+                                onSaveContent={
+                                  suggestionEditorIsolation.persistCanonical
+                                    ? handleImmediateContentChange
+                                    : undefined
+                                }
+                                ydoc={
+                                  suggestionEditorIsolation.bindCanonicalYDoc
+                                    ? ydoc
+                                    : null
+                                }
+                                observeLiveBody={observeLiveBody}
+                                bodyIsLiveCopy={bodyWritesThroughLiveCopy}
+                                replacesStoredBody={replacesStoredBody}
+                                collabSynced={
+                                  collabEditorEnabled ? collabReady : true
+                                }
+                                awareness={
+                                  collabEditorEnabled ? awareness : null
+                                }
+                                user={currentUser}
+                                editable={
+                                  suggestionEditorIsolation.editable &&
+                                  !isStartingSuggestion &&
+                                  !isSubmittingSuggestions &&
+                                  !pendingSuggestionDecision &&
+                                  !pendingProposalDecision
+                                }
+                                directoryWidgetEditing={
+                                  mcpDirectoryWidgetReadOnly &&
+                                  widgetEditability.canEditDocument
+                                }
+                                suggesting={isSuggesting}
+                                localFileMode={isLocalFileDocument}
+                                privateImageUploads={privateImageUploads}
+                                localFilePath={
+                                  isLocalFileDocument
+                                    ? document.source?.path
+                                    : null
+                                }
+                                onComment={
+                                  canComment ? handleComment : undefined
+                                }
+                                onSuggestEdit={
+                                  canSuggest && !mcpDirectoryWidgetReadOnly
+                                    ? handleSuggestEdit
+                                    : undefined
+                                }
+                                onBlockComment={
+                                  canComment ? handleBlockComment : undefined
+                                }
+                                pageCheckMarks
+                                commentThreads={editorCommentThreads}
+                                activeThreadId={selectedThreadId}
+                                hoveredThreadId={hoveredThreadId}
+                                pendingHighlight={
+                                  blockFieldComments.bodyPendingHighlight
+                                }
+                                onActivateThread={
+                                  !isLocalFileDocument
+                                    ? activateCommentThread
+                                    : undefined
+                                }
+                                suggestions={visualSuggestions}
+                                activeSuggestionId={activeSuggestionOnPage}
+                                activeSuggestionUnitIds={activeUnitIds}
+                                onActivateSuggestion={activateInlineSuggestion}
+                                onHoverSuggestion={setHoveredSuggestionId}
+                                onSuggestionReplacementIntent={
+                                  isSuggesting
+                                    ? handleSuggestionReplacementIntent
+                                    : undefined
+                                }
+                                initialSelection={visualEditorInitialSelection}
+                                onInitialSelectionApplied={
+                                  onVisualEditorInitialSelectionApplied
+                                }
+                                onSuggestionAnchorsChange={
+                                  handleSuggestionAnchorsChange
+                                }
+                                showCommentIndicators={showCommentIndicators}
+                                emptyDocumentPlaceholder={
+                                  showNewPageStartingPoints
+                                    ? t("editor.newPagePlaceholder")
+                                    : null
+                                }
+                                onJoinTitle={joinFirstBodyBlockToTitle}
+                                onOpenNotionPageLink={handleOpenNotionPageLink}
+                                notionPageId={document.notionPageId}
+                                onHistoryControllerChange={
+                                  handleHistoryControllerChange
+                                }
+                                onHistoryStateChange={handleHistoryStateChange}
+                                onSelectionControllerChange={
+                                  handleSelectionControllerChange
+                                }
+                                onPersistenceControllerChange={
+                                  handlePersistenceControllerChange
+                                }
+                                onSuggestionPlacementsChange={
+                                  handleSuggestionPlacementsChange
+                                }
+                                blockLinks={
+                                  !isLocalFileDocument &&
+                                  !mcpDirectoryWidgetReadOnly
+                                }
+                                linkedBlockId={linkedBlockId}
+                                onBlockIdentityIds={
+                                  isSuggesting
+                                    ? undefined
+                                    : handleBlockIdentityIds
+                                }
+                              />
+                            </WidgetVisualEditorBoundary>
+                          )}
+                        </>
+                      );
+                      if (document.databaseMembership && !isLocalFileDocument) {
+                        return (
+                          <BlockFieldCommentsProvider
+                            value={blockFieldComments.provider}
+                          >
+                            <BlocksFieldSuggestionsProvider
+                              value={fieldSuggestions.provider}
+                            >
+                              <DocumentBlockFields
+                                documentId={documentId}
+                                databaseId={
+                                  databaseId ??
+                                  document.databaseMembership.databaseId
+                                }
+                                databaseDocumentId={
+                                  databaseDocumentId ??
+                                  document.databaseMembership.databaseDocumentId
+                                }
+                                canEdit={
+                                  editorCanEdit && !mcpDirectoryWidgetReadOnly
+                                }
+                                usePagePropertiesOnly={
+                                  mcpDirectoryWidgetReadOnly
+                                }
+                                suggesting={
+                                  isSuggesting || isStartingSuggestion
+                                }
+                                enteringSuggestion={isStartingSuggestion}
+                                onPrimaryFieldAvailabilityChange={
+                                  handlePrimaryFieldAvailabilityChange
+                                }
+                                primaryEditor={primaryEditor}
+                                primaryContent={exportContent}
+                                privateImageUploads={privateImageUploads}
+                                onFieldTabChange={
+                                  blockFieldComments.onFieldTabChange
+                                }
+                                pageProperties={document.properties}
+                                onAdditionalContentChange={
+                                  handleAdditionalBlockContentChange
+                                }
+                              />
+                            </BlocksFieldSuggestionsProvider>
+                          </BlockFieldCommentsProvider>
+                        );
+                      }
+
+                      return primaryEditor;
+                    })()}
+                    {!bodyHydrationPending &&
+                    collabEnabled &&
+                    canEdit &&
+                    !canEditWithoutCollaboration &&
+                    !collabReady ? (
+                      <div
+                        className="mt-4 inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+                        role="status"
+                      >
+                        <IconLoader2 className="size-3.5 animate-spin" />
+                        {t("editor.collabConnectingReadOnly")}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+
+              {showInlineComments && !blockFieldComments.tabSwitchPending ? (
+                <aside
+                  ref={commentLaneRef}
+                  className={cn(
+                    "absolute right-0 top-0 w-80 transition-opacity duration-[80ms] motion-reduce:transition-none",
+                    pagePanel.marginFading && "opacity-0",
+                  )}
+                  aria-label={t("comments.title")}
+                  data-comments-flow-lane
+                >
+                  <div
+                    style={{
+                      transform: `translateX(${commentLaneOffset}px)`,
+                    }}
+                  >
+                    <div className="relative min-h-full translate-x-4">
+                      {renderCommentsSidebar()}
+                    </div>
+                  </div>
+                </aside>
+              ) : null}
+
+              {/* translateZ(0) gives the card its own layer, so Safari can't
                   leave it under the Blocks field's sticky tab row (z-10) when
                   it misses their overlap; the scroller's isolate orders the
                   two layers. compositing-ok: it mounts only while a thread is
                   open. Its menus portal to the body, so the new containing
                   block for fixed children moves nothing. */}
-                {showAnchoredCommentPopover ? (
-                  <aside
-                    ref={anchoredCommentRef}
-                    className="pointer-events-none absolute z-30 [transform:translateZ(0)]"
-                    aria-label={t("comments.title")}
-                    data-comments-anchored-popover
-                    data-placement={anchoredCommentPosition?.placement}
-                    style={
-                      anchoredCommentPosition
-                        ? ({
-                            left: anchoredCommentPosition.left,
-                            top: anchoredCommentPosition.top,
-                            width: anchoredCommentPosition.width,
-                            "--comment-popover-max-height": `${anchoredCommentPosition.maxHeight}px`,
-                          } as CSSProperties)
-                        : { visibility: "hidden" }
-                    }
-                  >
-                    <div className="pointer-events-auto">
-                      {renderCommentsSidebar(
-                        // A thread opened while a new comment waits shows first.
-                        !selectedThreadId &&
-                          pagePendingComment &&
-                          blockFieldComments.pendingVisible
-                          ? "__pending-only__"
-                          : selectedThreadId,
-                        false,
-                        "inline",
-                        "popover",
-                      )}
-                    </div>
-                  </aside>
-                ) : null}
-              </div>
+              {showAnchoredCommentPopover ? (
+                <aside
+                  ref={anchoredCommentRef}
+                  className="pointer-events-none absolute z-30 [transform:translateZ(0)]"
+                  aria-label={t("comments.title")}
+                  data-comments-anchored-popover
+                  data-placement={anchoredCommentPosition?.placement}
+                  style={
+                    anchoredCommentPosition
+                      ? ({
+                          left: anchoredCommentPosition.left,
+                          top: anchoredCommentPosition.top,
+                          width: anchoredCommentPosition.width,
+                          "--comment-popover-max-height": `${anchoredCommentPosition.maxHeight}px`,
+                        } as CSSProperties)
+                      : { visibility: "hidden" }
+                  }
+                >
+                  <div className="pointer-events-auto">
+                    {renderCommentsSidebar(
+                      // A thread opened while a new comment waits shows first.
+                      !selectedThreadId &&
+                        pagePendingComment &&
+                        blockFieldComments.pendingVisible
+                        ? "__pending-only__"
+                        : selectedThreadId,
+                      false,
+                      "inline",
+                      "popover",
+                    )}
+                  </div>
+                </aside>
+              ) : null}
             </div>
           </div>
-
-          <DocumentPagePanel
-            open={!!pagePanel.tab && !peeking}
-            tab={pagePanel.rendered}
-            layout={pagePanelLayout}
-            panelId={pagePanelId}
-            pageEditorOwner={pageEditorOwner}
-            panelRef={pagePanelRef}
-            spacerRef={pagePanelSpacerRef}
-            headingRef={pagePanelHeadingRef}
-            agentSlotRef={host === "page" ? agentSlotRef : undefined}
-            agentHeadSlotRef={host === "page" ? agentHeadSlotRef : undefined}
-            headToolsRef={setPagePanelHeadTools}
-            onClose={() => handlePagePanelChange(null)}
-          >
-            {pagePanelBody}
-          </DocumentPagePanel>
-          {peekThread ? (
-            <DiscussionPeekBar
-              key={peekThread.threadId}
-              thread={peekThread}
-              quote={commentThreadQuote(peekThread, t)}
-              sheet={pagePanelLayout.mode === "sheet"}
-              onBack={leaveDiscussionPeek}
-            />
-          ) : null}
         </div>
-        <PageCheckDialog />
-      </BlockRegistryProvider>
-    </PageChecksProvider>
+
+        <DocumentPagePanel
+          open={!!pagePanel.tab && !peeking}
+          tab={pagePanel.rendered}
+          layout={pagePanelLayout}
+          panelId={pagePanelId}
+          pageEditorOwner={pageEditorOwner}
+          panelRef={pagePanelRef}
+          spacerRef={pagePanelSpacerRef}
+          headingRef={pagePanelHeadingRef}
+          agentSlotRef={host === "page" ? agentSlotRef : undefined}
+          agentHeadSlotRef={host === "page" ? agentHeadSlotRef : undefined}
+          headToolsRef={setPagePanelHeadTools}
+          onClose={() => handlePagePanelChange(null)}
+        >
+          {pagePanelBody}
+        </DocumentPagePanel>
+        {peekThread ? (
+          <DiscussionPeekBar
+            key={peekThread.threadId}
+            thread={peekThread}
+            quote={commentThreadQuote(peekThread, t)}
+            sheet={pagePanelLayout.mode === "sheet"}
+            onBack={leaveDiscussionPeek}
+          />
+        ) : null}
+      </div>
+      <PageCheckDialog />
+    </BlockRegistryProvider>
   );
+
+  return <PageChecksProvider value={pageChecks}>{page}</PageChecksProvider>;
 }

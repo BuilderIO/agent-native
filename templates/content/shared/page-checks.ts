@@ -8,25 +8,16 @@ import {
 import { countWords } from "./properties.js";
 import { countSentences } from "./suggestion-units.js";
 
-/**
- * Checks on a page: one sentence a person keeps true of the page ("Under 120
- * words"), split into at most three parts, each tested against a part of the
- * page. A check only points at what doesn't pass; it never changes the page.
- */
-
 export const PAGE_CHECK_LIMIT = 20;
 export const PAGE_CHECK_SENTENCE_MAX_LENGTH = 300;
 export const PAGE_CHECK_MAX_PARTS = 3;
-/** How long typing must stop before the parts it changed are checked again. */
 export const PAGE_CHECK_TYPING_PAUSE_MS = 3_000;
 const PAGE_CHECK_COUNT_MAX = 1_000_000;
 
 export type PageCheckUnit = "words" | "sentences" | "paragraphs";
 
-/** A part that counts: words, sentences or paragraphs between two bounds. */
 export interface PageCheckCountPart {
   kind: "count";
-  /** The part as the person wrote it. */
   text: string;
   unit: PageCheckUnit;
   min: number | null;
@@ -35,7 +26,6 @@ export interface PageCheckCountPart {
 
 export type PageCheckPart = PageCheckCountPart;
 
-/** A piece of a sentence that no kind of part reads yet. */
 export interface PageCheckUnreadPart {
   kind: "unread";
   text: string;
@@ -46,7 +36,6 @@ export type PageCheckScope =
   | { kind: "intro" }
   | {
       kind: "section";
-      /** The heading's block ID, on pages whose blocks have them. */
       headingId: string | null;
       heading: string;
       level: number;
@@ -55,10 +44,8 @@ export type PageCheckScope =
 
 export type PageCheckScopeKind = PageCheckScope["kind"];
 
-/** What one part found at one place. */
 export type PageCheckFinding = "fine" | "not_fine" | "couldnt";
 
-/** The five answers a place can show. */
 export type PageCheckAnswer =
   | "fine"
   | "not_fine"
@@ -74,15 +61,11 @@ export interface PageCheckPartResult {
   reason?: PageCheckCouldntReason;
 }
 
-/** A part of the page one check looks at: the page, the intro, a paragraph. */
 export interface PageCheckPlace {
-  /** Stable while the place is: a block ID, or the place's kind. */
   key: string;
-  /** Path of the block the place starts at, as the body's block IDs use. */
   path: string;
   blockId: string | null;
   textHash: string;
-  /** The first words of the place, for a screen reader and a comment's quote. */
   excerpt: string;
   markdown: string;
 }
@@ -91,14 +74,6 @@ export type PageCheckPlaces =
   | { status: "ok"; places: PageCheckPlace[] }
   | { status: "section_deleted" };
 
-// ---------------------------------------------------------------------------
-// Reading a sentence
-// ---------------------------------------------------------------------------
-
-/**
- * The words that name each unit in the languages Content ships. Latin-script
- * words match whole; the rest match inside longer runs of text.
- */
 const UNIT_WORDS: Record<PageCheckUnit, readonly string[]> = {
   paragraphs: [
     "paragraph",
@@ -337,7 +312,6 @@ function contains(text: string, word: string): boolean {
   return pattern.test(text);
 }
 
-/** The longest word of the list the text holds, so "no more than" beats "more than". */
 function longestFound(text: string, words: readonly string[]): string | null {
   let found: string | null = null;
   for (const word of words) {
@@ -361,7 +335,6 @@ function numbersIn(text: string): number[] {
   return numbers;
 }
 
-/** One part of a sentence, read as a count when it is one. */
 export function readPageCheckPart(
   text: string,
 ): PageCheckCountPart | PageCheckUnreadPart {
@@ -370,8 +343,6 @@ export function readPageCheckPart(
   const units = (Object.keys(UNIT_WORDS) as PageCheckUnit[]).filter((unit) =>
     UNIT_WORDS[unit].some((word) => contains(normalized, word)),
   );
-  // Two units ("sentences per paragraph", or "文字", which holds both "文" and
-  // "字") leave the part unread rather than guessed.
   const [unit, ...others] = units;
   if (!unit || others.length) return unread;
   const numbers = numbersIn(normalized);
@@ -403,7 +374,6 @@ export function readPageCheckPart(
   return unread;
 }
 
-/** Splits a sentence into its parts: its sentences, clauses after commas, lines. */
 export function splitPageCheckSentence(sentence: string): string[] {
   return sentence
     .split(/[.;!?]+(?=\s|$)|[。！？；，、]+|,\s+|\n+/u)
@@ -424,7 +394,6 @@ export function readPageCheckSentence(sentence: string): PageCheckReading {
   };
 }
 
-/** The parts to save, when every part of the sentence reads. */
 export function readablePageCheckParts(
   sentence: string,
 ): PageCheckPart[] | null {
@@ -438,11 +407,6 @@ export function readablePageCheckParts(
   return parts;
 }
 
-// ---------------------------------------------------------------------------
-// Places
-// ---------------------------------------------------------------------------
-
-/** A short, stable hash of text: two FNV-1a passes, as hex. */
 export function hashPageCheckText(value: string): string {
   let first = 0x811c9dc5;
   let second = 0x9e3779b9;
@@ -459,7 +423,6 @@ export function hashPageCheckText(value: string): string {
   );
 }
 
-/** Identifies a check's wording, so a changed check is never read as fresh. */
 export function pageCheckWordingHash(check: {
   parts: readonly PageCheckPart[];
   scope: PageCheckScope;
@@ -486,7 +449,6 @@ function plainText(node: PMNode): string {
   return (node.content ?? []).map(plainText).join("");
 }
 
-/** The text of each text block, headings apart, for counting sentences. */
 function proseBlocks(nodes: readonly PMNode[]): string[] {
   const blocks: string[] = [];
   const visit = (node: PMNode) => {
@@ -516,7 +478,6 @@ const NO_PARAGRAPHS_INSIDE = new Set([
 export interface PageCheckBodyBlock {
   node: PMNode;
   path: string;
-  /** A paragraph that stands as one: not in a list or table. */
   paragraph: boolean;
 }
 
@@ -579,8 +540,6 @@ function placeOf(
     key,
     path: first?.path ?? "0",
     blockId: first ? (idsByPath[first.path] ?? null) : null,
-    // The text as Content writes it, so the editor and the server agree on
-    // whether it changed even where their Markdown is spelled differently.
     textHash: hashPageCheckText(text.trim()),
     excerpt: excerptOf(nodes),
     markdown: markdown ?? text,
@@ -597,7 +556,6 @@ function headingOf(
   };
 }
 
-/** The headings a page has, for choosing a section. */
 export function pageCheckHeadings(
   markdown: string,
   idsByPath: Readonly<Record<string, string>> = {},
@@ -629,10 +587,6 @@ export function pageCheckHeadingsIn(body: PageCheckBody): PageCheckHeading[] {
   });
 }
 
-/**
- * The places a check looks at in this page body. The page as a whole keeps the
- * body as saved, so its word count is the one Info shows.
- */
 export function pageCheckPlaces(
   markdown: string,
   scope: PageCheckScope,
@@ -641,13 +595,11 @@ export function pageCheckPlaces(
   return pageCheckPlacesIn(readPageCheckBody(markdown, idsByPath), scope);
 }
 
-/** A page body read once, for finding the places of many checks in it. */
 export interface PageCheckBody {
   markdown: string;
   idsByPath: Readonly<Record<string, string>>;
   top: readonly PageCheckBodyBlock[];
   paragraphs: readonly PageCheckBodyBlock[];
-  /** Places already found, by scope: checks often share one. */
   found: Map<string, PageCheckPlaces>;
 }
 
@@ -716,8 +668,6 @@ function findPageCheckPlaces(
         places: paragraphs.map((block) => {
           const id = idsByPath[block.path];
           const place = placeOf("", [block], idsByPath);
-          // Without block IDs a paragraph is known by its text, so an edited
-          // one is a new place and an unchanged one keeps its answer.
           const occurrence = seen.get(place.textHash) ?? 0;
           seen.set(place.textHash, occurrence + 1);
           return {
@@ -729,10 +679,6 @@ function findPageCheckPlaces(
     }
   }
 }
-
-// ---------------------------------------------------------------------------
-// Counting
-// ---------------------------------------------------------------------------
 
 export function countPageCheckUnit(
   unit: PageCheckUnit,
@@ -760,7 +706,6 @@ export function evaluatePageCheckPart(
   return { finding: fine ? "fine" : "not_fine", count };
 }
 
-/** One answer for a place from its parts: any miss, else any failure, else fine. */
 export function combinePageCheckFindings(
   results: readonly Pick<PageCheckPartResult, "finding">[],
 ): PageCheckFinding {
@@ -770,7 +715,6 @@ export function combinePageCheckFindings(
   return "fine";
 }
 
-/** How far a count is past its bound: positive over, negative short, 0 inside. */
 export function pageCheckCountDistance(
   part: Pick<PageCheckCountPart, "min" | "max">,
   count: number,
@@ -780,11 +724,6 @@ export function pageCheckCountDistance(
   return 0;
 }
 
-// ---------------------------------------------------------------------------
-// Answers
-// ---------------------------------------------------------------------------
-
-/** A check as people and agents see it. */
 export interface PageCheck {
   id: string;
   documentId: string;
@@ -798,7 +737,6 @@ export interface PageCheck {
   updatedAt: string;
 }
 
-/** A check's last answer at one place, and what it answered. */
 export interface PageCheckResult {
   placeKey: string;
   wordingHash: string;
@@ -815,10 +753,8 @@ export interface PageCheckSkip {
   skippedBy: string;
 }
 
-/** A check with what each of its places shows now, as list-page-checks returns it. */
 export interface PageCheckView extends PageCheck {
   answers: PageCheckPlaceAnswer[];
-  /** The places left alone, each until its text changes. */
   skips: Pick<PageCheckSkip, "placeKey" | "textHash">[];
 }
 
@@ -828,18 +764,14 @@ export interface PageCheckList {
   checks: PageCheckView[];
 }
 
-/** What one place shows now. */
 export interface PageCheckPlaceAnswer {
   key: string;
-  /** Null when the place is gone, like a deleted section. */
   place: Omit<PageCheckPlace, "markdown"> | null;
   answer: PageCheckAnswer;
-  /** The last answer here, which a changed place still holds. */
   result: PageCheckResult | null;
   reason?: PageCheckCouldntReason;
 }
 
-/** Whether this result answered this wording about this text. */
 export function isFreshPageCheckResult(
   result: Pick<PageCheckResult, "wordingHash" | "textHash"> | undefined,
   check: Pick<PageCheck, "wordingHash">,
@@ -852,11 +784,6 @@ export function isFreshPageCheckResult(
   );
 }
 
-/**
- * What each place shows: skipped while its text is the text that was skipped,
- * changed when the last answer is about other text or wording, otherwise the
- * last answer.
- */
 export function pageCheckAnswers(
   check: Pick<PageCheck, "wordingHash">,
   places: PageCheckPlaces,
@@ -895,12 +822,6 @@ export function pageCheckAnswers(
   });
 }
 
-/**
- * What a check's places show in the text an editor holds now, from what was
- * last checked. A place whose text changed after that keeps its last answer
- * while the person is still writing, so a dot doesn't come and go mid-sentence;
- * one that was already changed when the list was read still says so.
- */
 export function livePageCheckAnswers(
   check: PageCheckView,
   places: PageCheckPlaces,
@@ -921,7 +842,6 @@ export function livePageCheckAnswers(
   });
 }
 
-/** Checks a place's text against every part of a check. */
 export function checkPageCheckPlace(
   parts: readonly PageCheckPart[],
   place: Pick<PageCheckPlace, "markdown">,

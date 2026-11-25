@@ -130,12 +130,14 @@ describe("new comment responsive draft", () => {
       setPendingComment,
       changePendingComment,
       completePendingComment,
+      prefillPendingComment,
     } = usePendingCommentDraft(documentId);
     owner = {
       pendingComment,
       setPendingComment,
       changePendingComment,
       completePendingComment,
+      prefillPendingComment,
     };
     start = setPendingComment;
     const replyDrafts = useCommentReplyDrafts(documentId);

@@ -25,9 +25,10 @@ describe("check messages", () => {
   });
 
   it("uses locale-specific plural keys with stable count placeholders", () => {
-    for (const [locale, messages] of Object.entries(
+    for (const [locale, localeMessages] of Object.entries(
       pageCheckMessagesByLocale,
     )) {
+      const messages: Record<string, string | undefined> = localeMessages;
       const categories = new Intl.PluralRules(locale).resolvedOptions()
         .pluralCategories;
 

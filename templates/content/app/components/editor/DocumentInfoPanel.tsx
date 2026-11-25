@@ -30,7 +30,6 @@ interface DocumentInfoPanelProps {
   rowViewPending?: boolean;
   canEdit: boolean;
   onSaveDescription: (description: string) => Promise<unknown>;
-  /** The page's checks, above its details. */
   checks?: ReactNode;
 }
 

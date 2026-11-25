@@ -20,7 +20,6 @@ import {
   readLivePageChecks,
 } from "./page-check-body";
 
-// Paragraphs and headings are all these pages hold.
 const schema = getSchema([StarterKit]);
 
 const words = (count: number) =>
@@ -30,7 +29,6 @@ function editorDoc(markdown: string): ProseMirrorNode {
   return schema.nodeFromJSON(nfmToDoc(markdown));
 }
 
-/** A check as list-page-checks returns it after checking `checkedMarkdown`. */
 function listed(
   sentence: string,
   scope: PageCheckScope,

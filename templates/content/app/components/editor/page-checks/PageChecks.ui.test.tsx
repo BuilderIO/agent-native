@@ -43,7 +43,6 @@ import { PageChecksPill, PageChecksSection } from "./PageChecksSection";
 const words = (count: number) =>
   Array.from({ length: count }, (_, index) => `word${index}`).join(" ");
 
-/** An intro of 183 words, then one section. */
 const body = `${words(183)}.\n\n## Details\n\nShort.`;
 
 function check(overrides: Partial<PageCheckView> = {}): PageCheckView {
@@ -188,7 +187,6 @@ describe("page checks", () => {
     await click(buttonNamed("Add")!);
     expect(page.openAdd).toHaveBeenCalledOnce();
 
-    // The row opens its dot's card.
     await click(row!.querySelector("button")!);
     expect(page.focusCheck).toHaveBeenCalledWith("check-1");
   });

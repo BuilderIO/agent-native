@@ -38,7 +38,6 @@ function sentenceStarts(text: string) {
   return starts;
 }
 
-/** How many sentences this plain text holds, each line apart; none without words. */
 export function countSentences(text: string): number {
   let count = 0;
   for (const line of text.split("\n")) {

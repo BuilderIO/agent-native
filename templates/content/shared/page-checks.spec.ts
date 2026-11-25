@@ -184,7 +184,6 @@ describe("places on a page", () => {
     expect(section?.path).toBe("2");
     expect(section?.markdown).toContain("Deeper para.");
     expect(section?.markdown).not.toContain("Next para.");
-    // The headings themselves aren't sentences.
     expect(countPageCheckUnit("sentences", section!.markdown)).toBe(2);
   });
 

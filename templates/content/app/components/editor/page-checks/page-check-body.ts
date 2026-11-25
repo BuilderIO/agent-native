@@ -21,17 +21,13 @@ const BLOCK_KINDS = new Set<string>(BLOCKS_FIELD_BLOCK_KINDS);
 
 export type LivePageCheckAnswer = PageCheckPlaceAnswer & { writing: boolean };
 
-/** One check's answer at one place, where the margin can point at it. */
 export interface PageCheckMark {
   check: PageCheckView;
   answer: LivePageCheckAnswer;
-  /** Where the place's first block starts in the editor. */
   from: number;
-  /** Where the place ends, for quoting it in a comment. */
   to: number;
 }
 
-/** What the checks find in the text the editor holds now. */
 export interface LivePageChecks {
   markdown: string;
   idsByPath: Readonly<Record<string, string>>;
@@ -40,7 +36,6 @@ export interface LivePageChecks {
   marks: PageCheckMark[];
 }
 
-/** The answers that leave a dot: what doesn't pass and what can't be told. */
 export function isShownPageCheckAnswer(
   answer: Pick<LivePageCheckAnswer, "answer" | "writing">,
 ): boolean {
@@ -60,7 +55,6 @@ export function shownPageCheckAnswers<
   );
 }
 
-/** Where each block of the body starts, by the path a check's place names. */
 export function blockPositionsByPath(
   doc: ProseMirrorNode,
 ): Map<string, number> {
@@ -83,19 +77,15 @@ export function blockPositionsByPath(
   return positions;
 }
 
-/** Where a place that starts at `from` ends, by the same rules as its scope. */
 function placeEnd(
   doc: ProseMirrorNode,
   scope: PageCheckScope,
   from: number,
 ): number {
   const end = doc.content.size;
-  // A comment on the whole page quotes where it starts.
   if (scope.kind === "page" || scope.kind === "each_paragraph") {
     return from + (doc.nodeAt(from)?.nodeSize ?? 0);
   }
-  // The intro runs to the first heading; a section to the next heading at
-  // its level or above.
   const level =
     scope.kind === "section"
       ? Number(doc.nodeAt(from)?.attrs.level) || 1
@@ -109,11 +99,6 @@ function placeEnd(
   return stop;
 }
 
-/**
- * The checks' answers in the editor's text now, and the dots they leave. Paths
- * name the same blocks in the editor and in its Markdown only when both have
- * the same blocks; otherwise the answers stand without dots.
- */
 export function readLivePageChecks(
   doc: ProseMirrorNode,
   checks: readonly PageCheckView[],
@@ -155,7 +140,6 @@ export function readLivePageChecks(
   };
 }
 
-/** The section a position is in, or the intro above the first heading. */
 export function pageCheckScopeAt(
   doc: ProseMirrorNode,
   pos: number,
@@ -177,7 +161,6 @@ export function pageCheckScopeAt(
     : { kind: "intro" };
 }
 
-/** How a dot looks: never by color alone. */
 export function pageCheckMarkShape(
   answer: PageCheckAnswer,
 ): "filled" | "hollow" | "ring" {

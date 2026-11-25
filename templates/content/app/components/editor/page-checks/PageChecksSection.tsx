@@ -28,7 +28,6 @@ import {
 
 type ListedAnswer = PageCheckPlaceAnswer & { writing?: boolean };
 
-/** A check's answers in the editor's text when it has read them, else as saved. */
 export function pageCheckAnswersNow(
   check: PageCheckView,
   live: LivePageChecks | null,
@@ -36,7 +35,6 @@ export function pageCheckAnswersNow(
   return live?.answers.get(check.id) ?? check.answers;
 }
 
-/** How many dots the page shows, for the header. */
 export function pageChecksToLookAt(
   checks: readonly PageCheckView[],
   live: LivePageChecks | null,
@@ -49,7 +47,6 @@ export function pageChecksToLookAt(
   );
 }
 
-/** The Checks list in Info: every check on the page and what it found. */
 export function PageChecksSection() {
   const t = useT();
   const actions = usePageChecksActions();
@@ -152,7 +149,6 @@ function PageCheckRow({
     : pageCheckSummaryText(
         t,
         check.parts,
-        // A place still being written, with nothing checked yet, waits.
         answers.filter(
           (answer) => !(answer.writing && answer.answer === "changed"),
         ),
@@ -258,7 +254,6 @@ function PageCheckRow({
   );
 }
 
-/** "2 to look at" in the page's header; opens the list. */
 export function PageChecksPill() {
   const t = useT();
   const actions = usePageChecksActions();

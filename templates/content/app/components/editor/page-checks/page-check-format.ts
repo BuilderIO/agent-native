@@ -22,7 +22,6 @@ export function pageCheckScopeLabel(t: T, scope: PageCheckScope): string {
   }
 }
 
-/** "183 words, 63 over" for each part that doesn't pass. */
 export function pageCheckMissText(
   t: T,
   parts: readonly PageCheckPart[],
@@ -47,7 +46,6 @@ export function pageCheckMissText(
     .join(" · ");
 }
 
-/** What one place shows, in words: never only a color. */
 export function pageCheckAnswerText(
   t: T,
   parts: readonly PageCheckPart[],
@@ -72,10 +70,6 @@ export function pageCheckAnswerText(
   }
 }
 
-/**
- * One line for a check in the list: its one place's answer, or for each
- * paragraph how many don't pass.
- */
 export function pageCheckSummaryText(
   t: T,
   parts: readonly PageCheckPart[],

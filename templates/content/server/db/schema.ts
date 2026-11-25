@@ -1369,8 +1369,6 @@ export const contentColumnFillCells = table(
   ],
 );
 
-// A check is a sentence on a page, like "Under 120 words", that marks the parts
-// of the page that don't pass. Checks never change the page.
 export const contentPageChecks = table(
   "content_page_checks",
   {
@@ -1378,7 +1376,6 @@ export const contentPageChecks = table(
     documentId: text("document_id").notNull(),
     createdBy: text("created_by").notNull(),
     sentence: text("sentence").notNull(),
-    // JSON: the parts Content read from the sentence, and where it looks.
     parts: text("parts").notNull(),
     scope: text("scope").notNull(),
     wordingHash: text("wording_hash").notNull(),
@@ -1394,8 +1391,6 @@ export const contentPageChecks = table(
   ],
 );
 
-// The last answer at each place a check looks at, with the wording and text it
-// answered, so a place is checked again only after one of them changes.
 export const contentPageCheckResults = table(
   "content_page_check_results",
   {
@@ -1405,7 +1400,6 @@ export const contentPageCheckResults = table(
     wordingHash: text("wording_hash").notNull(),
     textHash: text("text_hash").notNull(),
     finding: text("finding").notNull(),
-    // JSON: what each part found.
     parts: text("parts").notNull(),
     checkedBy: text("checked_by").notNull(),
     checkedAt: text("checked_at").notNull().default(now()),
@@ -1419,7 +1413,6 @@ export const contentPageCheckResults = table(
   ],
 );
 
-// A place someone told a check to leave alone until its text changes.
 export const contentPageCheckSkips = table(
   "content_page_check_skips",
   {

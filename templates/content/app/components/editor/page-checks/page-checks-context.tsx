@@ -21,11 +21,8 @@ import { toast } from "sonner";
 
 import type { LivePageChecks } from "./page-check-body";
 
-/** What the page body's editor offers the checks around it. */
 export interface PageChecksBody {
-  /** The section at a position, or the cursor's when none is given. */
   scopeAt: (pos?: number) => PageCheckScope;
-  /** Scrolls to a check's first dot and opens its card; false if it has none. */
   focusCheck: (checkId: string) => boolean;
 }
 
@@ -58,7 +55,6 @@ export interface PageChecksActions {
     undo?: boolean;
   }) => Promise<void>;
   prefillComment: (text: string) => void;
-  /** The body as last known here, for the add box when the editor isn't up. */
   bodyMarkdown: () => string;
   noteLocalEdit: () => void;
   publishLive: (live: LivePageChecks | null) => void;
@@ -103,22 +99,14 @@ export function PageChecksProvider({
   );
 }
 
-/** How many more times a pause waits for the page to save before running. */
 const SAVE_WAITS = 3;
 const SAVE_WAIT_MS = 1_000;
 
-/**
- * A page's checks for its editor: the list, running them a few seconds after
- * typing stops, and changing them. Editors change and run checks; commenters
- * only read them; nobody else asks.
- */
 export function usePageChecks(args: {
   documentId: string;
-  /** Commenters and editors see checks. */
   enabled: boolean;
   canEdit: boolean;
   markdown: string;
-  /** Whether the page has saved everything typed into it. */
   isSaved: () => boolean;
   openInfo: () => void;
   prefillComment: (text: string) => void;

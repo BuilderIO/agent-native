@@ -897,7 +897,6 @@ interface DocumentToolbarProps {
   isFavorite?: boolean;
   onToggleFavorite?: (isFavorite: boolean) => void;
   utilityPanel: DocumentPagePanelTab | null;
-  /** How many places the page's checks mark, beside the panel tabs. */
   pageChecksCount?: ReactNode;
   /** Open comment threads on the Page, the count its Collection row shows. */
   openCommentCount?: number;

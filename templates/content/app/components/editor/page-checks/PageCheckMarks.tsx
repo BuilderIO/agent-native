@@ -34,7 +34,6 @@ import {
   usePageChecksState,
 } from "./page-checks-context";
 
-/** How long the editor rests before its checks' answers are read again. */
 const LIVE_READ_DELAY_MS = 400;
 
 interface MarkGroup {
@@ -43,16 +42,10 @@ interface MarkGroup {
 }
 
 interface MarkLayout {
-  /** Distance from the wrapper's top to the middle of the block's first line. */
   tops: ReadonlyMap<number, number>;
-  /** Distance from the wrapper's inline start to the text's. */
   start: number;
 }
 
-/**
- * The dots beside the page body where a check doesn't pass, each opening a
- * card with what it found. Drawn over the editor; it never changes the text.
- */
 export function PageCheckMarks({
   editor,
   wrapperRef,
@@ -73,8 +66,6 @@ export function PageCheckMarks({
   const [layout, setLayout] = useState<MarkLayout | null>(null);
   const [layoutTick, setLayoutTick] = useState(0);
 
-  // The last answers read, which the list and the header count share. The
-  // dots' own copy also moves with each keystroke; this one doesn't.
   const lastRead = useRef<LivePageChecks | null>(null);
   const read = useRef<() => void>(() => {});
   read.current = () => {
@@ -98,7 +89,6 @@ export function PageCheckMarks({
     let timer: ReturnType<typeof setTimeout> | null = null;
     const onTransaction = ({ transaction }: { transaction: Transaction }) => {
       if (!transaction.docChanged) return;
-      // The dots ride along with the text until the answers are read again.
       setLive((current) =>
         current
           ? {
@@ -163,7 +153,7 @@ export function PageCheckMarks({
         const coords = view.coordsAtPos(inside);
         tops.set(group.from, (coords.top + coords.bottom) / 2 - box.top);
       } catch {
-        // A position the mapping left behind waits for the next read.
+        // coercion-ok: a position the mapping left behind waits for the next read.
       }
     }
     setLayout({

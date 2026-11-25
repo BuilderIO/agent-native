@@ -26,7 +26,6 @@ let actions: {
 const words = (count: number, word = "word") =>
   Array.from({ length: count }, () => word).join(" ");
 
-// Made-up text: an intro of 183 words, then two sections.
 const DRAFT = [
   `${words(182)} end.`,
   "",
@@ -187,7 +186,11 @@ describe("adding and reading checks", () => {
 
     const counted = await as(editor, () =>
       actions.tryCheck.run(
-        { documentId, sentence: "At most 2 sentences", scope: { kind: "page" } },
+        {
+          documentId,
+          sentence: "At most 2 sentences",
+          scope: { kind: "page" },
+        },
         ctxFor(editor),
       ),
     );
@@ -265,7 +268,10 @@ describe("running checks", () => {
     const documentId = await newPage();
     const { checkId } = await addIntroCheck(documentId);
 
-    await setBody(documentId, DRAFT.replace(`${words(182)} end.`, `${words(117)} end.`));
+    await setBody(
+      documentId,
+      DRAFT.replace(`${words(182)} end.`, `${words(117)} end.`),
+    );
     expect((await list(documentId)).checks[0]?.answers[0]?.answer).toBe(
       "changed",
     );
@@ -336,7 +342,10 @@ describe("skipping a place", () => {
     const { checkId } = await addIntroCheck(documentId);
 
     await as(editor, () =>
-      actions.skip.run({ documentId, checkId, placeKey: "intro" }, ctxFor(editor)),
+      actions.skip.run(
+        { documentId, checkId, placeKey: "intro" },
+        ctxFor(editor),
+      ),
     );
     expect((await list(documentId)).checks[0]?.answers[0]?.answer).toBe(
       "skipped",
@@ -353,7 +362,10 @@ describe("skipping a place", () => {
     );
 
     await as(editor, () =>
-      actions.skip.run({ documentId, checkId, placeKey: "intro" }, ctxFor(editor)),
+      actions.skip.run(
+        { documentId, checkId, placeKey: "intro" },
+        ctxFor(editor),
+      ),
     );
     await setBody(documentId, DRAFT.replace("end.", "ending."));
     expect((await run(documentId)).checks[0]?.answers[0]?.answer).toBe(
@@ -386,7 +398,9 @@ describe("who can do what", () => {
   it("sends viewers and strangers nothing", async () => {
     const documentId = await newPage();
     await addIntroCheck(documentId);
-    await expect(list(documentId, viewer)).rejects.toThrow(/Requires commenter/);
+    await expect(list(documentId, viewer)).rejects.toThrow(
+      /Requires commenter/,
+    );
     await expect(list(documentId, stranger)).rejects.toThrow(/No access/);
   });
 
@@ -412,7 +426,10 @@ describe("deleting a check", () => {
     const documentId = await newPage();
     const { checkId } = await addIntroCheck(documentId);
     await as(editor, () =>
-      actions.skip.run({ documentId, checkId, placeKey: "intro" }, ctxFor(editor)),
+      actions.skip.run(
+        { documentId, checkId, placeKey: "intro" },
+        ctxFor(editor),
+      ),
     );
     await as(editor, () =>
       actions.remove.run({ documentId, checkId }, ctxFor(editor)),
