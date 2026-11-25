@@ -526,11 +526,19 @@ CREATE INDEX IF NOT EXISTS mail_gmail_token_accounts_expires_idx
     },
     {
       version: 48,
-      name: "queued-draft-send-claimed-at-bigint",
-      sql: `-- guard:allow-destructive-ddl — widen the send-claim timestamp so Date.now() values fit without losing existing data.
+      name: "mail-millisecond-timestamps-bigint",
+      sql: `-- guard:allow-destructive-ddl — widen millisecond timestamps so Date.now() values fit without losing existing data.
 ALTER TABLE queued_email_drafts ADD COLUMN IF NOT EXISTS send_claimed_at BIGINT;
 ALTER TABLE queued_email_drafts
-  ALTER COLUMN send_claimed_at TYPE BIGINT USING send_claimed_at::BIGINT;`,
+  ALTER COLUMN send_claimed_at TYPE BIGINT USING send_claimed_at::BIGINT;
+ALTER TABLE scheduled_jobs
+  ALTER COLUMN run_at TYPE BIGINT USING run_at::BIGINT;
+ALTER TABLE scheduled_jobs
+  ALTER COLUMN created_at TYPE BIGINT USING created_at::BIGINT;
+ALTER TABLE automation_rules
+  ALTER COLUMN created_at TYPE BIGINT USING created_at::BIGINT;
+ALTER TABLE automation_rules
+  ALTER COLUMN updated_at TYPE BIGINT USING updated_at::BIGINT;`,
     },
   ],
   { table: "mail_migrations" },

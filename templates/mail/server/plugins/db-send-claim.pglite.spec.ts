@@ -48,6 +48,9 @@ beforeEach(async () => {
   vi.stubEnv("DATABASE_URL", "pglite:memory");
   const core = await import("@agent-native/core/db");
   exec = core.getDbExec() as unknown as Exec;
+});
+
+async function seedLegacyDraft() {
   await exec.execute(LEGACY_TABLE);
   await exec.execute({
     sql: `INSERT INTO queued_email_drafts
@@ -57,7 +60,7 @@ beforeEach(async () => {
                   'to@example.com', 'Hello', 'Body', ?, ?)`,
     args: [Date.now(), Date.now()],
   });
-});
+}
 
 afterEach(async () => {
   const { closeDbExec } = await import("@agent-native/core/db");
@@ -77,12 +80,14 @@ afterEach(async () => {
 
 describe("queued draft send claims (PGlite)", () => {
   it("can't claim a draft while send_claimed_at is 32-bit", async () => {
+    await seedLegacyDraft();
     await expect(
       exec.execute({ sql: CLAIM, args: claimArgs(Date.now()) }),
     ).rejects.toThrow(/out of range for type integer/);
   });
 
   it("claims a draft once Mail's migrations widen send_claimed_at", async () => {
+    await seedLegacyDraft();
     const { default: initializeMailDb } = await import("./db.js");
     await initializeMailDb({});
 
@@ -96,5 +101,37 @@ describe("queued draft send claims (PGlite)", () => {
     const now = Date.now();
     const { rows } = await exec.execute({ sql: CLAIM, args: claimArgs(now) });
     expect(rows).toEqual([{ send_claim_id: "claim-1" }]);
+  });
+});
+
+describe("Mail's millisecond timestamps (PGlite)", () => {
+  it("stores every *_at and *_until column as BIGINT on a new database", async () => {
+    const { default: initializeMailDb } = await import("./db.js");
+    await initializeMailDb({});
+
+    const { rows } = await exec.execute({
+      sql: `SELECT table_name, column_name FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND data_type = 'integer'
+              AND (right(column_name, 3) = '_at' OR right(column_name, 6) = '_until')
+            ORDER BY table_name, column_name`,
+    });
+    expect(rows).toEqual([]);
+  });
+
+  it("schedules a send at a millisecond timestamp", async () => {
+    const { default: initializeMailDb } = await import("./db.js");
+    await initializeMailDb({});
+
+    const now = Date.now();
+    await exec.execute({
+      sql: `INSERT INTO scheduled_jobs (id, type, payload, run_at, created_at)
+            VALUES ('job-1', 'send_later', '{}', ?, ?)`,
+      args: [now + 60_000, now],
+    });
+    const { rows } = await exec.execute(
+      `SELECT run_at FROM scheduled_jobs WHERE id = 'job-1'`,
+    );
+    expect(Number(rows[0]?.run_at)).toBe(now + 60_000);
   });
 });
