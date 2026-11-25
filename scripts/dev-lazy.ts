@@ -1922,7 +1922,6 @@ function runWorkspaceDev(): void {
     "packages/core/src/cli/index.ts",
     "workspace-dev",
     ...argv,
-    // workspace-dev opens a browser by default; dev-lazy only opens on request.
     ...(shouldOpen ? [] : ["--no-open"]),
   ]);
   const child = spawn(pnpm.command, pnpm.args, {
