@@ -7,6 +7,9 @@ type Step =
   | { goto: string }
   | { click: string }
   | { press: string }
+  | { reload: true }
+  | { freshSignIn: true }
+  | { expectUrl: string }
   | { fill: string; value: string }
   | { expectText: string }
   | { expectVisible: string }
@@ -20,6 +23,7 @@ interface Target {
   path?: string;
   write?: "forms" | "app-state";
   steps?: Step[];
+  verify?: Step[];
   cleanup?: { action: string; input?: Record<string, unknown> }[];
 }
 
@@ -31,7 +35,23 @@ interface StepResult {
 }
 
 const PRESETS: Record<string, Target> = {
-  "forms-seeded": { app: "forms-2", write: "forms" },
+  "forms-seeded": {
+    app: "forms-2",
+    write: "forms",
+    steps: [
+      { expectText: "My workspace" },
+      { expectText: "Start from a template" },
+    ],
+    verify: [
+      { click: "text=${write.key}" },
+      { expectUrl: "/forms/${write.id}" },
+      { reload: true },
+      { expectUrl: "/forms/${write.id}" },
+      { screenshot: "editor-after-reload" },
+      { freshSignIn: true },
+      { expectText: "${write.key}" },
+    ],
+  },
 };
 
 function parseTarget(raw: string): Target {
@@ -214,6 +234,8 @@ async function signInThroughUi(page: Page, email: string, password: string) {
   }
 }
 
+let credentials: { email: string; password: string } | undefined;
+
 async function runStep(page: Page, step: Step) {
   const s = interpolate(step);
   if ("goto" in s) {
@@ -227,6 +249,16 @@ async function runStep(page: Page, step: Step) {
   } else if ("click" in s)
     await page.locator(s.click).first().click({ timeout: 20_000 });
   else if ("press" in s) await page.keyboard.press(s.press);
+  else if ("freshSignIn" in s) {
+    if (!credentials) throw new Error("no QA credentials for a fresh sign-in");
+    await page.context().clearCookies();
+    await signInThroughUi(page, credentials.email, credentials.password);
+  } else if ("reload" in s)
+    await page.reload({ waitUntil: "domcontentloaded", timeout: 60_000 });
+  else if ("expectUrl" in s)
+    await page.waitForURL((url) => url.href.includes(s.expectUrl), {
+      timeout: 20_000,
+    });
   else if ("fill" in s)
     await page.locator(s.fill).first().fill(s.value, { timeout: 20_000 });
   else if ("expectText" in s)
@@ -256,6 +288,7 @@ async function runStep(page: Page, step: Step) {
 interface Readback {
   kind: string;
   key: string;
+  id: string;
   apiAfterReload: boolean;
   uiAfterReload: boolean | null;
 }
@@ -293,6 +326,7 @@ async function writeAndReadBack(
       readback: {
         kind: "forms:create-form",
         key: name,
+        id: created.id,
         apiAfterReload: read.status === 200 && read.json?.id === created.id,
         uiAfterReload: ui,
       },
@@ -311,6 +345,7 @@ async function writeAndReadBack(
     readback: {
       kind: "application-state",
       key: name,
+      id: name,
       apiAfterReload: read.status === 200 && read.json?.value === name,
       uiAfterReload: null,
     },
@@ -345,6 +380,7 @@ async function main() {
   try {
     await ensureUser(slot);
     const { email, password } = qaIdentity(slot);
+    credentials = { email, password };
 
     if (provider === "browserbase") {
       const session = await bb<BrowserbaseSession>("POST", "/sessions", {});
@@ -402,6 +438,12 @@ async function main() {
     });
     receipt.readback = readback;
     await shot(page, "after");
+    vars.write = readback;
+    for (const [i, step] of (target.verify ?? []).entries()) {
+      await timed(`verify ${i + 1} ${JSON.stringify(step).slice(0, 120)}`, () =>
+        runStep(page, step),
+      );
+    }
   } catch (err) {
     failure = err instanceof Error ? err.message : String(err);
   } finally {
