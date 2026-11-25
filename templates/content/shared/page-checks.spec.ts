@@ -20,6 +20,11 @@ import {
 } from "./page-checks.js";
 import { countWords } from "./properties.js";
 
+function required<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) throw new Error("Missing value");
+  return value;
+}
+
 const words = (count: number, word = "word") =>
   Array.from({ length: count }, () => word).join(" ");
 
@@ -157,21 +162,21 @@ const PAGE = [
 describe("places on a page", () => {
   it("counts the whole page the way Info does", () => {
     const [page] = placesOf(PAGE, { kind: "page" });
-    expect(page?.markdown).toBe(PAGE);
+    expect(page.markdown).toBe(PAGE);
     expect(
       evaluatePageCheckPart(
         { kind: "count", text: "", unit: "words", min: null, max: 1 },
-        page!,
+        page,
       ).count,
     ).toBe(countWords(PAGE));
   });
 
   it("takes the intro as the text before the first heading", () => {
     const [intro] = placesOf(PAGE, { kind: "intro" });
-    expect(intro?.path).toBe("0");
-    expect(countPageCheckUnit("words", intro!.markdown)).toBe(9);
-    expect(countPageCheckUnit("sentences", intro!.markdown)).toBe(3);
-    expect(countPageCheckUnit("paragraphs", intro!.markdown)).toBe(2);
+    expect(intro.path).toBe("0");
+    expect(countPageCheckUnit("words", intro.markdown)).toBe(9);
+    expect(countPageCheckUnit("sentences", intro.markdown)).toBe(3);
+    expect(countPageCheckUnit("paragraphs", intro.markdown)).toBe(2);
   });
 
   it("takes a section as its heading and everything under it", () => {
@@ -181,10 +186,10 @@ describe("places on a page", () => {
       heading: "The review queue",
       level: 2,
     });
-    expect(section?.path).toBe("2");
-    expect(section?.markdown).toContain("Deeper para.");
-    expect(section?.markdown).not.toContain("Next para.");
-    expect(countPageCheckUnit("sentences", section!.markdown)).toBe(2);
+    expect(section.path).toBe("2");
+    expect(section.markdown).toContain("Deeper para.");
+    expect(section.markdown).not.toContain("Next para.");
+    expect(countPageCheckUnit("sentences", section.markdown)).toBe(2);
   });
 
   it("follows a section by its heading's block ID through a rename and a move", () => {
@@ -258,8 +263,8 @@ describe("places on a page", () => {
     const [edited] = placesOf(PAGE.replace("Intro one", "Intro uno"), {
       kind: "intro",
     });
-    expect(same?.textHash).toBe(intro?.textHash);
-    expect(edited?.textHash).not.toBe(intro?.textHash);
+    expect(same.textHash).toBe(intro.textHash);
+    expect(edited.textHash).not.toBe(intro.textHash);
   });
 
   it("lists headings to choose a section from", () => {
@@ -272,7 +277,7 @@ describe("places on a page", () => {
 
   it("gives an empty page one empty place", () => {
     const [intro] = placesOf("", { kind: "intro" });
-    expect(countPageCheckUnit("words", intro!.markdown)).toBe(0);
+    expect(countPageCheckUnit("words", intro.markdown)).toBe(0);
     expect(placesOf("", { kind: "each_paragraph" })).toEqual([]);
   });
 });
@@ -316,8 +321,8 @@ describe("answers", () => {
   });
 
   it("changes the wording hash with the parts or the place, not the sentence's spelling", () => {
-    const parts = readablePageCheckParts("Under 120 words")!;
-    const same = readablePageCheckParts("Keep it under 120 words.")!;
+    const parts = required(readablePageCheckParts("Under 120 words"));
+    const same = required(readablePageCheckParts("Keep it under 120 words."));
     const hash = pageCheckWordingHash({ parts, scope: { kind: "intro" } });
     expect(
       pageCheckWordingHash({ parts: same, scope: { kind: "intro" } }),
@@ -329,7 +334,7 @@ describe("answers", () => {
 });
 
 describe("answers while someone writes", () => {
-  const parts = readablePageCheckParts("Under 120 words")!;
+  const parts = required(readablePageCheckParts("Under 120 words"));
   const scope = { kind: "intro" } as const;
   const wordingHash = pageCheckWordingHash({ parts, scope });
 
@@ -338,8 +343,8 @@ describe("answers while someone writes", () => {
     const result: PageCheckResult = {
       placeKey: "intro",
       wordingHash,
-      textHash: checked!.textHash,
-      ...checkPageCheckPlace(parts, checked!),
+      textHash: checked.textHash,
+      ...checkPageCheckPlace(parts, checked),
       checkedBy: "editor@example.com",
       checkedAt: "2026-11-25T00:00:00.000Z",
     };
@@ -378,7 +383,7 @@ describe("answers while someone writes", () => {
 
   it("still says changed where the text had changed before the list was read", () => {
     const check = listed(words(150), words(183));
-    expect(check.answers[0]!.answer).toBe("changed");
+    expect(check.answers[0].answer).toBe("changed");
     const [answer] = livePageCheckAnswers(
       check,
       pageCheckPlaces(words(150), scope),

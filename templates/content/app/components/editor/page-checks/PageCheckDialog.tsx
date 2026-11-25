@@ -29,6 +29,8 @@ import { pageCheckMissText, pageCheckScopeLabel } from "./page-check-format";
 import {
   usePageChecksActions,
   usePageChecksState,
+  type PageChecksActions,
+  type PageChecksState,
 } from "./page-checks-context";
 
 export function PageCheckDialog() {
@@ -39,17 +41,19 @@ export function PageCheckDialog() {
     dialog?.mode === "edit"
       ? state?.checks.find((check) => check.id === dialog.checkId)
       : undefined;
-  const open = !!actions && (dialog?.mode === "add" || !!editing);
+  const open = dialog?.mode === "add" || !!editing;
   return (
     <Dialog
-      open={open}
+      open={open && !!actions}
       onOpenChange={(next) => {
         if (!next) actions?.closeDialog();
       }}
     >
-      {open ? (
+      {open && actions && state ? (
         <PageCheckForm
           key={editing?.id ?? "add"}
+          actions={actions}
+          state={state}
           editing={editing}
           initialScope={
             editing?.scope ??
@@ -62,15 +66,17 @@ export function PageCheckDialog() {
 }
 
 function PageCheckForm({
+  actions,
+  state,
   editing,
   initialScope,
 }: {
+  actions: PageChecksActions;
+  state: PageChecksState;
   editing: PageCheckView | undefined;
   initialScope: PageCheckScope;
 }) {
   const t = useT();
-  const actions = usePageChecksActions()!;
-  const state = usePageChecksState()!;
   const sentenceId = useId();
   const whereId = useId();
   const [sentence, setSentence] = useState(editing?.sentence ?? "");
@@ -122,6 +128,13 @@ function PageCheckForm({
     });
     setSaving(false);
     if (saved) actions.closeDialog();
+  };
+
+  const remove = async (checkId: string) => {
+    setSaving(true);
+    const removed = await actions.remove(checkId);
+    setSaving(false);
+    if (removed) actions.closeDialog();
   };
 
   const selected =
@@ -177,7 +190,7 @@ function PageCheckForm({
             onChange={(event) => {
               const value = event.currentTarget.value;
               if (value.startsWith("section:")) {
-                const section = sections[Number(value.slice(8))];
+                const section = sections.at(Number(value.slice(8)));
                 if (section) setScope(section);
               } else {
                 setScope({ kind: value } as PageCheckScope);
@@ -230,12 +243,7 @@ function PageCheckForm({
                 size="sm"
                 className="text-destructive hover:text-destructive"
                 disabled={saving}
-                onClick={async () => {
-                  setSaving(true);
-                  const removed = await actions.remove(editing.id);
-                  setSaving(false);
-                  if (removed) actions.closeDialog();
-                }}
+                onClick={() => void remove(editing.id)}
               >
                 {t("pageChecks.delete")}
               </Button>
@@ -342,7 +350,8 @@ function tryPart(
     evaluatePageCheckPart(part, place),
   );
   const misses = results.filter((result) => result.finding === "not_fine");
-  if (misses.length === 0) return { miss: false, result: t("pageChecks.fine") };
+  const firstMiss = misses.at(0);
+  if (!firstMiss) return { miss: false, result: t("pageChecks.fine") };
   return {
     miss: true,
     result: each
@@ -350,6 +359,6 @@ function tryPart(
           missing: misses.length,
           total: results.length,
         })
-      : pageCheckMissText(t, [part], [misses[0]!]),
+      : pageCheckMissText(t, [part], [firstMiss]),
   };
 }

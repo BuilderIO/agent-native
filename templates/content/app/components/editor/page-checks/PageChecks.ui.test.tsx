@@ -153,8 +153,13 @@ function render(value: { actions: PageChecksActions; state: PageChecksState }) {
 
 function buttonNamed(name: string) {
   return Array.from(document.querySelectorAll("button")).find(
-    (button) => button.textContent?.trim() === name,
+    (button) => button.textContent.trim() === name,
   );
+}
+
+function required<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) throw new Error("Missing value");
+  return value;
 }
 
 function setText(control: HTMLTextAreaElement, value: string) {
@@ -182,12 +187,12 @@ describe("page checks", () => {
       row?.querySelector(".page-check-dot")?.getAttribute("data-shape"),
     ).toBe("filled");
 
-    await click(buttonNamed("Check now")!);
+    await click(required(buttonNamed("Check now")));
     expect(page.runNow).toHaveBeenCalledOnce();
-    await click(buttonNamed("Add")!);
+    await click(required(buttonNamed("Add")));
     expect(page.openAdd).toHaveBeenCalledOnce();
 
-    await click(row!.querySelector("button")!);
+    await click(required(required(row).querySelector("button")));
     expect(page.focusCheck).toHaveBeenCalledWith("check-1");
   });
 
@@ -260,7 +265,7 @@ describe("page checks", () => {
     expect(
       document.querySelector("[data-page-check-row='check-1']")?.textContent,
     ).toContain("1 skipped");
-    await click(buttonNamed("Undo")!);
+    await click(required(buttonNamed("Undo")));
     expect(page.skip).toHaveBeenCalledWith({
       checkId: "check-1",
       placeKey: "intro",
@@ -299,16 +304,18 @@ describe("page checks", () => {
       state: state({ dialog: { mode: "add", scope: intro } }),
     });
 
-    const dialog = document.querySelector<HTMLElement>(
-      "[data-page-check-dialog]",
-    )!;
+    const dialog = required(
+      document.querySelector<HTMLElement>("[data-page-check-dialog]"),
+    );
     const submit = () =>
-      Array.from(dialog.querySelectorAll("button")).find(
-        (button) => button.textContent === "Add check",
-      )!;
+      required(
+        Array.from(dialog.querySelectorAll("button")).find(
+          (button) => button.textContent === "Add check",
+        ),
+      );
     expect(submit().disabled).toBe(true);
 
-    setText(dialog.querySelector("textarea")!, "Under 120 words");
+    setText(required(dialog.querySelector("textarea")), "Under 120 words");
     expect(
       dialog.querySelector("[data-page-check-try]")?.textContent,
     ).toContain("Under 120 words: 183 words, 63 over");
@@ -329,10 +336,10 @@ describe("page checks", () => {
       state: state({ dialog: { mode: "add", scope: { kind: "intro" } } }),
     });
 
-    const dialog = document.querySelector<HTMLElement>(
-      "[data-page-check-dialog]",
-    )!;
-    setText(dialog.querySelector("textarea")!, "Make it good");
+    const dialog = required(
+      document.querySelector<HTMLElement>("[data-page-check-dialog]"),
+    );
+    setText(required(dialog.querySelector("textarea")), "Make it good");
     expect(dialog.textContent).toContain("Can't read this yet");
     expect(
       Array.from(dialog.querySelectorAll("button")).find(

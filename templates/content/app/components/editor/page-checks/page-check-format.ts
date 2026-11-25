@@ -29,7 +29,7 @@ export function pageCheckMissText(
 ): string {
   return results
     .flatMap((result, index) => {
-      const part = parts[index];
+      const part = parts.at(index);
       if (!part || result.finding !== "not_fine" || result.count === undefined)
         return [];
       const count = t(`pageChecks.${part.unit}`, { count: result.count });

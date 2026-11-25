@@ -156,7 +156,7 @@ describe("adding and reading checks", () => {
       scope: { kind: "intro" },
       parts: [{ kind: "count", unit: "words", min: null, max: 120 }],
     });
-    expect(check?.answers).toMatchObject([
+    expect(check.answers).toMatchObject([
       {
         key: "intro",
         answer: "not_fine",

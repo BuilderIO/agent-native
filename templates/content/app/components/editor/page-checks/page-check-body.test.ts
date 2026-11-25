@@ -22,6 +22,11 @@ import {
 
 const schema = getSchema([StarterKit]);
 
+function required<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) throw new Error("Missing value");
+  return value;
+}
+
 const words = (count: number) =>
   Array.from({ length: count }, () => "word").join(" ");
 
@@ -34,7 +39,7 @@ function listed(
   scope: PageCheckScope,
   checkedMarkdown: string,
 ): PageCheckView {
-  const parts = readablePageCheckParts(sentence)!;
+  const parts = required(readablePageCheckParts(sentence));
   const wordingHash = pageCheckWordingHash({ parts, scope });
   const places = pageCheckPlaces(checkedMarkdown, scope);
   const results: PageCheckResult[] =
@@ -77,12 +82,12 @@ describe("checks in the editor's text", () => {
 
     expect(live.marks).toHaveLength(1);
     const [mark] = live.marks;
-    expect(mark!.answer.answer).toBe("not_fine");
-    expect(mark!.from).toBe(0);
+    expect(mark.answer.answer).toBe("not_fine");
+    expect(mark.from).toBe(0);
     const heading = doc.child(2);
     expect(heading.type.name).toBe("heading");
-    expect(mark!.to).toBe(doc.child(0).nodeSize + doc.child(1).nodeSize);
-    expect(pageCheckMarkShape(mark!.answer.answer)).toBe("filled");
+    expect(mark.to).toBe(doc.child(0).nodeSize + doc.child(1).nodeSize);
+    expect(pageCheckMarkShape(mark.answer.answer)).toBe("filled");
   });
 
   it("ends a section at the next heading at its level, past deeper ones", () => {
@@ -102,8 +107,8 @@ describe("checks in the editor's text", () => {
       if (child.textContent === "Details") detailsAt = offset;
       if (child.textContent === "Later") laterAt = offset;
     });
-    expect(mark!.from).toBe(detailsAt);
-    expect(mark!.to).toBe(laterAt);
+    expect(mark.from).toBe(detailsAt);
+    expect(mark.to).toBe(laterAt);
   });
 
   it("marks each paragraph that doesn't pass, and only those", () => {
@@ -116,8 +121,8 @@ describe("checks in the editor's text", () => {
     const marks = readLivePageChecks(doc, [check]).marks;
 
     expect(marks).toHaveLength(1);
-    expect(marks[0]!.from).toBe(0);
-    expect(marks[0]!.to).toBe(doc.child(0).nodeSize);
+    expect(marks[0].from).toBe(0);
+    expect(marks[0].to).toBe(doc.child(0).nodeSize);
   });
 
   it("leaves no dot where the check passes", () => {
@@ -135,7 +140,7 @@ describe("checks in the editor's text", () => {
     const live = readLivePageChecks(editorDoc(cut), [check]);
 
     expect(live.marks).toHaveLength(1);
-    expect(live.marks[0]!.answer).toMatchObject({
+    expect(live.marks[0].answer).toMatchObject({
       answer: "not_fine",
       writing: true,
     });

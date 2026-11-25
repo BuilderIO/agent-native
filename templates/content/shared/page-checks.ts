@@ -265,7 +265,7 @@ const EXACTLY_WORDS = [
   "恰好",
 ];
 
-const NUMBER_WORDS: Record<string, number> = {
+const NUMBER_WORDS: Readonly<Partial<Record<string, number>>> = {
   zero: 0,
   one: 1,
   two: 2,
@@ -343,8 +343,8 @@ export function readPageCheckPart(
   const units = (Object.keys(UNIT_WORDS) as PageCheckUnit[]).filter((unit) =>
     UNIT_WORDS[unit].some((word) => contains(normalized, word)),
   );
-  const [unit, ...others] = units;
-  if (!unit || others.length) return unread;
+  if (units.length !== 1) return unread;
+  const [unit] = units;
   const numbers = numbersIn(normalized);
   if (numbers.length === 0 || numbers.length > 2) return unread;
   if (numbers.some((value) => value > PAGE_CHECK_COUNT_MAX)) return unread;
@@ -530,12 +530,12 @@ function excerptOf(nodes: readonly PMNode[]): string {
 function placeOf(
   key: string,
   blocks: readonly PageCheckBodyBlock[],
-  idsByPath: Readonly<Record<string, string>>,
+  idsByPath: Readonly<Partial<Record<string, string>>>,
   markdown?: string,
 ): PageCheckPlace {
   const nodes = blocks.map((block) => block.node);
   const text = docToNfm({ type: "doc", content: nodes });
-  const first = blocks[0];
+  const first = blocks.at(0);
   return {
     key,
     path: first?.path ?? "0",
@@ -652,7 +652,7 @@ function findPageCheckPlaces(
       if (!heading || level === undefined) return { status: "section_deleted" };
       let end = start + 1;
       while (end < top.length) {
-        const next = headingOf(top[end]!);
+        const next = headingOf(top[end]);
         if (next && next.level <= level) break;
         end++;
       }
@@ -814,8 +814,8 @@ export function pageCheckAnswers(
       place,
       answer: skipped
         ? "skipped"
-        : isFreshPageCheckResult(result ?? undefined, check, place)
-          ? result!.finding
+        : result && isFreshPageCheckResult(result, check, place)
+          ? result.finding
           : "changed",
       result,
     };

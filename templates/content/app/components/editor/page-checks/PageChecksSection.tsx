@@ -24,6 +24,7 @@ import { pageCheckScopeLabel, pageCheckSummaryText } from "./page-check-format";
 import {
   usePageChecksActions,
   usePageChecksState,
+  type PageChecksActions,
 } from "./page-checks-context";
 
 type ListedAnswer = PageCheckPlaceAnswer & { writing?: boolean };
@@ -118,6 +119,7 @@ export function PageChecksSection() {
           {checks.map((check) => (
             <PageCheckRow
               key={check.id}
+              actions={actions}
               check={check}
               answers={pageCheckAnswersNow(check, state.live)}
             />
@@ -134,14 +136,15 @@ export function PageChecksSection() {
 }
 
 function PageCheckRow({
+  actions,
   check,
   answers,
 }: {
+  actions: PageChecksActions;
   check: PageCheckView;
   answers: ListedAnswer[];
 }) {
   const t = useT();
-  const actions = usePageChecksActions()!;
   const shown = shownPageCheckAnswers(check, answers);
   const skipped = answers.filter((answer) => answer.answer === "skipped");
   const summary = check.paused
