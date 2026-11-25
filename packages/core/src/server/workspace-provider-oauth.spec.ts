@@ -331,8 +331,9 @@ describe("workspace provider OAuth", () => {
   ])("starts GitHub OAuth with $name", async ({ secrets, clientId }) => {
     const email = "requester@example.com";
     vi.stubEnv("BETTER_AUTH_SECRET", "test-only-oauth-secret");
+    const secretValues = new Map(Object.entries(secrets));
     resolveSecretMock.mockImplementation(
-      async (key: string) => (secrets as Record<string, string>)[key] ?? null,
+      async (key: string) => secretValues.get(key) ?? null,
     );
     callbackMocks.getSession.mockResolvedValue({ email });
     callbackMocks.getOrgContext.mockResolvedValue({
@@ -353,10 +354,11 @@ describe("workspace provider OAuth", () => {
     const result = await handleWorkspaceProviderOAuthStart(event, "github");
 
     expect(result).toBeInstanceOf(Response);
-    const authorizationUrl = new URL(
-      (result as Response).headers.get("Location")!,
+    const location = (result as Response).headers.get("Location");
+    expect(location).toEqual(expect.any(String));
+    expect(new URL(location ?? "").searchParams.get("client_id")).toBe(
+      clientId,
     );
-    expect(authorizationUrl.searchParams.get("client_id")).toBe(clientId);
   });
 
   it("binds a start without an appId to the current app so its callback grants that app", async () => {
