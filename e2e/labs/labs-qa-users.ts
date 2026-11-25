@@ -100,23 +100,63 @@ async function signIn(jar: Jar, email: string, password: string) {
   return { ok, r };
 }
 
+function unescapeHtml(value: string): string {
+  return value
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+function landingForm(html: string, base: string) {
+  const form = html.match(
+    /<form[^>]*method="post"[^>]*action="([^"]*)"[^>]*>([\s\S]*?)<\/form>/i,
+  );
+  if (!form) return undefined;
+  const fields = new URLSearchParams();
+  for (const input of form[2].matchAll(/<input[^>]*type="hidden"[^>]*>/gi)) {
+    const name = input[0].match(/name="([^"]*)"/i)?.[1];
+    const value = input[0].match(/value="([^"]*)"/i)?.[1] ?? "";
+    if (name) fields.set(unescapeHtml(name), unescapeHtml(value));
+  }
+  return { action: new URL(unescapeHtml(form[1]), base).toString(), fields };
+}
+
 async function followLink(jar: Jar, link: string) {
   let url = link;
-  for (let i = 0; i < 5; i++) {
+  let init: RequestInit = { method: "GET" };
+  for (let i = 0; i < 6; i++) {
     const res = await fetch(url, {
+      ...init,
       redirect: "manual",
-      headers: jar.size ? { Cookie: cookieHeader(jar) } : {},
+      headers: {
+        ...(init.method === "POST"
+          ? {
+              "Content-Type": "application/x-www-form-urlencoded",
+              Origin: origin,
+            }
+          : {}),
+        ...(jar.size ? { Cookie: cookieHeader(jar) } : {}),
+      },
       signal: AbortSignal.timeout(45_000),
     });
     absorb(jar, res);
     const next = res.headers.get("location");
     if (res.status >= 300 && res.status < 400 && next) {
       url = new URL(next, url).toString();
+      init = { method: "GET" };
       continue;
     }
-    return res.status;
+    const form =
+      init.method === "GET" && res.status === 200
+        ? landingForm(await res.text(), url)
+        : undefined;
+    if (!form) return res.status;
+    url = form.action;
+    init = { method: "POST", body: form.fields.toString() };
   }
-  return 0;
+  throw new StepError("verification: too many redirects");
 }
 
 interface Receipt {
