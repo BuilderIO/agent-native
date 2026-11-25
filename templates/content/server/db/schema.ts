@@ -1369,4 +1369,74 @@ export const contentColumnFillCells = table(
   ],
 );
 
+// A check is a sentence on a page, like "Under 120 words", that marks the parts
+// of the page that don't pass. Checks never change the page.
+export const contentPageChecks = table(
+  "content_page_checks",
+  {
+    id: text("id").primaryKey(),
+    documentId: text("document_id").notNull(),
+    createdBy: text("created_by").notNull(),
+    sentence: text("sentence").notNull(),
+    // JSON: the parts Content read from the sentence, and where it looks.
+    parts: text("parts").notNull(),
+    scope: text("scope").notNull(),
+    wordingHash: text("wording_hash").notNull(),
+    paused: boolean("paused").notNull().default(false),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (check) => [
+    index("content_page_checks_document_idx").on(
+      check.documentId,
+      check.createdAt,
+    ),
+  ],
+);
+
+// The last answer at each place a check looks at, with the wording and text it
+// answered, so a place is checked again only after one of them changes.
+export const contentPageCheckResults = table(
+  "content_page_check_results",
+  {
+    checkId: text("check_id").notNull(),
+    documentId: text("document_id").notNull(),
+    placeKey: text("place_key").notNull(),
+    wordingHash: text("wording_hash").notNull(),
+    textHash: text("text_hash").notNull(),
+    finding: text("finding").notNull(),
+    // JSON: what each part found.
+    parts: text("parts").notNull(),
+    checkedBy: text("checked_by").notNull(),
+    checkedAt: text("checked_at").notNull().default(now()),
+  },
+  (result) => [
+    uniqueIndex("content_page_check_results_place_idx").on(
+      result.checkId,
+      result.placeKey,
+    ),
+    index("content_page_check_results_document_idx").on(result.documentId),
+  ],
+);
+
+// A place someone told a check to leave alone until its text changes.
+export const contentPageCheckSkips = table(
+  "content_page_check_skips",
+  {
+    checkId: text("check_id").notNull(),
+    documentId: text("document_id").notNull(),
+    placeKey: text("place_key").notNull(),
+    textHash: text("text_hash").notNull(),
+    skippedBy: text("skipped_by").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (skip) => [
+    uniqueIndex("content_page_check_skips_place_idx").on(
+      skip.checkId,
+      skip.placeKey,
+    ),
+    index("content_page_check_skips_document_idx").on(skip.documentId),
+  ],
+);
+
 export const documentShares = createSharesTable("document_shares");

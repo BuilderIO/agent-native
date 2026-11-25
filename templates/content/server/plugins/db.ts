@@ -1882,6 +1882,51 @@ export const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS content_column_fill_cells_status_idx
         ON content_column_fill_cells (fill_id, status, position)`,
     },
+    {
+      version: 146,
+      name: "content-page-checks",
+      sql: `CREATE TABLE IF NOT EXISTS content_page_checks (
+        id TEXT PRIMARY KEY,
+        document_id TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        sentence TEXT NOT NULL,
+        parts TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        wording_hash TEXT NOT NULL,
+        paused BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+        updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE INDEX IF NOT EXISTS content_page_checks_document_idx
+        ON content_page_checks (document_id, created_at);
+      CREATE TABLE IF NOT EXISTS content_page_check_results (
+        check_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        place_key TEXT NOT NULL,
+        wording_hash TEXT NOT NULL,
+        text_hash TEXT NOT NULL,
+        finding TEXT NOT NULL,
+        parts TEXT NOT NULL,
+        checked_by TEXT NOT NULL,
+        checked_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_page_check_results_place_idx
+        ON content_page_check_results (check_id, place_key);
+      CREATE INDEX IF NOT EXISTS content_page_check_results_document_idx
+        ON content_page_check_results (document_id);
+      CREATE TABLE IF NOT EXISTS content_page_check_skips (
+        check_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        place_key TEXT NOT NULL,
+        text_hash TEXT NOT NULL,
+        skipped_by TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_page_check_skips_place_idx
+        ON content_page_check_skips (check_id, place_key);
+      CREATE INDEX IF NOT EXISTS content_page_check_skips_document_idx
+        ON content_page_check_skips (document_id)`,
+    },
   ],
   { table: "content_migrations" },
 );
