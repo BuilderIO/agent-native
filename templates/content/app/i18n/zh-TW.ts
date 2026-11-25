@@ -1372,6 +1372,11 @@ const overrides = {
     aiCancelled: "AI 請求已停止",
     aiStop: "停止",
     aiStopping: "正在停止…",
+    aiSuggestionReady: "建議了一處修改",
+    aiBusyInThread:
+      "AI 仍在此討論串中工作。請等待它的回答或停止它，然後再傳送。",
+    aiFailedNoReason: "AI 停止了，但沒有說明原因。",
+    aiSignInToUse: "登入以使用",
     aiReplyToAi: "回覆 AI",
     aiReplyingToAi: "正在回覆 AI",
     aiOpenConversation: "開啟 AI 對話",

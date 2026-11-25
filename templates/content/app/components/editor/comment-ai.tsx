@@ -1,12 +1,14 @@
 import {
   cancelBackgroundAgentSession,
   getBackgroundAgentSessionStatus,
+  localizeKnownChatErrorText,
   requestAgentChatThreadOpen,
   startBackgroundAgentSession,
   type BackgroundAgentSessionStartOptions,
   type BackgroundAgentSessionSnapshot,
   type BackgroundAgentSessionStatus,
 } from "@agent-native/core/client/agent-chat";
+import { normalizeChatError } from "@agent-native/core/client/chat-errors";
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import type {
@@ -1435,6 +1437,44 @@ function requestStatusLabel(
   return t("comments.aiReplied");
 }
 
+const BARE_FAILURE_REASON = /^(?:(?:error|aborted):)?([a-z0-9_.-]+)$/i;
+
+export function commentAiFailureReason(
+  error: string | null | undefined,
+  t: ReturnType<typeof useT>,
+) {
+  const text = error?.trim();
+  if (!text) return null;
+  const code = BARE_FAILURE_REASON.exec(text)?.[1];
+  if (!code) return text;
+  const { message } = normalizeChatError(text, code);
+  return message === text || BARE_FAILURE_REASON.test(message)
+    ? t("comments.aiFailedNoReason")
+    : localizeKnownChatErrorText(message, t);
+}
+
+export function CommentAiSuggestionReady({
+  request,
+}: {
+  request: CommentAiRequest;
+}) {
+  const t = useT();
+  return (
+    <div
+      className="flex min-h-7 min-w-0 items-center gap-2.5"
+      data-comment-ai-status="suggested"
+    >
+      <AgentAvatar model={request.model} className="size-7" />
+      <span
+        role="status"
+        className="min-w-0 flex-1 text-sm text-muted-foreground"
+      >
+        {t("comments.aiSuggestionReady")}
+      </span>
+    </div>
+  );
+}
+
 export function CommentAiRequestStatus({
   request,
   continuation,
@@ -1490,6 +1530,8 @@ export function CommentAiRequestStatus({
   const label = stopping
     ? t("comments.aiStopping")
     : (continuationLabel ?? requestStatusLabel(request, t));
+  const error = continuation?.error ?? request.error;
+  const reason = failed ? commentAiFailureReason(error, t) : null;
   // A finished reply already reads as the agent's own row; only show status
   // while work is in flight, when it needs attention, or for non-reply results.
   if (!active && !failed && request.status === "replied" && !continuation)
@@ -1506,12 +1548,22 @@ export function CommentAiRequestStatus({
           "flex min-w-0 flex-1 items-center gap-1.5 text-sm",
           failed ? "text-destructive" : "text-muted-foreground",
         )}
-        title={continuation?.error ?? request.error ?? undefined}
+        title={error ?? undefined}
       >
         {active ? <Spinner aria-hidden className="size-3.5 shrink-0" /> : null}
         {/* Wraps rather than truncates: in a narrow card, "Claude Haiku 5.5
             is working…" would otherwise lose the words that say what it's doing. */}
-        <span className="min-w-0 flex-1 break-words">{label}</span>
+        <span className="min-w-0 flex-1 break-words">
+          {label}
+          {reason ? (
+            <span
+              className="mt-0.5 block text-xs text-muted-foreground"
+              data-comment-ai-reason
+            >
+              {reason}
+            </span>
+          ) : null}
+        </span>
       </div>
       {active ? (
         <Button

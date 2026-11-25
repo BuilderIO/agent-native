@@ -324,10 +324,23 @@ export function shouldShowBubbleToolbar({
 }
 
 /** Starts a comment on the text in `range`; false when there's nothing to quote. */
+export function selectedSuggestionWidgetId(root: HTMLElement) {
+  const selection = root.ownerDocument.getSelection();
+  if (!selection || selection.isCollapsed) return undefined;
+  for (const node of [selection.anchorNode, selection.focusNode]) {
+    const widget = (
+      node instanceof Element ? node : node?.parentElement
+    )?.closest<HTMLElement>("[data-suggestion-widget][data-suggestion-id]");
+    if (widget && root.contains(widget)) return widget.dataset.suggestionId;
+  }
+  return undefined;
+}
+
 export function startCommentOnRange(
   editor: Editor,
   onComment: NonNullable<BubbleToolbarProps["onComment"]>,
   range: CommentRange,
+  widgetSuggestionId?: string,
 ) {
   const { from, to } = trimSelectionRange(
     editor.state.doc,
@@ -338,7 +351,8 @@ export function startCommentOnRange(
   // across a paragraph break is highlighted and found again in that form.
   const anchor = captureAnchor(editor.state.doc, from, to);
   if (!anchor.quotedText.trim()) return false;
-  const suggestionId = draftSuggestionIdInRange(editor.state, from, to);
+  const suggestionId =
+    draftSuggestionIdInRange(editor.state, from, to) ?? widgetSuggestionId;
   const coords = editor.view.coordsAtPos(from);
   const scrollContainer = editor.view.dom.closest(
     ".flex-1.min-h-0.overflow-auto",
@@ -361,7 +375,12 @@ function useCommentFromSelection(
   return useCallback(
     () =>
       !!onComment &&
-      startCommentOnRange(editor, onComment, editor.state.selection),
+      startCommentOnRange(
+        editor,
+        onComment,
+        editor.state.selection,
+        selectedSuggestionWidgetId(editor.view.dom),
+      ),
     [editor, onComment],
   );
 }

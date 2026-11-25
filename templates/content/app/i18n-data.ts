@@ -2174,6 +2174,11 @@ const enUS = {
     aiCancelled: "AI request stopped",
     aiStop: "Stop",
     aiStopping: "Stopping…",
+    aiSuggestionReady: "Suggested an edit",
+    aiBusyInThread:
+      "AI is still working in this thread. Wait for its answer or stop it, then send again.",
+    aiFailedNoReason: "The AI stopped without saying why.",
+    aiSignInToUse: "Sign in to use",
     aiReplyToAi: "Reply to AI",
     aiReplyingToAi: "Replying to AI",
     aiOpenConversation: "Open AI conversation",

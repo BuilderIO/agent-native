@@ -2491,6 +2491,11 @@ const overrides = {
     aiCancelled: "La solicitud de IA se detuvo",
     aiStop: "Detener",
     aiStopping: "Deteniendo…",
+    aiSuggestionReady: "Sugirió un cambio",
+    aiBusyInThread:
+      "La IA sigue trabajando en este hilo. Espera su respuesta o detenla y vuelve a enviarlo.",
+    aiFailedNoReason: "La IA se detuvo sin decir por qué.",
+    aiSignInToUse: "Inicia sesión para usarlo",
     aiReplyToAi: "Responder a la IA",
     aiReplyingToAi: "Respondiendo a la IA",
     aiOpenConversation: "Abrir conversación de IA",

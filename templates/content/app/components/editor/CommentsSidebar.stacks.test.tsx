@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import type { ResourceSuggestion } from "@agent-native/core/review";
+import type { CommentAiRequest } from "@shared/comment-ai";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -8,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { CommentThread } from "@/hooks/use-comments";
 
+import type { CommentAiController } from "./comment-ai";
 import { richEditor, setRichEditorValue } from "./comment-composer-test-utils";
 import { CommentDraftProvider } from "./comment-drafts";
 import {
@@ -156,6 +159,91 @@ type Harness = {
   activated: string[];
 };
 const harness = { activated: [] } as unknown as Harness;
+let commentAi: CommentAiController | undefined;
+let suggestions: ResourceSuggestion[] = [];
+
+function aiRequest(
+  threadId: string,
+  status: CommentAiRequest["status"],
+  overrides: Partial<CommentAiRequest> = {},
+): CommentAiRequest {
+  return {
+    operationId: `request-${threadId}`,
+    requestId: `request-${threadId}`,
+    documentId: "fixture",
+    threadId,
+    rootCommentId: `${threadId}-0`,
+    submittedMode: "suggest",
+    instructions: "Tighten this",
+    submittedProvider: null,
+    submittedModel: null,
+    submittedEngine: null,
+    intent: "suggest",
+    status,
+    attemptId: null,
+    attemptCount: 1,
+    runId: null,
+    agentThreadId: null,
+    agentTurnId: null,
+    model: "claude-haiku-5-5",
+    engine: "anthropic",
+    result: null,
+    errorCode: null,
+    error: null,
+    createdAt: "2026-10-20T12:00:00Z",
+    updatedAt: "2026-10-20T12:01:00Z",
+    ...overrides,
+  };
+}
+
+function aiWith(requests: CommentAiRequest[]): CommentAiController {
+  return {
+    requests,
+    serverRequests: requests,
+    startingThreadIds: new Set<string>(),
+    stoppingRequestIds: new Set<string>(),
+    continuations: new Map(),
+    transcriptRevision: 0,
+    start: vi.fn(),
+    continue: vi.fn(),
+    retry: vi.fn().mockResolvedValue(undefined),
+    resume: vi.fn(),
+    stop: vi.fn().mockResolvedValue(undefined),
+    open: vi.fn(),
+    undo: vi.fn(),
+    freshResolutions: new Map(),
+    dismissResolution: vi.fn(),
+  };
+}
+
+function askedSuggestion(id: string, threadId: string): ResourceSuggestion {
+  return {
+    id,
+    proposalId: `proposal-${id}`,
+    proposalSummary: "Suggest edits",
+    revision: 1,
+    resourceType: "document",
+    resourceId: "fixture",
+    adapterKind: "markdown",
+    adapterVersion: 1,
+    threadId: `suggestion-${id}`,
+    authorEmail: "reviewer@example.test",
+    actorKind: "agent",
+    baseRevision: "base",
+    status: "pending",
+    summary: `Edit ${id}`,
+    ownerEmail: "reviewer@example.test",
+    orgId: null,
+    visibility: "private",
+    createdAt: "2026-10-20T12:01:00Z",
+    updatedAt: "2026-10-20T12:01:00Z",
+    metadata: {
+      sourceThreadId: threadId,
+      commentAiRequestId: `request-${threadId}`,
+    },
+    operations: [],
+  };
+}
 
 function Owner({
   threads,
@@ -213,6 +301,8 @@ function Owner({
       forceVisible
       presentation={presentation}
       surface={surface}
+      suggestions={suggestions}
+      {...(commentAi ? { commentAi } : {})}
     />
   );
 }
@@ -228,6 +318,8 @@ describe("comment stacks in the margin", () => {
     actions.create.mockReset();
     actions.resolve.mockReset();
     harness.activated = [];
+    commentAi = undefined;
+    suggestions = [];
     scroll = document.createElement("div");
     scroll.innerHTML = DOC;
     document.body.append(scroll);
@@ -525,7 +617,7 @@ describe("comment stacks in the margin", () => {
     );
   });
 
-  it("opens a video's stack from the video, though its new thread is selected", async () => {
+  it("opens a video's stack with its new thread, and the video keeps it open", async () => {
     const onVideo = (threadId: string, at: string) => {
       const item = thread(threadId, [at]);
       item.quotedText = null;
@@ -574,7 +666,8 @@ describe("comment stacks in the margin", () => {
       ).click(),
     );
     expect(harness.selected).toBe("new");
-    expect(margin()).toEqual(["solo", "stack:new"]);
+    expect(margin()).toEqual(expect.arrayContaining(["clip", "new"]));
+    expect(collapseButton()).not.toBeNull();
 
     act(() => found(scroll.querySelector("video")).click());
     expect(margin()).toEqual(expect.arrayContaining(["clip", "new"]));
@@ -933,6 +1026,94 @@ describe("comment stacks in the margin", () => {
     expect(margin()[0]).toBe("stack:b");
   });
 
+  describe("AI work in a folded stack", () => {
+    const aiStatus = () =>
+      found(
+        found(foldedStacks()[0]).querySelector<HTMLElement>(
+          "[data-comment-stack-ai]",
+        ),
+      );
+    const button = (within: HTMLElement, label: string) =>
+      found(
+        [...within.querySelectorAll<HTMLButtonElement>("button")].find(
+          (candidate) => candidate.textContent === label,
+        ),
+      );
+
+    it("puts the thread AI is working on in front, with Stop", () => {
+      const ai = aiWith([aiRequest("b", "running")]);
+      commentAi = ai;
+      render();
+      expect(margin()).toEqual(["stack:b", "solo", "stack:l2", "l3"]);
+      expect(
+        found(aiStatus().querySelector<HTMLElement>("[data-comment-ai-status]"))
+          .dataset.commentAiStatus,
+      ).toBe("running");
+      act(() => button(aiStatus(), "comments.aiStop").click());
+      expect(ai.stop).toHaveBeenCalledWith(
+        expect.objectContaining({ threadId: "b" }),
+      );
+      act(() => openButton("b").click());
+      expect(collapseButton()).not.toBeNull();
+    });
+
+    it("says why AI failed on the folded card, with Retry", () => {
+      const ai = aiWith([
+        aiRequest("c", "failed", { error: "The model timed out" }),
+      ]);
+      commentAi = ai;
+      render();
+      expect(margin()[0]).toBe("stack:c");
+      expect(aiStatus().textContent).toContain("comments.aiFailed");
+      expect(
+        aiStatus().querySelector("[data-comment-ai-reason]")?.textContent,
+      ).toBe("The model timed out");
+      act(() => button(aiStatus(), "comments.retry").click());
+      expect(ai.retry).toHaveBeenCalledWith(
+        expect.objectContaining({ threadId: "c" }),
+      );
+    });
+
+    it("says a suggestion is ready, and drops it once decided", () => {
+      commentAi = aiWith([
+        aiRequest("a", "suggested", { result: { suggestionId: "s1" } }),
+      ]);
+      suggestions = [askedSuggestion("s1", "a")];
+      render();
+      expect(margin()[0]).toBe("stack:a");
+      expect(
+        aiStatus().querySelector('[data-comment-ai-status="suggested"]')
+          ?.textContent,
+      ).toContain("comments.aiSuggestionReady");
+
+      suggestions = [{ ...askedSuggestion("s1", "a"), status: "accepted" }];
+      render();
+      expect(margin()[0]).toBe("stack:d");
+      expect(
+        found(foldedStacks()[0]).querySelector("[data-comment-stack-ai]"),
+      ).toBeNull();
+    });
+
+    it("prefers working over failed over a ready suggestion", () => {
+      commentAi = aiWith([
+        aiRequest("a", "suggested", { result: { suggestionId: "s1" } }),
+        aiRequest("b", "failed"),
+        aiRequest("c", "queued"),
+      ]);
+      suggestions = [askedSuggestion("s1", "a")];
+      render();
+      expect(margin()[0]).toBe("stack:c");
+    });
+
+    it("keeps the thread AI works on in front after another is read", () => {
+      commentAi = aiWith([aiRequest("b", "running")]);
+      render();
+      act(() => harness.select("d"));
+      act(() => found(collapseButton()).click());
+      expect(margin()[0]).toBe("stack:b");
+    });
+  });
+
   it("keeps only one stack open at a time", () => {
     render();
     act(() => harness.select("a"));
@@ -976,7 +1157,7 @@ describe("comment stacks in the margin", () => {
     );
   });
 
-  it("puts a posted comment in front of the folded stack", async () => {
+  it("opens the stack a posted comment joins, with it in front once folded", async () => {
     render();
     markPending("intro");
     act(() => harness.comment({ quotedText: "and more", offsetTop: 0 }));
@@ -999,23 +1180,20 @@ describe("comment stacks in the margin", () => {
         .click(),
     );
     expect(harness.selected).toBe("new");
-    expect(margin()).toEqual(["stack:new", "solo", "stack:l2", "l3"]);
-    expect(foldedStacks()[0].textContent).toContain("comments.stackMore:4");
-
-    // Its highlight still opens the stack, though the thread is selected.
-    act(() =>
-      scroll.querySelector<HTMLElement>('[data-comment-thread="new"]')!.click(),
-    );
     expect(margin()).toEqual(
       expect.arrayContaining(["a", "b", "c", "d", "new"]),
     );
     expect(collapseButton()).not.toBeNull();
+
+    act(() => harness.select(null));
+    expect(margin()).toEqual(["stack:new", "solo", "stack:l2", "l3"]);
+    expect(found(foldedStacks()[0]).textContent).toContain(
+      "comments.stackMore:4",
+    );
   });
 
-  it("folds the stack a posted comment makes with a block's only thread", async () => {
+  it("opens the stack a posted comment makes with a block's only thread", async () => {
     render();
-    // Selecting a lone thread opens nothing, so nothing is left to open the
-    // stack its block becomes.
     act(() => harness.select("solo"));
     markPending("solo");
     act(() => harness.comment({ quotedText: "beside it", offsetTop: 0 }));
@@ -1037,8 +1215,10 @@ describe("comment stacks in the margin", () => {
         .click(),
     );
     expect(harness.selected).toBe("new");
-    expect(margin()).toEqual(["stack:d", "stack:new", "stack:l2", "l3"]);
-    expect(collapseButton()).toBeNull();
+    expect(margin()).toEqual(
+      expect.arrayContaining(["stack:d", "solo", "new"]),
+    );
+    expect(collapseButton()).not.toBeNull();
   });
 
   it("puts a posted comment in front even when the newest thread was touched", async () => {
@@ -1064,6 +1244,7 @@ describe("comment stacks in the margin", () => {
         .querySelector<HTMLButtonElement>('[aria-label="comments.submit"]')!
         .click(),
     );
+    act(() => harness.select(null));
     expect(margin()[0]).toBe("stack:new");
   });
 
@@ -1096,6 +1277,7 @@ describe("comment stacks in the margin", () => {
       ).click(),
     );
     await wait(400);
+    act(() => harness.select(null));
     expect(margin()[0]).toBe("stack:new");
 
     // Resting on a highlight again brings it back.
@@ -1105,7 +1287,7 @@ describe("comment stacks in the margin", () => {
     expect(margin()[0]).toBe("stack:b");
   });
 
-  it("puts a clicked highlight's thread in front, even one already selected", async () => {
+  it("puts a clicked highlight's thread in front", async () => {
     render();
     markPending("intro");
     act(() => harness.comment({ quotedText: "and more", offsetTop: 0 }));
@@ -1119,22 +1301,24 @@ describe("comment stacks in the margin", () => {
     });
     await setRichEditorValue(
       richEditor(container.querySelector("[data-comment-pending]")!)!,
-      "Selected, and still folded",
+      "Posted, then folded",
     );
     await act(async () =>
       container
         .querySelector<HTMLButtonElement>('[aria-label="comments.submit"]')!
         .click(),
     );
+    act(() => found(collapseButton()).click());
     act(() => harness.hover("a"));
     await wait(220);
     act(() => harness.hover(null));
     expect(margin()[0]).toBe("stack:a");
 
     act(() =>
-      scroll.querySelector<HTMLElement>('[data-comment-thread="new"]')!.click(),
+      found(
+        scroll.querySelector<HTMLElement>('[data-comment-thread="new"]'),
+      ).click(),
     );
-    act(() => collapseButton()!.click());
     expect(margin()[0]).toBe("stack:new");
   });
 

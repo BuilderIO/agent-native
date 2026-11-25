@@ -10,6 +10,7 @@ import { agentLogoEngine } from "./agent-identity";
 import {
   acknowledgeCommentAiContinuation,
   boundedContinuationContext,
+  commentAiFailureReason,
   commentAiModelLabel,
   commentAiRequestsRefetchInterval,
   shouldReconcileCommentAiSnapshot,
@@ -225,6 +226,30 @@ describe("comment AI controls", () => {
         .click(),
     );
     expect(onRetry).toHaveBeenCalledOnce();
+  });
+
+  it("says in words why a request failed, not only on hover", async () => {
+    await act(async () => {
+      root.render(
+        createElement(CommentAiRequestStatus, {
+          request: request({ error: "error:credits-limit-daily" }),
+          onRetry: vi.fn(),
+          onStop: vi.fn(),
+        }),
+      );
+    });
+    expect(
+      document.querySelector("[data-comment-ai-reason]")?.textContent,
+    ).toBe("agentChat.errorMessages.creditsLimitReached");
+
+    const t = (key: string) => key;
+    expect(commentAiFailureReason("The request failed", t)).toBe(
+      "The request failed",
+    );
+    expect(commentAiFailureReason("error:some_new_code", t)).toBe(
+      "comments.aiFailedNoReason",
+    );
+    expect(commentAiFailureReason(null, t)).toBeNull();
   });
 
   it.each([

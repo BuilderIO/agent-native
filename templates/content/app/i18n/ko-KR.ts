@@ -2172,6 +2172,11 @@ const overrides = {
     aiCancelled: "AI 요청이 중지됨",
     aiStop: "중지",
     aiStopping: "중지 중…",
+    aiSuggestionReady: "수정을 제안했습니다",
+    aiBusyInThread:
+      "AI가 아직 이 스레드에서 작업 중입니다. 답변을 기다리거나 중지한 다음 다시 보내세요.",
+    aiFailedNoReason: "AI가 이유를 밝히지 않고 멈췄습니다.",
+    aiSignInToUse: "로그인하여 사용",
     aiReplyToAi: "AI에게 답글",
     aiReplyingToAi: "AI에게 답글 작성 중",
     aiOpenConversation: "AI 대화 열기",

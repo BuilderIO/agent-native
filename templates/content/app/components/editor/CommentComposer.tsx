@@ -173,6 +173,7 @@ const AI_REFERENCE_TYPE = "content-comment-ai-recipient";
 /** An agent an existing comment mentions; unlike the recipient, it sends nothing. */
 const AGENT_REFERENCE_TYPE = "content-comment-agent";
 const MEMBER_REFERENCE_TYPE = "content-comment-member";
+const AI_SIGN_IN_REFERENCE_TYPE = "content-comment-ai-sign-in";
 const NO_IMAGES: readonly CommentImage[] = [];
 
 function isFileDrag(event: DragEvent) {
@@ -583,6 +584,32 @@ export const CommentComposer = forwardRef<
     });
     if (!aiEnabled) return memberItems;
     const agentsSection = t("comments.mentionAgents");
+    if (!models.isLoading && models.configuredModels.length === 0) {
+      const available =
+        (models.availableModels as typeof models.availableModels | undefined) ??
+        [];
+      const selectedGroups = available.filter(
+        (group) => group.engine === models.selectedEngine,
+      );
+      return [
+        ...memberItems,
+        ...commentAiSelections(
+          selectedGroups.length > 0 ? selectedGroups : available,
+          {
+            model: models.selectedModel,
+            engine: models.selectedEngine,
+          },
+        ).map((selection) => ({
+          id: `ai-sign-in:${commentAiSelectionKey(selection)}`,
+          label: modelDisplayName(selection.model),
+          description: t("comments.aiSignInToUse"),
+          section: agentsSection,
+          source: "content",
+          refType: AI_SIGN_IN_REFERENCE_TYPE,
+          media: providerMedia(selection),
+        })),
+      ];
+    }
     const fallback = models.unavailableSelection
       ? models.defaultSelection
       : null;
@@ -647,8 +674,10 @@ export const CommentComposer = forwardRef<
     avatarUrls,
     connectedModels,
     members,
+    models.availableModels,
     models.configuredModels,
     models.defaultSelection,
+    models.isLoading,
     models.selectedEngine,
     models.selectedModel,
     models.selectionReady,
@@ -686,6 +715,21 @@ export const CommentComposer = forwardRef<
   }, [composerReady, value]);
 
   const handleReferencesChange = useCallback((references: Reference[]) => {
+    if (
+      references.some(
+        (reference) => reference.refType === AI_SIGN_IN_REFERENCE_TYPE,
+      )
+    ) {
+      setTimeout(() =>
+        composerRef.current?.replaceReference(AI_SIGN_IN_REFERENCE_TYPE, null),
+      );
+      window.dispatchEvent(
+        new CustomEvent("agent-panel:open-settings", {
+          detail: { section: "llm" },
+        }),
+      );
+      return;
+    }
     const currentAiDraft = aiDraftRef.current;
     const aiReferences = references.filter(
       (reference) => reference.refType === AI_REFERENCE_TYPE,

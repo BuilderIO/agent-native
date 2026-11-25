@@ -73,6 +73,17 @@ vi.mock("@/hooks/use-comments", async () => {
 vi.mock("@/hooks/use-mention-members", () => ({
   useMentionMembers: () => ({ data: [] }),
 }));
+const notify = vi.hoisted(() => vi.fn());
+vi.mock("sonner", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("sonner")>();
+  return {
+    ...actual,
+    toast: Object.assign((...args: Parameters<typeof actual.toast>) => {
+      notify(...args);
+      return actual.toast(...args);
+    }, actual.toast),
+  };
+});
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   useAvatarUrl: () => null,
@@ -1700,6 +1711,32 @@ describe("comment review interactions", () => {
       documentId: "fixture",
     });
     expect(replyDraft.draft.text).toBe(sent);
+    expect(notify).toHaveBeenCalledWith("comments.aiBusyInThread");
+  });
+
+  it("says AI is still working when Send to AI comes during its run", async () => {
+    const start = vi.fn();
+    actions.modelsReady = true;
+    render("one", undefined, "inline", {
+      commentAi: {
+        ...commentAiWith(start),
+        startingThreadIds: new Set(["one"]),
+      },
+    });
+    await type("one more thing");
+    act(() =>
+      replyDraft.setAiDraft({
+        mode: "suggest",
+        selection: { model: "model", engine: "engine", provider: "provider" },
+      }),
+    );
+    await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    await clickAiSend();
+
+    expect(notify).toHaveBeenCalledWith("comments.aiBusyInThread");
+    expect(actions.create).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+    expect(replyDraft.draft.text).toContain("one more thing");
   });
 
   it("restores the draft of a busy AI reply even when taking the reply back fails", async () => {

@@ -2179,6 +2179,11 @@ const overrides = {
     aiCancelled: "تم إيقاف طلب الذكاء الاصطناعي",
     aiStop: "إيقاف",
     aiStopping: "جارٍ الإيقاف…",
+    aiSuggestionReady: "اقترح تعديلًا",
+    aiBusyInThread:
+      "لا يزال الذكاء الاصطناعي يعمل في هذه السلسلة. انتظر رده أو أوقفه، ثم أرسل مرة أخرى.",
+    aiFailedNoReason: "توقف الذكاء الاصطناعي دون أن يذكر السبب.",
+    aiSignInToUse: "سجّل الدخول للاستخدام",
     aiReplyToAi: "الرد على الذكاء الاصطناعي",
     aiReplyingToAi: "الرد على الذكاء الاصطناعي",
     aiOpenConversation: "فتح محادثة الذكاء الاصطناعي",
