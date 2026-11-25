@@ -818,9 +818,39 @@ describe("listWorkspaceApps", () => {
       () => listWorkspaceAppsForOrgAccessInventory(),
     );
     expect(apps.map((app) => app.id).sort()).toEqual(["dispatch", "shared"]);
+    // An app owned by a different org must not expose its persistence or
+    // ownership metadata in this admin-facing cross-org mounting inventory.
+    for (const app of apps) {
+      expect(Object.keys(app).sort()).toEqual(["id", "name", "path"]);
+      expect(app).not.toHaveProperty("owner");
+      expect(app).not.toHaveProperty("visibility");
+      expect(app).not.toHaveProperty("createdBy");
+    }
     expect(
       mocks.executedSql.filter((sql) => /\b(UPDATE|DELETE)\b/i.test(sql)),
     ).toEqual([]);
+  });
+
+  it("uses the local manifest for a verified same-origin hosted gateway without self-fetching", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://workspace.example.test");
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "shared", name: "Shared", path: "/shared" },
+    ]);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const apps = await runWithRequestContext(
+      {
+        userEmail: "admin@example.test",
+        orgId: "org-123",
+        requestOrigin: "https://workspace.example.test",
+      },
+      () => listWorkspaceAppsForOrgAccessInventory(),
+    );
+    expect(apps.map((app) => app.id).sort()).toEqual(["dispatch", "shared"]);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("fails admin inventory for a domainless hosted organization instead of using the manifest", async () => {
