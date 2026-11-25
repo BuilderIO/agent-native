@@ -282,7 +282,7 @@ async function signInWithQaEmailLink(page: Page) {
   const email = `qa-fleet-${slot}@${serverId}.mailosaur.net`.toLowerCase();
   let stage = "open the sign-in form";
   try {
-    await page.goto(`${appBase}/`, {
+    await page.goto(`${appBase}/sign-in`, {
       waitUntil: "domcontentloaded",
       timeout: 60_000,
     });
