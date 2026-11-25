@@ -5,6 +5,10 @@ import { chromium, type Browser, type Page } from "@playwright/test";
 
 import { waitForVerificationEmail } from "../signup/lib/mailosaur.ts";
 import { LABS_QA_ORIGIN, labsQaEmailLink } from "./qa-email-link.ts";
+import {
+  assertReadOnlyQaTarget,
+  allowsReadOnlyQaRequest,
+} from "./qa-read-only.ts";
 
 type Step =
   | { goto: string }
@@ -32,7 +36,7 @@ interface Target {
   app: string;
   ref?: string;
   path?: string;
-  write?: "forms" | "app-state";
+  write?: "forms" | "app-state" | "none";
   steps?: Step[];
   verify?: Step[];
   cleanup?: { action: string; input?: Record<string, unknown> }[];
@@ -95,6 +99,8 @@ if (!["legacy-password", "qa-email-link"].includes(authMethod)) {
   throw new Error("Unsupported QA verify authentication mode");
 }
 const emailLinkMode = authMethod === "qa-email-link";
+const readOnlyMode = target.write === "none";
+if (readOnlyMode) assertReadOnlyQaTarget(target, emailLinkMode);
 const origin = `https://${host}`;
 if (
   emailLinkMode &&
@@ -541,6 +547,7 @@ async function main() {
   };
 
   let browser: Browser | undefined;
+  let activePage: Page | undefined;
   let sessionId: string | undefined;
   let failure: string | undefined;
   let identityVerified = false;
@@ -565,9 +572,30 @@ async function main() {
     } else {
       browser = await chromium.launch({ headless: true });
     }
-    const context = browser.contexts()[0] ?? (await browser.newContext());
+    const context = readOnlyMode
+      ? await browser.newContext({ serviceWorkers: "block" })
+      : (browser.contexts()[0] ?? (await browser.newContext()));
     const page = context.pages()[0] ?? (await context.newPage());
+    activePage = page;
     await page.setViewportSize({ width: 1280, height: 800 });
+    let signingIn = true;
+    if (readOnlyMode) {
+      await context.route("**/*", (route) => {
+        const request = route.request();
+        return allowsReadOnlyQaRequest(
+          request.method(),
+          request.url(),
+          request.isNavigationRequest(),
+          origin,
+          target.app,
+          signingIn,
+        )
+          ? route.continue()
+          : route.abort("blockedbyclient");
+      });
+      await context.routeWebSocket("**/*", (socket) => socket.close());
+      receipt.readOnly = true;
+    }
 
     const timed = async (label: string, fn: () => Promise<void>) => {
       const t = Date.now();
@@ -587,6 +615,7 @@ async function main() {
       () => signIn(page),
     );
     identityVerified = true;
+    signingIn = false;
     await timed("open app", async () => {
       await page.goto(`${appBase}${target.path ?? "/"}`, {
         waitUntil: "domcontentloaded",
@@ -602,18 +631,20 @@ async function main() {
         runStep(page, step),
       );
     }
-    let readback: Readback | undefined;
-    await timed("qa-tmp write + reload + read back", async () => {
-      const result = await writeAndReadBack(page);
-      cleanups.push(result.cleanup);
-      readback = result.readback;
-      if (!readback.apiAfterReload || readback.uiAfterReload === false) {
-        throw new Error(`read back failed ${JSON.stringify(readback)}`);
-      }
-    });
-    receipt.readback = readback;
+    if (!readOnlyMode) {
+      let readback: Readback | undefined;
+      await timed("qa-tmp write + reload + read back", async () => {
+        const result = await writeAndReadBack(page);
+        cleanups.push(result.cleanup);
+        readback = result.readback;
+        if (!readback.apiAfterReload || readback.uiAfterReload === false) {
+          throw new Error(`read back failed ${JSON.stringify(readback)}`);
+        }
+      });
+      receipt.readback = readback;
+      vars.write = readback;
+    }
     await shot(page, "after");
-    vars.write = readback;
     for (const [i, step] of (target.verify ?? []).entries()) {
       await timed(`verify ${i + 1} ${JSON.stringify(step).slice(0, 120)}`, () =>
         runStep(page, step),
@@ -627,7 +658,7 @@ async function main() {
       !detail.startsWith("sign-in (QA email link):")
         ? "QA email-link browser setup could not finish"
         : detail;
-    const page = browser?.contexts()[0]?.pages()[0];
+    const page = activePage;
     if (page && (!emailLinkMode || identityVerified))
       await shot(page, "failure").catch((shotErr: unknown) => {
         console.log(`failure screenshot not taken: ${String(shotErr)}`);
@@ -637,7 +668,7 @@ async function main() {
     for (const fn of [
       ...cleanups,
       ...(target.cleanup ?? []).map((c) => () => {
-        const page = browser?.contexts()[0]?.pages()[0];
+        const page = activePage;
         if (!page) return Promise.reject(new Error("no page for cleanup"));
         return callAction(page, c.action, interpolate(c.input ?? {})).then(
           () => undefined,
