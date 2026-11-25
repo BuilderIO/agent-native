@@ -1,3 +1,5 @@
+import { fromCanvasImageUrl, restoreCanvasImageUrls } from "./canvas-image-url";
+
 const EXPORT_IMAGE_NATURAL_WIDTH =
   "data-agent-native-export-image-natural-width";
 
@@ -39,27 +41,51 @@ export async function decodeExportImage(
   }
 }
 
+function canvasImageOrigin(image: HTMLImageElement): string | undefined {
+  return (
+    image.ownerDocument
+      .querySelector("script[data-agent-native-canvas-image-bootstrap]")
+      ?.getAttribute("data-origin") ?? undefined
+  );
+}
+
+function restoreCanvasImageSources(root: Element, origin: string): void {
+  for (const element of [root, ...root.querySelectorAll("img,source")]) {
+    for (const name of ["src", "srcset"]) {
+      const value = element.getAttribute(name);
+      if (!value) continue;
+      const restored = restoreCanvasImageUrls(value, origin);
+      if (restored !== value) element.setAttribute(name, restored);
+    }
+  }
+}
+
 export async function prepareExportImageSource(
   source: HTMLImageElement,
   signal: AbortSignal,
 ): Promise<HTMLImageElement> {
   let image = source;
-  if (source.loading === "lazy" && !source.complete) {
+  const origin = canvasImageOrigin(source);
+  const proxied =
+    origin !== undefined &&
+    fromCanvasImageUrl(source.currentSrc, origin) !== null;
+  if (proxied || (source.loading === "lazy" && !source.complete)) {
     const picture = source.closest("picture");
+    let clonedRoot: Element;
     if (picture) {
       const sourceImages = Array.from(picture.querySelectorAll("img"));
       const imageIndex = sourceImages.indexOf(source);
-      const clonedImages = (
-        picture.cloneNode(true) as Element
-      ).querySelectorAll("img");
-      const clonedImage = clonedImages[imageIndex];
+      clonedRoot = picture.cloneNode(true) as Element;
+      const clonedImage = clonedRoot.querySelectorAll("img")[imageIndex];
       if (!clonedImage) {
         throw new Error("Export image source is unavailable.");
       }
       image = clonedImage;
     } else {
       image = source.cloneNode(true) as HTMLImageElement;
+      clonedRoot = image;
     }
+    if (origin !== undefined) restoreCanvasImageSources(clonedRoot, origin);
     image.loading = "eager";
   }
   await decodeExportImage(image, signal);

@@ -99,7 +99,9 @@ describe("host-computed edits must not suppress the canvas repaint", () => {
     );
     for (const source of [hostChannel, inPlaceChannel]) {
       expect(source).toContain("getEmbeddedFrameDocumentContent({");
-      expect(source).toContain("content: withLocalRuntimes(nextContent)");
+      expect(source).toContain(
+        "content: withCanvasRenderSources(withLocalRuntimes(nextContent))",
+      );
       expect(source).toContain("contentOffsetX: embeddedFrame?.contentOffsetX");
       expect(source).toContain("contentOffsetY: embeddedFrame?.contentOffsetY");
     }

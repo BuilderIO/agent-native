@@ -7,6 +7,10 @@ import { IconCode } from "@tabler/icons-react";
 import type { ComponentProps } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import {
+  withCanvasImageBootstrap,
+  withCanvasRenderSources,
+} from "@/components/design/design-canvas/canvas-image-sources";
 import { withLocalRuntimes } from "@/components/design/design-canvas/local-runtime";
 import {
   connectNativePreviewSurface,
@@ -44,7 +48,11 @@ function DesignThumbnailContent({
     () =>
       html
         ? preparePrivateReplayScreenshotPreviewDocument(
-            injectSessionReplayIframeBootstrap(withLocalRuntimes(html)),
+            injectSessionReplayIframeBootstrap(
+              withCanvasImageBootstrap(
+                withCanvasRenderSources(withLocalRuntimes(html)),
+              ),
+            ),
             { designId },
           )
         : null,

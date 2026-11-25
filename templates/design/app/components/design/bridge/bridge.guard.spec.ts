@@ -598,6 +598,7 @@ describe("source vector stroke overlay reconciliation", () => {
 
 const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
   "editor-chrome.bridge.ts": [
+    "../../../../shared/canvas-image-url",
     "../../../../shared/design-tool-markers",
     "../../../../shared/export-image-source",
     "../../../../shared/srcset",

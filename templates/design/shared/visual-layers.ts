@@ -74,6 +74,10 @@ export const CANVAS_CONTEXT_RECORDER_SCRIPT = `<script data-agent-native-canvas-
  * script is added, whose string literals contain such text.
  */
 export function injectCanvasContextRecorder(html: string): string {
+  return injectHeadStartMarkup(html, CANVAS_CONTEXT_RECORDER_SCRIPT);
+}
+
+export function injectHeadStartMarkup(html: string, markup: string): string {
   // Same length, so offsets still match: a tag inside a comment is not a tag.
   const visible = html.replace(/<!--[\s\S]*?(?:-->|$)/g, (comment) =>
     " ".repeat(comment.length),
@@ -85,9 +89,9 @@ export function injectCanvasContextRecorder(html: string): string {
     /<head(?:\s[^>]*)?>/i.exec(prefix) ??
     /<html(?:\s[^>]*)?>/i.exec(prefix) ??
     /<!doctype[^>]*>/i.exec(prefix);
-  if (!opener) return CANVAS_CONTEXT_RECORDER_SCRIPT + html;
+  if (!opener) return markup + html;
   const end = opener.index + opener[0].length;
-  return html.slice(0, end) + CANVAS_CONTEXT_RECORDER_SCRIPT + html.slice(end);
+  return html.slice(0, end) + markup + html.slice(end);
 }
 
 function recordedCanvasContextKind(canvas: Element): string | null {

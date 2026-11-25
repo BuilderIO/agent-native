@@ -1,3 +1,4 @@
+import { restoreCanvasImageUrls } from "@shared/canvas-image-url";
 import {
   buildCodeLayerProjection,
   ensureCodeLayerNodeIdsInHtml,
@@ -127,6 +128,12 @@ export function prepareCanonicalSourceContent(
   if (fileType !== "html" || !content.trim() || isStandaloneHttpUrl(content)) {
     return { content, changed: false, nodeIdMap: new Map() };
   }
+  const restored = restoreCanvasImageUrls(
+    content,
+    typeof location === "undefined" ? undefined : location.origin,
+  );
+  const restoredImageUrls = restored !== content;
+  content = restored;
 
   const cached = canonicalSourceCache.get(options.fileId);
   if (cached?.content === content) {
@@ -155,7 +162,7 @@ export function prepareCanonicalSourceContent(
     let nodeIdMap: Map<string, string> | undefined;
     const result: CanonicalSourceContentResult = {
       content,
-      changed: false,
+      changed: restoredImageUrls,
       get nodeIdMap() {
         nodeIdMap ??= new Map(
           buildCodeLayerProjection(content, { source }).nodes.map((node) => [
@@ -191,7 +198,7 @@ export function prepareCanonicalSourceContent(
 
   const result = {
     content: prepared.content,
-    changed: prepared.changed,
+    changed: prepared.changed || restoredImageUrls,
     nodeIdMap: prepared.changed
       ? mapSourceNodeIds(before.nodes, after.nodes, edits)
       : new Map(before.nodes.map((node) => [node.id, node.id])),
@@ -208,11 +215,10 @@ function cacheCanonicalSource(
 ): void {
   // Length, not UTF-8 size: encoding every screen just to measure it copies it.
   const contentBytes = content.length;
-  const changedBytes = result.changed
-    ? contentBytes + result.content.length
-    : 0;
-  const referencedBytes = result.changed ? 0 : contentBytes;
-  const retainedNodes = result.changed ? result.nodeIdMap.size : 0;
+  const copied = result.content !== content;
+  const changedBytes = copied ? contentBytes + result.content.length : 0;
+  const referencedBytes = copied ? 0 : contentBytes;
+  const retainedNodes = copied ? result.nodeIdMap.size : 0;
   if (
     changedBytes <= CANONICAL_SOURCE_CACHE_MAX_ENTRY_BYTES &&
     retainedNodes <= CANONICAL_SOURCE_CACHE_MAX_NODES

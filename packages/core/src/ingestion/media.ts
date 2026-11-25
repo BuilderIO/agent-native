@@ -242,6 +242,13 @@ export async function downscaleImageToFit(input: {
   }
 }
 
+export class RemoteArtifactTooLargeError extends Error {
+  constructor(maxBytes: number) {
+    super(`Remote artifact exceeds ${maxBytes} bytes.`);
+    this.name = "RemoteArtifactTooLargeError";
+  }
+}
+
 export async function readBoundedResponseBytes(
   response: Response,
   maxBytes: number,
@@ -251,12 +258,12 @@ export async function readBoundedResponseBytes(
   }
   const contentLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(contentLength) && contentLength > maxBytes) {
-    throw new Error(`Remote artifact exceeds ${maxBytes} bytes.`);
+    throw new RemoteArtifactTooLargeError(maxBytes);
   }
   if (!response.body) {
     const bytes = new Uint8Array(await response.arrayBuffer());
     if (bytes.byteLength > maxBytes) {
-      throw new Error(`Remote artifact exceeds ${maxBytes} bytes.`);
+      throw new RemoteArtifactTooLargeError(maxBytes);
     }
     return bytes;
   }
@@ -269,7 +276,7 @@ export async function readBoundedResponseBytes(
     total += value.byteLength;
     if (total > maxBytes) {
       await reader.cancel();
-      throw new Error(`Remote artifact exceeds ${maxBytes} bytes.`);
+      throw new RemoteArtifactTooLargeError(maxBytes);
     }
     chunks.push(value);
   }

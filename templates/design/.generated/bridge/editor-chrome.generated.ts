@@ -903,6 +903,47 @@ export const editorChromeBridgeScript: string = `"use strict";
     return index;
   }
 
+  // shared/canvas-image-url.ts
+  var CANVAS_IMAGE_ROUTE = "/api/canvas-image";
+  var RELATIVE_BASE = "http://canvas-image.invalid";
+  function fromCanvasImageUrl(url, origin) {
+    if (typeof url !== "string" || !url.includes(CANVAS_IMAGE_ROUTE)) return null;
+    if (!URL.canParse(url, RELATIVE_BASE)) return null;
+    const parsed = new URL(url, RELATIVE_BASE);
+    if (parsed.origin !== RELATIVE_BASE && parsed.origin !== origin) return null;
+    if (parsed.pathname !== CANVAS_IMAGE_ROUTE) return null;
+    return parsed.searchParams.get("src");
+  }
+  var ATTRS = \`(?:"[^"]*"|'[^']*'|[^>"'])*\`;
+  var MARKUP_RE = new RegExp(
+    \`<!--[\\\\s\\\\S]*?-->|<script\\\\b[\\\\s\\\\S]*?<\\\\/script\\\\s*>|(<style\\\\b\${ATTRS}>)([\\\\s\\\\S]*?)(<\\\\/style\\\\s*>)|<([a-zA-Z][^\\\\s/>]*)(\${ATTRS})>\`,
+    "gi"
+  );
+  var RESTORE_RE = new RegExp(
+    \`(https?:\\\\/\\\\/[^\\\\s"'()<>\\\\/]+)?\${CANVAS_IMAGE_ROUTE.replace(/[.*+?^\${}()|[\\]\\\\\\/]/g, "\\\\$&")}\\\\?src=([^&\\\\s"'()<>]*)&(amp;)?w=\\\\d+\`,
+    "g"
+  );
+  function restoreCanvasImageUrls(html, origin) {
+    if (!html.includes(CANVAS_IMAGE_ROUTE)) return html;
+    return html.replace(
+      RESTORE_RE,
+      (match, matchedOrigin, encoded, amp) => {
+        if (matchedOrigin !== void 0 && matchedOrigin !== origin) return match;
+        return restoreMatch(match, encoded, amp);
+      }
+    );
+  }
+  function restoreMatch(match, encoded, amp) {
+    let original;
+    try {
+      original = decodeURIComponent(encoded);
+    } catch {
+      return match;
+    }
+    return amp ? original.replace(/&/g, "&amp;") : original;
+  }
+  var SCRIPT_CLOSE = ["</", "script>"].join("");
+
   // shared/design-tool-markers.ts
   var FIGMA_OPEN = /\\((?:figmeta|figma)\\)/i;
   var FIGMA_CLOSE = /\\(\\/(?:figmeta|figma)\\)/gi;
@@ -980,22 +1021,40 @@ export const editorChromeBridgeScript: string = `"use strict";
       signal.removeEventListener("abort", onAbort);
     }
   }
+  function canvasImageOrigin(image) {
+    return image.ownerDocument.querySelector("script[data-agent-native-canvas-image-bootstrap]")?.getAttribute("data-origin") ?? void 0;
+  }
+  function restoreCanvasImageSources(root, origin) {
+    for (const element of [root, ...root.querySelectorAll("img,source")]) {
+      for (const name of ["src", "srcset"]) {
+        const value = element.getAttribute(name);
+        if (!value) continue;
+        const restored = restoreCanvasImageUrls(value, origin);
+        if (restored !== value) element.setAttribute(name, restored);
+      }
+    }
+  }
   async function prepareExportImageSource(source, signal) {
     let image = source;
-    if (source.loading === "lazy" && !source.complete) {
+    const origin = canvasImageOrigin(source);
+    const proxied = origin !== void 0 && fromCanvasImageUrl(source.currentSrc, origin) !== null;
+    if (proxied || source.loading === "lazy" && !source.complete) {
       const picture = source.closest("picture");
+      let clonedRoot;
       if (picture) {
         const sourceImages = Array.from(picture.querySelectorAll("img"));
         const imageIndex = sourceImages.indexOf(source);
-        const clonedImages = picture.cloneNode(true).querySelectorAll("img");
-        const clonedImage = clonedImages[imageIndex];
+        clonedRoot = picture.cloneNode(true);
+        const clonedImage = clonedRoot.querySelectorAll("img")[imageIndex];
         if (!clonedImage) {
           throw new Error("Export image source is unavailable.");
         }
         image = clonedImage;
       } else {
         image = source.cloneNode(true);
+        clonedRoot = image;
       }
+      if (origin !== void 0) restoreCanvasImageSources(clonedRoot, origin);
       image.loading = "eager";
     }
     await decodeExportImage(image, signal);
@@ -1334,8 +1393,8 @@ export const editorChromeBridgeScript: string = `"use strict";
   var VISUAL_LAYER_SCAN_MAX_ELEMENTS = 6e3;
   var MIN_LAYER_EXTENT_PX = 2;
   var CANVAS_CONTEXT_KINDS_KEY = "__agentNativeCanvasContextKinds";
-  var SCRIPT_CLOSE = ["</", "script>"].join("");
-  var CANVAS_CONTEXT_RECORDER_SCRIPT = \`<script data-agent-native-canvas-context-recorder>(function(){try{var p=window.HTMLCanvasElement&&HTMLCanvasElement.prototype;if(!p||p.__agentNativeContextRecorder)return;var kinds=new WeakMap();window.\${CANVAS_CONTEXT_KINDS_KEY}=kinds;var original=p.getContext;p.getContext=function(type){var ctx=original.apply(this,arguments);if(ctx&&!kinds.has(this))kinds.set(this,String(type));return ctx;};p.__agentNativeContextRecorder=true;}catch(e){console.error("[agent-native] canvas context recorder failed",e);}})();\${SCRIPT_CLOSE}\`;
+  var SCRIPT_CLOSE2 = ["</", "script>"].join("");
+  var CANVAS_CONTEXT_RECORDER_SCRIPT = \`<script data-agent-native-canvas-context-recorder>(function(){try{var p=window.HTMLCanvasElement&&HTMLCanvasElement.prototype;if(!p||p.__agentNativeContextRecorder)return;var kinds=new WeakMap();window.\${CANVAS_CONTEXT_KINDS_KEY}=kinds;var original=p.getContext;p.getContext=function(type){var ctx=original.apply(this,arguments);if(ctx&&!kinds.has(this))kinds.set(this,String(type));return ctx;};p.__agentNativeContextRecorder=true;}catch(e){console.error("[agent-native] canvas context recorder failed",e);}})();\${SCRIPT_CLOSE2}\`;
   function recordedCanvasContextKind(canvas) {
     const view = canvas.ownerDocument.defaultView;
     const kinds = view ? view[CANVAS_CONTEXT_KINDS_KEY] : void 0;
@@ -3300,7 +3359,13 @@ export const editorChromeBridgeScript: string = `"use strict";
         },
         { once: true }
       );
-      var parsed = new DOMParser().parseFromString(html, "text/html");
+      var parsed = new DOMParser().parseFromString(
+        restoreCanvasImageUrls(
+          html,
+          document.querySelector("script[data-agent-native-canvas-image-bootstrap]")?.getAttribute("data-origin") ?? void 0
+        ),
+        "text/html"
+      );
       var resourceData = /* @__PURE__ */ new Map();
       var resourceRequests = /* @__PURE__ */ new Map();
       var totalBytes = 0;

@@ -5,6 +5,7 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { injectDocumentMarkup } from "@agent-native/core/shared";
 import { constrainCanvasDragDelta } from "@agent-native/toolkit/canvas-interactions";
+import { restoreCanvasImageUrlsInMessage } from "@shared/canvas-image-url";
 import {
   CANVAS_FIT_PADDING_PX,
   DEFAULT_CANVAS_MAX_ZOOM,
@@ -137,6 +138,10 @@ import {
   canvasVectorPaint,
 } from "./canvas-primitive-style";
 import { CanvasRulers, type CanvasRulersHandle } from "./CanvasRulers";
+import {
+  withCanvasImageBootstrap,
+  withCanvasRenderSources,
+} from "./design-canvas/canvas-image-sources";
 import {
   CONTENT_SIZE_REPORT_MESSAGE_TYPE,
   contentSizeReportBridge,
@@ -4336,6 +4341,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           ).find((iframe) => iframe.contentWindow === event.source)
         : undefined;
       if (!sourcePreviewIframe) return;
+      restoreCanvasImageUrlsInMessage(event.data, window.location.origin);
       if (event.data.type === "agent-native:cross-screen-modifier-snapshot") {
         const requestId = event.data.requestId;
         const pending =
@@ -14853,10 +14859,12 @@ const Screen = memo(function Screen({
     // screen for its closing body tag.
     return injectSessionReplayIframeBootstrap(
       injectDocumentMarkup(
-        getEmbeddedFrameDocumentContent({
-          content: withLocalRuntimes(screen.content),
-          fitBodyToFrame,
-        }),
+        withCanvasImageBootstrap(
+          getEmbeddedFrameDocumentContent({
+            content: withCanvasRenderSources(withLocalRuntimes(screen.content)),
+            fitBodyToFrame,
+          }),
+        ),
         STATIC_PREVIEW_TWEAK_BRIDGE +
           hitTestResponderMarkup(screen.content) +
           contentSizeReportBridge(metadata.heightMode),

@@ -5823,7 +5823,7 @@ importers:
     dependencies:
       '@agent-native/core':
         specifier: ^0.219.0
-        version: 0.219.0(4d6a45cf59d61eee17b36c6f3cc4d47a)
+        version: 0.219.0(dac907b5d92a67b9789b37c93607a432)
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
@@ -6379,6 +6379,9 @@ importers:
       react-router:
         specifier: ^8.1.0
         version: 8.1.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      sharp:
+        specifier: ^0.35.3
+        version: 0.35.3(@types/node@24.13.2)
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
@@ -8317,6 +8320,9 @@ packages:
 
   '@agent-native/agentkit@0.219.0':
     resolution: {integrity: sha512-aMCbnImC617tDfQrEyUuSy5gbdaBILacVgnHBIVYF5jikIWqCIUyYHvQMvhNCsMYlrcjkWBL9Y7ETs3ub5Cm5w==}
+
+  '@agent-native/core-corpus@0.232.0':
+    resolution: {integrity: sha512-+fAf/O2HWdYTJgreFcOO64DpcFPGVahMz+H9XoutUfcsW3k+m7xxkRavjzxFesUSGNMugsvJmIbqQGqyWjckHQ==}
 
   '@agent-native/core@0.219.0':
     resolution: {integrity: sha512-twQ73+RmBujEvC4O1ezowkADUK83jfMO71E7KMqBbNENWbItZfBmS1czOEtT1MVEgyZOFRtrQ0lyCQBgpSFWTA==}
@@ -25927,7 +25933,10 @@ snapshots:
       '@ag-ui/core': 0.0.59
       '@noble/hashes': 2.4.0
 
-  '@agent-native/core@0.219.0(4d6a45cf59d61eee17b36c6f3cc4d47a)':
+  '@agent-native/core-corpus@0.232.0':
+    optional: true
+
+  '@agent-native/core@0.219.0(dac907b5d92a67b9789b37c93607a432)':
     dependencies:
       '@agent-native/agentkit': 0.219.0
       '@agent-native/recap-cli': 0.5.88(playwright@1.63.0)
@@ -25982,6 +25991,7 @@ snapshots:
       yjs: 13.6.33
       zod: 4.6.7
     optionalDependencies:
+      '@agent-native/core-corpus': 0.232.0
       '@ai-sdk/anthropic': 3.0.86(zod@4.6.7)
       '@ai-sdk/cohere': 3.0.39(zod@4.6.7)
       '@ai-sdk/google': 3.0.83(zod@4.6.7)

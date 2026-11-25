@@ -30,6 +30,7 @@
 import { createCanvasGestureController } from "@agent-native/toolkit/canvas-interactions";
 import { originalPositionFor, TraceMap } from "@jridgewell/trace-mapping";
 
+import { restoreCanvasImageUrls } from "../../../../shared/canvas-image-url";
 import { designToolClipboardContent } from "../../../../shared/design-tool-markers";
 import {
   copyExportImageSource,
@@ -2626,7 +2627,15 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       },
       { once: true },
     );
-    var parsed = new DOMParser().parseFromString(html, "text/html");
+    var parsed = new DOMParser().parseFromString(
+      restoreCanvasImageUrls(
+        html,
+        document
+          .querySelector("script[data-agent-native-canvas-image-bootstrap]")
+          ?.getAttribute("data-origin") ?? undefined,
+      ),
+      "text/html",
+    );
     var resourceData = new Map<string, string>();
     var resourceRequests = new Map<string, Promise<string | null>>();
     var totalBytes = 0;

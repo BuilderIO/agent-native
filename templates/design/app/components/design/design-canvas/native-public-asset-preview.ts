@@ -1,6 +1,7 @@
 import { injectDocumentMarkup } from "@agent-native/core/shared";
 import { parse, type DefaultTreeAdapterMap } from "parse5";
 
+import { CANVAS_IMAGE_ROUTE } from "../../../../shared/canvas-image-url";
 import type { EffectDocument } from "../../../../shared/native-effects";
 import { planNativeInputResources } from "../../../../shared/native-input-resources";
 import { parseSrcset } from "./private-replay-screenshot-preview";
@@ -51,6 +52,7 @@ function imageUrl(raw: string, base: URL): string | null {
     url.origin !== base.origin
   )
     return null;
+  if (url.pathname === CANVAS_IMAGE_ROUTE) return null;
   return url.href;
 }
 

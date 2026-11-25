@@ -5,6 +5,11 @@ import { interactLinksBridgeScript } from "../../../../.generated/bridge/interac
 import { interactTweaksBridgeScript } from "../../../../.generated/bridge/interact-tweaks.generated";
 import { renderResolvedRootBlock } from "../../../../shared/resolve-tweaks";
 import type { ScreenHeightMode } from "../multi-screen/screen-height";
+import {
+  canvasImageBootstrapMarkup,
+  withCanvasImageBootstrap,
+  withCanvasRenderSources,
+} from "./canvas-image-sources";
 import { contentSizeReportBridge } from "./content-size-report";
 import {
   embeddedContentOffsetStyle,
@@ -69,7 +74,9 @@ export function buildInteractPreviewDocument(args: {
   heightMode?: ScreenHeightMode;
   tweakValues?: Record<string, string>;
 }): string {
-  const localizedContent = withLocalRuntimes(args.content);
+  const localizedContent = withCanvasRenderSources(
+    withLocalRuntimes(args.content),
+  );
   const frameContent = getEmbeddedFrameDocumentContent({
     content: localizedContent,
     embeddedFrameBackground: args.embeddedFrameBackground,
@@ -84,7 +91,7 @@ export function buildInteractPreviewDocument(args: {
     (args.heightMode === "hug" ? contentSizeReportBridge(args.heightMode) : "");
   if (/<\/(?:body|html)\s*>/i.test(frameContent)) {
     return injectSessionReplayIframeBootstrap(
-      injectDocumentMarkup(frameContent, bridges),
+      injectDocumentMarkup(withCanvasImageBootstrap(frameContent), bridges),
     );
   }
   const frameStyle = [
@@ -98,6 +105,6 @@ export function buildInteractPreviewDocument(args: {
     ),
   ].join("");
   return injectSessionReplayIframeBootstrap(
-    `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${localizedContent}${bridges}</body></html>`,
+    `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${canvasImageBootstrapMarkup()}${frameStyle}</head><body>${localizedContent}${bridges}</body></html>`,
   );
 }

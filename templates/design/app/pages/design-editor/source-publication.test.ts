@@ -1,8 +1,9 @@
+import { toCanvasImageUrl } from "@shared/canvas-image-url";
 import {
   buildCodeLayerProjection,
   clearCodeLayerProjectionCache,
 } from "@shared/code-layer";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 
 import {
   designFileCodeLayerSource,
@@ -275,4 +276,32 @@ it("forgets prepared sources for files that left the design", () => {
   expect(prepareCanonicalSourceContent(html, { fileId: "deleted" })).not.toBe(
     deleted,
   );
+});
+
+it("stores the original URL of an image the canvas showed resized", () => {
+  const photo = "https://images.example.test/a/photo.jpg?w=5350&fit=crop";
+  const resized = toCanvasImageUrl(photo, "https://design.example.test") ?? "";
+  const authored = `<main data-agent-native-node-id="m"><img data-agent-native-node-id="i" src="${photo.replace(/&/g, "&amp;")}"></main>`;
+  const fromFrame = authored.replace(
+    photo.replace(/&/g, "&amp;"),
+    resized.replace(/&/g, "&amp;"),
+  );
+  expect(fromFrame).not.toBe(authored);
+  vi.stubGlobal("location", { origin: "https://design.example.test" });
+  try {
+    const prepared = prepareCanonicalSourceContent(fromFrame, {
+      fileId: "screen-resized",
+      fileType: "html",
+    });
+    expect(prepared.content).toBe(authored);
+    expect(prepared.changed).toBe(true);
+    expect(
+      prepareCanonicalSourceContent(authored, {
+        fileId: "screen-resized-authored",
+        fileType: "html",
+      }).changed,
+    ).toBe(false);
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
