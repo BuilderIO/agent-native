@@ -16,7 +16,7 @@ function message(href: string) {
   };
 }
 
-test("allows scanner-safe QA email links for the same Labs app", () => {
+await test("allows scanner-safe QA email links for the same Labs app", () => {
   for (const path of [landing, "/calendar-2" + landing]) {
     const url = new URL(path + query, LABS_QA_ORIGIN);
     url.searchParams.set("callbackURL", "/calendar-2/");
@@ -27,7 +27,7 @@ test("allows scanner-safe QA email links for the same Labs app", () => {
   }
 });
 
-test("rejects a different host, other auth flows, other apps and cross-origin callbacks", () => {
+await test("rejects a different host, other auth flows, other apps and cross-origin callbacks", () => {
   for (const href of [
     "https://example.test" + landing + query,
     LABS_QA_ORIGIN + "/content-2" + landing + query,
@@ -43,7 +43,7 @@ test("rejects a different host, other auth flows, other apps and cross-origin ca
   }
 });
 
-test("rejects details for a different mailbox or an older email", () => {
+await test("rejects details for a different mailbox or an older email", () => {
   const doc = message(LABS_QA_ORIGIN + landing + query);
   for (const row of [
     { ...doc, to: [{ email: "qa-fleet-4@example.mailosaur.net" }] },
