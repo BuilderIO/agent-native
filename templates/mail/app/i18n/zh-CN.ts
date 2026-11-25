@@ -540,6 +540,9 @@ const messages = {
       loadTitle: "无法加载邮件",
       staleSaved: "无法刷新邮件。正在显示已保存的会话。",
       rateLimitDescription: "最近对 Google 的请求过多。稍等片刻后会重试。",
+      limitedListFrom:
+        "上次更新：{{time}}。部分邮件可能未显示。Google 正在限制 Mail 的请求。",
+      limitedList: "部分邮件可能未显示。Google 正在限制 Mail 的请求。",
       failedToConnect: "连接失败。请重试。",
       failedToParseJson: "解析 JSON 失败",
       missingGoogleCredentials: "在 JSON 中找不到 client_id 和 client_secret",

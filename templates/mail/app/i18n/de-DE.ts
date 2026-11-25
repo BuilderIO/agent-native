@@ -578,6 +578,10 @@ const messages = {
         "E-Mails konnten nicht aktualisiert werden. Gespeicherte Unterhaltungen werden angezeigt.",
       rateLimitDescription:
         "Zu viele aktuelle Anfragen an Google. Vor dem erneuten Versuch wird kurz gewartet.",
+      limitedListFrom:
+        "Zuletzt aktualisiert: {{time}}. Möglicherweise fehlen E-Mails. Google begrenzt die Anfragen von Mail.",
+      limitedList:
+        "Möglicherweise fehlen E-Mails. Google begrenzt die Anfragen von Mail.",
       failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",
       failedToParseJson: "No se pudo analizar JSON",
       missingGoogleCredentials:

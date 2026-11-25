@@ -556,6 +556,9 @@ const messages = {
       staleSaved: "تعذر تحديث البريد. يتم عرض المحادثات المحفوظة.",
       rateLimitDescription:
         "طلبات كثيرة حديثة إلى Google. جار الانتظار قبل إعادة المحاولة.",
+      limitedListFrom:
+        "آخر تحديث: {{time}}. قد تكون بعض الرسائل غير ظاهرة. تحدّ Google من طلبات Mail.",
+      limitedList: "قد تكون بعض الرسائل غير ظاهرة. تحدّ Google من طلبات Mail.",
       failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",
       failedToParseJson: "No se pudo analizar JSON",
       missingGoogleCredentials:

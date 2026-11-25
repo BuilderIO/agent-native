@@ -556,6 +556,10 @@ const messages = {
       staleSaved: "Couldn't refresh mail. Showing saved conversations.",
       rateLimitDescription:
         "Too many recent requests to Google. Waiting a moment before retrying.",
+      limitedListFrom:
+        "Last updated {{time}}. Some mail may be missing. Google is limiting Mail's requests.",
+      limitedList:
+        "Some mail may be missing. Google is limiting Mail's requests.",
       failedToConnect: "Failed to connect. Try again.",
       failedToParseJson: "Failed to parse JSON",
       missingGoogleCredentials:
