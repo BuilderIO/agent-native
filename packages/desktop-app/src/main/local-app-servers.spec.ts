@@ -368,6 +368,7 @@ describe("local app server helpers", () => {
     expect(localAppServerEnv(base)).toMatchObject({
       PATH: "/bin",
       AUTH_DISABLED: "true",
+      AGENT_NATIVE_DEV_HOST: "127.0.0.1",
     });
     expect(base.AUTH_DISABLED).toBe("false");
   });

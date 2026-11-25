@@ -5331,7 +5331,9 @@ function createAgentNativeConfig(
     },
     server: {
       ...(userConfig.server ?? {}),
-      host: userConfig.server?.host ?? "::",
+      host:
+        runtimeEnv.AGENT_NATIVE_DEV_HOST?.trim() ||
+        (userConfig.server?.host ?? "::"),
       port: options.port ?? userConfig.server?.port ?? 8080,
       allowedHosts: options.allowedHosts ??
         userConfig.server?.allowedHosts ?? [

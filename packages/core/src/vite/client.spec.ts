@@ -3134,6 +3134,35 @@ describe("agentNative Vite plugin preset", () => {
     });
   });
 
+  it("binds the dev server where AGENT_NATIVE_DEV_HOST says, over the app's own host", async () => {
+    const plugins = flatPlugins(agentNative());
+    const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
+    const serverHost = async (host?: string) => {
+      const previousCwd = process.cwd();
+      process.chdir(path.join(repositoryRoot(), "templates/chat"));
+      try {
+        const config = await configPlugin.config(
+          host === undefined ? {} : { server: { host } },
+          { command: "serve", mode: "development" },
+        );
+        return config.server.host;
+      } finally {
+        process.chdir(previousCwd);
+      }
+    };
+
+    vi.stubEnv("AGENT_NATIVE_DEV_HOST", "");
+    try {
+      expect(await serverHost()).toBe("::");
+      expect(await serverHost("0.0.0.0")).toBe("0.0.0.0");
+      vi.stubEnv("AGENT_NATIVE_DEV_HOST", "127.0.0.1");
+      expect(await serverHost()).toBe("127.0.0.1");
+      expect(await serverHost("0.0.0.0")).toBe("127.0.0.1");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("denies the served roots' .agent-native state, scoped to those roots", async () => {
     const plugins = flatPlugins(agentNative());
     const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
