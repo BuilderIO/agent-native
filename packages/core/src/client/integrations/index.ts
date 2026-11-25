@@ -1,5 +1,7 @@
 export {
   startWorkspaceProviderOAuth,
+  watchWorkspaceConnectionCompletion,
+  WORKSPACE_CONNECTION_COMPLETION_RETURN,
   workspaceProviderOAuthUrl,
   type WorkspaceProviderOAuthOptions,
   type WorkspaceProviderOAuthScope,

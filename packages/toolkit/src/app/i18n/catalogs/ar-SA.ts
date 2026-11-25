@@ -3440,6 +3440,45 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsModel.chatgptReconnect": "إعادة الاتصال",
   "settingsModel.chatgptSelectAccount": "حساب ChatGPT",
   "settingsModel.chatgptUsageLimit": "تم بلوغ حد الاستخدام لخطة ChatGPT.",
+  "settingsModel.t3CodeTitle": "T3 Code",
+  "settingsModel.t3CodeDescription":
+    "أشِر إلى Claude Code وCodex في التعليقات. يعملان بخططك الخاصة، على جهازك، عبر T3 Code.",
+  "settingsModel.t3CodeConnect": "ربط",
+  "settingsModel.t3CodeReadOnly": "للقراءة فقط",
+  "settingsModel.t3CodeCanStart": "يمكنه بدء سلاسل",
+  "settingsModel.t3CodeReadOnlyHint":
+    "لا يمكن بدء سلاسل في وضع القراءة فقط. أعد الربط واختر Supervised أو أعلى حتى يتمكن وكلاؤك من الرد.",
+  "settingsModel.t3CodeNoAgents":
+    "لا يوجد Claude Code أو Codex مسجّل الدخول في T3 Code.",
+  "settingsModel.t3CodeSignInAgain":
+    "سيطلب منك T3 تسجيل الدخول مجددًا في {{date}}.",
+  "settingsModel.t3CodeReconnectHint":
+    "أنهى T3 Code تسجيل الدخول هذا. أعد الربط لتشير إلى وكلائك مرة أخرى.",
+  "settingsModel.t3CodeUnreachable":
+    "تعذّر الوصول إلى T3 Code. تأكد من أنه يعمل وأن T3 Connect مفعّل لهذا الجهاز.",
+  "settingsModel.t3CodeDialogTitle": "ربط T3 Code",
+  "settingsModel.t3CodeDialogDescription":
+    "تُرسل إشاراتك إلى T3 Code على جهازك. تبقى عمليات تسجيل دخولك إلى Claude Code وCodex هناك، ولا يراها هذا التطبيق أبدًا.",
+  "settingsModel.t3CodeDialogStep1":
+    "في T3 Code، افتح Settings › Environments، ثم قائمة هذا الجهاز، واختر Copy MCP URL.",
+  "settingsModel.t3CodeDialogStep2":
+    "الصقه هنا. يجب أن يكون T3 Connect مفعّلًا ليتمكن هذا التطبيق من الوصول إلى جهازك.",
+  "settingsModel.t3CodeAddressLabel": "عنوان MCP الخاص بـ T3 Code",
+  "settingsModel.t3CodeAccessHint":
+    "بعد ذلك يسألك T3 Code عمّا يُسمح لهذا التطبيق بفعله. اختر Supervised أو أعلى حتى يتمكن وكلاؤك من الرد.",
+  "settingsModel.t3CodeContinue": "المتابعة إلى T3 Code",
+  "settingsModel.t3CodeChecking": "جارٍ التحقق…",
+  "settingsModel.t3CodeAddressHttp":
+    "استخدم عنوان https الذي يمنحك إياه T3 Connect. لا يمكن إكمال تسجيل الدخول بعنوان http عادي.",
+  "settingsModel.t3CodeAddressInvalid":
+    "هذا ليس عنوان ويب. انسخه باستخدام Copy MCP URL في T3 Code.",
+  "settingsModel.t3CodeAddressNotMcp":
+    "يجب أن ينتهي العنوان بـ /mcp. انسخه باستخدام Copy MCP URL في T3 Code.",
+  "settingsModel.t3CodeAddressUnreachable":
+    "تعذّر الوصول إلى T3 Code على هذا العنوان. فعّل T3 Connect لهذا الجهاز في T3 Code، واستخدم العنوان الذي يمنحه Copy MCP URL.",
+  "settingsModel.t3CodeDisconnectTitle": "هل تريد فصل T3 Code؟",
+  "settingsModel.t3CodeDisconnectDescription":
+    "سيختفي Claude Code وCodex من قائمة @، وسيُطلب من T3 Code إنهاء تسجيل الدخول هذا. يمكنك إعادة الربط في أي وقت.",
   "settingsModel.checkAgain": "التحقق مرة أخرى",
   "settingsModel.checkedJustNow": "تم التحقق الآن.",
   "settingsModel.checkedOn": "تم التحقق في {{date}}.",

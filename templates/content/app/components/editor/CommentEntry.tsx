@@ -2,7 +2,10 @@ import { useT } from "@agent-native/core/client/i18n";
 import { mcpConnectHostLabel } from "@agent-native/core/shared/mcp-connect-content";
 import type { TiptapComposerHandle } from "@agent-native/toolkit/composer";
 import { isCommentAnchorBlockType } from "@shared/comment-block-anchor";
-import { commentMentionsForText } from "@shared/comment-mentions";
+import {
+  commentMentionsForText,
+  isT3AgentMention,
+} from "@shared/comment-mentions";
 import { IconDots } from "@tabler/icons-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -39,6 +42,7 @@ import {
   renderCommentBody,
   useCommentTimestamp,
 } from "./CommentRow";
+import { T3AgentRequestLine } from "./T3AgentRequestLine";
 
 /** Why delete-comment refused, by its error code. */
 const DELETE_REFUSALS: Record<string, string> = {
@@ -76,8 +80,10 @@ function focusAfterDelete(
 
 export function getAiCommentSource(
   submissionSource: string | null | undefined,
-): "mcp" | "agent" | null {
-  return submissionSource === "mcp" || submissionSource === "agent"
+): "mcp" | "agent" | "t3-code" | null {
+  return submissionSource === "mcp" ||
+    submissionSource === "agent" ||
+    submissionSource === "t3-code"
     ? submissionSource
     : null;
 }
@@ -94,7 +100,7 @@ export function AgentAttributionBadge({
   client,
   model,
 }: {
-  source: "mcp" | "agent";
+  source: "mcp" | "agent" | "t3-code";
   authorName: string;
   /** The MCP host id the agent's client reported, such as `claude-code`. */
   client?: string | null | undefined;
@@ -103,10 +109,16 @@ export function AgentAttributionBadge({
   const t = useT();
   const attribution = t("comments.aiAttribution", { name: authorName });
   const sourceLabel = t(
-    source === "mcp" ? "comments.aiSourceMcp" : "comments.aiSourceAgent",
+    source === "mcp"
+      ? "comments.aiSourceMcp"
+      : source === "t3-code"
+        ? "comments.aiSourceT3Code"
+        : "comments.aiSourceAgent",
   );
   const clientLabel =
-    source === "mcp" ? (mcpConnectHostLabel(client) ?? null) : null;
+    source === "mcp" || source === "t3-code"
+      ? (mcpConnectHostLabel(client) ?? null)
+      : null;
   const modelLabel = model ? modelDisplayName(model) : null;
   const title = modelLabel ?? clientLabel;
 
@@ -146,6 +158,11 @@ export function CommentAttributionBadge({ comment }: { comment: Comment }) {
       model={comment.author_model}
     />
   );
+}
+
+/** Whether a comment tagged one of its author's own T3 Code agents. */
+function isT3Tagging(comment: Comment) {
+  return comment.mentions.some(isT3AgentMention);
 }
 
 export function CommentEntry({
@@ -237,10 +254,23 @@ export function CommentEntry({
   const showMutationStatus =
     comment.mutation?.kind !== "resolve" || !comment.parent_id;
   const aiAuthored = comment.actorKind === "agent" && !!comment.author_model;
-  const visibleAuthor = aiAuthored
-    ? modelDisplayName(comment.author_model)
-    : (comment.author_name ?? comment.author_email.split("@")[0]);
+  const t3Line = isT3Tagging(comment) ? (
+    <T3AgentRequestLine commentId={comment.id} />
+  ) : null;
   const aiSource = getAiCommentSource(comment.submission_source);
+  const personName = comment.author_name ?? comment.author_email.split("@")[0];
+  // A person's own T3 Code agent answers for them: "Claude Code, for Alice".
+  const visibleAuthor =
+    aiAuthored && aiSource === "t3-code"
+      ? t("comments.t3AgentAuthor", {
+          agent:
+            mcpConnectHostLabel(comment.author_client) ??
+            modelDisplayName(comment.author_model),
+          name: personName,
+        })
+      : aiAuthored
+        ? modelDisplayName(comment.author_model)
+        : personName;
   const identity: CommentIdentity = aiAuthored
     ? {
         kind: "agent",
@@ -248,7 +278,11 @@ export function CommentEntry({
         run: {
           effort: comment.author_effort ?? null,
           ranAt: comment.created_at,
-          threadId: comment.submission_thread_id ?? null,
+          // A T3 Code thread isn't a Content agent conversation to open.
+          threadId:
+            aiSource === "t3-code"
+              ? null
+              : (comment.submission_thread_id ?? null),
           canOpen:
             !!currentUserEmail &&
             currentUserEmail.toLowerCase() ===
@@ -627,9 +661,10 @@ export function CommentEntry({
       }
       revealActions={revealActions}
       footer={
-        hasSaveStatus || footer || reactions.length || feedLayout ? (
+        hasSaveStatus || footer || reactions.length || feedLayout || t3Line ? (
           <div className="grid gap-1.5">
             {saveStatus}
+            {t3Line}
             {feedLayout ? (
               <div
                 className="flex flex-wrap items-center gap-1"
@@ -660,6 +695,7 @@ export function CommentEntry({
           <CommentComposer
             ref={inputRef}
             ariaLabel={t("comments.edit")}
+            t3Agents={false}
             value={draft.draft.text}
             onChange={draft.setText}
             mentions={draft.draft.mentions}

@@ -19,6 +19,26 @@ export {
 } from "./manager.js";
 
 export {
+  disconnectT3Code,
+  getT3CodeConnection,
+  getT3CodeStatus,
+  t3CodeAgentName,
+  t3CodeAgentsFromCapabilities,
+  t3CodeThreadAgent,
+  toT3CodeThread,
+  withT3Code,
+  T3CodeNotConnectedError,
+  T3CodeReconnectRequiredError,
+  T3CodeToolError,
+  T3CodeUnreachableError,
+  type T3CodeAgent,
+  type T3CodeAgentKind,
+  type T3CodeCall,
+  type T3CodeStatus,
+  type T3CodeThread,
+} from "./t3-code.js";
+
+export {
   isMcpToolCallReplayRefusedError,
   isMcpTransportDisconnectError,
   McpToolCallReplayRefusedError,

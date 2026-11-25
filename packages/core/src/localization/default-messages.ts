@@ -36,6 +36,9 @@ const messages = {
       chatgptSelectAccount: "ChatGPT account",
       chatgptTitle: "ChatGPT plan access",
       chatgptUsageLimit: "Your ChatGPT plan usage limit has been reached.",
+      t3CodeDescription:
+        "Tag Claude Code and Codex in comments. They run on your own plans, on your computer, through T3 Code.",
+      t3CodeTitle: "T3 Code",
     },
     composer: {
       chatgptManageUsage: "Manage usage",

@@ -1882,6 +1882,32 @@ export const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS content_column_fill_cells_status_idx
         ON content_column_fill_cells (fill_id, status, position)`,
     },
+    {
+      version: 146,
+      name: "content-t3-agent-requests",
+      sql: `CREATE TABLE IF NOT EXISTS t3_agent_requests (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        thread_id TEXT NOT NULL,
+        comment_id TEXT NOT NULL,
+        agent TEXT NOT NULL,
+        t3_thread_id TEXT,
+        t3_thread_title TEXT,
+        t3_thread_link TEXT,
+        base_run_ordinal INTEGER,
+        status TEXT NOT NULL DEFAULT 'sending',
+        model TEXT,
+        reply_comment_id TEXT,
+        error TEXT,
+        created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+        updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS t3_agent_requests_comment_idx
+        ON t3_agent_requests (comment_id, agent);
+      CREATE INDEX IF NOT EXISTS t3_agent_requests_document_owner_idx
+        ON t3_agent_requests (document_id, owner_email)`,
+    },
   ],
   { table: "content_migrations" },
 );

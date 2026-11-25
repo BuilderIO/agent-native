@@ -127,6 +127,7 @@ import { DeferredBuilderConnectPopover } from "./deferred-builder-connect-popove
 import { DemoModeSection } from "./DemoModeSection.js";
 import { ExtensionsSettingsContent } from "./ExtensionsSettingsContent.js";
 import { ChatGPTSubscriptionRow } from "./model/ChatGPTSubscriptionRow.js";
+import { T3CodeRow } from "./model/T3CodeRow.js";
 import { SecretsSection } from "./SecretsSection.js";
 import { SettingsGroup, SettingsRow } from "./SettingsRow.js";
 import {
@@ -1394,6 +1395,7 @@ function LLMSectionInner({
       ) : (
         <>
           <ChatGPTSubscriptionRow />
+          <T3CodeRow />
           <div
             className={cn(
               isPage

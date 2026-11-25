@@ -57,6 +57,10 @@ import {
   type CommentThread,
 } from "@/hooks/use-comments";
 import { useLocalStorage } from "@/hooks/use-local-storage";
+import {
+  T3AgentRequestsContext,
+  useT3AgentRequests,
+} from "@/hooks/use-t3-agents";
 import { cn } from "@/lib/utils";
 
 import {
@@ -1284,7 +1288,20 @@ export function commentAiModelStorageKey(
   );
 }
 
-export function CommentsSidebar({
+/**
+ * The page's comments, with the person's T3 Code agent requests on it, which
+ * keep syncing while one is unfinished.
+ */
+export function CommentsSidebar(props: CommentsSidebarProps) {
+  const t3Requests = useT3AgentRequests(props.documentId);
+  return (
+    <T3AgentRequestsContext.Provider value={t3Requests}>
+      <CommentsSidebarBody {...props} />
+    </T3AgentRequestsContext.Provider>
+  );
+}
+
+function CommentsSidebarBody({
   compact = false,
   replyDrafts,
   documentId,
