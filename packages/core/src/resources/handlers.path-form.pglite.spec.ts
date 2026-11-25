@@ -145,14 +145,33 @@ async function seed(id: string, owner: string, path: string, content: string) {
   );
 }
 
-describe("one path form for resource files", () => {
-  it("makes a created file and an upload with the same name one file", async () => {
+async function uploadAt(path: string, content: string) {
+  const { handleUploadResource } = await import("./handlers.js");
+  status = 200;
+  const result = (await handleUploadResource({
+    parts: [
+      {
+        name: "file",
+        filename: "notes.md",
+        type: "text/markdown",
+        data: Buffer.from(content),
+      },
+      { name: "path", data: Buffer.from(path) },
+    ],
+  })) as Body;
+  return { status, body: result };
+}
+
+const owner = "erin@example.test";
+
+describe("making a name from the Resources panel", () => {
+  it("numbers an upload whose name a created file already has", async () => {
     await create({ path: "notes.md", content: "", shared: false });
     const uploaded = await upload("notes.md", "uploaded text");
 
     expect(uploaded.status).toBe(201);
     expect(uploaded.body.path).toBe("notes-2.md");
-    expect(await stored("erin@example.test")).toEqual([
+    expect(await stored(owner)).toEqual([
       ["notes-2.md", "uploaded text"],
       ["notes.md", ""],
     ]);
@@ -169,35 +188,88 @@ describe("one path form for resource files", () => {
 
     expect(created.status).toBe(201);
     expect(created.body.path).toBe("notes-2.md");
-    expect(await stored("erin@example.test")).toEqual([
+    expect(await stored(owner)).toEqual([
       ["notes-2.md", ""],
       ["notes.md", "uploaded text"],
     ]);
   });
 
-  it("finds an upload stored before this change under its canonical name", async () => {
-    await seed("old", "erin@example.test", "/notes.md", "old upload");
+  it("stores an upload's explicit path without its leading slashes", async () => {
+    const uploaded = await uploadAt("//docs/notes.md", "text");
+
+    expect(uploaded.status).toBe(201);
+    expect(uploaded.body.path).toBe("docs/notes.md");
+    expect(await stored(owner)).toEqual([["docs/notes.md", "text"]]);
+  });
+
+  it("refuses an upload whose path is only slashes", async () => {
+    const uploaded = await uploadAt("/", "text");
+
+    expect(uploaded.status).toBe(400);
+    expect(await stored(owner)).toEqual([]);
+  });
+
+  it("counts a file stored under '/notes.md' before this change as taken", async () => {
+    await seed("old", owner, "/notes.md", "old upload");
 
     const created = await create({
       path: "notes.md",
       content: "",
-      shared: false,
       uniquePath: true,
     });
-    const uploaded = await upload("notes.md", "old upload");
+    const uploaded = await upload("notes.md", "new upload");
 
     expect(created.body.path).toBe("notes-2.md");
-    expect(uploaded.status).toBe(200);
-    expect(uploaded.body.id).toBe("old");
-    expect(await stored("erin@example.test")).toEqual([
+    expect(uploaded).toMatchObject({
+      status: 201,
+      body: { path: "notes-3.md" },
+    });
+    expect(await stored(owner)).toEqual([
       ["/notes.md", "old upload"],
       ["notes-2.md", ""],
+      ["notes-3.md", "new upload"],
     ]);
   });
 
-  it("refuses a rename onto the other form of a taken name", async () => {
-    await seed("old", "erin@example.test", "/notes.md", "old upload");
-    await seed("todo", "erin@example.test", "todo.md", "todo");
+  it("always creates a new file with uniquePath, even onto an empty one", async () => {
+    await seed("empty", owner, "notes.md", "");
+    await seed("empty-2", owner, "notes-2.md", "");
+
+    const first = await create({
+      path: "/notes.md",
+      content: "",
+      uniquePath: true,
+    });
+
+    expect(first).toMatchObject({ status: 201, body: { path: "notes-3.md" } });
+    expect(first.body.id).not.toBe("empty");
+    expect(first.body.id).not.toBe("empty-2");
+    expect((await stored(owner)).map(([path]) => path)).toEqual([
+      "notes-2.md",
+      "notes-3.md",
+      "notes.md",
+    ]);
+  });
+
+  it("returns an upload resent with the same content instead of storing it again", async () => {
+    const first = await upload("notes.md", "same");
+    const again = await upload("notes.md", "same");
+
+    expect(again).toMatchObject({ status: 200, body: { id: first.body.id } });
+    expect(await stored(owner)).toEqual([["notes.md", "same"]]);
+  });
+
+  it("keeps a create without uniquePath replacing the file there, as before", async () => {
+    const existing = await create({ path: "notes.md", content: "existing" });
+    const replaced = await create({ path: "notes.md", content: "" });
+
+    expect(replaced.body.id).toBe(existing.body.id);
+    expect(await stored(owner)).toEqual([["notes.md", ""]]);
+  });
+
+  it("refuses a rename onto the other spelling of a taken name", async () => {
+    await seed("old", owner, "/notes.md", "old upload");
+    await seed("todo", owner, "todo.md", "todo");
     const slashed = await create({ path: "a.md", content: "a" });
     const plain = await create({ path: "b.md", content: "b" });
 
@@ -214,7 +286,7 @@ describe("one path form for resource files", () => {
       errorCode: "name_taken",
       details: { suggestion: "todo-2.md" },
     });
-    expect(await stored("erin@example.test")).toEqual([
+    expect(await stored(owner)).toEqual([
       ["/notes.md", "old upload"],
       ["a.md", "a"],
       ["b.md", "b"],
@@ -223,24 +295,22 @@ describe("one path form for resource files", () => {
   });
 
   it("keeps a rename that only adds or drops the leading slash on the same file", async () => {
-    await seed("old", "erin@example.test", "/notes.md", "old upload");
+    await seed("old", owner, "/notes.md", "old upload");
 
     const renamed = await rename("old", "notes.md");
 
     expect(renamed.status).toBe(200);
-    expect(await stored("erin@example.test")).toEqual([
-      ["/notes.md", "old upload"],
-    ]);
+    expect(await stored(owner)).toEqual([["/notes.md", "old upload"]]);
   });
 
   it("stores a shared upload in an organization under the created file's form", async () => {
     session.orgId = "org-1";
-    const owner = "__organization__:org-1";
+    const orgOwner = "__organization__:org-1";
     await create({ path: "team.md", content: "", shared: true });
     const uploaded = await upload("team.md", "uploaded", true);
 
     expect(uploaded.body.path).toBe("team-2.md");
-    expect(await stored(owner)).toEqual([
+    expect(await stored(orgOwner)).toEqual([
       ["team-2.md", "uploaded"],
       ["team.md", ""],
     ]);
@@ -255,105 +325,164 @@ describe("one path form for resource files", () => {
     expect(uploaded.body.path).toBe("team-2.md");
     expect(await stored("__shared__")).toEqual([["/team.md", "pre-org"]]);
   });
+
+  it("refuses renaming a shared file from before organizations onto another one's name", async () => {
+    session.orgId = "org-1";
+    await seed("team", "__shared__", "/team.md", "team");
+    await seed("todo", "__shared__", "/todo.md", "todo");
+
+    const renamed = await rename("team", "todo.md");
+
+    expect(renamed).toMatchObject({
+      status: 409,
+      body: { errorCode: "name_taken", details: { suggestion: "todo-2.md" } },
+    });
+    expect(await stored("__organization__:org-1")).toEqual([]);
+    expect(await stored("__shared__")).toEqual([
+      ["/team.md", "team"],
+      ["/todo.md", "todo"],
+    ]);
+  });
 });
 
-describe("agent reads and writes by path", () => {
-  it("reach the same file with or without a leading slash", async () => {
-    const { resourceGetByPath, resourcePut } = await import("./store.js");
-    const owner = "erin@example.test";
-
-    const written = await resourcePut(owner, "/plan.md", "v1");
-    const plain = await resourceGetByPath(owner, "plan.md");
-    const slashed = await resourceGetByPath(owner, "/plan.md");
-    await resourcePut(owner, "plan.md", "v2");
-
-    expect(written.path).toBe("plan.md");
-    expect(plain?.id).toBe(written.id);
-    expect(slashed?.id).toBe(written.id);
-    expect(await stored(owner)).toEqual([["plan.md", "v2"]]);
-  });
-
-  it("write onto a file stored with a leading slash in place", async () => {
-    const { resourceGetByPath, resourcePut, resourcePutIfSnapshot } =
-      await import("./store.js");
-    const owner = "erin@example.test";
+describe("claiming a name in the store", () => {
+  it("creates only where no spelling of the name is stored", async () => {
+    const { resourcePutIfAbsent } = await import("./store.js");
     await seed("old", owner, "/notes.md", "v1");
-
-    const read = await resourceGetByPath(owner, "notes.md");
-    const put = await resourcePut(owner, "notes.md", "v2");
-    const current = await resourceGetByPath(owner, "notes.md");
-    const snapshot = await resourcePutIfSnapshot({
-      previous: current,
-      owner,
-      path: "notes.md",
-      content: "v3",
-      mimeType: "text/markdown",
-    });
-
-    expect(read?.id).toBe("old");
-    expect(put.id).toBe("old");
-    expect(snapshot?.resource.id).toBe("old");
-    expect(await stored(owner)).toEqual([["/notes.md", "v3"]]);
-  });
-
-  it("create only where neither form is stored", async () => {
-    const { resourcePutIfAbsent, resourcePutIfSnapshot } =
-      await import("./store.js");
-    const owner = "erin@example.test";
-    await seed("old", owner, "/notes.md", "v1");
+    await seed("deep", owner, "//deep.md", "v1");
+    await seed("plan", owner, "plan.md", "v1");
 
     await expect(
       resourcePutIfAbsent(owner, "notes.md", "new"),
     ).resolves.toBeNull();
     await expect(
-      resourcePutIfSnapshot({
-        previous: null,
-        owner,
-        path: "notes.md",
-        content: "new",
-        mimeType: "text/markdown",
-      }),
+      resourcePutIfAbsent(owner, "deep.md", "new"),
     ).resolves.toBeNull();
-    expect(await stored(owner)).toEqual([["/notes.md", "v1"]]);
+    await expect(
+      resourcePutIfAbsent(owner, "/plan.md", "new"),
+    ).resolves.toBeNull();
+    await expect(
+      resourcePutIfAbsent(owner, "free.md", "new"),
+    ).resolves.toMatchObject({ path: "free.md" });
+    expect(await stored(owner)).toEqual([
+      ["//deep.md", "v1"],
+      ["/notes.md", "v1"],
+      ["free.md", "new"],
+      ["plan.md", "v1"],
+    ]);
   });
 
-  it("delete the file a read by that path finds", async () => {
-    const { resourceDeleteByPath } = await import("./store.js");
-    const owner = "erin@example.test";
+  it("counts every spelling as taken in the free-name search", async () => {
+    const { resourceStoredPathsTaken } = await import("./store.js");
+    await seed("old", owner, "/notes.md", "v1");
+    await seed("deep", owner, "//deep.md", "v1");
+    await seed("plan", owner, "plan.md", "v1");
+
+    const taken = await resourceStoredPathsTaken(owner, [
+      "notes.md",
+      "deep.md",
+      "/plan.md",
+      "free.md",
+    ]);
+
+    expect([...taken].sort()).toEqual(["/plan.md", "deep.md", "notes.md"]);
+  });
+
+  it("refuses a direct move onto the other spelling of a taken name", async () => {
+    const { ResourcePathTakenError, resourceMove } = await import("./store.js");
+    await seed("old", owner, "/notes.md", "old");
+    await seed("move", owner, "somewhere.md", "move");
+
+    await expect(resourceMove("move", "notes.md")).rejects.toBeInstanceOf(
+      ResourcePathTakenError,
+    );
+    expect(await stored(owner)).toEqual([
+      ["/notes.md", "old"],
+      ["somewhere.md", "move"],
+    ]);
+  });
+
+  it("refuses a conditional move onto the other spelling of a taken name", async () => {
+    const { resourceGetByPath, resourceMoveIfCurrent } =
+      await import("./store.js");
+    await seed("old", owner, "/notes.md", "old");
+    await seed("move", owner, "somewhere.md", "move");
+    const current = await resourceGetByPath(owner, "somewhere.md");
+    if (!current) throw new Error("somewhere.md was not seeded");
+
+    await expect(
+      resourceMoveIfCurrent(current, "notes.md"),
+    ).resolves.toBeNull();
+    expect(await stored(owner)).toEqual([
+      ["/notes.md", "old"],
+      ["somewhere.md", "move"],
+    ]);
+  });
+
+  it("does not restore a deleted file once another spelling of its name is claimed", async () => {
+    const {
+      resourceDeleteByPath,
+      resourceGetByPath,
+      resourcePutIfAbsent,
+      resourceRestoreSnapshotIfCurrent,
+    } = await import("./store.js");
+    await seed("old", owner, "/notes.md", "legacy");
+    const snapshot = await resourceGetByPath(owner, "/notes.md");
+    if (!snapshot) throw new Error("/notes.md was not seeded");
+
+    await expect(resourceDeleteByPath(owner, "/notes.md")).resolves.toBe(true);
+    await expect(
+      resourcePutIfAbsent(owner, "notes.md", "replacement"),
+    ).resolves.toBeTruthy();
+    await expect(
+      resourceRestoreSnapshotIfCurrent(snapshot, null),
+    ).resolves.toBe(false);
+    expect(await stored(owner)).toEqual([["notes.md", "replacement"]]);
+  });
+
+  it("restores a deleted file while no spelling of its name is claimed", async () => {
+    const {
+      resourceDeleteByPath,
+      resourceGetByPath,
+      resourceRestoreSnapshotIfCurrent,
+    } = await import("./store.js");
+    await seed("old", owner, "/notes.md", "legacy");
+    const snapshot = await resourceGetByPath(owner, "/notes.md");
+    if (!snapshot) throw new Error("/notes.md was not seeded");
+
+    await expect(resourceDeleteByPath(owner, "/notes.md")).resolves.toBe(true);
+    await expect(
+      resourceRestoreSnapshotIfCurrent(snapshot, null),
+    ).resolves.toBe(true);
+    expect(await stored(owner)).toEqual([["/notes.md", "legacy"]]);
+  });
+});
+
+describe("reads, writes and deletes by path", () => {
+  it("reach exactly the stored path, as before", async () => {
+    const { resourceDeleteByPath, resourceGetByPath, resourcePut } =
+      await import("./store.js");
     await seed("old", owner, "/notes.md", "v1");
 
-    await expect(resourceDeleteByPath(owner, "notes.md")).resolves.toBe(true);
-    expect(await stored(owner)).toEqual([]);
+    await expect(resourceGetByPath(owner, "notes.md")).resolves.toBeNull();
+    await expect(resourceDeleteByPath(owner, "notes.md")).resolves.toBe(false);
+    await expect(resourceGetByPath(owner, "/notes.md")).resolves.toMatchObject({
+      id: "old",
+    });
+    await expect(resourcePut(owner, "/notes.md", "v2")).resolves.toMatchObject({
+      id: "old",
+      path: "/notes.md",
+    });
+    expect(await stored(owner)).toEqual([["/notes.md", "v2"]]);
   });
 
-  it("find a file over MCP with or without a leading slash", async () => {
-    const { readScopedResourceForMcp } = await import("./store.js");
-    const owner = "erin@example.test";
-    await seed("old", owner, "/notes.md", "legacy");
-    await seed("plan", owner, "plan.md", "plan");
-
-    const found = await runWithRequestContext(
-      { userEmail: owner, orgScope: "personal" },
-      async () => ({
-        legacy: await readScopedResourceForMcp({
-          scope: "personal",
-          path: "notes.md",
-        }),
-        slashed: await readScopedResourceForMcp({
-          scope: "personal",
-          path: "/plan.md",
-        }),
-      }),
-    );
-
-    expect(found.legacy?.id).toBe("old");
-    expect(found.slashed?.id).toBe("plan");
-  });
-
-  it("leave both rows of a name already stored in both forms, each reachable by its own spelling", async () => {
-    const { resourceGetByPath, resourcePut, resourceList } =
-      await import("./store.js");
-    const owner = "erin@example.test";
+  it("keep both rows of a name already stored in both spellings, each by its own path", async () => {
+    const {
+      resourceDeleteByPath,
+      resourceGetByPath,
+      resourceList,
+      resourcePut,
+    } = await import("./store.js");
     await seed("plain", owner, "notes.md", "plain");
     await seed("slashed", owner, "/notes.md", "slashed");
 
@@ -361,7 +490,6 @@ describe("agent reads and writes by path", () => {
     expect((await resourceGetByPath(owner, "/notes.md"))?.id).toBe("slashed");
     await resourcePut(owner, "notes.md", "plain v2");
     await resourcePut(owner, "/notes.md", "slashed v2");
-
     expect(await stored(owner)).toEqual([
       ["/notes.md", "slashed v2"],
       ["notes.md", "plain v2"],
@@ -370,5 +498,39 @@ describe("agent reads and writes by path", () => {
       "plain",
       "slashed",
     ]);
+
+    await expect(resourceDeleteByPath(owner, "/notes.md")).resolves.toBe(true);
+    expect(await stored(owner)).toEqual([["notes.md", "plain v2"]]);
+  });
+
+  it("find a file over MCP by either spelling, the one asked for first", async () => {
+    const { readScopedResourceForMcp } = await import("./store.js");
+    await seed("old", owner, "/notes.md", "legacy");
+    await seed("plan", owner, "plan.md", "plan");
+    await seed("pair-plain", owner, "pair.md", "plain");
+    await seed("pair-slashed", owner, "/pair.md", "slashed");
+
+    const found = await runWithRequestContext(
+      { userEmail: owner, orgScope: "personal" },
+      async () => {
+        const read = async (path: string) =>
+          (await readScopedResourceForMcp({ scope: "personal", path }))?.id;
+        return {
+          legacy: await read("notes.md"),
+          slashed: await read("/plan.md"),
+          pairPlain: await read("pair.md"),
+          pairSlashed: await read("/pair.md"),
+          missing: await read("/missing.md"),
+        };
+      },
+    );
+
+    expect(found).toEqual({
+      legacy: "old",
+      slashed: "plan",
+      pairPlain: "pair-plain",
+      pairSlashed: "pair-slashed",
+      missing: undefined,
+    });
   });
 });

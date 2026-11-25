@@ -25,6 +25,7 @@ const mockUploadFile = vi.fn();
 const mockCanUpdateAutomationResource = vi.fn();
 
 vi.mock("./store.js", () => ({
+  ResourcePathTakenError: class ResourcePathTakenError extends Error {},
   SHARED_OWNER: "__shared__",
   WORKSPACE_OWNER: "__workspace__",
   organizationIdFromResourceOwner: (owner: string) =>
@@ -3117,6 +3118,14 @@ Legacy webhook.`,
           owner === "__shared__" && path === "shared.md"
             ? storedAt("shared.md", "# Old", "__shared__")
             : null,
+      );
+      mockResourceStoredPathsTaken.mockImplementation(
+        async (owner: string, paths: string[]) =>
+          new Set(
+            owner === "__shared__"
+              ? paths.filter((path) => path === "shared.md")
+              : [],
+          ),
       );
       mockResourcePutIfAbsent.mockImplementation(
         async (owner: string, path: string, content: string) =>

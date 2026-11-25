@@ -81,6 +81,7 @@ import {
   sharedResourceOwner,
   SHARED_OWNER,
   WORKSPACE_OWNER,
+  ResourcePathTakenError,
   type Resource,
   type ResourceMeta,
   type ResourceWriteOptions,
@@ -570,15 +571,18 @@ export async function handleCreateResource(event: any) {
   const owner = await resolveOwner(event, body.shared);
 
   if (body.uniquePath) {
-    const writeOptions =
-      body.metadata !== undefined ? { metadata: body.metadata } : undefined;
     const path = canonicalResourcePath(body.path);
     const put = await putUnderFreePath(
       owner,
       path,
       body.content ?? "",
       body.mimeType || "text/markdown",
-      writeOptions,
+      {
+        resend: false,
+        ...(body.metadata !== undefined
+          ? { write: { metadata: body.metadata } }
+          : {}),
+      },
     );
     if (!put) return resourcePathTaken(event, owner, path, false);
     setResponseStatus(event, put.created ? 201 : 200);
@@ -963,6 +967,14 @@ export async function handleUpdateResource(event: any) {
     isLegacyOrganizationWorkspaceFile(existing, orgId);
 
   if (existing.owner === SHARED_OWNER && activeSharedOwner !== SHARED_OWNER) {
+    if (
+      nextPath !== existing.path &&
+      (await resourceStoredPathsTaken(SHARED_OWNER, [nextPath], { orgId })).has(
+        nextPath,
+      )
+    ) {
+      return resourcePathTaken(event, activeSharedOwner, nextPath, false);
+    }
     const metadata =
       body.metadata !== undefined ? body.metadata : existing.metadata;
     const writeOptions = isLegacyOrganizationWorkspaceResource
@@ -1102,7 +1114,12 @@ export async function handleUpdateResource(event: any) {
       await resourceMove(id, nextPath);
     } catch (error) {
       // Another write took the path between the check and the move.
-      if (!isUniqueViolation(error)) throw error;
+      if (
+        !isUniqueViolation(error) &&
+        !(error instanceof ResourcePathTakenError)
+      ) {
+        throw error;
+      }
       return resourcePathTaken(event, existing.owner, nextPath, false);
     }
   }
@@ -1326,6 +1343,10 @@ export async function handleUploadResource(event: any) {
   const path = canonicalResourcePath(
     (pathPart?.data && Buffer.from(pathPart.data).toString("utf8")) || fileName,
   );
+  if (!path) {
+    setResponseStatus(event, 400);
+    return { error: "path is required" };
+  }
   const shared = sharedPart?.data
     ? Buffer.from(sharedPart.data).toString("utf8") === "true"
     : false;
@@ -1364,7 +1385,9 @@ export async function handleUploadResource(event: any) {
       ? await runWithRequestContext({ userEmail: credentialEmail }, doUpload)
       : await doUpload();
     if (uploaded) {
-      const put = await putUnderFreePath(owner, path, uploaded.url, mimeType);
+      const put = await putUnderFreePath(owner, path, uploaded.url, mimeType, {
+        resend: true,
+      });
       if (!put) return resourcePathTaken(event, owner, path, false);
       setResponseStatus(event, put.created ? 201 : 200);
       return {
@@ -1383,7 +1406,9 @@ export async function handleUploadResource(event: any) {
 
   const content = Buffer.from(filePart.data).toString("utf-8");
 
-  const put = await putUnderFreePath(owner, path, content, mimeType);
+  const put = await putUnderFreePath(owner, path, content, mimeType, {
+    resend: true,
+  });
   if (!put) return resourcePathTaken(event, owner, path, false);
   setResponseStatus(event, put.created ? 201 : 200);
   return withContentRevision(put.resource);
@@ -1396,35 +1421,48 @@ async function putUnderFreePath(
   path: string,
   content: string,
   mimeType: string,
-  options?: ResourceWriteOptions,
+  options: { resend: boolean; write?: ResourceWriteOptions },
 ): Promise<{ resource: Resource; created: boolean } | null> {
   const orgId = organizationIdFromResourceOwner(owner);
   const lookup = orgId ? { orgId } : undefined;
   let target = path;
   for (let attempt = 0; attempt < CLAIM_PATH_ATTEMPTS; attempt += 1) {
-    const legacy = orgId
-      ? await resourceGetByPath(SHARED_OWNER, target, lookup)
-      : null;
-    if (!legacy) {
-      const created = options
-        ? await resourcePutIfAbsent(owner, target, content, mimeType, options)
+    const legacyTaken = orgId
+      ? (await resourceStoredPathsTaken(SHARED_OWNER, [target], { orgId })).has(
+          target,
+        )
+      : false;
+    if (!legacyTaken) {
+      const created = options.write
+        ? await resourcePutIfAbsent(
+            owner,
+            target,
+            content,
+            mimeType,
+            options.write,
+          )
         : await resourcePutIfAbsent(owner, target, content, mimeType);
       if (created) return { resource: created, created: true };
     }
-    const existing = (await resourceGetByPath(owner, target, lookup)) ?? legacy;
-    if (!existing) continue;
-    if (existing.content === content && existing.mimeType === mimeType) {
-      return { resource: existing, created: false };
+    if (options.resend) {
+      const existing =
+        (await resourceGetByPath(owner, target, lookup)) ??
+        (orgId ? await resourceGetByPath(SHARED_OWNER, target, lookup) : null);
+      if (existing?.content === content && existing.mimeType === mimeType) {
+        return { resource: existing, created: false };
+      }
     }
     const { free, passed } = await searchFreeResourcePath(owner, path, false);
-    const resent = await uploadStoredAt(
-      owner,
-      passed,
-      content,
-      mimeType,
-      lookup,
-    );
-    if (resent) return { resource: resent, created: false };
+    if (options.resend) {
+      const resent = await uploadStoredAt(
+        owner,
+        passed,
+        content,
+        mimeType,
+        lookup,
+      );
+      if (resent) return { resource: resent, created: false };
+    }
     if (!free) return null;
     target = free;
   }

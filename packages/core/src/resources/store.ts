@@ -45,7 +45,7 @@ import { isPersistableAttachmentUrl } from "../shared/attachments.js";
 import { assertNoInlineImageBytes } from "../shared/inline-bytes.js";
 import { emitResourceChange, emitResourceDelete } from "./emitter.js";
 import { SKILL_TRASH_PREFIX } from "./metadata.js";
-import { canonicalResourcePath, resourcePathForms } from "./path-form.js";
+import { canonicalResourcePath, resourcePathNamedSql } from "./path-form.js";
 import {
   deleteSharedPersonalMemory,
   removeTombstonedSharedFile,
@@ -1738,20 +1738,18 @@ async function lookupScopedResourceForMcp(
   const requestedScope: unknown = input.scope;
   if (requestedScope !== "personal" && requestedScope !== "shared")
     throw new Error("Invalid resource scope");
-  const requestedPath: unknown = input.path;
-  if (typeof requestedPath !== "string") {
-    throw new Error("Invalid resource path");
-  }
-  const path = canonicalResourcePath(requestedPath);
+  const path: unknown = input.path;
+  if (typeof path !== "string") throw new Error("Invalid resource path");
+  const name = canonicalResourcePath(path);
   if (
-    !path ||
-    path.includes("\\") ||
-    path.split("/").some((part) => !part || part === "." || part === "..") ||
-    /[\x00-\x1f\x7f]/.test(path)
+    !name ||
+    name.includes("\\") ||
+    name.split("/").some((part) => !part || part === "." || part === "..") ||
+    /[\x00-\x1f\x7f]/.test(name)
   ) {
     throw new Error("Invalid resource path");
   }
-  if (!allowSkill && path.toLowerCase().split("/").includes("skills")) {
+  if (!allowSkill && name.toLowerCase().split("/").includes("skills")) {
     throw new McpResourceLookupError(
       "skill_unavailable",
       "Skill lookup requires a Lab access check",
@@ -1767,13 +1765,14 @@ async function lookupScopedResourceForMcp(
   }
   const owner = input.scope === "personal" ? email : sharedResourceOwner(orgId);
   const owners = [owner];
-  const forms = resourcePathForms(requestedPath);
   const { rows } = await getDbExec().execute(sql`SELECT
       ${RESOURCE_META_SELECT}, substr(content, 1, 65537) AS content,
       CASE WHEN content = substr(content, 1, 65537) THEN 1 ELSE 0 END AS content_complete
-    FROM resources WHERE owner IN ${sql.in(owners)} AND path IN ${sql.in(forms)}
+    FROM resources WHERE owner IN ${sql.in(owners)} AND ${resourcePathNamedSql(sql`path`, [name])}
     ${EXCLUDE_AGENT_SCRATCH}
   `);
+  const spellingRank = (stored: string) =>
+    stored === path ? 0 : stored === name ? 1 : 2;
   input.signal?.throwIfAborted();
   const candidates = rows
     .map((row) => ({
@@ -1783,12 +1782,12 @@ async function lookupScopedResourceForMcp(
     .filter(
       ({ resource }) =>
         owners.includes(resource.owner) &&
-        forms.includes(resource.path) &&
+        canonicalResourcePath(resource.path) === name &&
         resource.visibility !== "agent_scratch" &&
         isLegacySharedResourceVisibleToOrganization(resource, orgId),
     )
     .sort(
-      (a, b) => forms.indexOf(a.resource.path) - forms.indexOf(b.resource.path),
+      (a, b) => spellingRank(a.resource.path) - spellingRank(b.resource.path),
     );
   const selected = candidates.find(({ resource }) => resource.owner === owner);
   const resource = selected?.resource ?? null;
@@ -2505,11 +2504,9 @@ function isRequestingOwner(
 
 export async function resourceGetByPath(
   owner: string,
-  requestedPath: string,
+  path: string,
   options?: ResourceResolutionOptions,
 ): Promise<Resource | null> {
-  const forms = resourcePathForms(requestedPath);
-  const path = canonicalResourcePath(requestedPath);
   await ensureTable();
   const orgId = resourceOrganizationId(options?.orgId);
   if (!isOrganizationWorkspaceResourceVisibleToOrganization(owner, orgId)) {
@@ -2525,9 +2522,10 @@ export async function resourceGetByPath(
   }
   const client = getDbExec();
   scheduleExpiredAgentScratchCleanup(client);
-  const { rows } = await client.execute(
-    sql`SELECT * FROM resources WHERE owner IN ${sql.in(owners)} AND path IN ${sql.in(forms)}`,
-  );
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM resources WHERE owner IN (${owners.map(() => "?").join(", ")}) AND path = ?`,
+    args: [...owners, path],
+  });
   const ownerRank = new Map(
     owners.map((candidate, index) => [candidate, index]),
   );
@@ -2540,8 +2538,7 @@ export async function resourceGetByPath(
       .sort(
         (a, b) =>
           (ownerRank.get(a.owner) ?? owners.length) -
-            (ownerRank.get(b.owner) ?? owners.length) ||
-          forms.indexOf(a.path) - forms.indexOf(b.path),
+          (ownerRank.get(b.owner) ?? owners.length),
       ),
     orgId,
   );
@@ -2599,7 +2596,6 @@ export async function ensureResourceStoreReady(): Promise<void> {
 export function prepareResourceCreate(
   input: PrepareResourceCreateInput,
 ): PreparedResourceMutation<Resource> {
-  const path = canonicalResourcePath(input.path);
   const now = input.now ?? Date.now();
   const mimeType = input.mimeType || "text/markdown";
   const size = Buffer.byteLength(input.content, "utf8");
@@ -2614,7 +2610,7 @@ export function prepareResourceCreate(
   const metadata = serializeMetadata(input.options?.metadata) ?? null;
   const resource: Resource = {
     id: input.id,
-    path,
+    path: input.path,
     owner: input.owner,
     content: input.content,
     mimeType,
@@ -2632,10 +2628,10 @@ export function prepareResourceCreate(
     value: resource,
     statements: [
       {
-        sql: `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM resources WHERE owner = ? AND path IN (?, ?))`,
+        sql: `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM resources WHERE owner = ? AND path = ?)`,
         args: [
           input.id,
-          path,
+          input.path,
           input.owner,
           input.content,
           mimeType,
@@ -2649,12 +2645,12 @@ export function prepareResourceCreate(
           expiresAt,
           metadata,
           input.owner,
-          ...resourcePathForms(path),
+          input.path,
         ],
       },
     ],
     notifyAfterCommit: async () => {
-      if (isPersonalMemoryResourcePath(input.owner, path)) {
+      if (isPersonalMemoryResourcePath(input.owner, input.path)) {
         await mirrorPutOrThrow(
           resource,
           ROWLESS_MEMORY_BASE,
@@ -2663,7 +2659,7 @@ export function prepareResourceCreate(
       }
       emitResourceChange(
         input.id,
-        path,
+        input.path,
         input.owner,
         input.options?.requestSource,
       );
@@ -2784,27 +2780,24 @@ export function prepareResourceDelete(
 export async function resourcePutWithDb(
   client: DbExec,
   owner: string,
-  requestedPath: string,
+  path: string,
   content: string,
   mimeType?: string,
   options?: ResourceWriteOptions,
 ): Promise<TransactionScopedResourceWrite<Resource>> {
   assertResourcePayloadIsSqlSafe(content, mimeType, options?.metadata);
-  const canonicalPath = canonicalResourcePath(requestedPath);
-  const forms = resourcePathForms(requestedPath);
-  const tombstoneFloor = await postTombstoneFloor(owner, canonicalPath);
+  const tombstoneFloor = await postTombstoneFloor(owner, path);
   const size = Buffer.byteLength(content, "utf8");
   const mime = mimeType || "text/markdown";
-  const isJobFile = canonicalPath.startsWith("jobs/");
+  const isJobFile = path.startsWith("jobs/");
   // raw-sql-ok: the interpolated fragment is a fixed column name chosen by path kind; every value is a bound ? arg.
   const { rows: existing } = await client.execute({
-    sql: `SELECT id, path, created_at, created_by, visibility, thread_id, run_id, expires_at, metadata, updated_at${isJobFile || isPersonalMemoryResourcePath(owner, canonicalPath) ? ", content" : ""} FROM resources WHERE owner = ? AND path IN (?, ?) ORDER BY CASE WHEN path = ? THEN 0 ELSE 1 END LIMIT 1`,
-    args: [owner, ...forms, forms[0]],
+    sql: `SELECT id, created_at, created_by, visibility, thread_id, run_id, expires_at, metadata, updated_at${isJobFile || isPersonalMemoryResourcePath(owner, path) ? ", content" : ""} FROM resources WHERE owner = ? AND path = ?`,
+    args: [owner, path],
   });
   const existingRow = existing[0] as
     | {
         id: string;
-        path: string;
         created_at: number;
         created_by?: string | null;
         visibility?: string | null;
@@ -2816,7 +2809,6 @@ export async function resourcePutWithDb(
         content?: string | null;
       }
     | undefined;
-  const path = existingRow?.path ?? canonicalPath;
 
   const now = Math.max(
     Date.now(),
@@ -2926,12 +2918,11 @@ export async function resourcePutWithDb(
 
 export async function resourcePut(
   owner: string,
-  requestedPath: string,
+  path: string,
   content: string,
   mimeType?: string,
   options?: ResourceWriteOptions,
 ): Promise<Resource> {
-  const path = canonicalResourcePath(requestedPath);
   await ensureTable();
   if (
     owner === WORKSPACE_OWNER &&
@@ -2957,7 +2948,7 @@ export async function resourcePut(
     const write = await resourcePutWithDb(
       getDbExec(),
       owner,
-      requestedPath,
+      path,
       content,
       mimeType,
       options,
@@ -2969,12 +2960,11 @@ export async function resourcePut(
 
 export async function resourcePutIfAbsent(
   owner: string,
-  requestedPath: string,
+  path: string,
   content: string,
   mimeType?: string,
   options?: ResourceWriteOptions,
 ): Promise<Resource | null> {
-  const path = canonicalResourcePath(requestedPath);
   return underMemoryLock(owner, path, () =>
     resourcePutIfAbsentInternal(owner, path, content, mimeType, options, true),
   );
@@ -2982,14 +2972,13 @@ export async function resourcePutIfAbsent(
 
 async function resourcePutIfAbsentInternal(
   owner: string,
-  requestedPath: string,
+  path: string,
   content: string,
   mimeType: string | undefined,
   options: ResourceWriteOptions | undefined,
   emitChange: boolean,
   clientOverride?: DbExec,
 ): Promise<Resource | null> {
-  const path = canonicalResourcePath(requestedPath);
   assertResourcePayloadIsSqlSafe(content, mimeType, options?.metadata);
   await ensureTable();
   if (
@@ -3023,27 +3012,25 @@ async function resourcePutIfAbsentInternal(
     expiresAt = null;
   }
   const metadata = serializeMetadata(options?.metadata) ?? null;
-  const result = await client.execute({
-    sql: `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM resources WHERE owner = ? AND path = ?) ON CONFLICT (path, owner) DO NOTHING`,
-    args: [
-      id,
-      path,
-      owner,
-      content,
-      mime,
-      size,
-      now,
-      now,
-      createdBy,
-      visibility,
-      threadId,
-      runId,
-      expiresAt,
-      metadata,
-      owner,
-      resourcePathForms(path)[1],
-    ],
-  });
+  const values = [
+    id,
+    path,
+    owner,
+    content,
+    mime,
+    size,
+    now,
+    now,
+    createdBy,
+    visibility,
+    threadId,
+    runId,
+    expiresAt,
+    metadata,
+  ].map((value) => sql`${sql.value(value)}`);
+  const result = await client.execute(
+    sql`INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) SELECT ${sql.join(values, sql`, `)} WHERE NOT EXISTS (SELECT 1 FROM resources WHERE owner = ${sql.value(owner)} AND ${resourcePathNamedSql(sql`path`, [path])}) ON CONFLICT (path, owner) DO NOTHING`,
+  );
   if (result.rowsAffected !== 1) return null;
 
   const inserted: Resource = {
@@ -3143,10 +3130,8 @@ async function writeResourceIfCurrent(
   const size = Buffer.byteLength(input.content, "utf8");
   const mime = input.mimeType || "text/markdown";
   const metadata = serializeMetadata(input.metadata);
-  const forms = resourcePathForms(input.path);
-  // raw-sql-ok: the interpolated fragment is a fixed column assignment chosen by whether metadata is sent; every value is a bound ? arg.
   const result = await client.execute({
-    sql: `UPDATE resources SET content = ?, mime_type = ?, size = ?, updated_at = ?${metadata !== undefined ? ", metadata = ?" : ""} WHERE owner = ? AND path IN (?, ?) AND id = ? AND updated_at = ? AND content = ?`,
+    sql: `UPDATE resources SET content = ?, mime_type = ?, size = ?, updated_at = ?${metadata !== undefined ? ", metadata = ?" : ""} WHERE owner = ? AND path = ? AND id = ? AND updated_at = ? AND content = ?`,
     args: [
       input.content,
       mime,
@@ -3154,7 +3139,7 @@ async function writeResourceIfCurrent(
       now,
       ...(metadata !== undefined ? [metadata] : []),
       input.owner,
-      ...forms,
+      input.path,
       input.expectedId,
       input.expectedUpdatedAt,
       input.expectedContent,
@@ -3165,8 +3150,8 @@ async function writeResourceIfCurrent(
   if (typeof rowsAffected !== "number" || rowsAffected !== 1) return null;
 
   const { rows } = await client.execute({
-    sql: `SELECT * FROM resources WHERE owner = ? AND path IN (?, ?) AND id = ?`,
-    args: [input.owner, ...forms, input.expectedId],
+    sql: `SELECT * FROM resources WHERE owner = ? AND path = ? AND id = ?`,
+    args: [input.owner, input.path, input.expectedId],
   });
   if (rows.length === 0) return null;
   const resource = rowToResource(rows[0]);
@@ -3377,9 +3362,7 @@ async function resourcePutIfSnapshotInternal(
   let previous = input.previous;
   if (
     previous &&
-    (previous.owner !== input.owner ||
-      canonicalResourcePath(previous.path) !==
-        canonicalResourcePath(input.path))
+    (previous.owner !== input.owner || previous.path !== input.path)
   ) {
     return null;
   }
@@ -3706,25 +3689,25 @@ async function restoreSnapshotIfCurrent(
     await postTombstoneFloor(snapshot.owner, snapshot.path),
   );
   if (!current) {
-    const { rows } = await client.execute({
-      sql: `INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path, owner) DO NOTHING RETURNING *`,
-      args: [
-        snapshot.id,
-        snapshot.path,
-        snapshot.owner,
-        snapshot.content,
-        snapshot.mimeType,
-        snapshot.size,
-        snapshot.createdAt,
-        restoredAt,
-        snapshot.createdBy,
-        snapshot.visibility,
-        snapshot.threadId,
-        snapshot.runId,
-        snapshot.expiresAt,
-        snapshot.metadata,
-      ],
-    });
+    const values = [
+      snapshot.id,
+      snapshot.path,
+      snapshot.owner,
+      snapshot.content,
+      snapshot.mimeType,
+      snapshot.size,
+      snapshot.createdAt,
+      restoredAt,
+      snapshot.createdBy,
+      snapshot.visibility,
+      snapshot.threadId,
+      snapshot.runId,
+      snapshot.expiresAt,
+      snapshot.metadata,
+    ].map((value) => sql`${sql.value(value)}`);
+    const { rows } = await client.execute(
+      sql`INSERT INTO resources (id, path, owner, content, mime_type, size, created_at, updated_at, created_by, visibility, thread_id, run_id, expires_at, metadata) SELECT ${sql.join(values, sql`, `)} WHERE NOT EXISTS (SELECT 1 FROM resources WHERE owner = ${sql.value(snapshot.owner)} AND ${resourcePathNamedSql(sql`path`, [snapshot.path])}) ON CONFLICT (path, owner) DO NOTHING RETURNING *`,
+    );
     if (rows.length !== 1) return false;
     if (isPersonalMemoryResourcePath(snapshot.owner, snapshot.path)) {
       await mirrorPutOrThrow(
@@ -3847,10 +3830,8 @@ export async function resourceDelete(id: string): Promise<boolean> {
 
 export async function resourceDeleteByPath(
   owner: string,
-  requestedPath: string,
+  path: string,
 ): Promise<boolean> {
-  const path = canonicalResourcePath(requestedPath);
-  const forms = resourcePathForms(requestedPath);
   await ensureTable();
   if (
     isBareWorkspaceResourceOwner(owner) &&
@@ -3869,8 +3850,8 @@ export async function resourceDeleteByPath(
   const client = getDbExec();
   const deleteRow = async () => {
     const result = await client.execute({
-      sql: `DELETE FROM resources WHERE id = (SELECT id FROM resources WHERE owner = ? AND path IN (?, ?) ORDER BY CASE WHEN path = ? THEN 0 ELSE 1 END LIMIT 1) RETURNING id, updated_at`,
-      args: [owner, ...forms, forms[0]],
+      sql: `DELETE FROM resources WHERE owner = ? AND path = ? RETURNING id, updated_at`,
+      args: [owner, path],
     });
     return deletedRowFrom(result.rows);
   };
@@ -4409,11 +4390,18 @@ export async function resourceListAllOwnersWithFingerprint(
   };
 }
 
+/** Thrown by `resourceMove` when another resource of that owner has the new path's name in any spelling. */
+export class ResourcePathTakenError extends Error {
+  constructor(readonly path: string) {
+    super(`A resource named "${path}" already exists`);
+    this.name = "ResourcePathTakenError";
+  }
+}
+
 export async function resourceMove(
   id: string,
-  requestedPath: string,
+  newPath: string,
 ): Promise<boolean> {
-  const newPath = canonicalResourcePath(requestedPath);
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
@@ -4424,15 +4412,19 @@ export async function resourceMove(
   });
   if (rows.length === 0) return false;
 
-  const result = await client.execute({
-    sql: `UPDATE resources SET path = ?, updated_at = ? WHERE id = ?`,
-    args: [newPath, now, id],
-  });
-  const moved = result.rowsAffected > 0;
-  if (moved) {
-    emitResourceChange(id, newPath, rows[0].owner as string);
+  const result = await client.execute(
+    sql`UPDATE resources SET path = ${sql.value(newPath)}, updated_at = ${sql.value(now)} WHERE id = ${sql.value(id)} AND NOT EXISTS (SELECT 1 FROM resources AS other WHERE other.owner = resources.owner AND other.id <> resources.id AND ${resourcePathNamedSql(sql`other.path`, [newPath])})`,
+  );
+  if (result.rowsAffected === 0) {
+    const { rows: remaining } = await client.execute({
+      sql: `SELECT 1 FROM resources WHERE id = ?`,
+      args: [id],
+    });
+    if (remaining.length > 0) throw new ResourcePathTakenError(newPath);
+    return false;
   }
-  return moved;
+  emitResourceChange(id, newPath, rows[0].owner as string);
+  return true;
 }
 
 /**
@@ -4441,9 +4433,8 @@ export async function resourceMove(
  */
 export async function resourceMoveIfCurrent(
   current: Resource,
-  requestedPath: string,
+  newPath: string,
 ): Promise<Resource | null> {
-  const newPath = canonicalResourcePath(requestedPath);
   if (isWorkspaceResourceOwner(current.owner)) {
     throw new Error(
       "Workspace resources cannot be moved with resourceMoveIfCurrent",
@@ -4451,6 +4442,7 @@ export async function resourceMoveIfCurrent(
   }
   if (
     !newPath ||
+    newPath.startsWith("/") ||
     newPath.includes("\\") ||
     newPath.split("/").some((part) => !part || part === "." || part === "..") ||
     /[\x00-\x1f\x7f]/.test(newPath)
@@ -4464,20 +4456,9 @@ export async function resourceMoveIfCurrent(
   const updatedAt = Math.max(Date.now(), current.updatedAt + 1);
   let result: Awaited<ReturnType<DbExec["execute"]>>;
   try {
-    result = await getDbExec().execute({
-      sql: `UPDATE resources SET path = ?, updated_at = ? WHERE id = ? AND owner = ? AND path = ? AND updated_at = ? AND content = ? AND metadata IS NOT DISTINCT FROM ? AND NOT EXISTS (SELECT 1 FROM resources AS destination WHERE destination.owner = resources.owner AND destination.path IN (?, ?)) RETURNING *`,
-      args: [
-        newPath,
-        updatedAt,
-        current.id,
-        current.owner,
-        current.path,
-        current.updatedAt,
-        current.content,
-        current.metadata,
-        ...resourcePathForms(newPath),
-      ],
-    });
+    result = await getDbExec().execute(
+      sql`UPDATE resources SET path = ${sql.value(newPath)}, updated_at = ${sql.value(updatedAt)} WHERE id = ${sql.value(current.id)} AND owner = ${sql.value(current.owner)} AND path = ${sql.value(current.path)} AND updated_at = ${sql.value(current.updatedAt)} AND content = ${sql.value(current.content)} AND metadata IS NOT DISTINCT FROM ${sql.value(current.metadata)} AND NOT EXISTS (SELECT 1 FROM resources AS destination WHERE destination.owner = resources.owner AND destination.id <> resources.id AND ${resourcePathNamedSql(sql`destination.path`, [newPath])}) RETURNING *`,
+    );
   } catch (error) {
     // A concurrent insert can win the destination's unique (owner, path) key
     // after the statement snapshot; PostgreSQL then rejects this whole update.
@@ -4505,8 +4486,8 @@ export async function resourceMoveIfCurrent(
  * (`localFiles`), that's a file on disk, found the way a write finds it, so
  * a case-insensitive disk counts "Notes.md" as "notes.md", and a skill counts
  * in either skill root, whichever one the path spells. Otherwise it's a
- * row stored for exactly that owner and path, in either path form, whatever
- * its visibility, since the (path, owner) index covers every row. Unlike `resourceGetByPath`, it
+ * row stored for that owner under any spelling of the path's name ("notes.md",
+ * "/notes.md"), whatever its visibility. Unlike `resourceGetByPath`, it
  * leaves out organization rows and grants, which a move never lands on.
  * With `orgId`, a shared row from before organizations counts only when that
  * organization can see it, as `resourceGetByPath` reads it. With `holding`,
@@ -4534,11 +4515,11 @@ export async function resourceStoredPathsTaken(
   }
   await ensureTable();
   const { holding } = options;
-  const forms = candidates.flatMap(resourcePathForms);
+  const named = resourcePathNamedSql(sql`path`, candidates);
   const { rows } = await getDbExec().execute(
     holding
-      ? sql`SELECT path, owner, metadata FROM resources WHERE owner = ${sql.value(owner)} AND path IN ${sql.in(forms)} AND mime_type = ${sql.value(holding.mimeType)} AND content = ${sql.value(holding.content)}`
-      : sql`SELECT path, owner, metadata FROM resources WHERE owner = ${sql.value(owner)} AND path IN ${sql.in(forms)}`,
+      ? sql`SELECT path, owner, metadata FROM resources WHERE owner = ${sql.value(owner)} AND ${named} AND mime_type = ${sql.value(holding.mimeType)} AND content = ${sql.value(holding.content)}`
+      : sql`SELECT path, owner, metadata FROM resources WHERE owner = ${sql.value(owner)} AND ${named}`,
   );
   for (const row of rows) {
     if (
@@ -4550,9 +4531,9 @@ export async function resourceStoredPathsTaken(
     ) {
       continue;
     }
-    const storedAt = canonicalResourcePath(String(row.path));
+    const name = canonicalResourcePath(String(row.path));
     for (const candidate of candidates) {
-      if (canonicalResourcePath(candidate) === storedAt) taken.add(candidate);
+      if (canonicalResourcePath(candidate) === name) taken.add(candidate);
     }
   }
   return taken;
