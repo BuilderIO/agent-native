@@ -16,6 +16,7 @@ import {
   eq,
   inArray,
   isNull,
+  ne,
   notInArray,
   sql,
 } from "drizzle-orm";
@@ -122,6 +123,57 @@ const resultSchema = z.object({
   undoable: z.boolean().optional(),
   undone: z.boolean().optional(),
 });
+const backgroundSessionSchema = z.object({
+  operationId: z.string(),
+  threadId: z.string(),
+  turnId: z.string(),
+  scope: z.union([commentAiScopeSchema, commentAiClassifierScopeSchema]),
+  actionScope: z.union([
+    commentAiActionScopeSchema,
+    commentAiClassifierActionScopeSchema,
+  ]),
+  model: z.string().optional(),
+  engine: z.string().optional(),
+});
+export const startCommentAiResultSchema = z.object({
+  operationId: z.string(),
+  requestId: z.string(),
+  documentId: z.string(),
+  threadId: z.string(),
+  rootCommentId: z.string(),
+  submittedMode: commentAiSubmittedModeSchema.optional(),
+  instructions: z.string().optional(),
+  submittedProvider: z.string().nullable().optional(),
+  submittedModel: z.string().nullable().optional(),
+  submittedEngine: z.string().nullable().optional(),
+  continuationOfRequestId: z.string().nullable().optional(),
+  intent: commentAiIntentSchema.nullable(),
+  status: statusSchema,
+  attemptId: z.string().nullable(),
+  attemptCount: z.number(),
+  runId: z.string().nullable(),
+  agentThreadId: z.string().nullable(),
+  agentTurnId: z.string().nullable(),
+  model: z.string().nullable(),
+  engine: z.string().nullable(),
+  result: resultSchema.nullable(),
+  errorCode: errorCodeSchema,
+  error: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  outcome: z.enum(["confirmed-start", "busy"]),
+  dispatch: z.boolean(),
+  pendingSession: z.object({
+    phase: z.enum(["classification", "execution"]),
+    backgroundSession: backgroundSessionSchema,
+    prompt: z.string(),
+    context: z.string().optional(),
+  }),
+  backgroundSession: backgroundSessionSchema,
+  actionScope: backgroundSessionSchema.shape.actionScope,
+  prompt: z.string(),
+  context: z.string().optional(),
+});
 type RequestRow = typeof schema.commentAiRequests.$inferSelect;
 export type CommentAiAttemptRow = typeof schema.commentAiAttempts.$inferSelect;
 type CommentRow = typeof schema.documentComments.$inferSelect;
@@ -221,6 +273,17 @@ function receiptCommentIds(request: RequestRow) {
 function relevantComments(request: RequestRow, comments: CommentRow[]) {
   const receipts = receiptCommentIds(request);
   return comments.filter((comment) => !receipts.has(comment.id));
+}
+
+function assertConversationFits(comments: CommentRow[]) {
+  if (
+    comments.length > 100 ||
+    comments.reduce((size, comment) => size + comment.content.length, 0) > 24000
+  ) {
+    throw new Error(
+      "This conversation is too large for one comment AI operation",
+    );
+  }
 }
 
 function currentThreadDigest(request: RequestRow, comments: CommentRow[]) {
@@ -697,8 +760,7 @@ export async function startCommentAiRequest(
       (continuation.id === args.requestId ||
         continuation.documentId !== args.documentId ||
         continuation.threadId !== args.threadId ||
-        continuation.rootCommentId !== args.rootCommentId ||
-        !continuation.agentThreadId)
+        continuation.rootCommentId !== args.rootCommentId)
     ) {
       fail("The prior Comment AI request cannot continue this comment", {
         statusCode: 409,
@@ -706,12 +768,10 @@ export async function startCommentAiRequest(
       });
     }
     if (
-      continuation &&
-      resolvedIntent === "reply" &&
-      args.agentThreadId?.trim() &&
-      args.agentThreadId.trim() !== continuation.agentThreadId
+      continuation?.agentThreadId &&
+      args.agentThreadId?.trim() === continuation.agentThreadId
     ) {
-      fail("The continuation thread does not match the prior request", {
+      fail("A follow-up needs its own agent thread", {
         statusCode: 409,
         errorCode: "comment_ai_thread_conflict",
       });
@@ -730,21 +790,9 @@ export async function startCommentAiRequest(
         errorCode: "comment_ai_field_unsupported",
       });
     }
-    if (
-      source.comments.length > 100 ||
-      source.comments.reduce(
-        (size, comment) => size + comment.content.length,
-        0,
-      ) > 24000
-    ) {
-      throw new Error(
-        "This conversation is too large for one comment AI operation",
-      );
-    }
+    assertConversationFits(source.comments);
     const agentThreadId =
-      (resolvedIntent === "reply" ? continuation?.agentThreadId : null) ||
-      args.agentThreadId?.trim() ||
-      `comment-ai-${crypto.randomUUID()}`;
+      args.agentThreadId?.trim() || `comment-ai-${crypto.randomUUID()}`;
     const classificationThreadId =
       submission.submittedMode === "auto"
         ? `comment-ai-classifier-${crypto.randomUUID()}`
@@ -908,6 +956,125 @@ export async function startCommentAiRequest(
     actionScope: next.backgroundSession.actionScope,
     prompt: next.prompt,
     context: next.context,
+  };
+}
+
+export async function restartCommentAiRequest(args: {
+  requestId: string;
+}): Promise<StartCommentAiResult> {
+  const request = await loadCommentAiRequest(args.requestId);
+  const restartable = [
+    ...RESTARTABLE,
+    "classifying",
+    "classified",
+    "queued",
+  ] as const;
+  if (!restartable.includes(request.status as (typeof restartable)[number])) {
+    fail("AI is still working on this comment", {
+      statusCode: 409,
+      errorCode: "comment_ai_operation_conflict",
+    });
+  }
+  const intent =
+    request.intent === "unresolved"
+      ? null
+      : commentAiIntentSchema.parse(request.intent);
+  const source = await readCommentAiSource({
+    ...request,
+    intent: intent ?? "reply",
+  });
+  assertAiMayAnswerOnPage(source.document);
+  if (source.root.resolved) {
+    fail("Reopen the comment before asking AI", {
+      statusCode: 409,
+      errorCode: "comment_ai_thread_resolved",
+    });
+  }
+  assertConversationFits(source.comments);
+  const others = await getDb()
+    .select({ id: schema.commentAiRequests.id })
+    .from(schema.commentAiRequests)
+    .where(
+      and(
+        eq(schema.commentAiRequests.documentId, request.documentId),
+        eq(schema.commentAiRequests.rootCommentId, request.rootCommentId),
+        inArray(schema.commentAiRequests.status, [
+          ...ACTIVE_COMMENT_AI_STATUSES,
+        ]),
+        ne(schema.commentAiRequests.id, request.id),
+      ),
+    )
+    .limit(1);
+  if (others.length > 0) {
+    fail("AI is already working on a newer message in this comment", {
+      statusCode: 409,
+      errorCode: "comment_ai_already_active",
+    });
+  }
+
+  const comments = relevantComments(request, source.comments);
+  const digest = commentThreadDigest(comments);
+  const snapshot = JSON.stringify(snapshotComments(comments));
+  const agentThreadId = `comment-ai-${crypto.randomUUID()}`;
+  const classificationThreadId = intent
+    ? null
+    : `comment-ai-classifier-${crypto.randomUUID()}`;
+  const updated = await getDb()
+    .update(schema.commentAiRequests)
+    .set({
+      status: intent ? "queued" : "classifying",
+      agentThreadId,
+      agentTurnId: intent
+        ? backgroundAgentTurnIdForReceipt(agentThreadId, request.id)
+        : null,
+      ...(classificationThreadId && {
+        classificationThreadId,
+        classificationTurnId: backgroundAgentTurnIdForReceipt(
+          classificationThreadId,
+          `${request.id}:classification`,
+        ),
+      }),
+      submittedThreadDigest: digest,
+      submittedSnapshotJson: snapshot,
+      threadDigest: digest,
+      snapshotJson: snapshot,
+      errorCode: null,
+      error: null,
+      updatedAt: new Date().toISOString(),
+    })
+    .where(
+      and(
+        eq(schema.commentAiRequests.id, request.id),
+        eq(schema.commentAiRequests.status, request.status),
+        eq(schema.commentAiRequests.updatedAt, request.updatedAt),
+      ),
+    )
+    .returning();
+  const restarted = updated[0] as (typeof updated)[number] | undefined;
+  if (!restarted) {
+    fail("This AI request changed while Retry started it. Try again.", {
+      statusCode: 409,
+      errorCode: "comment_ai_operation_conflict",
+    });
+  }
+  await writeAppState("comment-ai-request", {
+    operationId: restarted.id,
+    documentId: restarted.documentId,
+    fieldId: restarted.fieldId,
+    threadId: restarted.threadId,
+    intent,
+  });
+  const next = pendingSession(restarted);
+  if (!next) throw new Error("Comment AI session is unavailable");
+  return {
+    ...serializeCommentAiRequest(restarted),
+    outcome: "confirmed-start",
+    dispatch: true,
+    pendingSession: next,
+    backgroundSession: next.backgroundSession,
+    actionScope: next.backgroundSession.actionScope,
+    prompt: next.prompt,
+    ...(next.context === undefined ? {} : { context: next.context }),
   };
 }
 
@@ -1181,13 +1348,7 @@ export async function submitCommentAiClassification(intent: CommentAiIntent) {
   }
 
   await readCommentAiSource({ ...request, intent: resolvedIntent });
-  const continuation = request.continuationOfRequestId
-    ? await loadCommentAiRequest(request.continuationOfRequestId)
-    : null;
-  const executionThreadId =
-    resolvedIntent === "reply" && continuation?.agentThreadId
-      ? continuation.agentThreadId
-      : request.agentThreadId;
+  const executionThreadId = request.agentThreadId;
   if (!executionThreadId) {
     throw new Error("Classified operation has no execution thread");
   }

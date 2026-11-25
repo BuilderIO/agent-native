@@ -65,7 +65,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-it("reports a protected conversation read failure and keeps retry available", async () => {
+it("reports a protected conversation read failure on resume and keeps the button available", async () => {
   const request: CommentAiRequest = {
     operationId: "request-1",
     requestId: "request-1",
@@ -98,7 +98,7 @@ it("reports a protected conversation read failure and keeps retry available", as
     return createElement(CommentAiRequestStatus, {
       request,
       ...(continuation ? { continuation } : {}),
-      onRetry: () => controller.retry(request),
+      onRetry: () => controller.resume(request),
       onStop: () => controller.stop(request),
     });
   }

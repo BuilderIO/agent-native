@@ -206,7 +206,7 @@ describe("comment AI request persistence", () => {
     ).rejects.toThrow("no longer awaiting classification");
   });
 
-  it("continues only resolved replies on the prior exact agent thread", async () => {
+  it("gives an Auto follow-up that resolves to a reply its own agent thread", async () => {
     const prior = await asUser(OWNER, () =>
       commentAi.startCommentAiRequest(startArgs()),
     );
@@ -233,12 +233,12 @@ describe("comment AI request persistence", () => {
       () => commentAi.submitCommentAiClassification("reply"),
     );
 
-    expect(classified.request.agentThreadId).toBe(prior.agentThreadId);
-    expect(classified.request.agentThreadId).not.toBe(freshExecutionThread);
+    expect(classified.request.agentThreadId).toBe(freshExecutionThread);
+    expect(classified.request.agentThreadId).not.toBe(prior.agentThreadId);
     expect(classified.request.continuationOfRequestId).toBe(FIRST_REQUEST_ID);
   });
 
-  it("continues an explicit reply on the prior exact agent thread", async () => {
+  it("gives an explicit reply follow-up its own agent thread", async () => {
     const prior = await asUser(OWNER, () =>
       commentAi.startCommentAiRequest(startArgs()),
     );
@@ -257,9 +257,35 @@ describe("comment AI request persistence", () => {
     expect(continued).toMatchObject({
       intent: "reply",
       continuationOfRequestId: FIRST_REQUEST_ID,
-      agentThreadId: prior.agentThreadId,
-      pendingSession: { phase: "execution" },
+      pendingSession: {
+        phase: "execution",
+        backgroundSession: {
+          threadId: continued.agentThreadId,
+          scope: { type: "content-comment-ai", id: SECOND_REQUEST_ID },
+        },
+      },
     });
+    expect(continued.agentThreadId).not.toBe(prior.agentThreadId);
+  });
+
+  it("refuses a follow-up that names the prior request's agent thread", async () => {
+    const prior = await asUser(OWNER, () =>
+      commentAi.startCommentAiRequest(startArgs()),
+    );
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({ status: "replied" })
+      .where(eq(schema.commentAiRequests.id, FIRST_REQUEST_ID));
+
+    await expect(
+      asUser(OWNER, () =>
+        commentAi.startCommentAiRequest({
+          ...startArgs(SECOND_REQUEST_ID),
+          agentThreadId: prior.backgroundSession.threadId,
+          continuationOfRequestId: FIRST_REQUEST_ID,
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "comment_ai_thread_conflict" });
   });
 
   it("keeps a fresh execution thread when a continuation resolves to suggest", async () => {

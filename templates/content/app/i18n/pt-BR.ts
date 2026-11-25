@@ -2248,6 +2248,12 @@ const overrides = {
     aiOpenConversation: "Abrir conversa com a IA",
     aiConversationPrefill: "Continuar esta conversa de comentários…",
     aiConversationUnavailable: "Esta conversa com a IA não está disponível.",
+    aiRetryRefusedNewer:
+      "A IA já está respondendo a uma mensagem mais recente nesta conversa.",
+    aiRetryRefusedStarted: "Esta solicitação de IA já foi reiniciada.",
+    aiRetryRefusedResolved: "Reabra a conversa para tentar de novo.",
+    aiRetryRefusedViewOnly:
+      "Agentes só podem ver esta página, então a IA não pode responder a comentários nela.",
     aiFollowUpYou: "Você",
     aiFollowUpIncomplete: "Esta resposta terminou antes de ser concluída.",
     aiRequestCouldNotBeConfirmed:

@@ -125,6 +125,13 @@ export interface CommentAiContinuationState {
   error?: string;
 }
 
+const RETRY_REFUSALS: Record<string, string> = {
+  comment_ai_already_active: "comments.aiRetryRefusedNewer",
+  comment_ai_operation_conflict: "comments.aiRetryRefusedStarted",
+  comment_ai_thread_resolved: "comments.aiRetryRefusedResolved",
+  AGENT_VIEW_ONLY: "comments.aiRetryRefusedViewOnly",
+};
+
 class CommentAiConversationUnavailableError extends Error {
   readonly cause: unknown;
 
@@ -981,9 +988,14 @@ export function useCommentAiRequests(
           ? { continuationOfRequestId: request.continuationOfRequestId }
           : {}),
         requestId: request.requestId,
-      }).catch(() => resumedPendingRequestsRef.current.delete(resumeKey));
+      })
+        .then((outcome) => {
+          if (outcome === "busy")
+            resumedPendingRequestsRef.current.delete(resumeKey);
+        })
+        .catch(() => resumedPendingRequestsRef.current.delete(resumeKey));
     }
-  }, [serverRequests, start, t]);
+  }, [serverRequests, start, startingThreadIds, t]);
 
   const monitorContinuation = useCallback(
     async (request: CommentAiRequest, receipt: CommentAiContinuationState) => {
@@ -1161,10 +1173,18 @@ export function useCommentAiRequests(
 
   const retryConversation = useCallback<CommentAiController["retry"]>(
     async (request) => {
-      const continuation = continuationRecordRef.current[request.operationId];
+      const continuation = continuationRecordRef.current[
+        request.operationId
+      ] as CommentAiContinuationState | undefined;
+      const stored = serverRequestsRef.current.find(
+        (current) => current.operationId === request.operationId,
+      );
       if (
-        (continuation?.status === "unavailable" && continuation.options) ||
-        dispatchRecoveryRecord[request.operationId]
+        continuation?.status === "unavailable" &&
+        continuation.options &&
+        (stored?.status === "replied" ||
+          stored?.status === "suggested" ||
+          stored?.status === "resolved")
       ) {
         await start({
           threadId: request.threadId,
@@ -1185,9 +1205,43 @@ export function useCommentAiRequests(
         });
         return;
       }
-      await resumeConversation(request);
+      const restarted = await callAction<StartCommentAiResult>(
+        "retry-comment-ai-request",
+        { requestId: request.requestId },
+      );
+      const forget = <T,>(current: Record<string, T>) => {
+        if (!current[request.operationId]) return current;
+        const next = { ...current };
+        delete next[request.operationId];
+        return next;
+      };
+      setDispatchRecoveryRecord(forget);
+      continuationRecordRef.current = forget(continuationRecordRef.current);
+      setContinuationRecord(forget);
+      for (const status of ["classifying", "classified"]) {
+        resumedPendingRequestsRef.current.delete(
+          `${request.operationId}:${status}`,
+        );
+      }
+      resumedPendingRequestsRef.current.add(
+        `${restarted.operationId}:${restarted.status}`,
+      );
+      const { pendingSession } = restarted;
+      void dispatch(
+        restarted.operationId,
+        {
+          message: pendingSession.prompt,
+          ...(pendingSession.context === undefined
+            ? {}
+            : { instructions: pendingSession.context }),
+          ...pendingSession.backgroundSession,
+          usageLabel: "content:comment-ai",
+        },
+        pendingSession.phase,
+      );
+      await refetchRef.current();
     },
-    [dispatchRecoveryRecord, resumeConversation, start, t],
+    [dispatch, setContinuationRecord, setDispatchRecoveryRecord, start, t],
   );
 
   const stop = useCallback<CommentAiController["stop"]>(
@@ -1402,7 +1456,9 @@ export function CommentAiRequestStatus({
       : continuation.status === "aborted"
         ? t("comments.aiCancelled")
         : continuation.status === "completed"
-          ? t("comments.aiReplied")
+          ? request.status === "failed" || request.status === "needs-review"
+            ? requestStatusLabel(request, t)
+            : t("comments.aiReplied")
           : t("comments.aiFailed")
     : null;
   const label = stopping
@@ -1451,10 +1507,16 @@ export function CommentAiRequestStatus({
               try {
                 await onRetry();
               } catch (error) {
+                const refusal =
+                  RETRY_REFUSALS[
+                    String((error as { errorCode?: unknown } | null)?.errorCode)
+                  ];
                 toast.error(
-                  error instanceof CommentAiConversationUnavailableError
-                    ? error.message
-                    : t("empty.genericError"),
+                  refusal
+                    ? t(refusal)
+                    : error instanceof CommentAiConversationUnavailableError
+                      ? error.message
+                      : t("empty.genericError"),
                 );
               }
             })();

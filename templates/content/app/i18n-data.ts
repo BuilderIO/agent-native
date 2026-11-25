@@ -2179,6 +2179,12 @@ const enUS = {
     aiOpenConversation: "Open AI conversation",
     aiConversationPrefill: "Continue this comment conversation…",
     aiConversationUnavailable: "This AI conversation is unavailable.",
+    aiRetryRefusedNewer:
+      "AI is already answering a newer message in this thread.",
+    aiRetryRefusedStarted: "This AI request has already started again.",
+    aiRetryRefusedResolved: "Reopen the thread to retry.",
+    aiRetryRefusedViewOnly:
+      "Agents can only view this page, so AI can't answer comments on it.",
     aiFollowUpYou: "You",
     aiFollowUpIncomplete: "This response ended before it finished.",
     aiRequestCouldNotBeConfirmed: "The AI request could not be confirmed",
