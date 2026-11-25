@@ -3471,6 +3471,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpApps.openInNewTab": "नए टैब में खोलें",
   "mcpApps.initFailed": "MCP ऐप शुरू नहीं हो सका।",
   "mcpApps.readOnly": "यह सहेजा गया MCP ऐप केवल पढ़ने के लिए है।",
+  "markdown.opensInNewTab": "(नए टैब में खुलता है)",
   "iframeEmbed.blocked": "एम्बेड ब्लॉक किया गया",
   "iframeEmbed.missingSrc": "स्रोत मौजूद नहीं है",
   "iframeEmbed.crossOrigin": "दूसरे ऑरिजिन का URL अनुमत नहीं है",

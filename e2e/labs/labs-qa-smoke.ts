@@ -106,7 +106,8 @@ async function run() {
 
   try {
     await ensureSignedIn(context, page);
-    await page.goto(appUrl, { waitUntil: "networkidle", timeout: 60_000 });
+    await page.goto(appUrl, { waitUntil: "domcontentloaded", timeout: 60_000 });
+    await page.waitForLoadState("networkidle");
     await page.screenshot({ path: `${artifactDir}/${app}-loaded.png` });
 
     const tmpName = `qa-tmp-${Date.now()}`;

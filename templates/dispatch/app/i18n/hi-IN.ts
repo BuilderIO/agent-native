@@ -18,6 +18,8 @@ export default {
       suggestionNullValue: "कोई नहीं",
       suggestionYesValue: "हाँ",
       suggestionNoValue: "नहीं",
+      suggestionActionLabel: "कार्रवाई",
+      suggestionAppLabel: "ऐप",
       openExistingApp: "ऐप खोलें",
       openInBuilder: "Builder में खोलें",
       actionSuggestionAccepted: "सुझाव स्वीकार किया गया।",

@@ -11,6 +11,9 @@ on:
       probe:
         description: "Seed, read back and delete a qa-tmp record"
         default: "1"
+      fresh:
+        description: "Sign up one new qa-tmp address and upload a receipt"
+        default: "0"
 permissions:
   contents: read
 jobs:
@@ -23,6 +26,7 @@ jobs:
       QA_HOST: ${{ inputs.host || 'labs.agent-native.com' }}
       QA_SLOTS: ${{ inputs.slots || '1,2,3,4,5' }}
       QA_PROBE: ${{ inputs.probe || '1' }}
+      QA_FRESH: ${{ inputs.fresh || '0' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -33,3 +37,10 @@ jobs:
         run: |
           set +x
           node e2e/labs/labs-qa-users.ts
+      - name: Upload receipt
+        if: ${{ inputs.fresh == '1' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: labs-qa-receipt
+          path: artifacts/labs-qa-receipt.json
+          if-no-files-found: error

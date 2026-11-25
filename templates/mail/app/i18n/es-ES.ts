@@ -207,6 +207,7 @@ const messages = {
       moveToTrash: "Mover a la papelera",
       star: "Marcar con estrella",
       unstar: "Quitar estrella",
+      copyLink: "Copiar enlace",
     },
     labels: {
       labelAsPlaceholder: "Etiquetar como…",
@@ -475,6 +476,8 @@ const messages = {
     },
     toasts: {
       noEmailSelected: "No hay email seleccionado.",
+      linkCopied: "Enlace copiado.",
+      linkCopyFailed: "No se pudo copiar el enlace.",
       reportedSpam: "Marcado como spam.",
       reportedSpamBlocked: "Reported as spam & blocked {{email}}.",
       noThreadSelected: "No hay conversación seleccionada.",
@@ -573,6 +576,10 @@ const messages = {
         "No se pudo actualizar el correo. Se muestran las conversaciones guardadas.",
       rateLimitDescription:
         "Demasiadas solicitudes recientes a Google. Esperando un momento antes de reintentar.",
+      limitedListFrom:
+        "Última actualización: {{time}}. Puede que falten correos. Google está limitando las solicitudes de Mail.",
+      limitedList:
+        "Puede que falten correos. Google está limitando las solicitudes de Mail.",
       failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",
       failedToParseJson: "No se pudo analizar JSON",
       missingGoogleCredentials:

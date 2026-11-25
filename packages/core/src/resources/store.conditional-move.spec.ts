@@ -11,6 +11,7 @@ vi.mock("./emitter.js", () => ({
 }));
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => sharedClient,
   isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: <T>(run: () => Promise<T>) => run(),

@@ -7,6 +7,7 @@ const mockGetRuntimeDatabaseUrl = vi.hoisted(() =>
 );
 
 vi.mock("../../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getRuntimeDatabaseUrl: (...args: unknown[]) =>
     mockGetRuntimeDatabaseUrl(...args),
   isPgliteUrl: (url: string) => url.toLowerCase().startsWith("pglite:"),

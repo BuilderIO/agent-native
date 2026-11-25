@@ -30,6 +30,7 @@ async function executePglite(
 const db = { execute: vi.fn(executePglite) };
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => db,
   isProductionServerlessFunctionRuntime: () => false,
 }));

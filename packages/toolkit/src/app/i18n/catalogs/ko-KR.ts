@@ -3482,6 +3482,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpApps.openInNewTab": "새 탭에서 열기",
   "mcpApps.initFailed": "MCP 앱을 초기화하지 못했습니다.",
   "mcpApps.readOnly": "저장된 이 MCP 앱은 읽기 전용입니다.",
+  "markdown.opensInNewTab": "(새 탭에서 열림)",
   "iframeEmbed.blocked": "임베드 차단됨",
   "iframeEmbed.missingSrc": "소스 없음",
   "iframeEmbed.crossOrigin": "다른 출처의 URL은 허용되지 않습니다",

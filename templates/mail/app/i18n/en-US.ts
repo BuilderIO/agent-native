@@ -197,6 +197,7 @@ const messages = {
       moveToTrash: "Move to Trash",
       star: "Star",
       unstar: "Unstar",
+      copyLink: "Copy link",
     },
     labels: {
       labelAsPlaceholder: "Label as…",
@@ -461,6 +462,8 @@ const messages = {
     },
     toasts: {
       noEmailSelected: "No email selected.",
+      linkCopied: "Link copied.",
+      linkCopyFailed: "Couldn't copy the link.",
       reportedSpam: "Reported as spam.",
       reportedSpamBlocked: "Reported as spam & blocked {{email}}.",
       noThreadSelected: "No thread selected.",
@@ -556,6 +559,10 @@ const messages = {
       staleSaved: "Couldn't refresh mail. Showing saved conversations.",
       rateLimitDescription:
         "Too many recent requests to Google. Waiting a moment before retrying.",
+      limitedListFrom:
+        "Last updated {{time}}. Some mail may be missing. Google is limiting Mail's requests.",
+      limitedList:
+        "Some mail may be missing. Google is limiting Mail's requests.",
       failedToConnect: "Failed to connect. Try again.",
       failedToParseJson: "Failed to parse JSON",
       missingGoogleCredentials:

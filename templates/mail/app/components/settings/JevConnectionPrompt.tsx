@@ -72,10 +72,10 @@ export function JevConnectionMenuItem({
     <DropdownMenuItem
       onSelect={onSelect}
       disabled={disabled}
-      className="justify-between"
+      className="justify-between gap-4"
     >
       {t("mail.sort.priority")}
-      <span className="text-xs text-muted-foreground">
+      <span className="whitespace-nowrap text-xs text-muted-foreground">
         {t("mail.aiFilter.connectJev")}
       </span>
     </DropdownMenuItem>

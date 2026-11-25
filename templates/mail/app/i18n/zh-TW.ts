@@ -187,6 +187,7 @@ const messages = {
       moveToTrash: "移到垃圾桶",
       star: "加上星號",
       unstar: "移除星號",
+      copyLink: "複製連結",
     },
     labels: {
       labelAsPlaceholder: "加上標籤…",
@@ -449,6 +450,8 @@ const messages = {
     },
     toasts: {
       noEmailSelected: "未選取郵件。",
+      linkCopied: "連結已複製。",
+      linkCopyFailed: "無法複製連結。",
       reportedSpam: "已舉報為垃圾郵件。",
       reportedSpamBlocked: "已舉報為垃圾郵件並屏蔽 {{email}}。",
       noThreadSelected: "未選取工作階段。",
@@ -538,6 +541,9 @@ const messages = {
       loadTitle: "無法載入郵件",
       staleSaved: "無法重新整理郵件。正在顯示已儲存的對話。",
       rateLimitDescription: "最近對 Google 的請求過多。稍等片刻後會重試。",
+      limitedListFrom:
+        "上次更新：{{time}}。部分郵件可能未顯示。Google 正在限制 Mail 的請求。",
+      limitedList: "部分郵件可能未顯示。Google 正在限制 Mail 的請求。",
       failedToConnect: "連線失敗。請重試。",
       failedToParseJson: "解析 JSON 失敗",
       missingGoogleCredentials: "在 JSON 中找不到 client_id 和 client_secret",

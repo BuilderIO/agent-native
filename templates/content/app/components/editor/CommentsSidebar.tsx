@@ -8,6 +8,7 @@ import type {
   ResourceSuggestion,
   SuggestionDecision,
 } from "@agent-native/core/review";
+import { isEmailDerivedName } from "@agent-native/core/user-profile/shared";
 import type { TiptapComposerHandle } from "@agent-native/toolkit/composer";
 import {
   IconArrowBackUp,
@@ -32,6 +33,7 @@ import { toast } from "sonner";
 export { suggestionTextForDisplay } from "@shared/suggestion-text";
 
 import type { DocumentProperty } from "@shared/api";
+import { displayNameFromEmail } from "@shared/author-name";
 import { suggestionBlocksFieldId } from "@shared/blocks-field-suggestions";
 import type { CommentAiRequest } from "@shared/comment-ai";
 import type { CommentAnchorBlockType } from "@shared/comment-block-anchor";
@@ -41,16 +43,7 @@ import {
   findCommentMentions,
 } from "@shared/comment-mentions";
 import type { CommentPropertyTarget } from "@shared/comment-property-target";
-import {
-  findReplaceSuggestionSummary,
-  suggestionDiffParts,
-} from "@shared/suggestion-diff";
-import { WORD_CHARACTER } from "@shared/suggestion-placement";
-import {
-  suggestionAnchorText,
-  suggestionTextForDisplay,
-  type SuggestionPresentationContext,
-} from "@shared/suggestion-text";
+import { findReplaceSuggestionSummary } from "@shared/suggestion-diff";
 
 import {
   Tooltip,
@@ -184,13 +177,12 @@ import {
   ReviewCommentMenu,
   ReviewReactionList,
 } from "./ReviewDiscussionTools";
+import { SuggestionChange, suggestionChangeHasMore } from "./SuggestionChange";
 import { ProposalGroup, SuggestionDecisionButtons } from "./SuggestionControls";
 import type { DraftSuggestion } from "./suggestions/draft-session";
-import { SuggestionText } from "./SuggestionText";
 import {
   proposalGroups,
   receiptSuggestion,
-  reviewUnitDiffParts,
   piecesOfStaleUnits,
   reviewUnitLabel,
   reviewUnitOperations,
@@ -219,13 +211,6 @@ interface ThreadEntrySlots {
 
 /** Replies shown under the first comment before "Show earlier replies". */
 const PANEL_VISIBLE_REPLIES = 2;
-
-function renderSuggestionText(
-  content: string,
-  context?: SuggestionPresentationContext,
-) {
-  return <SuggestionText content={content} context={context} />;
-}
 
 /**
  * Who a comment mentions, in the text order of its chips, for storage. An
@@ -286,6 +271,17 @@ function uncertainAfterFailure(
   submission: UncertainSubmission,
 ): UncertainSubmission | null {
   return retried || isAmbiguousCommentCreateError(error) ? submission : null;
+}
+
+function signedName(
+  name: string | null,
+  email: string | null | undefined,
+  actorKind: string,
+) {
+  if (!email) return name ?? actorKind;
+  return !name || (actorKind === "agent" && isEmailDerivedName(name, email))
+    ? displayNameFromEmail(email) || name
+    : name;
 }
 
 /** The session's name for the signed-in person's own entries, if it has one. */
@@ -4555,208 +4551,6 @@ export function agentSuggestionReason(
   return reason;
 }
 
-/**
- * A change that adds or removes a line break, or swaps one run of whitespace
- * for another, doesn't say which lines it joins or splits, and a break alone
- * reads as a lone "↵", so what it replaces is shown too.
- */
-function changesLayout(removed: string, inserted: string) {
-  const before = suggestionAnchorText(removed);
-  const after = suggestionAnchorText(inserted);
-  return (
-    /\n/.test(before + after) || (/^\s+$/.test(before) && /^\s+$/.test(after))
-  );
-}
-
-/**
- * A replacement's change letter by letter, or null when that wouldn't read as
- * an edit. Changing whole words reads fine, as does a word keeping most of its
- * letters ("workflow" → "workflows"). Marking part of a word otherwise picks
- * out letters a different word happens to share: "brown" → "red" would mark
- * the "ed" after a kept "r", and a rewritten sentence a letter here and there.
- */
-function letterDiff(removed: string, inserted: string) {
-  const parts = suggestionDiffParts(removed, inserted);
-  if (!parts) return null;
-  const splitsWord = (["delete", "insert"] as const).some((side) => {
-    let previous: (typeof parts)[number] | undefined;
-    for (const part of parts) {
-      if (part.type !== "equal" && part.type !== side) continue;
-      if (
-        previous &&
-        (previous.type === "equal") !== (part.type === "equal") &&
-        WORD_CHARACTER.test(previous.text.slice(-1)) &&
-        WORD_CHARACTER.test(part.text.charAt(0))
-      )
-        return true;
-      previous = part;
-    }
-    return false;
-  });
-  if (!splitsWord) return parts;
-  if (/\s/.test(removed.trim() + inserted.trim())) return null;
-  const kept = parts
-    .filter((part) => part.type === "equal")
-    .reduce((length, part) => length + part.text.length, 0);
-  return kept * 2 > Math.max(removed.length, inserted.length) ? parts : null;
-}
-
-function SuggestionOperationSummary({
-  operations,
-  expanded,
-  wordLevel = false,
-  t,
-}: {
-  operations: ResourceSuggestion["operations"];
-  expanded: boolean;
-  wordLevel?: boolean;
-  t: ReturnType<typeof useT>;
-}) {
-  return operations.map((operation, index) => {
-    const before = operation.before as
-      | { markdown?: string; changedText?: string }
-      | undefined;
-    const after = operation.after as
-      | { markdown?: string; changedText?: string }
-      | undefined;
-    const previousText = before?.changedText;
-    const nextText =
-      operation.kind === "delete_text" &&
-      after?.changedText === "<empty-block/>"
-        ? ""
-        : after?.changedText;
-    const key = operation.id ?? index;
-    const anchor = operation.anchor as
-      | { from?: unknown; to?: unknown }
-      | undefined;
-    const previousPresentation =
-      previousText !== undefined &&
-      before?.markdown !== undefined &&
-      typeof anchor?.from === "number" &&
-      typeof anchor.to === "number"
-        ? {
-            source: before.markdown,
-            from: anchor.from,
-            to: anchor.to,
-          }
-        : undefined;
-    const nextPresentation =
-      nextText !== undefined &&
-      after?.markdown !== undefined &&
-      typeof anchor?.from === "number"
-        ? {
-            source: after.markdown,
-            from: anchor.from,
-            to: anchor.from + nextText.length,
-          }
-        : undefined;
-
-    if (previousText && nextText) {
-      const richText = /[<>*_`\[\]]/.test(previousText + nextText);
-      const diff =
-        operation.kind !== "replace_text"
-          ? null
-          : (!wordLevel && letterDiff(previousText, nextText)) ||
-            // Formatted text can only be read as a whole against its source.
-            (richText ? null : reviewUnitDiffParts(previousText, nextText));
-      const hasSharedContext = diff?.some((part) => part.type === "equal");
-      const changed = (type: "delete" | "insert", whole: string) =>
-        diff && hasSharedContext
-          ? diff
-              .flatMap((part) => (part.type === type ? [part.text] : []))
-              .join("")
-          : whole;
-      const showReplaced =
-        expanded ||
-        changesLayout(
-          changed("delete", previousText),
-          changed("insert", nextText),
-        );
-      const renderDiff = (side: "before" | "after") => {
-        let offset = 0;
-        const presentation =
-          side === "before" ? previousPresentation : nextPresentation;
-        return diff?.map((part, partIndex) => {
-          if (part.type === (side === "before" ? "insert" : "delete"))
-            return null;
-          const from = (presentation?.from ?? 0) + offset;
-          offset += part.text.length;
-          return (
-            <span
-              key={partIndex}
-              className={cn(
-                side === "after" &&
-                  part.type === "insert" &&
-                  "text-[hsl(var(--suggestion))] underline decoration-[hsl(var(--suggestion))]",
-                side === "before" && part.type === "delete" && "line-through",
-              )}
-            >
-              {richText
-                ? renderSuggestionText(
-                    part.text,
-                    presentation && {
-                      source: presentation.source,
-                      from,
-                      to: from + part.text.length,
-                    },
-                  )
-                : part.type !== "equal" && /^\s+$/.test(part.text)
-                  ? suggestionTextForDisplay(part.text)
-                  : part.text}
-            </span>
-          );
-        });
-      };
-      return (
-        <div key={key} className="break-words">
-          <div
-            className={cn(
-              !(diff && hasSharedContext) && "text-[hsl(var(--suggestion))]",
-            )}
-          >
-            {t("comments.suggestionWith")}: {"“"}
-            {diff && hasSharedContext
-              ? renderDiff("after")
-              : renderSuggestionText(nextText, nextPresentation)}
-            {"”"}
-          </div>
-          {showReplaced ? (
-            <div className="text-muted-foreground">
-              {t("comments.suggestionReplace")}: {"“"}
-              {diff && hasSharedContext
-                ? renderDiff("before")
-                : renderSuggestionText(previousText, previousPresentation)}
-              {"”"}
-            </div>
-          ) : null}
-        </div>
-      );
-    }
-
-    if (previousText) {
-      return (
-        <div key={key} className="break-words text-muted-foreground">
-          {t("comments.suggestionDelete")}: {"“"}
-          {renderSuggestionText(previousText, previousPresentation)}
-          {"”"}
-        </div>
-      );
-    }
-
-    if (nextText) {
-      return (
-        <div key={key} className="break-words text-[hsl(var(--suggestion))]">
-          {t("comments.suggestionAdd")}: {"“"}
-          {renderSuggestionText(nextText, nextPresentation)}
-          {"”"}
-        </div>
-      );
-    }
-
-    return null;
-  });
-}
-
 function DraftSuggestionThreadView({
   marginTop = 0,
   onHeightChange,
@@ -4819,10 +4613,14 @@ function DraftSuggestionThreadView({
       {
         id: suggestion.id,
         author_email: suggestion.authorEmail ?? "",
-        author_name: ownAuthorName(
+        author_name: signedName(
+          ownAuthorName(
+            suggestion.authorEmail,
+            currentUserEmail,
+            currentUserName,
+          ),
           suggestion.authorEmail,
-          currentUserEmail,
-          currentUserName,
+          "human",
         ),
         created_at: suggestion.createdAt,
         content: "",
@@ -4863,15 +4661,7 @@ function DraftSuggestionThreadView({
         canComment={false}
         canResolve={false}
         t={t}
-        firstEntryBody={
-          <>
-            <SuggestionOperationSummary
-              operations={suggestion.operations}
-              expanded={false}
-              t={t}
-            />
-          </>
-        }
+        firstEntryBody={<SuggestionChange operations={suggestion.operations} />}
         threadActions={
           canDecide ? (
             <SuggestionDecisionButtons
@@ -4936,7 +4726,6 @@ function SuggestionThreadView({
   suggestion: ResourceSuggestion;
   /** What the card decides, read as one edit even when it takes several pieces. */
   operations: ResourceSuggestion["operations"];
-  /** Spells out what the edit replaces without being opened first. */
   isReviewUnit: boolean;
   /** Why the agent suggested this edit, shown above it in full. */
   reason: string | null;
@@ -4989,12 +4778,7 @@ function SuggestionThreadView({
   const canReply =
     canComment && suggestion.status === "pending" && root?.status === "open";
   const canExpand =
-    canReply ||
-    operations.some((operation) => {
-      const before = operation.before as { changedText?: string } | undefined;
-      const after = operation.after as { changedText?: string } | undefined;
-      return !!before?.changedText && !!after?.changedText;
-    });
+    canReply || suggestionChangeHasMore(operations, isReviewUnit);
   const entries = (comments.data?.comments ?? [])
     .filter((comment) => comment.id !== root?.id)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
@@ -5004,14 +4788,16 @@ function SuggestionThreadView({
       {
         id: root?.id ?? suggestion.id,
         author_email: suggestion.authorEmail ?? "",
-        author_name:
+        author_name: signedName(
           root?.authorName ??
-          ownAuthorName(
-            suggestion.authorEmail,
-            currentUserEmail,
-            currentUserName,
-          ) ??
-          (suggestion.authorEmail ? null : suggestion.actorKind),
+            ownAuthorName(
+              suggestion.authorEmail,
+              currentUserEmail,
+              currentUserName,
+            ),
+          suggestion.authorEmail,
+          suggestion.actorKind,
+        ),
         created_at: suggestion.createdAt,
         content: "",
         mentions: [],
@@ -5019,14 +4805,16 @@ function SuggestionThreadView({
       ...entries.map((comment) => ({
         id: comment.id,
         author_email: comment.authorEmail ?? "",
-        author_name:
+        author_name: signedName(
           comment.authorName ??
-          ownAuthorName(
-            comment.authorEmail,
-            currentUserEmail,
-            currentUserName,
-          ) ??
-          (comment.authorEmail ? null : comment.createdBy),
+            ownAuthorName(
+              comment.authorEmail,
+              currentUserEmail,
+              currentUserName,
+            ),
+          comment.authorEmail,
+          comment.createdBy,
+        ),
         created_at: comment.createdAt,
         content: comment.body,
         mentions: comment.mentions.flatMap((mention) =>
@@ -5070,6 +4858,7 @@ function SuggestionThreadView({
         replyText={draft}
         replyMentions={mentions}
         onHoverChange={() => {}}
+        onSelect={suggestion.status === "pending" ? onActivate : undefined}
         onExpand={() => {
           if (!canExpand) return;
           if (!expanded) {
@@ -5221,11 +5010,10 @@ function SuggestionThreadView({
                 {reason}
               </p>
             ) : null}
-            <SuggestionOperationSummary
+            <SuggestionChange
               operations={operations}
-              expanded={expanded || isReviewUnit}
+              whole={expanded}
               wordLevel={isReviewUnit}
-              t={t}
             />
             {anchorUnavailable || sourceUrl ? (
               <span className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -5471,6 +5259,7 @@ function ThreadView({
   onReplyImagesChange,
   aiDraft,
   onHoverChange,
+  onSelect,
   onExpand,
   onCollapse,
   collapsesWhenLeftAlone = false,
@@ -5539,6 +5328,7 @@ function ThreadView({
   onReplyImagesChange?: (images: CommentImage[]) => void;
   aiDraft?: CommentAiDraft | null;
   onHoverChange: (hovered: boolean) => void;
+  onSelect?: () => void;
   onExpand: () => void;
   onCollapse: () => void;
   /** Collapse once neither the pointer nor keyboard focus has been on the card for a while. */
@@ -5774,12 +5564,13 @@ function ThreadView({
       onKeyDown={(event) => {
         if (
           !isSubmitting &&
-          canExpand &&
+          (canExpand || onSelect) &&
           event.target === event.currentTarget &&
           (event.key === "Enter" || event.key === " ")
         ) {
           event.preventDefault();
-          onExpand();
+          if (canExpand) onExpand();
+          else onSelect?.();
         }
       }}
       data-thread-card={thread.threadId}
@@ -5799,7 +5590,7 @@ function ThreadView({
                 ? "max-h-[var(--comment-popover-max-height)] shadow-comment-raised"
                 : "shadow-comment-card",
             ),
-        canExpand && !isExpanded && "cursor-pointer",
+        (canExpand || onSelect) && !isExpanded && "cursor-pointer",
         isRail &&
           "mx-2 mr-4 transition-[box-shadow,translate] duration-[260ms] ease-[var(--ease-drawer)] motion-reduce:transform-none motion-reduce:transition-none motion-reduce:hover:translate-x-0 motion-reduce:focus-within:translate-x-0",
         isRail &&
@@ -5818,7 +5609,7 @@ function ThreadView({
         if (!isSubmitting && canExpand) {
           if (isExpanded && !canComment) onCollapse();
           else onExpand();
-        }
+        } else if (!isSubmitting) onSelect?.();
       }}
       onMouseEnter={() => onHoverChange(true)}
       onMouseLeave={() => onHoverChange(false)}

@@ -279,6 +279,12 @@ Update an existing Google Calendar event. Use the event `id` from `list-events`,
 `search-events`, or `get-event`. Always preserve the event's `accountEmail` on
 the update so multi-account calendars use the right connected account.
 
+Those reads return the event's `revision`. Send it back as `--expectedRevision`.
+If the event changed in Google Calendar after your read (a guest, another app or
+the person on screen), nothing is written and the update fails with
+`save_conflict`: redo your edit on `details.current` and resend with
+`details.currentRevision`.
+
 To move an existing event between connected Google account calendars, pass its
 current account as `--accountEmail` and the destination account as
 `--targetAccountEmail`:

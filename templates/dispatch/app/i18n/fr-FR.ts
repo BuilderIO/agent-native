@@ -19,6 +19,8 @@ export default {
       suggestionNullValue: "Aucun",
       suggestionYesValue: "Oui",
       suggestionNoValue: "Non",
+      suggestionActionLabel: "Action",
+      suggestionAppLabel: "Application",
       openExistingApp: "Ouvrir l’application",
       openInBuilder: "Ouvrir dans Builder",
       actionSuggestionAccepted: "Suggestion acceptée.",

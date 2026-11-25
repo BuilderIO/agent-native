@@ -10,6 +10,64 @@ import {
   generateActionRegistryForProject,
 } from "./action-types-plugin.js";
 
+describe("generateActionRegistryForProject nested actions", () => {
+  const body = `import { defineAction } from "@agent-native/core/action";\nexport default defineAction({ tool: { description: "ok", parameters: {} }, run: async () => ({ ok: true }) });\n`;
+
+  it("registers subfolder actions in the registry and generated types", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-action-nested-"));
+    try {
+      const actionsDir = path.join(root, "actions");
+      fs.mkdirSync(path.join(actionsDir, "billing"), { recursive: true });
+      fs.mkdirSync(path.join(actionsDir, "_shared"));
+      fs.writeFileSync(path.join(root, ".gitignore"), "");
+      fs.writeFileSync(
+        path.join(actionsDir, "billing", "create-invoice.ts"),
+        body,
+      );
+      fs.writeFileSync(path.join(actionsDir, "_shared", "helper.ts"), body);
+
+      generateActionRegistryForProject(root);
+
+      const registry = fs.readFileSync(
+        path.join(root, ".generated", "actions-registry.ts"),
+        "utf-8",
+      );
+      expect(registry).toContain('"billing-create-invoice"');
+      expect(registry).toContain("actions/billing/create-invoice");
+      expect(registry).not.toContain("helper");
+      const types = fs.readFileSync(
+        path.join(root, ".generated", "action-types.d.ts"),
+        "utf-8",
+      );
+      expect(types).toContain('"billing-create-invoice"');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("throws when a subfolder file collides with a flat file", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-action-clash-"));
+    try {
+      const actionsDir = path.join(root, "actions");
+      fs.mkdirSync(path.join(actionsDir, "billing"), { recursive: true });
+      fs.writeFileSync(path.join(root, ".gitignore"), "");
+      fs.writeFileSync(
+        path.join(actionsDir, "billing-create-invoice.ts"),
+        body,
+      );
+      fs.writeFileSync(
+        path.join(actionsDir, "billing", "create-invoice.ts"),
+        body,
+      );
+      expect(() => generateActionRegistryForProject(root)).toThrow(
+        /billing-create-invoice/,
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("generateActionRegistryForProject", () => {
   it("does not import test files from actions/ into the runtime registry", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-action-registry-"));

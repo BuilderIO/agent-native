@@ -199,6 +199,7 @@ const messages = {
       moveToTrash: "نقل إلى المهملات",
       star: "وضع نجمة",
       unstar: "إزالة النجمة",
+      copyLink: "انسخ الرابط",
     },
     labels: {
       labelAsPlaceholder: "إضافة تصنيف…",
@@ -463,6 +464,8 @@ const messages = {
     },
     toasts: {
       noEmailSelected: "لم يتم تحديد بريد.",
+      linkCopied: "تم نسخ الرابط.",
+      linkCopyFailed: "تعذر نسخ الرابط.",
       reportedSpam: "تم الإبلاغ عنه كرسائل غير مرغوب فيها.",
       reportedSpamBlocked: "Reported as spam & blocked {{email}}.",
       noThreadSelected: "لم يتم تحديد سلسلة.",
@@ -556,6 +559,9 @@ const messages = {
       staleSaved: "تعذر تحديث البريد. يتم عرض المحادثات المحفوظة.",
       rateLimitDescription:
         "طلبات كثيرة حديثة إلى Google. جار الانتظار قبل إعادة المحاولة.",
+      limitedListFrom:
+        "آخر تحديث: {{time}}. قد تكون بعض الرسائل غير ظاهرة. تحدّ Google من طلبات Mail.",
+      limitedList: "قد تكون بعض الرسائل غير ظاهرة. تحدّ Google من طلبات Mail.",
       failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",
       failedToParseJson: "No se pudo analizar JSON",
       missingGoogleCredentials:

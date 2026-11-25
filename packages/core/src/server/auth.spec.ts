@@ -335,6 +335,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         getRefusedLocalDatabaseSource: () => null,
         isLocalDatabase: () => true,
@@ -407,6 +408,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         getRefusedLocalDatabaseSource: () => null,
         isLocalDatabase: () => true,
@@ -522,6 +524,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         getRefusedLocalDatabaseSource: () => null,
         isLocalDatabase: () => true,
@@ -590,6 +593,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -695,6 +699,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -869,6 +874,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -953,6 +959,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -1081,6 +1088,7 @@ describe("server/auth", () => {
         })),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         getRefusedLocalDatabaseSource: () => null,
         isLocalDatabase: () => true,
@@ -1631,6 +1639,7 @@ describe("server/auth", () => {
         },
       );
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({
           execute,
           transaction: async (
@@ -1834,6 +1843,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => {
           const execute = vi.fn(async (query: any) => {
             const sql = typeof query === "string" ? query : query.sql;
@@ -1921,6 +1931,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => {
           const execute = vi.fn(async (query: any) => {
             const sql = typeof query === "string" ? query : query.sql;
@@ -1992,6 +2003,7 @@ describe("server/auth", () => {
       vi.stubEnv("COOKIE_DOMAIN", ".example.com");
 
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -2034,6 +2046,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => {
           const execute = vi.fn(async (query: any) => {
             const sql = typeof query === "string" ? query : query.sql;
@@ -2111,6 +2124,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -2285,6 +2299,7 @@ describe("server/auth", () => {
         resumeIdentityRekeysForEmail: vi.fn(async () => {}),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -2482,6 +2497,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({
           execute: mockExecute,
           transaction: async (
@@ -2623,6 +2639,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({
           execute: mockExecute,
           transaction: async (
@@ -2697,6 +2714,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({
           execute: mockExecute,
           transaction: async (
@@ -2739,6 +2757,7 @@ describe("server/auth", () => {
 
       const authError = new Error("auth store unavailable");
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -3012,6 +3031,7 @@ describe("server/auth", () => {
         });
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({
           execute: vi.fn(async () => ({ rows: [], rowsAffected: 0 })),
         }),
@@ -3166,6 +3186,7 @@ describe("server/auth", () => {
       delete process.env.ACCESS_TOKENS;
 
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({
           execute: vi.fn(async () => ({ rows: [] })),
         }),
@@ -6014,6 +6035,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         getRefusedLocalDatabaseSource: () => null,
         isLocalDatabase: () => true,
@@ -6100,6 +6122,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         getRefusedLocalDatabaseSource: () => null,
         isLocalDatabase: () => true,
@@ -6197,6 +6220,7 @@ describe("server/auth", () => {
 
       const mockExecute = vi.fn(async () => ({ rows: [] }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         getRefusedLocalDatabaseSource: () => null,
         isLocalDatabase: () => true,
@@ -6739,6 +6763,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -6831,6 +6856,7 @@ describe("server/auth", () => {
           getBetterAuthSync: vi.fn(() => undefined),
         }));
         vi.doMock("../db/client.js", () => ({
+          getEnclosingTransactionDbExec: () => undefined,
           getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
           isLocalDatabase: () => true,
           retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -6914,6 +6940,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -6972,6 +6999,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -7018,6 +7046,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -7118,6 +7147,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -7168,6 +7198,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -7227,6 +7258,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -7300,6 +7332,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -7354,6 +7387,7 @@ describe("server/auth", () => {
           getBetterAuthSync: vi.fn(() => undefined),
         }));
         vi.doMock("../db/client.js", () => ({
+          getEnclosingTransactionDbExec: () => undefined,
           getDbExec: () => ({
             execute: vi.fn(async () => {
               if (databaseRefused) throw refusal;
@@ -7537,6 +7571,7 @@ describe("server/auth", () => {
         getBetterAuthSync: () => undefined,
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({
           execute: vi.fn(async (query: any) => {
             const sql = typeof query === "string" ? query : query.sql;
@@ -7674,6 +7709,7 @@ describe("server/auth", () => {
         getBetterAuthSync: () => undefined,
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({
           execute: vi.fn(async (query: any) => {
             const sql = typeof query === "string" ? query : query.sql;
@@ -7757,6 +7793,7 @@ describe("server/auth", () => {
           },
         );
         vi.doMock("../db/client.js", () => ({
+          getEnclosingTransactionDbExec: () => undefined,
           getDbExec: () => ({ execute }),
           isLocalDatabase: () => false,
           retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -7878,6 +7915,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -7983,6 +8021,7 @@ describe("server/auth", () => {
         },
       );
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -8082,6 +8121,7 @@ describe("server/auth", () => {
         },
       );
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -8154,6 +8194,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -8210,6 +8251,7 @@ describe("server/auth", () => {
       delete process.env.ACCESS_TOKENS;
 
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -8267,6 +8309,7 @@ describe("server/auth", () => {
       delete process.env.ACCESS_TOKENS;
 
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -8402,6 +8445,7 @@ describe("server/auth", () => {
       delete process.env.ACCESS_TOKENS;
 
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -8706,6 +8750,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -8767,6 +8812,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -8825,6 +8871,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -8885,6 +8932,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -8947,6 +8995,7 @@ describe("server/auth", () => {
         getBetterAuthSync: vi.fn(() => undefined),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -9342,6 +9391,7 @@ describe("server/auth", () => {
         activeOrgId: null,
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
@@ -9454,6 +9504,7 @@ describe("server/auth", () => {
         activeOrgId: "org-1",
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
@@ -9597,6 +9648,7 @@ describe("server/auth", () => {
         },
       );
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
@@ -9712,6 +9764,7 @@ describe("server/auth", () => {
         activeOrgId: "org-1",
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
@@ -9795,6 +9848,7 @@ describe("server/auth", () => {
       delete process.env.ACCESS_TOKENS;
 
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({
           execute: vi.fn(async () => ({ rows: [] })),
         }),
@@ -9882,6 +9936,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
         describeDbError: (err: unknown) => String(err),
@@ -10077,6 +10132,7 @@ describe("server/auth", () => {
       );
       const db = { execute };
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => db,
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -10585,6 +10641,7 @@ describe("server/auth", () => {
           : { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -10967,6 +11024,7 @@ describe("server/auth", () => {
           })),
         }));
         vi.doMock("../db/client.js", () => ({
+          getEnclosingTransactionDbExec: () => undefined,
           getDbExec: () => ({
             execute: vi.fn(async () => ({ rows: [] })),
           }),
@@ -11040,6 +11098,7 @@ describe("server/auth", () => {
 
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -11064,6 +11123,7 @@ describe("server/auth", () => {
 
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -11088,6 +11148,7 @@ describe("server/auth", () => {
 
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -11116,6 +11177,7 @@ describe("server/auth", () => {
 
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -11262,6 +11324,7 @@ describe("server/auth", () => {
 
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -11305,6 +11368,7 @@ describe("server/auth", () => {
           return { rows: [] };
         });
         vi.doMock("../db/client.js", () => ({
+          getEnclosingTransactionDbExec: () => undefined,
           getDbExec: () => ({ execute: mockExecute }),
           isLocalDatabase: () => true,
           retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -11458,6 +11522,7 @@ describe("server/auth", () => {
             ('expired-token', 'user-1', NOW() - INTERVAL '1 hour');
         `);
         vi.doMock("../db/client.js", () => ({
+          getEnclosingTransactionDbExec: () => undefined,
           getDbExec: () => ({
             execute: async (
               input: string | { sql: string; args?: unknown[] },
@@ -11544,6 +11609,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -11601,6 +11667,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -11676,6 +11743,7 @@ describe("server/auth", () => {
         },
       );
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -11744,6 +11812,7 @@ describe("server/auth", () => {
           },
         );
         vi.doMock("../db/client.js", () => ({
+          getEnclosingTransactionDbExec: () => undefined,
           getDbExec: () => ({ execute: mockExecute }),
           isLocalDatabase: () => true,
           retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -11831,6 +11900,7 @@ describe("server/auth", () => {
         },
       );
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -11887,6 +11957,7 @@ describe("server/auth", () => {
 
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -11931,6 +12002,7 @@ describe("server/auth", () => {
 
       const mockExecute = vi.fn().mockResolvedValue({ rows: [] });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -11982,6 +12054,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -12019,6 +12092,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -12065,6 +12139,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -12107,6 +12182,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -12151,6 +12227,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -12218,6 +12295,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -12258,6 +12336,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -12322,6 +12401,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -12364,6 +12444,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -12930,6 +13011,7 @@ describe("server/auth", () => {
 
         const mockExecute = vi.fn(async () => ({ rows: [] }));
         vi.doMock("../db/client.js", () => ({
+          getEnclosingTransactionDbExec: () => undefined,
           getDbExec: () => ({ execute: mockExecute }),
           isLocalDatabase: () => false,
           retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -12970,6 +13052,7 @@ describe("server/auth", () => {
 
       const mockExecute = vi.fn(async () => ({ rows: [] }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -13001,6 +13084,7 @@ describe("server/auth", () => {
 
       const mockExecute = vi.fn(async () => ({ rows: [] }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -13038,6 +13122,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -13121,6 +13206,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -13198,6 +13284,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -13261,6 +13348,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -13326,6 +13414,7 @@ describe("server/auth", () => {
         return { rows: [] };
       });
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -13367,6 +13456,7 @@ describe("server/auth", () => {
 
       const mockExecute = vi.fn(async () => ({ rows: [] }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => false,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -14278,6 +14368,7 @@ describe("server/auth", () => {
       }));
       const mockExecute = vi.fn(async () => ({ rows: [] }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: mockExecute }),
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
@@ -14369,7 +14460,9 @@ describe("server/auth", () => {
         isDeployPreview: vi.fn(() => false),
       }));
       vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
         getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        getEnclosingTransactionDbExec: () => undefined,
         isLocalDatabase: () => true,
         retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
       }));

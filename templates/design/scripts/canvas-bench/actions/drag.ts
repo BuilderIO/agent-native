@@ -9,9 +9,16 @@ import {
   type ActionContext,
   type ActionResult,
   type CanvasBenchAction,
+  type ClearArea,
 } from "../lib.ts";
 
 const DRAG_DISTANCE_PX = 500;
+const MIN_DRAG_DISTANCE_PX = 100;
+const ROOM_USED_FRACTION = 0.9;
+const REACH_STEP_TICKS_MAX = 150;
+const REACH_WHEEL_DELTA = 120;
+const REACH_TOLERANCE_PX = 20;
+const REACH_MAX_STEPS = 12;
 const DRAG_STEPS = 30;
 const DRAG_STEP_INTERVAL_MS = 16;
 const MOVE_TOLERANCE = 0.1;
@@ -38,70 +45,118 @@ type Leg = {
   dropLongFrames: number[];
 };
 
-const pickScreen = (
+type Rect = { left: number; top: number; width: number; height: number };
+type Candidate = {
+  frameId: string;
+  bounds: Rect;
+  bar: { top: number; bottom: number };
+  titleAt: Point;
+  titleHit: boolean;
+};
+
+const readCandidates = (ctx: ActionContext): Promise<Candidate[]> =>
+  ctx.page.evaluate(() => {
+    const candidates: Candidate[] = [];
+    for (const shell of document.querySelectorAll<HTMLElement>(
+      "[data-screen-shell][data-frame-id]",
+    )) {
+      const frameId = shell.getAttribute("data-frame-id");
+      const bar = shell.firstElementChild?.getBoundingClientRect();
+      const copies = [...shell.querySelectorAll("[data-screen-content]")]
+        .map((content) => content.getBoundingClientRect())
+        .filter((rect) => rect.width > 24);
+      if (!frameId || !bar || bar.height < 2 || !copies.length) continue;
+      const left = Math.min(...copies.map((rect) => rect.left));
+      const top = Math.min(...copies.map((rect) => rect.top));
+      const right = Math.max(...copies.map((rect) => rect.right));
+      const bottom = Math.max(...copies.map((rect) => rect.bottom));
+      const titleAt = {
+        x: bar.left + bar.width / 2,
+        y: bar.top + bar.height / 2,
+      };
+      candidates.push({
+        frameId,
+        bounds: { left, top, width: right - left, height: bottom - top },
+        bar: { top: bar.top, bottom: bar.bottom },
+        titleAt,
+        titleHit:
+          document
+            .elementFromPoint(titleAt.x, titleAt.y)
+            ?.closest("[data-screen-shell]") === shell,
+      });
+    }
+    return candidates;
+  });
+
+const fitsAcross = (candidate: Candidate, clear: ClearArea) =>
+  candidate.bounds.left >= clear.left &&
+  candidate.bounds.left + candidate.bounds.width <= clear.right;
+
+async function pickScreen(
   ctx: ActionContext,
   frameId?: string,
-): Promise<Pick | null> =>
-  ctx.page.evaluate(
-    ({ frameId, margin }) => {
-      const clear = window.__bench?.clearArea();
-      if (!clear) return null;
-      const cx = (clear.left + clear.right) / 2;
-      const cy = (clear.top + clear.bottom) / 2;
-      let best: (Pick & { distance: number }) | null = null;
-      for (const shell of document.querySelectorAll<HTMLElement>(
-        "[data-screen-shell][data-frame-id]",
-      )) {
-        const id = shell.getAttribute("data-frame-id");
-        if (!id) continue;
-        if (frameId && id !== frameId) continue;
-        const content = shell
-          .querySelector("[data-screen-content]")
-          ?.getBoundingClientRect();
-        const bar = shell.firstElementChild?.getBoundingClientRect();
-        if (!content || !bar || content.width <= 24 || bar.height < 2) continue;
-        if (
-          content.left < clear.left ||
-          content.right > clear.right ||
-          bar.top < clear.top + margin ||
-          bar.bottom > clear.bottom - margin
-        ) {
-          continue;
-        }
-        const titleAt = {
-          x: bar.left + bar.width / 2,
-          y: bar.top + bar.height / 2,
-        };
-        const hit = document.elementFromPoint(titleAt.x, titleAt.y);
-        if (hit?.closest("[data-screen-shell]") !== shell) continue;
-        const distance = Math.hypot(
-          content.left + content.width / 2 - cx,
-          content.top + content.height / 2 - cy,
-        );
-        if (!best || distance < best.distance) {
-          best = {
-            frameId: id,
-            titleAt,
-            content: {
-              left: content.left,
-              top: content.top,
-              width: content.width,
-              height: content.height,
-            },
-            distance,
-          };
-        }
-      }
-      return (
-        best && {
-          frameId: best.frameId,
-          titleAt: best.titleAt,
-          content: best.content,
-        }
+): Promise<Pick | null> {
+  const clear = await ctx.clearArea();
+  if (!clear) return null;
+  const cx = (clear.left + clear.right) / 2;
+  const cy = (clear.top + clear.bottom) / 2;
+  let best: { pick: Pick; distance: number } | null = null;
+  for (const candidate of await readCandidates(ctx)) {
+    if (frameId && candidate.frameId !== frameId) continue;
+    if (
+      !fitsAcross(candidate, clear) ||
+      !candidate.titleHit ||
+      candidate.bar.top < clear.top + SCREEN_MARGIN_PX ||
+      candidate.bar.bottom > clear.bottom - SCREEN_MARGIN_PX
+    ) {
+      continue;
+    }
+    const { bounds } = candidate;
+    const distance = Math.hypot(
+      bounds.left + bounds.width / 2 - cx,
+      bounds.top + bounds.height / 2 - cy,
+    );
+    if (!best || distance < best.distance) {
+      best = {
+        pick: {
+          frameId: candidate.frameId,
+          titleAt: candidate.titleAt,
+          content: bounds,
+        },
+        distance,
+      };
+    }
+  }
+  return best?.pick ?? null;
+}
+
+async function bringTitleBarIntoReach(ctx: ActionContext) {
+  const clear = await ctx.clearArea();
+  if (!clear) return;
+  const middle = (clear.top + clear.bottom) / 2;
+  await ctx.page.mouse.move((clear.left + clear.right) / 2, middle);
+  for (let step = 0; step < REACH_MAX_STEPS; step += 1) {
+    const gaps = (await readCandidates(ctx))
+      .filter((candidate) => fitsAcross(candidate, clear))
+      .map(
+        (candidate) => (candidate.bar.top + candidate.bar.bottom) / 2 - middle,
       );
-    },
-    { frameId, margin: SCREEN_MARGIN_PX },
-  );
+    if (!gaps.length) return;
+    const gap = gaps.reduce((best, next) =>
+      Math.abs(next) < Math.abs(best) ? next : best,
+    );
+    if (Math.abs(gap) <= REACH_TOLERANCE_PX) return;
+    const ticks = Math.min(
+      REACH_STEP_TICKS_MAX,
+      Math.max(1, Math.round(Math.abs(gap) / REACH_WHEEL_DELTA)),
+    );
+    for (let tick = 0; tick < ticks; tick += 1) {
+      await ctx.page.mouse.wheel(0, Math.sign(gap) * REACH_WHEEL_DELTA);
+      await ctx.page.waitForTimeout(16);
+    }
+    await ctx.page.waitForTimeout(SETTLE_AFTER_LEG_MS);
+  }
+}
 
 async function selectionBoxMatches(ctx: ActionContext, frameId: string) {
   return ctx.page.evaluate((frameId) => {
@@ -310,7 +365,11 @@ async function runDrag(
     const clear = await ctx.clearArea();
     if (!clear) ctx.fail(`run ${run}: no canvas surface found`);
 
-    const pick = await pickScreen(ctx);
+    let pick = await pickScreen(ctx);
+    if (!pick) {
+      await bringTitleBarIntoReach(ctx);
+      pick = await pickScreen(ctx);
+    }
     if (!pick) {
       const diag = await page.evaluate(() =>
         [...document.querySelectorAll("[data-screen-shell]")]
@@ -342,13 +401,25 @@ async function runDrag(
 
     const roomRight = clear.right - (pick.content.left + pick.content.width);
     const roomLeft = pick.content.left - clear.left;
-    const direction = roomRight >= DRAG_DISTANCE_PX ? 1 : -1;
-    if (Math.max(roomRight, roomLeft) < DRAG_DISTANCE_PX) {
+    const direction =
+      roomRight >= DRAG_DISTANCE_PX
+        ? 1
+        : roomLeft >= DRAG_DISTANCE_PX
+          ? -1
+          : roomRight >= roomLeft
+            ? 1
+            : -1;
+    const room = Math.max(roomRight, roomLeft);
+    const distancePx =
+      room >= DRAG_DISTANCE_PX
+        ? DRAG_DISTANCE_PX
+        : Math.floor((room * ROOM_USED_FRACTION) / 10) * 10;
+    if (distancePx < MIN_DRAG_DISTANCE_PX) {
       ctx.fail(
-        `run ${run}: only ${Math.round(Math.max(roomRight, roomLeft))}px of room to drag ${DRAG_DISTANCE_PX}px (screen ${JSON.stringify(pick.content)}, clear area ${JSON.stringify(clear)})`,
+        `run ${run}: only ${Math.round(room)}px of room to drag (need ${Math.ceil(MIN_DRAG_DISTANCE_PX / ROOM_USED_FRACTION)}px; screen ${JSON.stringify(pick.content)}, clear area ${JSON.stringify(clear)})`,
       );
     }
-    const dragDistancePx = direction * DRAG_DISTANCE_PX;
+    const dragDistancePx = direction * distancePx;
 
     const start = await ctx.checkpoint("start");
     if (!start.visible) ctx.fail(`run ${run}: start shows no screens`);
@@ -372,8 +443,7 @@ async function runDrag(
     const movedPx = out.dx;
     if (
       Math.sign(movedPx) !== direction ||
-      Math.abs(Math.abs(movedPx) - DRAG_DISTANCE_PX) >
-        DRAG_DISTANCE_PX * MOVE_TOLERANCE
+      Math.abs(Math.abs(movedPx) - distancePx) > distancePx * MOVE_TOLERANCE
     ) {
       ctx.fail(
         `run ${run}: the screen moved ${round(movedPx)}px, expected about ${dragDistancePx}px`,

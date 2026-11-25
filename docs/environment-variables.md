@@ -103,6 +103,8 @@ values from `.env` files, and use placeholders such as `<API_KEY>` in examples.
 | `NODE_ENV`                                                                     | Node runtime mode.                                                                                                                                                                                                         |
 | `CI`                                                                           | Continuous-integration marker used by test/build behavior.                                                                                                                                                                 |
 | `AGENT_RUN_POSTGRES_TEST_URL`                                                  | Test-only PostgreSQL URL for the multi-process agent execution lease and journal integration suite. Never read by application runtime code.                                                                                |
+| `CONTENT_NAVIGATION_POSTGRES_REQUIRED`                                         | Set to `1` in navigation proof and CI runs to fail if the isolated PostgreSQL URL is missing.                                                                                                                              |
+| `CONTENT_NAVIGATION_POSTGRES_URL`                                              | Test-only URL for an isolated PostgreSQL database used by Content navigation snapshot integration tests and feedback proofs.                                                                                               |
 | `CURRENT_DATA_INCOMPLETE` / `STATE_MODE` / `UNKNOWN_SAMPLE_OUTCOME`            | Internal step-local values used by scheduled Beta and production health reporters; not deployment configuration.                                                                                                           |
 | `CONCLUSION`                                                                   | GitHub Actions workflow-run conclusion passed to failure-notification jobs.                                                                                                                                                |
 | `REPOSITORY`                                                                   | GitHub repository slug supplied to the beta deployment workflow for checking the mirrored branch.                                                                                                                          |
@@ -433,24 +435,26 @@ store them only as GitHub Actions secrets. See `e2e/signup/README.md`.
 | `SIGNUP_E2E_APPS`         | Comma-separated app ids, or `all`, for the full email signup canary.                          |
 | `SIGNUP_E2E_ENVIRONMENTS` | Comma-separated `beta` and/or `production` environments for the canary.                       |
 
-### Labs QA users and live verification
+### Labs QA identities and live verification
 
-Read by `.github/workflows/labs-qa-probe.yml`, `labs-qa-identities.yml`,
-`qa-live-verify.yml`, and `e2e/labs/`, never by application runtime code. QA
-user passwords are derived from `MAILOSAUR_API_KEY`, so these runs only work
-inside GitHub Actions.
+Read by `.github/workflows/labs-qa-probe.yml`, `.github/workflows/labs-qa-identities.yml`,
+`.github/workflows/qa-live-verify.yml`, and `e2e/labs/`, never by application runtime code. The workflows reuse the
+`MAILOSAUR_*` secrets above and derive each `qa-fleet-N` password from them.
 
-| Variable       | Purpose                                                                                    |
-| -------------- | ------------------------------------------------------------------------------------------ |
-| `QA_SLOTS`     | Comma-separated QA user slots (1-5) the users probe ensures.                               |
-| `QA_PROBE`     | `1` to seed, read back, and delete a `qa-tmp-` form per user.                              |
-| `QA_PROBE_APP` | Labs app whose auth routes the users probe signs in through (default `forms-2`).           |
-| `QA_SLOT`      | QA user slot a smoke or live-verify run signs in as.                                       |
-| `INPUT_APPS`   | Comma-separated Labs apps, or `all`, for the identities smoke matrix.                      |
-| `LABS_APP`     | Labs app the identities smoke opens.                                                       |
-| `QA_TARGET`    | Live-verify target: a preset (`forms-seeded`), an app name, or JSON with app, path, steps. |
-| `QA_PROVIDER`  | Live-verify browser: `browserbase` (remote session with a replay) or `local` (headless).   |
-| `QA_OUT_DIR`   | Directory the live-verify receipt and before/after screenshots are written to.             |
+| Variable       | Purpose                                                                                                        |
+| -------------- | -------------------------------------------------------------------------------------------------------------- |
+| `QA_HOST`      | Host the QA user script signs up and signs in against. Defaults to `labs.agent-native.com`.                    |
+| `QA_SLOTS`     | Comma-separated `qa-fleet-N` slots the QA user script creates or signs in. Defaults to `1,2,3,4,5`.            |
+| `QA_PROBE`     | Set to `1` to seed, read back, and delete a `qa-tmp-` record after each sign-in.                               |
+| `QA_PROBE_APP` | Labs app whose auth and actions the QA user script exercises. Defaults to `forms-2`.                           |
+| `QA_FRESH`     | Set to `1` to sign up one new `qa-tmp-` Mailosaur address end to end and write a receipt without any password. |
+| `LABS_APP`     | Labs app the signed-in smoke test opens. Workflow-internal.                                                    |
+| `LABS_HOST`    | Host the signed-in smoke test targets. Defaults to `labs.agent-native.com`.                                    |
+| `QA_SLOT`      | Slot of the `qa-fleet-N` identity a smoke or live-verify run uses.                                             |
+| `INPUT_APPS`   | Apps input passed to the smoke matrix builder. Workflow-internal.                                              |
+| `QA_TARGET`    | Live-verify target: a preset (`forms-seeded`), an app name, or JSON with app, path, steps.                    |
+| `QA_PROVIDER`  | Live-verify browser: `browserbase` (remote session with a replay) or `local` (headless).                      |
+| `QA_OUT_DIR`   | Directory the live-verify receipt and before/after screenshots are written to.                                |
 
 ### Deploy-path check
 

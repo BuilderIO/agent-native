@@ -278,3 +278,65 @@ it("does not expose a conflicting app outside the visible workspace", async () =
     execute.run({ suggestion: build }, browser),
   ).rejects.toMatchObject({ errorCode: "action_suggestion_unavailable" });
 });
+
+it("treats an action whose target already exists as completed", async () => {
+  mocks.callAction.mockResolvedValue({
+    isError: true,
+    content: [
+      {
+        type: "text",
+        text: "Split already exists (errorCode: already_exists)",
+      },
+    ],
+  });
+  expect(await execute.run({ suggestion: filter }, browser)).toEqual({
+    suggestionId: filter.id,
+    status: "accepted",
+    outcome: "action-completed",
+  });
+});
+
+it("still fails an action that errors for another reason", async () => {
+  mocks.callAction.mockResolvedValue({
+    isError: true,
+    content: [{ type: "text", text: "Boom (errorCode: app_failed)" }],
+  });
+  await expect(
+    execute.run({ suggestion: filter }, browser),
+  ).rejects.toMatchObject({ errorCode: "app_failed" });
+});
+
+it.each([
+  ["Split already exists", "app_failed"],
+  ["Boom", "duplicate_input"],
+  ["Parent folder does not exist", "folder_not_exists"],
+])("does not report %s (%s) as completed", async (text, code) => {
+  mocks.callAction.mockResolvedValue({
+    isError: true,
+    content: [{ type: "text", text: `${text} (errorCode: ${code})` }],
+  });
+  await expect(
+    execute.run({ suggestion: filter }, browser),
+  ).rejects.toMatchObject({ errorCode: code });
+});
+
+it("opens the pending Builder branch when the app is already being created", async () => {
+  mocks.startCreation.mockResolvedValue({
+    mode: "app-id-taken",
+    appId: "equipment",
+    conflict: "pending",
+  });
+  mocks.listWorkspaceApps.mockResolvedValue([
+    {
+      id: "equipment",
+      url: "https://builder.example.test/branches/equipment",
+      status: "pending",
+    },
+  ]);
+  expect(await execute.run({ suggestion: build }, browser)).toEqual({
+    suggestionId: build.id,
+    status: "accepted",
+    outcome: "app-creation-started",
+    url: "https://builder.example.test/branches/equipment",
+  });
+});

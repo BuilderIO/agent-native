@@ -51,6 +51,7 @@ const dbExecuteMock = vi.fn(async (query: { sql: string }) =>
     : { rows: roleRows, rowsAffected: 0 },
 );
 vi.mock("../../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: dbExecuteMock }),
 }));
 
