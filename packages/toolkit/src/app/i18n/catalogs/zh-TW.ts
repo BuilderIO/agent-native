@@ -3236,6 +3236,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpApps.openInNewTab": "在新分頁中開啟",
   "mcpApps.initFailed": "無法初始化 MCP 應用。",
   "mcpApps.readOnly": "此已儲存的 MCP 應用為唯讀。",
+  "markdown.opensInNewTab": "(在新分頁中開啟)",
   "iframeEmbed.blocked": "內嵌已遭封鎖",
   "iframeEmbed.missingSrc": "缺少來源",
   "iframeEmbed.crossOrigin": "不允許跨來源 URL",
