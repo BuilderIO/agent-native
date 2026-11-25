@@ -1433,7 +1433,7 @@ test.describe("groups", () => {
     await openEditor(page, id);
     const heading = (name: string) =>
       page.getByRole("heading", { name, exact: true });
-    const cornerRadius = page.getByRole("textbox", {
+    const cornerRadius = page.getByRole("combobox", {
       name: "Corner radius",
       exact: true,
     });
@@ -1452,7 +1452,7 @@ test.describe("groups", () => {
     await expect(heading("Stroke")).toHaveCount(0);
     await expect(cornerRadius).toHaveCount(0);
     await expect(
-      page.getByRole("textbox", { name: "Opacity", exact: true }),
+      page.getByRole("combobox", { name: "Opacity", exact: true }),
     ).toBeVisible();
   });
 

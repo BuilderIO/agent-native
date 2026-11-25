@@ -2193,7 +2193,7 @@ export function DesignCanvas({
         target.readOnly ||
         !isInspectorTarget(target) ||
         target.closest(
-          '[role="menu"], [role="listbox"], [role="combobox"], [role="dialog"], [data-radix-popper-content-wrapper], [data-slot="popover-content"]',
+          '[role="menu"], [role="listbox"], [role="combobox"][aria-expanded="true"], [role="dialog"], [data-radix-popper-content-wrapper], [data-slot="popover-content"]',
         )
       ) {
         return;

@@ -76,7 +76,7 @@ async function selectLayer(page: Page, name: string) {
 }
 
 async function setDimension(page: Page, axis: "W" | "H", value: number) {
-  const input = page.getByRole("textbox", { name: `${axis} size in pixels` });
+  const input = page.getByRole("combobox", { name: `${axis} size in pixels` });
   await expect(input).toBeVisible();
   await input.fill(String(value));
   await input.press("Enter");
