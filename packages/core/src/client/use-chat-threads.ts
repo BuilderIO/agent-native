@@ -975,6 +975,7 @@ export function useChatThreads(
     routeThreadId,
     storageKey,
     threads,
+    setActiveThreadId,
   ]);
 
   const completeInitialThreadRestore = useCallback(
@@ -1185,7 +1186,6 @@ export function useChatThreads(
       setIsLoading(false);
     },
     [
-      activeThreadKey,
       activeThreadSeenKey,
       addOptimisticThread,
       apiUrl,
@@ -1197,6 +1197,7 @@ export function useChatThreads(
       routeControlsActiveThread,
       routeThreadId,
       routeThreadLookupKey,
+      setActiveThreadId,
     ],
   );
 
@@ -1473,6 +1474,7 @@ export function useChatThreads(
       routeControlsActiveThread,
       routeThreadId,
       completeInitialThreadRestore,
+      setActiveThreadId,
     ],
   );
 
@@ -1655,7 +1657,7 @@ export function useChatThreads(
       setActiveThreadId(id);
       return Promise.resolve(id);
     },
-    [addOptimisticThread, persistActiveThreadId],
+    [addOptimisticThread, persistActiveThreadId, setActiveThreadId],
   );
 
   useEffect(() => {
@@ -1692,6 +1694,7 @@ export function useChatThreads(
     autoCreate,
     routeControlsActiveThread,
     routeThreadId,
+    setActiveThreadId,
   ]);
 
   const detachThread = useCallback(
@@ -1771,6 +1774,7 @@ export function useChatThreads(
       fetchThreads,
       historyScope,
       isolateHistory,
+      setActiveThreadId,
     ],
   );
 
@@ -1935,7 +1939,7 @@ export function useChatThreads(
         return false;
       }
     },
-    [apiUrl, fetchThreads, historyScope, collapseEdits],
+    [apiUrl, fetchThreads, historyScope, collapseEdits, setActiveThreadId],
   );
 
   const renameThread = useCallback(
@@ -2052,7 +2056,7 @@ export function useChatThreads(
       persistActiveThreadId(id);
       setActiveThreadId(id);
     },
-    [persistActiveThreadId],
+    [persistActiveThreadId, setActiveThreadId],
   );
 
   const openThread = useCallback(
@@ -2107,6 +2111,7 @@ export function useChatThreads(
       apiUrl,
       historyScopeKey,
       markThreadConfirmed,
+      setActiveThreadId,
     ],
   );
 
@@ -2142,7 +2147,14 @@ export function useChatThreads(
         }
       }
     },
-    [apiUrl, clearUserRenamedThread, createThread, historyScope, collapseEdits],
+    [
+      apiUrl,
+      clearUserRenamedThread,
+      createThread,
+      historyScope,
+      collapseEdits,
+      setActiveThreadId,
+    ],
   );
 
   // Reads scope through refs so this callback survives every setThreads. Scope
