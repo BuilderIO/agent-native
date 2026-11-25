@@ -16,7 +16,13 @@ type Step =
   | { expectVisible: string }
   | { expectAttr: string; attr: string; value: string }
   | { expectValue: string; value: string }
-  | { action: string; input?: Record<string, unknown>; as?: string }
+  | {
+      action: string;
+      input?: Record<string, unknown>;
+      as?: string;
+      method?: "GET" | "POST";
+      expect?: Record<string, string | number | boolean>;
+    }
   | { screenshot: string };
 
 interface Target {
@@ -172,19 +178,26 @@ async function callAction<T = Record<string, unknown>>(
   page: Page,
   name: string,
   input: Record<string, unknown> = {},
+  method: "GET" | "POST" = "POST",
 ): Promise<T> {
-  const r = await inPage<T>(
-    page,
-    "POST",
-    `${appBase}/_agent-native/actions/${name}`,
-    input,
-  );
+  const url = `${appBase}/_agent-native/actions/${name}`;
+  const r =
+    method === "GET"
+      ? await inPage<T>(
+          page,
+          "GET",
+          `${url}?${new URLSearchParams(
+            Object.entries(input).map(([k, v]) => [k, String(v)]),
+          )}`,
+        )
+      : await inPage<T>(page, "POST", url, input);
   if (r.status !== 200 || !r.json)
     throw new Error(`action ${name}: HTTP ${r.status} ${r.text}`);
   return r.json;
 }
 
 const vars: Record<string, unknown> = {};
+const actionReadbacks: { action: string; path: string; got: unknown }[] = [];
 function interpolate<T>(value: T): T {
   const text = JSON.stringify(value).replace(
     /\$\{([\w.]+)\}/g,
@@ -307,8 +320,21 @@ async function runStep(page: Page, step: Step): Promise<void> {
         `${s.attr}=${JSON.stringify(actual)}, want ${JSON.stringify(s.value)}`,
       );
   } else if ("action" in s) {
-    const out = await callAction(page, s.action, s.input);
+    const out = await callAction(page, s.action, s.input, s.method);
     if (s.as) vars[s.as] = out;
+    for (const [dotted, want] of Object.entries(s.expect ?? {})) {
+      const got = dotted
+        .split(".")
+        .reduce<unknown>(
+          (acc, part) => (acc as Record<string, unknown> | undefined)?.[part],
+          out,
+        );
+      actionReadbacks.push({ action: s.action, path: dotted, got });
+      if (got !== want)
+        throw new Error(
+          `${s.action} ${dotted}=${JSON.stringify(got)}, want ${JSON.stringify(want)}`,
+        );
+    }
   } else if ("screenshot" in s) await shot(page, s.screenshot);
 }
 
@@ -556,6 +582,7 @@ async function main() {
 
   const cleanFailed = (receipt.cleanup as string[]).some((c) => c !== "ok");
   receipt.steps = steps;
+  receipt.actionReadbacks = actionReadbacks;
   receipt.screenshots = shots;
   receipt.wallSec = Math.round((Date.now() - started) / 1000);
   receipt.result = failure || cleanFailed ? "FAIL" : "PASS";
