@@ -99,6 +99,7 @@ export default defineAction({
   persistInChatHistory: false,
   // The database host and deploy layout are not for sandboxed extensions.
   toolCallable: false,
+  mcpTool: false,
   run: async (
     args,
     ctx,

@@ -114,7 +114,13 @@ vi.mock("../chat-threads/store.js", () => ({
   deferSteeredQueuedMessages: async () => undefined,
 }));
 
-vi.mock("../agent/production-agent.js", () => ({
+vi.mock("../agent/production-agent.js", async (importOriginal) => ({
+  filterActionsByAllowedNames: (
+    await importOriginal<typeof import("../agent/production-agent.js")>()
+  ).filterActionsByAllowedNames,
+  normalizeAgentActionSurfaceResolution: (
+    await importOriginal<typeof import("../agent/production-agent.js")>()
+  ).normalizeAgentActionSurfaceResolution,
   appendAgentLoopContinuation: (messages: unknown[]) =>
     messages.push({
       role: "user",
@@ -1179,6 +1185,46 @@ describe("runBackgroundAutomation — confirmed work", () => {
       }
     },
   );
+
+  it("withholds tools the app's action surface excludes from the automation", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    const handler = (name: string) => ({
+      tool: { description: name, parameters: { type: "object" as const } },
+      readOnly: true,
+      run: async () => ({ ok: true }),
+    });
+    let seen: string[] = [];
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async (opts) => {
+        seen = Object.keys(opts.actions);
+        await opts.actions["automation-no-op"].run({
+          reason: "Nothing to do.",
+        });
+        return usage;
+      },
+    );
+    const resolveActionSurface = vi.fn(() => ({
+      allowedActionNames: ["allowed-probe"],
+    }));
+    await runBackgroundAutomation(runOptions(precondition("surface-probe")), {
+      ...standardDeps,
+      getActions: () => ({
+        "allowed-probe": handler("allowed-probe"),
+        "denied-probe": handler("denied-probe"),
+      }),
+      resolveActionSurface,
+    });
+    expect(resolveActionSurface).toHaveBeenCalledWith(
+      expect.objectContaining({
+        automation: { name: "surface-probe" },
+        availableActionNames: ["allowed-probe", "denied-probe"],
+      }),
+    );
+    expect(seen).toContain("allowed-probe");
+    expect(seen).toContain("automation-no-op");
+    expect(seen).not.toContain("denied-probe");
+  });
 
   it("rejects a no-op declaration without a reason", async () => {
     const { runAgentLoopDirectWithSoftTimeout } =
@@ -2759,6 +2805,10 @@ function runOptions(
     threadTitle: `Job: ${automation.name}`,
     runIdPrefix: `job-${automation.name}`,
     usageLabel: `recurring-job:${automation.name}`,
+    actionAutomation: {
+      triggerId: automation.resource.id,
+      triggerName: automation.name,
+    },
     ...overrides,
   };
 }

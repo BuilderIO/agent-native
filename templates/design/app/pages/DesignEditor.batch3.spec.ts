@@ -24,9 +24,10 @@ import { describe, expect, it, afterEach } from "vitest";
 import {
   isDesignEditorDarkTheme,
   defaultCanvasTextColor,
-  CANVAS_TEXT_DEFAULT_FONT_FAMILY,
 } from "./design-editor/canvas-primitives";
 import { shouldReplacePreviewAfterVisualStyleCommit } from "./design-editor/editor-state";
+
+// oracle-change: removed the CANVAS_TEXT_DEFAULT_FONT_FAMILY constant restatement
 
 describe("isDesignEditorDarkTheme (item 2 — canvas-drawn text defaults)", () => {
   afterEach(() => {
@@ -49,13 +50,6 @@ describe("defaultCanvasTextColor (board text readability)", () => {
     expect(defaultCanvasTextColor(true)).toBe("#ffffff");
     expect(defaultCanvasTextColor(false)).toBe("currentColor");
     expect(defaultCanvasTextColor(false, true)).toBe("#000000");
-  });
-});
-
-describe("CANVAS_TEXT_DEFAULT_FONT_FAMILY (item 2)", () => {
-  it("leads with Inter and keeps a real system-font fallback chain", () => {
-    expect(CANVAS_TEXT_DEFAULT_FONT_FAMILY.startsWith('"Inter"')).toBe(true);
-    expect(CANVAS_TEXT_DEFAULT_FONT_FAMILY).toContain("sans-serif");
   });
 });
 

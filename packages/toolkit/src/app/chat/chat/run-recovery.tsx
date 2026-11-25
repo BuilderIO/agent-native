@@ -2,6 +2,7 @@ import { isCreditsLimitErrorCode } from "@agent-native/core/agent/engine/error-d
 import {
   isProviderAuthenticationError,
   localizeKnownChatErrorText,
+  NEW_CHAT_ACTION_HREF,
 } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
@@ -856,6 +857,17 @@ export function RunErrorRecoveryCard({
 }) {
   const t = useT();
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const formattedMessage = localizeKnownChatErrorText(info.message, t);
+  const newChatLink = /\n\n\[([^\]]+)\]\(agent-native:new-chat\)$/.exec(
+    formattedMessage,
+  );
+  const message = newChatLink
+    ? formattedMessage.slice(0, newChatLink.index)
+    : formattedMessage;
+  const details =
+    info.details?.trim() === message.replace(/^Error: /, "").trim()
+      ? undefined
+      : info.details;
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
     "idle",
   );
@@ -1117,7 +1129,7 @@ export function RunErrorRecoveryCard({
           <IconAlertTriangle size={14} />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="font-medium text-foreground">
+          <div role="status" className="font-medium text-foreground">
             {runErrorHeadline(info, {
               recoverable: t("agentChat.error.stopped"),
               terminal: t("agentChat.error.failed"),
@@ -1127,8 +1139,20 @@ export function RunErrorRecoveryCard({
             {...SESSION_REPLAY_MASK_PROPS}
             className="mt-1 whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground"
           >
-            {localizeKnownChatErrorText(info.message, t)}
+            {message}
           </p>
+          {newChatLink && (
+            <a
+              href={NEW_CHAT_ACTION_HREF}
+              onClick={(event) => {
+                event.preventDefault();
+                startNewChat();
+              }}
+              className="mt-2 inline-block text-xs font-medium text-foreground underline"
+            >
+              {newChatLink[1]}
+            </a>
+          )}
           {shouldShowBuilderReconnect && !builderReconnectResolved && (
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
               {t("agentChat.recovery.credentialRejected")}
@@ -1176,7 +1200,7 @@ export function RunErrorRecoveryCard({
               )}
             </div>
           )}
-          {(info.runId || info.errorCode || info.details) && (
+          {(info.runId || info.errorCode || details) && (
             <button
               type="button"
               onClick={() => setDetailsOpen((v) => !v)}
@@ -1196,12 +1220,12 @@ export function RunErrorRecoveryCard({
             <div className="mt-2 rounded-md border border-border/60 bg-background/70 p-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
               {info.runId && <div>run: {info.runId}</div>}
               {info.errorCode && <div>code: {info.errorCode}</div>}
-              {info.details && (
+              {details && (
                 <pre
                   {...SESSION_REPLAY_MASK_PROPS}
                   className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap break-words font-mono"
                 >
-                  {info.details}
+                  {details}
                 </pre>
               )}
             </div>

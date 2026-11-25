@@ -1,4 +1,7 @@
 export default {
+  responseGuard: {
+    noDesignChangesSaved: "لم يتم حفظ أي تغييرات في التصميم في هذه الجولة.",
+  },
   journeyCanvas: {
     observedSessionReference: "مرجع الجلسة المرصودة",
     sessionsOfAll: "\u200f{count} جلسة · {percent} من الإجمالي",
@@ -253,7 +256,7 @@ export default {
     pageHelpDescription:
       "تحرير الطباعة، والتباعد، والتحجيم، والحدود وملء ما تحدده. الإعدادات الافتراضية للصفحة أدناه.",
     sections: {
-      page: "الشاشة",
+      page: "الصفحة",
       canvas: "لوحة الرسم",
       typography: "الطباعة",
       autoLayout: "تخطيط تلقائي",
@@ -409,7 +412,7 @@ export default {
       addRecordRow: "إضافة {{item}}",
       recordRowLabel: "{{item}} {{index}}",
       removeRecordRow: "إزالة {{item}} {{index}}",
-      selectElementFirst: "الرجاء تحديد عنصر شاشة أولاً",
+      selectElementFirst: "حدد عنصرًا في الصفحة أولًا",
       selectCanvasElementFirst: "الرجاء تحديد عنصر على اللوحة أولاً",
       saveFailed: "تعذر حفظ التظليل",
       custom: "مخصص",
@@ -829,11 +832,11 @@ export default {
     screenSource: {
       title: "المصدر",
       url: "URL",
-      urlLabel: "عنوان URL للشاشة",
+      urlLabel: "عنوان URL للصفحة",
       urlPlaceholder: "/plans أو http://localhost:5173/plans",
       update: "تحديث",
       chooseLocalApp: "اختر تطبيقًا محليًا",
-      remove: "إزالة الشاشة",
+      remove: "إزالة الصفحة",
     },
     borderStyleOptions: {
       none: "لا شيء",
@@ -908,7 +911,7 @@ export default {
       original: "تجربة الصفحة الأصلية",
     },
 
-    sourceLoadFailed: "تعذر تحميل هذه الشاشة.",
+    sourceLoadFailed: "تعذر تحميل هذه الصفحة.",
     selectionPublishFailed: "قد لا يرى الوكيل تحديدك الأخير. حدِّده مرة أخرى.",
     liveCollaboration: {
       title: "التعاون المباشر",
@@ -1019,6 +1022,19 @@ export default {
       collapse: "طي الشريط الجانبي",
       expand: "توسيع الشريط الجانبي",
     },
+    leftTabs: {
+      label: "اللوحة الجانبية",
+      agent: "الوكيل",
+      file: "الملف",
+      library: "المكتبة",
+    },
+    columnHead: {
+      comments: "التعليقات",
+      unreadComments: "تعليقات غير مقروءة",
+      resizeLeftPanel: "تغيير حجم اللوحة اليسرى",
+      resizeInspector: "تغيير حجم المفتش",
+      whatsNew: "ما الجديد",
+    },
     breakpointBar: {
       base: "الأساس",
       editBaseWidth: "تحرير عرض الأساس",
@@ -1050,7 +1066,7 @@ export default {
         "لا يحتوي هذا التصميم على أنماط داكنة. اختر «داكن» ليضيفها الوكيل.",
       themeSystem: "النظام",
       themeSystemHint: "يعرض التصميم كما أُنشئ (يستخدم إعداد النظام)",
-      screen: "الشاشة",
+      screen: "الصفحة",
       back: "رجوع",
       forward: "للأمام",
       reload: "إعادة تحميل المعاينة",
@@ -1061,8 +1077,8 @@ export default {
       zoomFit: "تم تغيير الحجم ليناسب اللوحة",
       zoomFitOption: "ملاءمة",
       exit: "الخروج من المعاينة المتجاوبة",
-      noScreens: "هذا التصميم لا يحتوي على شاشات للمعاينة.",
-      unknownScreen: "هذه الشاشة ليست جزءًا من هذا التصميم.",
+      noScreens: "لا يحتوي هذا التصميم على صفحات للمعاينة.",
+      unknownScreen: "هذه الصفحة ليست جزءًا من هذا التصميم.",
     },
     applyToSource: "تطبيق على المصدر",
     applyToSourcePath: "تطبيق على المصدر ({{path}})",
@@ -1121,7 +1137,7 @@ export default {
       editColor: "تعديل لون {{name}}",
     },
     import: {
-      description: "استورد HTML حافظة Figma أو HTML مستقلا كشاشات Design.",
+      description: "استورد HTML من حافظة Figma أو HTML مستقلًا كصفحات في Design.",
       figmaUrlLabel: "رابط إطار أو ملف Figma",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
       figmaTokenLabel: "رمز وصول Figma",
@@ -1185,9 +1201,9 @@ export default {
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
       htmlDescription:
-        "الصق أو ارفع HTML مستقلا. يحفظه Design كشاشة جديدة دون حقنه في واجهة المحرر.",
+        "الصق HTML مستقلًا أو ارفعه. يحفظه Design كصفحة جديدة دون إدراجه في واجهة هذا المحرر.",
       allSupportedFiles: "جميع الملفات المدعومة",
-      githubDescription: "قريبا: استيراد الشاشات والمكونات مباشرة من مستودع.",
+      githubDescription: "قريبًا: استيراد الصفحات والمكونات مباشرةً من مستودع.",
       localDescription: "وصّل أي تطبيق محلي قيد التشغيل باستخدام /visual-edit.",
       warningsToast: "اكتمل الاستيراد مع تحذيرات",
       pasteUnreadable: "تعذّرت قراءة الطبقات المنسوخة.",
@@ -1199,7 +1215,7 @@ export default {
         "الصور التي ما زالت مرتبطة بـ {{tool}}: {{count}}. تعذّر نسخها إلى مساحة تخزين ملفاتك.",
       pasteImagesUnsaved: "صور قد يتوقف تحميلها لأنه لم يتأكد حفظها: {{count}}",
       pasteNeedsEditAccess: "تحتاج إلى صلاحية التعديل للصق في هذا التصميم.",
-      pastePartialImport: "فشل اللصق وربما أُنشئت بعض الشاشات. تحقق من شاشاتك.",
+      pastePartialImport: "فشل اللصق وربما أُنشئت بعض الصفحات. تحقق من صفحاتك.",
       figmaSuccess: "تم استيراد لصق Figma",
       htmlSuccess: "تم استيراد HTML",
       uploadSuccess: "تم استيراد الملف",
@@ -1246,16 +1262,17 @@ export default {
     retryAccessCheck: "إعادة المحاولة",
     saveAsTemplate: "حفظ كقالب…",
     saveTemplateDescription:
-      "احفظ الشاشات والأبعاد والإعدادات الافتراضية والطبقات المقفلة كنقطة بداية قابلة لإعادة الاستخدام.",
+      "احفظ الصفحات والأبعاد والإعدادات الافتراضية والطبقات المقفلة الحالية كنقطة بداية قابلة لإعادة الاستخدام.",
     templateName: "اسم القالب",
     templateDescription: "الوصف",
     templateCategory: "الفئة",
     templateSnapshotSummary:
-      "سيتم الاحتفاظ بـ {{screens}} شاشة و{{locks}} طبقة مقفلة",
+      "سيتم الاحتفاظ بـ {{screens}} صفحة · {{locks}} طبقة مقفلة",
     saveTemplate: "حفظ القالب",
     templateSaved: "تم حفظ القالب في المكتبة",
     templateSaveFailed: "تعذر حفظ هذا القالب",
     appMenu: {
+      backToDashboard: "العودة إلى لوحة التحكم",
       file: "ملف",
       preferences: "التفضيلات",
       newDesign: "تصميم جديد",
@@ -1300,7 +1317,7 @@ export default {
       comment: "تعليق",
       edit: "يحرر",
       interact: "Interact",
-      screens: "الشاشات",
+      screens: "الصفحات",
     },
     topBar: {
       modeDesign: "التصميم",
@@ -1311,7 +1328,7 @@ export default {
     tools: {
       move: "Move",
       frame: "Frame",
-      screen: "Screen",
+      screen: "صفحة",
       shapes: "الأشكال",
       rect: "Rectangle",
       line: "خط",
@@ -1334,7 +1351,7 @@ export default {
       categoriesLabel: "فئات الاختصارات",
       empty: "لا توجد اختصارات تطابق “{{query}}”",
       codeContext: "الكود",
-      screenContext: "الشاشات",
+      screenContext: "الصفحة",
       nudgeAmount: {
         title: "مقدار الإزاحة",
         small: "إزاحة صغيرة",
@@ -1420,8 +1437,8 @@ export default {
         enterSelection: "التحديد",
         nextSibling: "التحديد →",
         previousSibling: "← التحديد",
-        nextScreen: "الشاشات →",
-        previousScreen: "← الشاشات",
+        nextScreen: "الصفحة التالية",
+        previousScreen: "الصفحة السابقة",
         toggleLayoutGrids: "إظهار شبكات التخطيط أو إخفاؤها",
         toggleRulers: "إظهار المساطر أو إخفاؤها",
         nudge: "Move",
@@ -1474,10 +1491,10 @@ export default {
     duplicate: "Duplicate",
     delete: "Delete",
     view: "View",
-    returnToCurrentScreen: "العودة إلى الشاشة الحالية",
-    openScreenOverview: "فتح نظرة عامة على الشاشة",
-    currentScreen: "الشاشة الحالية",
-    screenOverview: "نظرة عامة على الشاشة",
+    returnToCurrentScreen: "العودة إلى الصفحة الحالية",
+    openScreenOverview: "فتح نظرة عامة على الصفحات",
+    currentScreen: "الصفحة الحالية",
+    screenOverview: "نظرة عامة على الصفحات",
     devicePreview: "معاينة الجهاز",
     devices: {
       responsive: "مستجيب",
@@ -1507,7 +1524,7 @@ export default {
     downloadSvg: "تنزيل SVG",
     downloadFigmaSvg: "تنزيل لـ Figma ‏(SVG)",
     downloadZip: "تنزيل ZIP",
-    downloadPdfAllScreens: "تحميل PDF (كل الشاشات)",
+    downloadPdfAllScreens: "تنزيل PDF (كل الصفحات)",
     publishApp: "نشر التطبيق",
     exportOptions: "خيارات التصدير",
     exportHtml: "تصدير HTML",
@@ -1575,13 +1592,14 @@ export default {
       verified: "تم التحقق من كتابة المصدر؛ التراجع متاح",
       rollback: "تراجع",
       keep: "احتفاظ",
-      selectorMissing: "العنصر المحدد لم يعد موجوداً في هذه الشاشة.",
+      selectorMissing:
+        "لا يوجد للعنصر المحدد تطابق قابل للتعديل في مصدر هذه الصفحة. إذا كان أحد المكونات يعرضه، فطبّق التغيير عبر الوكيل.",
       noRenderedBox:
         "لا تحتوي الطبقة المحددة على مربع مُرندر، لذلك لم يتم تطبيق تغيير النمط.",
       clientRenderedShell:
-        "يتم عرض هذه الشاشة من جهة العميل، لذلك لا يحتوي HTML الذي تقدمه على ترميز للتطبيق يمكن تعديله. اطلب من الوكيل تطبيق هذا التغيير على مصدر المكوّن.",
+        "تُعرض هذه الصفحة من جهة العميل، لذا لا يحتوي HTML الذي تقدمه على ترميز للتطبيق يمكن تعديله. اطلب من الوكيل تطبيق هذا التغيير على مصدر المكون.",
       snapshotNotLoaded:
-        "لم يتم تحميل مصدر هذه الشاشة بعد، لذلك لم تتم كتابة التعديل. انتظر حتى يكتمل تحميل الشاشة ثم حاول مرة أخرى.",
+        "لم يُحمَّل مصدر هذه الصفحة بعد، لذا لم يُكتب التعديل. انتظر حتى يكتمل تحميل الصفحة ثم حاول مرة أخرى.",
       selectorAmbiguous:
         "هذا العنصر هو أحد {{count}} مثيلات متطابقة في المصدر، لذلك لم تتم كتابة التغيير. اطلب من الوكيل قصره على هذا المثيل.",
       status: {
@@ -1635,17 +1653,17 @@ export default {
       leave: "المغادرة دون تطبيق",
     },
     addLocalhostScreen: {
-      title: "إضافة شاشة من تطبيقك",
+      title: "إضافة صفحة من تطبيقك",
       description: "اختر مسارًا لإضافته كإطار جديد، أو أدخل مسارًا.",
       searchPlaceholder: "البحث في المسارات…",
       noRoutes: "لا توجد مسارات مطابقة",
       noDiscoveredRoutes:
-        "لم يتم العثور على مسارات في هذا التطبيق. أدخل مسارًا لإضافة شاشة.",
+        "لم يُعثر على مسارات في هذا التطبيق. اكتب مسارًا لإضافة صفحة.",
       useCustomPath: 'إضافة "{{path}}"',
       viewportDesktop: "سطح المكتب",
       viewportMobile: "الجوال",
-      added: "تمت إضافة الشاشة",
-      addFailed: "تعذرت إضافة الشاشة",
+      added: "تمت إضافة الصفحة",
+      addFailed: "تعذرت إضافة الصفحة",
     },
     localhostConsent: {
       approvedTitle: "تمت الموافقة — شغّل التعديل مرة أخرى",
@@ -1742,7 +1760,7 @@ export default {
       zipCreateError: "تعذر إنشاء تنزيل ZIP",
       zipDownloaded: "تم تنزيل ZIP",
       zipExportError: "تعذر تصدير ZIP",
-      openScreenPng: "افتح شاشة قبل تصدير PNG",
+      openScreenPng: "افتح صفحة قبل تصدير PNG",
       pngCreateError: "تعذر إنشاء تنزيل PNG",
       pngDownloaded: "تم تنزيل PNG",
       pngCopied: "تم نسخ PNG إلى الحافظة",
@@ -1765,8 +1783,8 @@ export default {
         "التصدير غير متاح لتعذر بدء أداة العرض. حاول مرة أخرى لاحقًا.",
       pdfExportError: "تعذر تصدير PDF",
       pdfDownloaded: "تم تنزيل PDF",
-      pdfAllScreensDownloaded: "تم تنزيل PDF (كل الشاشات)",
-      openScreenSvg: "افتح شاشة قبل تصدير SVG",
+      pdfAllScreensDownloaded: "تم تنزيل PDF (كل الصفحات)",
+      openScreenSvg: "افتح صفحة قبل تصدير SVG",
       svgDownloaded: "تم تنزيل SVG",
       svgExportError: "تعذر تصدير SVG",
       figmaSvgCopied: "تم النسخ كملف Figma SVG",
@@ -1776,16 +1794,16 @@ export default {
       figmaSvgWriteError: "تعذر نسخ SVG إلى الحافظة",
       figmaSvgRenderError: "تعذر إنشاء Figma SVG",
       figmaSvgExportError: "تعذر تصدير Figma SVG",
-      screenDuplicated: "تم تكرار الشاشة",
-      screenDuplicateError: "تعذر تكرار الشاشة",
+      screenDuplicated: "تم تكرار الصفحة",
+      screenDuplicateError: "تعذر تكرار الصفحة",
       copied: "Copied",
       pasted: "Pasted",
       deleted: "Deleted",
       propsCopied: "تم نسخ الخصائص",
       propsPasted: "تم لصق الخصائص",
-      primitiveInsertFailed: "تعذرت إضافة تلك الطبقة إلى الشاشة",
+      primitiveInsertFailed: "تعذرت إضافة هذه الطبقة إلى الصفحة",
       designStateLiveScreen:
-        "لا يمكن معاينة حالات التصميم على شاشة حيّة — محتواها هو التطبيق قيد التشغيل، وليس مستندًا.",
+        "لا يمكن معاينة حالات التصميم على صفحة مباشرة: محتواها هو التطبيق قيد التشغيل، وليس مستندًا.",
       layerMoveFailed: "تعذر نقل تلك الطبقة",
       groupFillApplyFailed:
         "تعذر تطبيق هذا التعبئة على جميع الطبقات في المجموعة.",
@@ -1808,12 +1826,10 @@ export default {
         "لم تُحفظ التعديلات بعد. أبقِ علامة التبويب هذه مفتوحة وحاول مرة أخرى.",
       undoSkippedConcurrentEdit: "تم تخطي التراجع — قام شخص آخر بنقله",
       redoSkippedConcurrentEdit: "تم تخطي الإعادة — قام شخص آخر بنقله",
-      saveConflict: "تغيرت هذه الشاشة في مكان آخر. لم يُحفظ آخر تعديل.",
-      versionHistoryUnavailable:
-        "سجل الإصدارات غير متاح لهذا التصميم. تم حفظ تعديلك رغم ذلك.",
+      saveConflict: "تغيّرت هذه الصفحة في مكان آخر. لم يُحفظ آخر تعديل لك.",
       removeAutoLayoutFailed: "تعذّرت إزالة التخطيط التلقائي",
       autoLayoutScreensUnsupported:
-        "إضافة التخطيط التلقائي لا تنطبق على الشاشات",
+        "لا تنطبق إضافة التخطيط التلقائي على الصفحات",
       booleanSubtractUnsupported:
         "اختر مستطيلات أو أشكالًا بيضاوية متجاورة ذات تعبئة بلون ثابت لطرحها.",
       booleanSubtractFailed: "تعذر طرح هذه الطبقات.",
@@ -1823,8 +1839,8 @@ export default {
         "لا يوفّر هذا التطبيق مواقع المصدر للمحرر، لذا لا يمكن ربط هذه الطبقة بسطر معيّن. اطلب من الوكيل إجراء هذا التغيير.",
       sourceLocationSnapshotFailed:
         "تعذر التحقق من مواضع المصدر لهذه المعاينة.",
-      screenSourceUpdated: "تم تحديث مصدر الشاشة",
-      screenSourceUpdateFailed: "تعذر تحديث مصدر الشاشة",
+      screenSourceUpdated: "تم تحديث مصدر الصفحة",
+      screenSourceUpdateFailed: "تعذر تحديث مصدر الصفحة",
       vectorEditUnsupported: "تحرير المتجهات غير متاح لهذا الشكل أو التحويل.",
       imageUploading: "جارٍ رفع الصورة…",
       pasteReplaceFailed: "تعذر استبدال تلك الطبقة",
@@ -1834,7 +1850,7 @@ export default {
       swapFillStrokeLayeredFill:
         "لا يمكن نقل التعبئات المتعددة أو تعبئات الصور إلى حد بعد",
       alignNeedsTwoLayers: "حدّد طبقتين أو أكثر لمحاذاتها",
-      alignNeedsTwoScreens: "حدّد شاشتين أو أكثر لمحاذاتها",
+      alignNeedsTwoScreens: "حدد صفحتين أو أكثر لمحاذاتها",
       layoutUnmeasurable:
         "تعذّر قياس إحدى الطبقات المحددة. تأكد من ظهورها على اللوحة ثم حاول مرة أخرى.",
       layoutAutoLayoutChildren:
@@ -1883,11 +1899,10 @@ export default {
   },
   layersPanel: {
     title: "الطبقات",
-    screens: "الشاشات",
-    resizeScreens: "تغيير حجم قسم الشاشات",
-    allScreens: "كل الشاشات",
+    screens: "الصفحات",
+    resizeScreens: "تغيير حجم قسم الصفحات",
     thumbnail: "الصورة المصغرة",
-    addScreen: "إضافة شاشة",
+    addScreen: "إضافة صفحة",
     searchPlaceholder: "البحث في الطبقات",
     empty: "لا توجد طبقات",
     noMatches: "لا توجد طبقات مطابقة",
@@ -1936,7 +1951,7 @@ export default {
         "لم يؤكد جسر المحرر المباشر الاتصال بعد عدة محاولات.",
       connectionNotConfirmed:
         "لم يؤكد جسر المحرر المباشر الاتصال. هل لا يزال خادم التطوير المحلي قيد التشغيل؟",
-      permissionPromptTitle: "وصّل شاشاتك المحلية",
+      permissionPromptTitle: "اربط صفحاتك المحلية",
       permissionPromptDescription:
         "اختر «السماح» في مطالبة Chrome لتفعيل التحرير المباشر.",
       permissionPromptNoPrompt: "لم تظهر مطالبة Chrome؟",
@@ -1946,15 +1961,15 @@ export default {
       previewCredentialsUnavailableTitle:
         "بيانات اعتماد المعاينة المحلية غير متاحة",
       previewCredentialsUnavailableDescription:
-        "أعِد توصيل اتصال localhost لهذه الشاشة من المفتش، ثم أعد المحاولة.",
+        "أعد ربط اتصال localhost لهذه الصفحة في المفتش، ثم أعد المحاولة.",
       publicPreviewUnavailableDescription:
-        "لا تتم مشاركة معاينات localhost مع المشاهدين العامة. افتح هذا التصميم بصفتك متعاونًا لعرض هذه الشاشة.",
+        "لا تتم مشاركة معاينات localhost مع المشاهدين العامين. افتح Design هذا كمتعاون لعرض هذه الصفحة.",
       previewCredentialsRetry: "إعادة محاولة بيانات الاعتماد",
     },
   },
   multiScreenCanvas: {
     addBreakpointToAllScreens:
-      "إضافة نقطة توقف {{label}} ({{width}}px) إلى جميع الشاشات",
+      "إضافة نقطة التوقف {{label}} ({{width}}px) إلى كل الصفحات",
     preparingLiveEditor: "جارٍ تحضير المحرر المباشر…",
     duplicate: "تكرار",
     fork: "تفريع",
@@ -2487,10 +2502,10 @@ export default {
     openDesign: "فتح Design",
     templatesCta: "تصفح القوالب",
     previewLabel: "معاينة محلية",
-    layoutLabel: "تخطيط الشاشة جاهز للحفظ",
+    layoutLabel: "تخطيط الصفحة جاهز للحفظ",
   },
   templatesPage: {
-    previewEmpty: "لا توجد شاشات قابلة للمعاينة في هذا القالب.",
+    previewEmpty: "لا توجد صفحات قابلة للمعاينة في هذا القالب.",
     loading: "جارٍ تحميل القوالب",
     title: "القوالب",
     description:
@@ -2552,8 +2567,8 @@ export default {
     commentsTab: "التعليقات · {{count}}",
     commentsTitle: "تعليقات المراجعة",
     commentNumber: "تعليق المراجعة رقم {{count}}",
-    thisScreen: "هذه الشاشة",
-    allScreens: "جميع الشاشات",
+    thisScreen: "هذه الصفحة",
+    allScreens: "كل الصفحات",
     signInToComment: "سجّل الدخول للتعليق",
     panelTitle: "الملاحظات",
     placeholder: "اترك ملاحظاتك…",
@@ -2715,7 +2730,7 @@ export default {
         permission: "لم تعد تملك صلاحية التعديل",
         threadUnavailable: "لم تعد هذه المحادثة مفتوحة",
         targetChanged: "تغيّر التصميم أثناء عمل الوكيل",
-        applyUnavailable: "لا يستطيع الوكيل تعديل هذه الشاشة",
+        applyUnavailable: "لا يمكن للوكيل تعديل هذه الصفحة",
         applyIncomplete: "تم تعديل التصميم لكن لم تُحلّ المحادثة. راجع التعديل.",
         cancelledAfterEdit: "تم الإيقاف بعد تعديل التصميم. راجع التعديل.",
         generic: "حدث خطأ ما",

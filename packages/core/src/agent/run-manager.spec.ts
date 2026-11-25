@@ -19,6 +19,10 @@ import {
   withExecutionFence,
 } from "./execution-fence.js";
 import {
+  currentLeaseRenewalDiagnostics,
+  type LeaseRenewalDiagnostics,
+} from "./lease-renewal-diagnostics.js";
+import {
   AgentRunEventNotPersistedError,
   CHECKPOINT_TERMINAL_EVENT_SEQ,
 } from "./run-store.js";
@@ -130,6 +134,7 @@ vi.mock("./run-store.js", () => ({
       omitFromPersistedHistory: true,
       ...(event.type === "text" ? { text: "" } : {}),
       ...(event.type === "error" ? { error: "Private content omitted" } : {}),
+      ...(event.type === "auto_continue" ? { reason: event.reason } : {}),
       ...(event.type === "tool_start" ? { tool: event.tool, input: {} } : {}),
       ...(event.type === "tool_done"
         ? {
@@ -270,7 +275,10 @@ vi.mock("../observability/tracking-identity.js", () => ({
 }));
 
 import { recordAgentRun } from "../observability/metrics.js";
-import { registerErrorCaptureProvider } from "../server/capture-error.js";
+import {
+  registerErrorCaptureProvider,
+  type CaptureErrorContext,
+} from "../server/capture-error.js";
 import { captureException } from "../tracking/error-capture.js";
 import { track } from "../tracking/registry.js";
 import { EXECUTION_LEASE_LOST_ABORT_REASON } from "./abort-reasons.js";
@@ -302,6 +310,7 @@ import {
   resolveCompletedRunRetentionMs,
   resolveErroredRunRetentionMs,
   resolveRunSoftTimeoutMs,
+  readAbortStateBeforeDeadline,
   replayCompletedTurn,
   nextSqlSubscriptionEmptyPolls,
   resolveSqlSubscriptionPollMs,
@@ -674,6 +683,116 @@ describe("run manager soft timeout", () => {
 
     abortRun(run.runId, "user");
     await run.finalized;
+  });
+
+  it("records overdue and settled renewals without holding the heartbeat retry slot", async () => {
+    const renewal = Promise.withResolvers<void>();
+    const bodyDone = Promise.withResolvers<void>();
+    let diagnostics: LeaseRenewalDiagnostics | undefined;
+    vi.mocked(renewTurnExecutionLease).mockReturnValueOnce(renewal.promise);
+    const run = startRun(
+      "run-lease-diagnostics",
+      "thread-lease-diagnostics",
+      async () => {
+        diagnostics = currentLeaseRenewalDiagnostics("run-lease-diagnostics");
+        await bodyDone.promise;
+      },
+      undefined,
+      { softTimeoutMs: 0, noProgressTimeoutMs: 0, executionLease: true },
+    );
+    await vi.advanceTimersByTimeAsync(7_500);
+    const pending = diagnostics?.snapshot();
+    expect(pending?.attempts).toHaveLength(2);
+    expect(pending?.attempts[0]).toMatchObject({
+      outcome: "pending",
+      deadlineReachedAtMs: expect.any(Number),
+    });
+    expect(pending?.attempts[1]).toMatchObject({
+      pendingAtStart: 1,
+      outcome: "renewed",
+    });
+    renewal.reject(
+      Object.assign(new Error("Synthetic renewal failure"), { code: "57014" }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(diagnostics?.snapshot().attempts[0]).toMatchObject({
+      outcome: "error",
+      failureCode: "57014",
+      settledAtMs: expect.any(Number),
+    });
+    bodyDone.resolve();
+    await run.finalized;
+    expect(run.abortReason).toBeUndefined();
+  });
+
+  it("records a lost fence while preserving the existing abort behavior", async () => {
+    let diagnostics: LeaseRenewalDiagnostics | undefined;
+    vi.mocked(renewTurnExecutionLease).mockRejectedValueOnce(
+      new StaleExecutionFenceError({
+        threadId: "thread-lease-diagnostic-loss",
+        turnId: "run-lease-diagnostic-loss",
+        runId: "run-lease-diagnostic-loss",
+        generation: "1",
+      }),
+    );
+    const run = startRun(
+      "run-lease-diagnostic-loss",
+      "thread-lease-diagnostic-loss",
+      async (_send, signal) => {
+        diagnostics = currentLeaseRenewalDiagnostics(
+          "run-lease-diagnostic-loss",
+        );
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0, noProgressTimeoutMs: 0, executionLease: true },
+    );
+    await vi.advanceTimersByTimeAsync(1_500);
+    await run.finalized;
+    expect(diagnostics?.snapshot().attempts).toEqual([
+      expect.objectContaining({
+        outcome: "fence_lost",
+        settledAtMs: expect.any(Number),
+      }),
+    ]);
+    expect(run.abortReason).toBe("execution_lease_lost");
+  });
+
+  it("does not expose parent renewal diagnostics to an unleased nested run", async () => {
+    let parentDiagnostics: LeaseRenewalDiagnostics | undefined;
+    let childDiagnostics: LeaseRenewalDiagnostics | undefined;
+    const parentDone = Promise.withResolvers<void>();
+    const childDone = Promise.withResolvers<void>();
+    const parent = startRun(
+      "run-lease-parent",
+      "thread-lease-parent",
+      async () => {
+        parentDiagnostics = currentLeaseRenewalDiagnostics("run-lease-parent");
+        const child = startRun(
+          "run-unleased-child",
+          "thread-unleased-child",
+          async () => {
+            childDiagnostics =
+              currentLeaseRenewalDiagnostics("run-unleased-child");
+          },
+          undefined,
+          { softTimeoutMs: 0, noProgressTimeoutMs: 0 },
+        );
+        await child.finalized;
+        childDone.resolve();
+        await parentDone.promise;
+      },
+      undefined,
+      { softTimeoutMs: 0, noProgressTimeoutMs: 0, executionLease: true },
+    );
+    await vi.advanceTimersByTimeAsync(1_500);
+    await childDone.promise;
+    expect(childDiagnostics).toBeUndefined();
+    expect(parentDiagnostics?.snapshot().attempts).toHaveLength(1);
+    parentDone.resolve();
+    await parent.finalized;
   });
 
   it("does not start a run when an execution lease returns no fence", async () => {
@@ -1095,7 +1214,7 @@ describe("run manager soft timeout", () => {
       type: "auto_continue",
       reason: "run_timeout",
     });
-    expect(events).not.toContainEqual({ type: "done" });
+    expect(events.some((event) => event.type === "done")).toBe(false);
     expect(run.events.at(-1)?.event).toMatchObject({
       type: "auto_continue",
       reason: "run_timeout",
@@ -1516,7 +1635,7 @@ describe("run manager soft timeout", () => {
 
     await run.finalized;
 
-    expect(events).toContainEqual({ type: "done" });
+    expect(events).toContainEqual({ type: "done", durationMs: 11 });
     expect(events).not.toContainEqual({
       type: "auto_continue",
       reason: "run_timeout",
@@ -1526,7 +1645,7 @@ describe("run manager soft timeout", () => {
     expect(insertRunEvent).toHaveBeenCalledWith(
       "run-checkpoint-preserves-terminal",
       0,
-      JSON.stringify({ type: "done" }),
+      JSON.stringify({ type: "done", durationMs: 11 }),
       { eventAt: expect.any(Number), requireInserted: true },
     );
   });
@@ -1563,7 +1682,7 @@ describe("run manager soft timeout", () => {
 
     await run.finalized;
 
-    expect(events).toContainEqual({ type: "done" });
+    expect(events).toContainEqual({ type: "done", durationMs: 11 });
     expect(events).not.toContainEqual(
       expect.objectContaining({
         type: "error",
@@ -1713,7 +1832,7 @@ describe("run manager soft timeout", () => {
       type: "error",
       errorCode: "run_checkpoint_persistence_failed",
     });
-    expect(events).not.toContainEqual({ type: "done" });
+    expect(events.some((event) => event.type === "done")).toBe(false);
     expect(insertRunEvent).toHaveBeenCalledWith(
       "run-checkpoint-failure-latches-terminal",
       0,
@@ -2094,6 +2213,25 @@ describe("run manager soft timeout", () => {
     expect(resolveRunSoftTimeoutMs(undefined, { useHostedDefault: true })).toBe(
       HOSTED_SOFT_TIMEOUT_CEILING_MS,
     );
+  });
+
+  it("raises the hosted foreground ceiling when configured", () => {
+    process.env.K_SERVICE = "cloud-run-app";
+    process.env.AGENT_HOSTED_RUN_SOFT_TIMEOUT_CEILING_MS = "240000";
+    try {
+      expect(resolveRunSoftTimeoutMs(200_000)).toBe(200_000);
+      expect(resolveRunSoftTimeoutMs(300_000)).toBe(240_000);
+      expect(
+        resolveRunSoftTimeoutMs(undefined, { useHostedDefault: true }),
+      ).toBe(DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS);
+      process.env.AGENT_HOSTED_RUN_SOFT_TIMEOUT_CEILING_MS = "20000";
+      expect(
+        resolveRunSoftTimeoutMs(undefined, { useHostedDefault: true }),
+      ).toBe(20_000);
+    } finally {
+      delete process.env.AGENT_HOSTED_RUN_SOFT_TIMEOUT_CEILING_MS;
+      delete process.env.K_SERVICE;
+    }
   });
 
   it("FOREGROUND hosted run still clamps to the 40s interactive ceiling (guardrail)", () => {
@@ -2501,7 +2639,7 @@ describe("run manager soft timeout", () => {
     expect(insertRunEvent).toHaveBeenCalledWith(
       "run-finalization-boundary",
       1,
-      JSON.stringify({ type: "done" }),
+      JSON.stringify({ type: "done", durationMs: 50 }),
       { eventAt: expect.any(Number), requireInserted: true },
     );
     expect(finalized).toBe(false);
@@ -3566,7 +3704,7 @@ describe("run manager soft timeout", () => {
       { type: "suggestions", suggestions: [] },
       { type: "text", text: "Created your design." },
       suggestions,
-      { type: "done" },
+      { type: "done", durationMs: 0 },
     ]);
     vi.mocked(getCurrentTurnRunEventsForThread).mockResolvedValueOnce(
       persisted,
@@ -4760,6 +4898,195 @@ describe("run manager soft timeout", () => {
     expect(writeOrder).toEqual(["thread_data", "status"]);
   });
 
+  async function runTerminalErrorCase({
+    kind,
+    releaseKind,
+    privateTurn,
+    expected,
+  }: {
+    kind: "stale" | "spoofed";
+    releaseKind: "stale" | "arbitrary" | "spoofed-stale";
+    privateTurn: boolean;
+    expected: string;
+  }) {
+    const sentinel = "private-terminal-sentinel";
+    const fence = {
+      runId: "run-terminal-error-kind",
+      threadId: "thread-terminal-error-kind",
+      turnId: "turn-terminal-error-kind",
+      generation: sentinel,
+    };
+    const error =
+      kind === "stale"
+        ? new StaleExecutionFenceError(fence)
+        : Object.assign(new Error(sentinel), {
+            name: "StaleExecutionFenceError",
+            code: "stale_execution_fence",
+            cause: new StaleExecutionFenceError(fence),
+          });
+    const provider = vi.fn(
+      (_error: unknown, _context: CaptureErrorContext) =>
+        "evt_terminal_error_kind",
+    );
+    const unregister = registerErrorCaptureProvider(
+      "run-terminal-error-kind",
+      provider,
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    vi.mocked(updateRunStatusIfRunning).mockRejectedValueOnce(error);
+    vi.mocked(reconcileTerminalRunFromEvents).mockResolvedValueOnce(true);
+    const releaseError =
+      releaseKind === "stale"
+        ? new StaleExecutionFenceError(fence)
+        : Object.assign(new Error(sentinel), {
+            code:
+              releaseKind === "spoofed-stale"
+                ? "stale_execution_fence"
+                : sentinel,
+          });
+    vi.mocked(releaseTurnExecutionLease).mockRejectedValueOnce(releaseError);
+
+    try {
+      const run = startRun(
+        fence.runId,
+        fence.threadId,
+        async (send) => {
+          await send({
+            type: "text",
+            text: privateTurn ? sentinel : "answer",
+            ...(privateTurn ? { omitFromPersistedHistory: true } : {}),
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0, executionLease: true, turnId: fence.turnId },
+      );
+      await run.finalized;
+
+      const terminalReports = provider.mock.calls.filter(
+        ([, context]) => context.tags?.phase === "terminal-status-persistence",
+      );
+      expect(terminalReports).toHaveLength(1);
+      const [reportedError, context] = terminalReports[0];
+      expect(context.tags).toMatchObject({
+        source: "agent-run-manager",
+        phase: "terminal-status-persistence",
+        errorCode: "run_terminal_status_persistence_failed",
+        terminalErrorKind: expected,
+      });
+      const terminalReportIndex = provider.mock.calls.findIndex(
+        ([, reportContext]) =>
+          reportContext.tags?.phase === "terminal-status-persistence",
+      );
+      const releaseReports = provider.mock.calls.filter(
+        ([, reportContext]) =>
+          reportContext.tags?.phase === "execution-lease-release",
+      );
+      expect(releaseReports).toHaveLength(1);
+      const [reportedReleaseError, releaseContext] = releaseReports[0];
+      expect(releaseContext.tags).toMatchObject({
+        source: "agent-run-manager",
+        phase: "execution-lease-release",
+        errorCode:
+          releaseKind === "stale"
+            ? "stale_execution_fence"
+            : privateTurn
+              ? "execution_lease_release_failed"
+              : sentinel,
+      });
+      const releaseReportIndex = provider.mock.calls.indexOf(releaseReports[0]);
+      expect(releaseReportIndex).toBeGreaterThan(terminalReportIndex);
+      expect(run.status).toBe("completed");
+      expect(reconcileTerminalRunFromEvents).toHaveBeenCalledWith(fence.runId);
+      return {
+        sentinel,
+        error,
+        releaseError,
+        reportedError,
+        reportedReleaseError,
+        context,
+        releaseContext,
+        consoleCalls: [...consoleError.mock.calls],
+      };
+    } finally {
+      unregister();
+      consoleError.mockRestore();
+    }
+  }
+
+  it.each([
+    { kind: "stale", releaseKind: "stale", expected: "stale_execution_fence" },
+    { kind: "spoofed", releaseKind: "arbitrary", expected: "unclassified" },
+    { kind: "spoofed", releaseKind: "spoofed-stale", expected: "unclassified" },
+  ] as const)(
+    "classifies and redacts the private terminal persistence error ($kind, release: $releaseKind)",
+    async (testCase) => {
+      const {
+        sentinel,
+        reportedError,
+        reportedReleaseError,
+        context,
+        releaseContext,
+        consoleCalls,
+      } = await runTerminalErrorCase({ ...testCase, privateTurn: true });
+
+      expect(reportedError).toBeInstanceOf(Error);
+      expect(reportedError).toMatchObject({
+        name: "Error",
+        message: "Private content omitted",
+      });
+      expect(reportedError).toMatchObject({
+        name: "Error",
+        message: "Private content omitted",
+      });
+      expect(reportedReleaseError).toMatchObject({
+        name: "Error",
+        message: "Private content omitted",
+      });
+      expect(
+        JSON.stringify({
+          error: Object.getOwnPropertyDescriptors(reportedError),
+          context,
+        }),
+      ).not.toContain(sentinel);
+      expect(
+        JSON.stringify({
+          error: Object.getOwnPropertyDescriptors(reportedReleaseError),
+          context: releaseContext,
+        }),
+      ).not.toContain(sentinel);
+      expect(JSON.stringify(consoleCalls)).not.toContain(sentinel);
+      expect(consoleCalls).toContainEqual([
+        "[run-manager] terminal status persistence error:",
+        "Private content omitted",
+      ]);
+    },
+  );
+
+  it("classifies the nonprivate spoofed terminal persistence error", async () => {
+    const {
+      sentinel,
+      error,
+      releaseError,
+      reportedError,
+      reportedReleaseError,
+      consoleCalls,
+    } = await runTerminalErrorCase({
+      kind: "spoofed",
+      releaseKind: "arbitrary",
+      privateTurn: false,
+      expected: "unclassified",
+    });
+
+    expect(reportedError).toBe(error);
+    expect(reportedReleaseError).toBe(releaseError);
+    expect(consoleCalls).toContainEqual([
+      "[run-manager] terminal status persistence error:",
+      sentinel,
+    ]);
+  });
+
   it("reconciles from the terminal event when the final status write misses", async () => {
     vi.mocked(updateRunStatusIfRunning).mockRejectedValueOnce(
       new Error("transient status write failure"),
@@ -5432,7 +5759,7 @@ describe("run manager soft timeout", () => {
     expect(errorEvent).not.toHaveProperty("providerRetryable");
   });
 
-  it("preserves an explicit terminal provider verdict on the wire", async () => {
+  it("preserves a terminal request rejection and its request ID in details", async () => {
     const events: AgentChatEvent[] = [];
     const message = "Invalid request timed out";
 
@@ -5443,6 +5770,7 @@ describe("run manager soft timeout", () => {
         throw new EngineError(message, {
           errorCode: "invalid_request",
           providerRetryable: false,
+          requestId: "req_rejected_request",
         });
       },
       undefined,
@@ -5463,6 +5791,7 @@ describe("run manager soft timeout", () => {
         error: message,
         errorCode: "invalid_request",
         providerRetryable: false,
+        details: `${message}\n\nrequest_id: req_rejected_request`,
       }),
     );
   });
@@ -5722,6 +6051,7 @@ describe("run manager soft timeout", () => {
   );
 
   it("emits terminal events only after the completion callback resolves", async () => {
+    const driver = Promise.withResolvers<void>();
     let resolveComplete!: () => void;
     const onComplete = vi.fn(
       () =>
@@ -5735,7 +6065,7 @@ describe("run manager soft timeout", () => {
       "run-terminal-after-save",
       "thread-terminal-after-save",
       async (send) => {
-        await Promise.resolve();
+        await driver.promise;
         send({ type: "text", text: "saved first" });
         send({ type: "done" });
       },
@@ -5744,13 +6074,17 @@ describe("run manager soft timeout", () => {
     );
     run.subscribers.add((event) => events.push(event.event));
 
-    await vi.waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(5_027);
+    driver.resolve();
+    await vi.advanceTimersByTimeAsync(0);
 
+    expect(onComplete).toHaveBeenCalledTimes(1);
     expect(run.status).toBe("completed");
     expect(events).toEqual([{ type: "text", text: "saved first" }]);
+    const done = { type: "done", durationMs: 5_027 };
     expect(
       onComplete.mock.calls[0][0].events.map((event) => event.event),
-    ).toEqual([{ type: "text", text: "saved first" }, { type: "done" }]);
+    ).toEqual([{ type: "text", text: "saved first" }, done]);
     expect(insertRunEvent).toHaveBeenCalledTimes(1);
     expect(insertRunEvent).toHaveBeenCalledWith(
       "run-terminal-after-save",
@@ -5762,13 +6096,15 @@ describe("run manager soft timeout", () => {
       "completed",
     );
 
+    await vi.advanceTimersByTimeAsync(9_000);
     resolveComplete();
+    await run.finalized;
 
-    await vi.waitFor(() => expect(events).toContainEqual({ type: "done" }));
+    expect(events).toContainEqual(done);
     expect(insertRunEvent).toHaveBeenCalledWith(
       "run-terminal-after-save",
       1,
-      JSON.stringify({ type: "done" }),
+      JSON.stringify(done),
       { eventAt: expect.any(Number), requireInserted: true },
     );
     expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
@@ -5807,7 +6143,7 @@ describe("run manager soft timeout", () => {
     await run.finalized;
 
     expect(endsAfterToolResultWithoutAssistantFinal(run)).toBe(false);
-    expect(events.at(-1)).toEqual({ type: "done" });
+    expect(events.at(-1)).toEqual({ type: "done", durationMs: 0 });
     expect(events.some((event) => event.type === "auto_continue")).toBe(false);
   });
 
@@ -5844,7 +6180,7 @@ describe("run manager soft timeout", () => {
       type: "auto_continue",
       reason: "stream_ended",
     });
-    expect(events).not.toContainEqual({ type: "done" });
+    expect(events.some((event) => event.type === "done")).toBe(false);
     expect(insertRunEvent).toHaveBeenCalledWith(
       "run-server-continuation-terminal",
       1,
@@ -5944,7 +6280,11 @@ describe("run manager soft timeout", () => {
     );
     run.subscribers.add((event) => events.push(event.event));
     await run.finalized;
-    expect(events.at(-1)).toEqual({ type: "done", reason: "action_settled" });
+    expect(events.at(-1)).toEqual({
+      type: "done",
+      reason: "action_settled",
+      durationMs: 0,
+    });
     expect(events).not.toContainEqual({
       type: "auto_continue",
       reason: "stream_ended",
@@ -5983,7 +6323,7 @@ describe("run manager soft timeout", () => {
       expect.objectContaining({ type: "tool_done" }),
       { type: "auto_continue", reason: "stream_ended" },
     ]);
-    expect(events).not.toContainEqual({ type: "done" });
+    expect(events.some((event) => event.type === "done")).toBe(false);
     expect(run.status).toBe("completed");
     expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-foreground-tool-only",
@@ -6025,7 +6365,7 @@ describe("run manager soft timeout", () => {
 
     await run.finalized;
 
-    expect(events).not.toContainEqual({ type: "done" });
+    expect(events.some((event) => event.type === "done")).toBe(false);
     expect(events.at(-1)).toEqual({
       type: "auto_continue",
       reason: "stream_ended",
@@ -6081,7 +6421,7 @@ describe("run manager soft timeout", () => {
 
     await run.finalized;
 
-    expect(events).not.toContainEqual({ type: "done" });
+    expect(events.some((event) => event.type === "done")).toBe(false);
     expect(events.at(-1)).toEqual({
       type: "auto_continue",
       reason: "stream_ended",
@@ -6176,7 +6516,7 @@ describe("run manager soft timeout", () => {
     await run.finalized;
 
     expect(events.some((event) => event.type === "auto_continue")).toBe(false);
-    expect(events.at(-1)).toEqual({ type: "done" });
+    expect(events.at(-1)).toEqual({ type: "done", durationMs: 0 });
     expect(run.status).toBe("completed");
     expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-connection-yield",
@@ -6229,7 +6569,7 @@ describe("run manager soft timeout", () => {
       type: "auto_continue",
       reason: "stream_ended",
     });
-    expect(events).not.toContainEqual({ type: "done" });
+    expect(events.some((event) => event.type === "done")).toBe(false);
     expect(run.status).toBe("completed");
     expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
       "run-action-preparation-only",
@@ -6264,7 +6604,7 @@ describe("run manager soft timeout", () => {
 
     expect(events).toEqual([
       expect.objectContaining({ type: "tool_done" }),
-      { type: "done" },
+      { type: "done", durationMs: 0 },
     ]);
     expect(events).not.toContainEqual({
       type: "auto_continue",
@@ -6929,8 +7269,11 @@ describe("run manager soft timeout", () => {
       undefined,
       { softTimeoutMs: 0 },
     );
-    await vi.waitFor(() => expect(run.status).not.toBe("running"));
-    expect(run.events).toEqual([{ seq: 0, event: { type: "done" } }]);
+    await run.finalized;
+    expect(run.status).toBe("completed");
+    expect(run.events).toEqual([
+      { seq: 0, event: { type: "done", durationMs: 0 } },
+    ]);
 
     const stream = subscribeToRun("run-memory-past-cursor", 1);
     const reader = stream!.getReader();
@@ -6944,7 +7287,7 @@ describe("run manager soft timeout", () => {
     }
 
     expect(chunks.join("")).toContain(
-      'data: {"type":"done","seq":0,"eventId":"run-memory-past-cursor:0"}',
+      'data: {"type":"done","durationMs":0,"seq":0,"eventId":"run-memory-past-cursor:0"}',
     );
   });
 
@@ -9205,6 +9548,7 @@ describe("run manager soft timeout", () => {
   it("completes private text and UI tool responses without an unwanted continuation", async () => {
     for (const kind of ["text", "ui"] as const) {
       const runId = `run-private-completion-${kind}`;
+      let completionBoundary: boolean | undefined;
       const run = startRun(
         runId,
         `thread-${runId}`,
@@ -9227,16 +9571,152 @@ describe("run manager soft timeout", () => {
           if (kind === "text")
             await send({ type: "text", text: "private final answer" });
         },
-        undefined,
+        (completionRun) => {
+          completionBoundary =
+            endsAfterToolResultWithoutAssistantFinal(completionRun);
+        },
         { softTimeoutMs: 0 },
       );
       await run.finalized;
+      expect(endsAfterToolResultWithoutAssistantFinal(run)).toBe(false);
+      expect(completionBoundary).toBe(false);
       expect(updateRunStatusIfRunning).toHaveBeenCalledWith(runId, "completed");
       expect(setRunTerminalReason).toHaveBeenCalledWith(runId, "done");
       expect(JSON.stringify(run.events)).not.toContain("private final answer");
       expect(
         run.events.some(({ event }) => event.type === "auto_continue"),
       ).toBe(false);
+    }
+  });
+
+  it("does not auto-continue a private turn whose reply text was blanked in retained events", async () => {
+    const runId = "run-private-written-final";
+    const run = startRun(
+      runId,
+      `thread-${runId}`,
+      async (send) => {
+        await send({
+          type: "tool_done",
+          id: "call-1",
+          tool: "manage-gmail-draft",
+          input: {},
+          result: "private draft saved",
+          completedSideEffect: true,
+          omitFromPersistedHistory: true,
+        });
+        await send({
+          type: "text",
+          text: "Your draft is saved.",
+          omitFromPersistedHistory: true,
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    await run.finalized;
+    expect(run.status).toBe("completed");
+    expect(endsAfterToolResultWithoutAssistantFinal(run)).toBe(false);
+    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
+      runId,
+      "truncated",
+      expect.anything(),
+    );
+  });
+
+  it("auto-continues a private turn that ends after a completed side-effect tool with empty text", async () => {
+    const runId = "run-private-empty-final";
+    const run = startRun(
+      runId,
+      `thread-${runId}`,
+      async (send) => {
+        await send({
+          type: "tool_start",
+          id: "call-1",
+          tool: "manage-gmail-draft",
+          input: {},
+          omitFromPersistedHistory: true,
+        });
+        await send({
+          type: "tool_done",
+          id: "call-1",
+          tool: "manage-gmail-draft",
+          input: {},
+          result: "private draft saved",
+          completedSideEffect: true,
+          omitFromPersistedHistory: true,
+        });
+        await send({
+          type: "text",
+          text: "",
+          omitFromPersistedHistory: true,
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    await run.finalized;
+    expect(run.status).toBe("completed");
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(runId, "truncated", {
+      terminalReason: "stream_ended",
+    });
+    expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
+      runId,
+      "completed",
+    );
+    expect(
+      run.events.some(
+        ({ event }) =>
+          event.type === "auto_continue" && event.reason === "stream_ended",
+      ),
+    ).toBe(true);
+    expect(setRunError).not.toHaveBeenCalled();
+  });
+
+  it("keeps a real framework error code and safe user message on a private run instead of Private content omitted", async () => {
+    for (const [code, expectedMessage] of [
+      [
+        "private_history_unrecoverable",
+        "I stopped because this turn's private steps could not be safely resumed, so I could not confirm whether an earlier step already finished. Check what was saved before sending the request again.",
+      ],
+      [
+        "tool_call_journal_unreadable",
+        "I stopped because I could not read this turn's run ledger, so I could not tell which steps had already finished. Retrying would risk repeating a step that already completed. Please send the request again.",
+      ],
+      [
+        "private_history_provenance_unavailable",
+        "Private turn provenance is unavailable. Please send the request again.",
+      ],
+      [
+        "write_tool_outcome_unknown",
+        "I stopped before running a write action again because an earlier attempt may have already saved changes and I could not confirm the result. Check what was saved before retrying.",
+      ],
+    ] as const) {
+      const runId = `run-private-real-error-code-${code}`;
+      const run = startRun(
+        runId,
+        `thread-${runId}`,
+        async (send) => {
+          await send({
+            type: "tool_start",
+            tool: "read",
+            input: {},
+            omitFromPersistedHistory: true,
+          });
+          await send({
+            type: "error",
+            error: "private sentinel text",
+            errorCode: code,
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+      await run.finalized;
+      expect(setRunTerminalReason).toHaveBeenCalledWith(runId, `error:${code}`);
+      expect(setRunError).toHaveBeenCalledWith(runId, code, expectedMessage);
+      expect(JSON.stringify(setRunError.mock.calls)).not.toContain(
+        "private sentinel text",
+      );
     }
   });
 
@@ -9278,6 +9758,12 @@ describe("run manager soft timeout", () => {
         "truncated",
         { terminalReason: "stream_ended" },
       );
+      expect(
+        run.events.some(
+          ({ event }) =>
+            event.type === "auto_continue" && event.reason === "stream_ended",
+        ),
+      ).toBe(true);
     }
   });
 
@@ -11208,5 +11694,68 @@ describe("engineRequestShapeTags", () => {
 
   it("emits nothing when the failure happened before a request was built", () => {
     expect(engineRequestShapeTags(undefined)).toEqual({});
+  });
+});
+
+describe("readAbortStateBeforeDeadline", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("retries a failed read until one succeeds", async () => {
+    const read = vi
+      .fn<() => Promise<{ aborted: boolean }>>()
+      .mockRejectedValueOnce(new Error("connection reset"))
+      .mockResolvedValueOnce({ aborted: true });
+
+    await expect(readAbortStateBeforeDeadline(read, 2_000)).resolves.toEqual({
+      aborted: true,
+    });
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up on a read still pending at the deadline", async () => {
+    vi.useFakeTimers();
+    const result = readAbortStateBeforeDeadline(
+      () => new Promise<{ aborted: boolean }>(() => {}),
+      2_000,
+    );
+
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    await expect(result).resolves.toBeNull();
+  });
+
+  it("gives up when every read fails until the deadline", async () => {
+    vi.useFakeTimers();
+    const read = vi
+      .fn<() => Promise<{ aborted: boolean }>>()
+      .mockRejectedValue(new Error("database unavailable"));
+    const result = readAbortStateBeforeDeadline(read, 1_000);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(result).resolves.toBeNull();
+    expect(read.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it("hands each failed read's error to the caller", async () => {
+    vi.useFakeTimers();
+    const first = new Error("connection reset");
+    const last = new Error("database unavailable");
+    const read = vi
+      .fn<() => Promise<{ aborted: boolean }>>()
+      .mockRejectedValueOnce(first)
+      .mockRejectedValue(last);
+    const failures: unknown[] = [];
+    const result = readAbortStateBeforeDeadline(read, 1_000, (error) =>
+      failures.push(error),
+    );
+
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(result).resolves.toBeNull();
+    expect(failures[0]).toBe(first);
+    expect(failures.at(-1)).toBe(last);
   });
 });

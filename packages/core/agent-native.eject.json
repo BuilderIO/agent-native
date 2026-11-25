@@ -13,6 +13,7 @@
       "catalog": "workspace-connections",
       "catalogItems": [
         "slack",
+        "zoom",
         "github",
         "figma",
         "notion",

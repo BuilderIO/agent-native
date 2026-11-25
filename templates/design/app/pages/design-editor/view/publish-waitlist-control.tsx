@@ -1,4 +1,4 @@
-import { IconPlayerPlay, IconChevronDown } from "@tabler/icons-react";
+import { PlayIcon } from "@radix-ui/react-icons";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -141,15 +141,14 @@ export function renderPublishWaitlistControl({
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
-                size="sm"
+                size="icon-xs"
                 className={cn(
-                  "h-[var(--design-row-height)] cursor-pointer gap-[var(--design-baseline-half)] rounded-md px-[var(--design-baseline-unit)] text-foreground hover:bg-accent hover:text-foreground",
+                  "design-focus-ring shrink-0 cursor-pointer text-foreground hover:bg-accent hover:text-foreground [&_svg]:size-[var(--design-icon-size)]",
                   hostEmbeddedEditor && "hidden",
                 )}
                 aria-label={"Preview or publish app" /* i18n-ignore */}
               >
-                <IconPlayerPlay className="size-5" />
-                <IconChevronDown className="size-3 opacity-70" />
+                <PlayIcon className="design-ui-icon" aria-hidden="true" />
               </Button>
             </DropdownMenuTrigger>
           </TooltipTrigger>

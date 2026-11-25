@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
+import { restorePathForTrashedSkill, SKILL_TRASH_PREFIX } from "./metadata.js";
 
 const emitResourceChange = vi.hoisted(() => vi.fn());
 
@@ -10,6 +11,7 @@ vi.mock("./emitter.js", () => ({
 }));
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => sharedClient,
   isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: <T>(run: () => Promise<T>) => run(),
@@ -62,6 +64,7 @@ afterAll(async () => {
 
 const {
   resourceGet,
+  resourceList,
   resourceMoveIfCurrent,
   resourcePut,
   WORKSPACE_OWNER,
@@ -259,6 +262,36 @@ describe("resourceMoveIfCurrent", () => {
     expect(restored.updatedAt).toBeGreaterThan(trashed.updatedAt);
     expect(await resourceGet(source.id)).toEqual(restored);
     expect(emitResourceChange).toHaveBeenCalledTimes(2);
+  });
+
+  it("lists a removed skill only in Trash and preserves it on a restore collision", async () => {
+    const source = await resourcePut(
+      OWNER,
+      "skills/review/SKILL.md",
+      "Review a task",
+      "text/markdown",
+      { metadata: { retained: true } },
+    );
+    const trashPath = `${SKILL_TRASH_PREFIX}${source.id}/${source.path}`;
+    const trashed = await resourceMoveIfCurrent(source, trashPath);
+    if (!trashed) throw new Error("Expected the skill to move to Trash");
+    expect(restorePathForTrashedSkill(trashed)).toBe(source.path);
+    expect(await resourceList(OWNER)).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: source.id })]),
+    );
+    expect(await resourceList(OWNER, SKILL_TRASH_PREFIX)).toEqual([
+      expect.objectContaining({ id: source.id, path: trashPath }),
+    ]);
+    expect(
+      await resourceList("other-skill-owner@example.test", SKILL_TRASH_PREFIX),
+    ).toEqual([]);
+
+    const replacement = await resourcePut(OWNER, source.path, "New skill");
+    expect(await resourceMoveIfCurrent(trashed, source.path)).toBeNull();
+    expect(await resourceGet(replacement.id)).toMatchObject({
+      content: "New skill",
+    });
+    expect(await resourceGet(source.id)).toEqual(trashed);
   });
 
   it("rejects unsafe destination paths", async () => {

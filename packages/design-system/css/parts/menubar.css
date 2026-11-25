@@ -1,0 +1,71 @@
+/*
+ * Part: menubar
+ *
+ *   <div class="menubar" role="menubar">          Base UI Menubar
+ *     <button class="menubar-trigger"             Menu.Trigger
+ *             [data-popup-open] [data-disabled]>
+ *
+ * The popups a trigger opens are the menu part's, with the same
+ * `data-variant`, `data-color` and `data-high-contrast`;
+ * menu.css styles them. A trigger is a gray ghost control: a tint on hover,
+ * while its menu is open and under keyboard focus.
+ */
+
+@layer components {
+  .menubar {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    box-sizing: border-box;
+    padding: var(--space-1);
+    border: 1px solid var(--line-default);
+    border-radius: calc(var(--shape-control) * var(--corner-scale, 1));
+    corner-shape: var(--corner-shape, round);
+    background-color: var(--surface-canvas);
+  }
+
+  .menubar-trigger {
+    display: inline-flex;
+    align-items: center;
+    box-sizing: border-box;
+    height: var(--control-height-3);
+    padding: 0 var(--space-2);
+    border: 0;
+    border-radius: max(0px, calc(var(--shape-control) - var(--space-1)));
+    corner-shape: var(--corner-shape, round);
+    background-color: transparent;
+    color: var(--fg-default);
+    font-size: var(--control-font-size);
+    line-height: var(--control-line-height);
+    font-weight: var(--font-weight-medium);
+    cursor: default;
+    -webkit-user-select: none;
+    user-select: none;
+    outline-style: none;
+    transition-property: color, background-color;
+    transition-duration: var(--duration-2);
+    transition-timing-function: var(--ease-standard);
+  }
+
+  @media (hover: hover) {
+    .menubar-trigger:hover {
+      background-color: var(--gray-a3);
+    }
+  }
+
+  .menubar-trigger:focus-visible {
+    background-color: var(--gray-a3);
+    outline: var(--focus-ring-width) solid var(--line-focus);
+    outline-offset: var(--focus-ring-offset);
+  }
+
+  .menubar-trigger[data-popup-open] {
+    background-color: var(--gray-a4);
+  }
+
+  .menubar-trigger[data-disabled] {
+    pointer-events: none;
+    background-color: transparent;
+    color: var(--fg-disabled);
+  }
+}

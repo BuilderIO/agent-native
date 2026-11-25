@@ -20,6 +20,7 @@ import {
 import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import type {
   ContentDatabaseMutationContract,
+  ContentDatabaseReceiptReplay,
   ContentDatabaseRowMutationReceipt,
   ContentDatabaseRowMutationResult,
   ContentDatabaseRowPatchBatchResult,
@@ -36,7 +37,11 @@ import {
   type DocumentPropertyType,
   type DocumentPropertyValue,
 } from "../shared/properties.js";
-import { contentDatabaseSourceManagedPropertyIds } from "../shared/source-field-policy.js";
+import {
+  contentDatabaseSourceManagedPropertyIds,
+  contentDatabaseSourceWritebackPropertyIds,
+  contentDatabaseSourceWritebackValueError,
+} from "../shared/source-field-policy.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
@@ -74,7 +79,11 @@ import {
   unguardablePropertyIds,
   type PropertyGenerations,
 } from "./_property-generations.js";
-import { nanoid } from "./_property-utils.js";
+import {
+  nanoid,
+  sourceAllowsValueEdit,
+  sourceSavesValueEdits,
+} from "./_property-utils.js";
 import { lockDocumentRows } from "./_row-lock-order.js";
 
 const databaseMutationAuthorityScopeSchema = z.discriminatedUnion("kind", [
@@ -96,7 +105,7 @@ export const databaseMutationTargetInputSchema = z.object({
   authorityScope: databaseMutationAuthorityScopeSchema
     .optional()
     .describe(
-      "Optional legacy assertion only. Agents must omit it; the authenticated server derives authority from the selected collection.",
+      "Optional. Copy it unchanged from the read that returned this target, or leave it out: the server derives authority from the collection and refuses a scope that is not the collection's own.",
     ),
   spaceId: z
     .string()
@@ -185,6 +194,7 @@ export interface MutationContext {
   databaseDocument: typeof schema.documents.$inferSelect;
   definitions: DefinitionRow[];
   sourceManagedPropertyIds: Set<string>;
+  sourceWritebackPropertyIds: Set<string>;
   schemaRevision: string;
 }
 
@@ -325,10 +335,15 @@ function invalidProperty(
   );
 }
 
+type SourcePropertySets = Pick<
+  MutationContext,
+  "sourceManagedPropertyIds" | "sourceWritebackPropertyIds"
+>;
+
 function schemaPayload(
   database: DatabaseRow,
   definitions: DefinitionRow[],
-  sourceManagedPropertyIds: Set<string>,
+  sets: SourcePropertySets,
 ) {
   return {
     naturalKeyPropertyId: database.naturalKeyPropertyId,
@@ -341,7 +356,10 @@ function schemaPayload(
         systemRole: definition.systemRole,
         visibility: definition.visibility,
         options: parsePropertyOptions(definition.optionsJson),
-        sourceManaged: sourceManagedPropertyIds.has(definition.id),
+        sourceManaged: sets.sourceManagedPropertyIds.has(definition.id),
+        ...(sourceSavesValueEdits(sets, definition.id, definition.type)
+          ? { sourceWriteback: true }
+          : {}),
       }))
       .sort((left, right) => left.id.localeCompare(right.id)),
   };
@@ -350,9 +368,9 @@ function schemaPayload(
 function schemaRevisionFor(
   database: DatabaseRow,
   definitions: DefinitionRow[],
-  sourceManagedPropertyIds: Set<string>,
+  sets: SourcePropertySets,
 ) {
-  return digest(schemaPayload(database, definitions, sourceManagedPropertyIds));
+  return digest(schemaPayload(database, definitions, sets));
 }
 
 function acceptedShape(type: DocumentPropertyType): string {
@@ -395,6 +413,7 @@ export type LoadedDatabaseSchema = {
   database: DatabaseRow;
   definitions: DefinitionRow[];
   sourceManagedPropertyIds: Set<string>;
+  sourceWritebackPropertyIds: Set<string>;
 };
 
 export async function loadContext(
@@ -481,11 +500,8 @@ export async function loadContext(
       databaseDocument,
       definitions: loaded.definitions,
       sourceManagedPropertyIds: loaded.sourceManagedPropertyIds,
-      schemaRevision: schemaRevisionFor(
-        database,
-        loaded.definitions,
-        loaded.sourceManagedPropertyIds,
-      ),
+      sourceWritebackPropertyIds: loaded.sourceWritebackPropertyIds,
+      schemaRevision: schemaRevisionFor(database, loaded.definitions, loaded),
     };
   }
   const definitions = await db
@@ -497,6 +513,11 @@ export async function loadContext(
       propertyId: schema.contentDatabaseSourceFields.propertyId,
       writeOwner: schema.contentDatabaseSourceFields.writeOwner,
       readOnly: schema.contentDatabaseSourceFields.readOnly,
+      mappingType: schema.contentDatabaseSourceFields.mappingType,
+      sourceFieldKey: schema.contentDatabaseSourceFields.sourceFieldKey,
+      sourceType: schema.contentDatabaseSources.sourceType,
+      sourceTable: schema.contentDatabaseSources.sourceTable,
+      sourceMetadataJson: schema.contentDatabaseSources.metadataJson,
     })
     .from(schema.contentDatabaseSourceFields)
     .innerJoin(
@@ -507,18 +528,18 @@ export async function loadContext(
       ),
     )
     .where(eq(schema.contentDatabaseSources.databaseId, database.id));
-  const sourceManagedPropertyIds =
-    contentDatabaseSourceManagedPropertyIds(sourceFields);
+  const sets: SourcePropertySets = {
+    sourceManagedPropertyIds:
+      contentDatabaseSourceManagedPropertyIds(sourceFields),
+    sourceWritebackPropertyIds:
+      contentDatabaseSourceWritebackPropertyIds(sourceFields),
+  };
   return {
     database,
     databaseDocument,
     definitions,
-    sourceManagedPropertyIds,
-    schemaRevision: schemaRevisionFor(
-      database,
-      definitions,
-      sourceManagedPropertyIds,
-    ),
+    ...sets,
+    schemaRevision: schemaRevisionFor(database, definitions, sets),
   };
 }
 
@@ -556,7 +577,7 @@ export async function getDatabaseMutationContract(
         );
         const writable =
           !definition.systemRole &&
-          !sourceManaged &&
+          sourceAllowsValueEdit(context, definition.id, type) &&
           type !== "relation" &&
           !isComputedPropertyType(type) &&
           !isBlocksPropertyType(type);
@@ -751,7 +772,7 @@ async function normalizePatch(
     const type = definition.type as DocumentPropertyType;
     if (
       definition.systemRole ||
-      context.sourceManagedPropertyIds.has(propertyId) ||
+      !sourceAllowsValueEdit(context, propertyId, type) ||
       type === "relation" ||
       isComputedPropertyType(type) ||
       isBlocksPropertyType(type)
@@ -765,10 +786,16 @@ async function normalizePatch(
         },
       );
     }
-    normalized.set(
-      propertyId,
-      serializePropertyValue(await strictValue(definition, input)),
-    );
+    const value = await strictValue(definition, input);
+    const writebackReason = context.sourceWritebackPropertyIds.has(propertyId)
+      ? contentDatabaseSourceWritebackValueError(
+          type,
+          value,
+          parsePropertyOptions(definition.optionsJson).options,
+        )
+      : null;
+    if (writebackReason) invalidProperty(definition, writebackReason);
+    normalized.set(propertyId, serializePropertyValue(value));
     if (
       propertyId === context.database.naturalKeyPropertyId &&
       (typeof input !== "string" || !input.trim())
@@ -1220,7 +1247,19 @@ async function replayReceipt(
     receipt: {
       ...parsed.receipt,
       idempotency: { ...parsed.receipt.idempotency, result: "replayed" },
+      replay: replayedReceiptNote(context.database.id, stored.createdAt),
     },
+  };
+}
+
+function replayedReceiptNote(
+  databaseId: string,
+  recordedAt: string,
+): ContentDatabaseReceiptReplay {
+  return {
+    readback: "historical",
+    recordedAt,
+    freshRead: { action: "get-content-database", databaseId },
   };
 }
 
@@ -2424,6 +2463,7 @@ async function replayRowPatchReceipt(
     receipt: {
       ...parsed.receipt,
       idempotency: { ...parsed.receipt.idempotency, result: "replayed" },
+      replay: replayedReceiptNote(context.database.id, stored.createdAt),
       rows: ordered as ContentDatabaseRowPatchReceipt[],
     },
   };

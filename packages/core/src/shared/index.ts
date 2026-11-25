@@ -64,6 +64,29 @@ export {
   type ComposerSourceResult,
 } from "./composer-source.js";
 export {
+  LINK_SUMMARY_APPS,
+  LINK_SUMMARY_KINDS,
+  LINK_SUMMARY_MAX_LINKS,
+  LINK_SUMMARY_TITLE_CHARS,
+  LINK_SUMMARY_URL_CHARS,
+  UNAVAILABLE_LINK_SUMMARY,
+  linkSummaryAvailableSchema,
+  linkSummaryItemFromPath,
+  linkSummaryItemFromUrl,
+  linkSummaryRequestSchema,
+  linkSummaryResultSchema,
+  linkSummarySchema,
+  linkSummaryUnavailableSchema,
+  parseLinkSummaryUrl,
+  pathBelowAppBase,
+  type LinkSummary,
+  type LinkSummaryApp,
+  type LinkSummaryItem,
+  type LinkSummaryKind,
+  type LinkSummaryRequest,
+  type LinkSummaryResult,
+} from "./link-summary.js";
+export {
   ANALYTICS_CAPTURE_CHART_TYPES,
   ANALYTICS_CAPTURE_MAX_COLORS,
   ANALYTICS_CAPTURE_MAX_COLUMNS,
@@ -93,6 +116,24 @@ export {
   type AnalyticsPanelStatus,
   type AnalyticsPanelStatusRequest,
 } from "./analytics-panel-capture.js";
+export {
+  DESIGN_SCREEN_CAPTURE_MAX_IMAGE_BYTES,
+  DESIGN_SCREEN_CAPTURE_MAX_WIDTH,
+  DESIGN_SCREEN_CAPTURE_MIN_WIDTH,
+  designScreenCaptureRequestSchema,
+  designScreenCaptureSchema,
+  designScreenSourceSchema,
+  designScreenStatusRequestSchema,
+  designScreenStatusSchema,
+  designScreenUrl,
+  parseDesignScreenLink,
+  type DesignScreenCapture,
+  type DesignScreenCaptureRequest,
+  type DesignScreenLink,
+  type DesignScreenSource,
+  type DesignScreenStatus,
+  type DesignScreenStatusRequest,
+} from "./design-screen-capture.js";
 export {
   checkEmbedAudience,
   isWiderVisibility,
@@ -338,6 +379,9 @@ export {
 } from "./agent-readable-resource.js";
 export {
   applyTargetedReplace,
+  describeCandidateKinds,
+  editRemovedTextMessage,
+  findEditThatRemovedText,
   findTargetedMatches,
   type TargetedAmbiguousMatch,
   type TargetedCandidate,

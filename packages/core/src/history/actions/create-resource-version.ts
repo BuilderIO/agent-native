@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { isAgentCaller } from "../../action-caller.js";
 import { defineAction } from "../../action.js";
 import {
   assertVersionedResourceAccess,
@@ -26,6 +27,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
+  mcpTool: "search",
   run: async (args, ctx) => {
     const actionCtx = ctx as VersionedResourceContext | undefined;
     const access = await assertVersionedResourceAccess(
@@ -88,7 +90,7 @@ function actorKindFromContext(
   ctx: VersionedResourceContext | undefined,
 ): HistoryActorKind {
   const caller = typeof ctx?.caller === "string" ? ctx.caller : "";
-  if (caller === "agent" || caller === "tool") {
+  if (isAgentCaller(caller)) {
     return "agent";
   }
   return ctx?.userEmail ? "human" : "system";

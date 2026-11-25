@@ -35,12 +35,6 @@ import { mergeQueuedEdit } from "@/pages/design-editor/three-way-merge";
 
 import { designMetadataQueryKey } from "../design-query-key";
 
-const warnedVersionHistoryDesigns = new Set<string>();
-
-export function __clearVersionHistoryWarningsForTests(): void {
-  warnedVersionHistoryDesigns.clear();
-}
-
 const MAX_CONFLICT_MERGES = 3;
 const KNOWN_SAVE_CONTENT_LIMIT = 24;
 // A 409 means the server moved past the content this save was computed from.
@@ -532,7 +526,6 @@ export function runSaveFileContent(
             skippedStaleOperation?: boolean;
             operationAlreadyApplied?: boolean;
             versionHash?: string;
-            checkpoint?: { skipped: true; reason: string };
             updatedAt?: unknown;
           }
         | undefined;
@@ -619,15 +612,6 @@ export function runSaveFileContent(
             ),
           };
         });
-        if (
-          resultInfo?.checkpoint?.skipped &&
-          !warnedVersionHistoryDesigns.has(designId)
-        ) {
-          warnedVersionHistoryDesigns.add(designId);
-          toast.warning(t("designEditor.toasts.versionHistoryUnavailable"), {
-            id: `design-version-history-unavailable:${designId}`,
-          });
-        }
         if (
           persistedUpdatedAt === undefined ||
           queryClient.isFetching({ queryKey: designQueryKey }) > 0

@@ -190,6 +190,8 @@ const AGENT_PANEL_PREPARE_EVENT = "agent-panel:prepare";
 
 export const AGENT_CHAT_SUBMIT_RESULT_EVENT = "agentNative.chatSubmitResult";
 export const AGENT_CHAT_SUBMIT_TARGET_EVENT = "agentNative.chatSubmitTarget";
+export const AGENT_CHAT_COMPOSER_SUBMIT_EVENT =
+  "agentNative.chatComposerSubmit";
 
 export interface AgentChatSubmitResult {
   submitMessageId: string;
@@ -261,6 +263,103 @@ export function reportAgentChatSubmitResult(
       detail: { submitMessageId, delivered, reason },
     }),
   );
+}
+
+export interface AgentChatComposerSubmit {
+  /** Names this send for a later withdrawal. */
+  id: string;
+  text: string;
+  tabId?: string | undefined;
+  threadId?: string | null | undefined;
+  /** The last few exchanges before this send, so a host can read follow-ups. */
+  previousTurn?: string | undefined;
+  /** Sent while a run was active, so it waits behind that run. */
+  queued?: boolean | undefined;
+  /** The send with this id never reached the thread. */
+  withdrawn?: boolean | undefined;
+}
+
+let composerSubmitCount = 0;
+
+/**
+ * Announces a visible send before the agent client accepts it, so a host can
+ * start work alongside the turn. Returns the send's id, or null when nothing
+ * was announced.
+ */
+export function reportAgentChatComposerSubmit(
+  detail: Omit<AgentChatComposerSubmit, "id" | "withdrawn">,
+): string | null {
+  if (typeof window === "undefined" || !detail.text.trim()) return null;
+  composerSubmitCount += 1;
+  const id = `composer-submit-${composerSubmitCount}`;
+  window.dispatchEvent(
+    new CustomEvent<AgentChatComposerSubmit>(AGENT_CHAT_COMPOSER_SUBMIT_EVENT, {
+      detail: { ...detail, id },
+    }),
+  );
+  return id;
+}
+
+/** Tells hosts that an announced send was rejected before it reached the thread. */
+export function withdrawAgentChatComposerSubmit(id: string | null): void {
+  if (typeof window === "undefined" || !id) return;
+  window.dispatchEvent(
+    new CustomEvent<AgentChatComposerSubmit>(AGENT_CHAT_COMPOSER_SUBMIT_EVENT, {
+      detail: { id, text: "", withdrawn: true },
+    }),
+  );
+}
+
+export function subscribeAgentChatComposerSubmit(
+  listener: (detail: AgentChatComposerSubmit) => void,
+): () => void {
+  if (typeof window === "undefined") return () => undefined;
+  const handleEvent = (event: Event) => {
+    const detail = (event as CustomEvent<unknown>).detail;
+    if (
+      typeof detail === "object" &&
+      detail !== null &&
+      typeof (detail as { id?: unknown }).id === "string" &&
+      typeof (detail as { text?: unknown }).text === "string"
+    ) {
+      listener(detail as AgentChatComposerSubmit);
+    }
+  };
+  window.addEventListener(AGENT_CHAT_COMPOSER_SUBMIT_EVENT, handleEvent);
+  return () =>
+    window.removeEventListener(AGENT_CHAT_COMPOSER_SUBMIT_EVENT, handleEvent);
+}
+
+const PREVIOUS_TURN_EXCHANGES = 3;
+const PREVIOUS_TURN_MESSAGE_CHARS = 230;
+
+/**
+ * The last three exchanges as "User:"/"Assistant:" lines, clipped, or
+ * undefined before the first reply.
+ */
+export function agentChatPreviousTurnText(
+  messages: ReadonlyArray<{ readonly role: string; readonly text: string }>,
+): string | undefined {
+  const lines: string[] = [];
+  let exchanges = 0;
+  let awaitingAsk = false;
+  for (const message of [...messages].reverse()) {
+    const text = message.text.trim();
+    if (message.role === "assistant") {
+      if (exchanges >= PREVIOUS_TURN_EXCHANGES) break;
+      exchanges += 1;
+      awaitingAsk = true;
+      if (text) {
+        lines.unshift(
+          `Assistant: ${text.slice(0, PREVIOUS_TURN_MESSAGE_CHARS)}`,
+        );
+      }
+    } else if (message.role === "user" && text && awaitingAsk) {
+      awaitingAsk = false;
+      lines.unshift(`User: ${text.slice(0, PREVIOUS_TURN_MESSAGE_CHARS)}`);
+    }
+  }
+  return lines.length ? lines.join("\n") : undefined;
 }
 
 let agentChatContextState: AgentChatContextState = {
@@ -1278,7 +1377,10 @@ export function parseSubmitChatMessage(
       ? { submissionExpiresAt: raw.submissionExpiresAt as number }
       : {}),
     usageLabel: nonEmptyString(raw.usageLabel),
-    approvedToolCalls: parseSubmitChatApprovedToolCalls(raw.approvedToolCalls),
+    approvedToolCalls:
+      typeof window !== "undefined" && event.origin === window.location.origin
+        ? parseSubmitChatApprovedToolCalls(raw.approvedToolCalls)
+        : undefined,
     surface: nonEmptyString(raw.preset),
   };
 }

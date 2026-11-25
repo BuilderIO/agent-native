@@ -300,6 +300,7 @@ async function performDocumentBodyMutation(
     >;
     ctx: ActionRunContext;
     db?: Db;
+    currentBaseOnly?: boolean | undefined;
   } & DocumentBodyMutation,
   observation: { staleBase: "true" | "false" | "unknown" },
 ): Promise<DocumentEditMutationResult> {
@@ -426,6 +427,19 @@ async function performDocumentBodyMutation(
       documentContentHash(preflightDocument.content ?? "") === base.contentHash;
     if (preflightDocument)
       observation.staleBase = preflightHasCurrentBase ? "false" : "true";
+    if (args.currentBaseOnly && !preflightHasCurrentBase) {
+      conflict(
+        "STALE_BASE_REVISION",
+        "The page changed after this revision; read it again before editing.",
+        {
+          expectedRevision: args.baseRevision,
+          currentRevision: documentRevisionToken(
+            preflightDocument.bodyRevision,
+            preflightDocument.content,
+          ),
+        },
+      );
+    }
     const preflightBaseContent = preflightHasCurrentBase
       ? (preflightDocument.content ?? "")
       : preflightDocument
@@ -481,6 +495,19 @@ async function performDocumentBodyMutation(
         document?.bodyRevision === base.revision &&
         documentContentHash(document.content ?? "") === base.contentHash;
       if (document) observation.staleBase = hasCurrentBase ? "false" : "true";
+      if (args.currentBaseOnly && !hasCurrentBase) {
+        conflict(
+          "STALE_BASE_REVISION",
+          "The page changed after this revision; read it again before editing.",
+          {
+            expectedRevision: args.baseRevision,
+            currentRevision: documentRevisionToken(
+              document.bodyRevision,
+              document.content,
+            ),
+          },
+        );
+      }
       const baseContent = hasCurrentBase
         ? (document.content ?? "")
         : document

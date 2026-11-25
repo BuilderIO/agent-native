@@ -12,6 +12,7 @@ export default defineAction({
     limit: z.coerce.number().int().min(1).max(1000).default(500),
   }),
   http: { method: "GET" },
+  mcpTool: "search",
   run: async (args) => {
     const db = getDb();
     const rows = await db

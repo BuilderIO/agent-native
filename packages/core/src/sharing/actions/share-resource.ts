@@ -195,6 +195,7 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: true,
   },
+  mcpTool: "search",
   run: async (args, ctx) => {
     assertWidgetShareWriteGrant(ctx, "share-resource", args);
     const reg = requireShareableResource(args.resourceType);

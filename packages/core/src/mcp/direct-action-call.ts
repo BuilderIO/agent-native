@@ -161,9 +161,12 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         orgId: getRequestOrgId() ?? undefined,
       });
     } catch (error) {
-      console.warn(
-        `Could not write the action-change marker after an MCP tool call: ${describeThrownForLog(error)}`,
-      );
+      console.warn({
+        event: "action_change_marker_failed",
+        transport: "mcp",
+        action: name,
+        errorType: error instanceof Error ? error.name : typeof error,
+      });
     }
   };
   // What a call that ran has done, read when its result is checked; one

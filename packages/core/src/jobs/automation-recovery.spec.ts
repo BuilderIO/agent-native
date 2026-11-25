@@ -775,7 +775,12 @@ describe("automation worker recovery", () => {
     async (_reason, referencedHistory) => {
       mocks.history.mockResolvedValue(referencedHistory);
       expect(
-        await inspectAutomationRecovery(resource, meta, now, "scheduler-app"),
+        await inspectAutomationRecovery(
+          resource,
+          { ...meta, appId: "scheduler-app" },
+          now,
+          "scheduler-app",
+        ),
       ).toMatchObject({
         state: "unrecoverable",
         errorCode: "automation_recovery_history_unavailable",
@@ -784,6 +789,27 @@ describe("automation worker recovery", () => {
       expect(mocks.list).not.toHaveBeenCalled();
       expect(mocks.reap).not.toHaveBeenCalled();
       expect(mocks.events).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ["while its run can still finish", now, { state: "other-app" }],
+    [
+      "once that app has had its run deadline and a claim lease to settle it",
+      new Date(startedAt + 600_000 + 900_000),
+      {
+        state: "unrecoverable",
+        errorCode: "automation_recovery_history_unavailable",
+      },
+    ],
+  ])(
+    "leaves an unscoped firing to the app that started it only %s",
+    async (_when, at, expected) => {
+      mocks.history.mockResolvedValue({ ...history, appId: "another-app" });
+      expect(
+        await inspectAutomationRecovery(resource, meta, at, "scheduler-app"),
+      ).toMatchObject(expected);
+      expect(mocks.reap).not.toHaveBeenCalled();
     },
   );
 

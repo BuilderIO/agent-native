@@ -47,6 +47,7 @@ export default defineAction({
   // call needs the user's approval, and "always allow" is not offered.
   needsApproval: true,
   allowPersistentApproval: false,
+  mcpTool: false,
   run: async (args, ctx) => {
     const email = ctx?.userEmail?.trim().toLowerCase();
     if (!email) fail("Not authenticated.", { statusCode: 401 });

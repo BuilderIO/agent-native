@@ -47,6 +47,16 @@ async function seedAuthTables(pglite: Pglite) {
       created_at TEXT,
       updated_at TEXT
     );
+    CREATE TABLE "session" (
+      id TEXT PRIMARY KEY,
+      token TEXT NOT NULL UNIQUE,
+      user_id TEXT NOT NULL
+    );
+    CREATE TABLE sessions (
+      token TEXT PRIMARY KEY,
+      email TEXT,
+      created_at BIGINT NOT NULL
+    );
   `);
   await pglite
     .prepare(
@@ -70,6 +80,7 @@ async function addAccount(
 
 async function loadWithPglite(pglite: Pglite) {
   vi.doMock("../db/client.js", () => ({
+    getEnclosingTransactionDbExec: () => undefined,
     getDbExec: () => createPgliteExec(pglite),
     isLocalDatabase: () => true,
     onSharedDbPoolsClosed: () => {},
@@ -113,6 +124,65 @@ describe("replaceUnverifiedCredentialWithGoogle (real pglite)", () => {
       .all("user-1")) as Array<{ email_verified: boolean }>;
     expect(user.email_verified).toBe(true);
     // Booting PGlite and loading this module graph costs more than the default.
+  }, 30_000);
+
+  it("ends sessions that were signed in with the replaced credential", async () => {
+    const pglite = await createTestPglite();
+    await seedAuthTables(pglite);
+    await addAccount(pglite, "cred-1", "credential", "owner@example.test");
+    await pglite.exec(`
+      INSERT INTO "user" (id, email, email_verified) VALUES ('user-2', 'other@example.test', TRUE);
+      INSERT INTO "session" (id, token, user_id) VALUES
+        ('s-1', 'credential-session', 'user-1'),
+        ('s-2', 'other-session', 'user-2');
+      INSERT INTO sessions (token, email, created_at) VALUES
+        ('legacy-credential-session', 'Owner@Example.test', 1),
+        ('legacy-other-session', 'other@example.test', 1);
+    `);
+    const promote = await loadWithPglite(pglite);
+
+    await promote({
+      userId: "user-1",
+      email: "owner@example.test",
+      accountId: "google-sub-1",
+    });
+
+    const sessionTokens = (
+      (await pglite
+        .prepare(`SELECT token FROM "session" ORDER BY token`)
+        .all()) as Array<{ token: string }>
+    ).map((row) => row.token);
+    const legacyTokens = (
+      (await pglite
+        .prepare(`SELECT token FROM sessions ORDER BY token`)
+        .all()) as Array<{ token: string }>
+    ).map((row) => row.token);
+    expect(sessionTokens).toEqual(["other-session"]);
+    expect(legacyTokens).toEqual(["legacy-other-session"]);
+  }, 30_000);
+
+  it("keeps sessions when the promotion is refused", async () => {
+    const pglite = await createTestPglite();
+    await seedAuthTables(pglite);
+    await addAccount(pglite, "cred-1", "credential", "owner@example.test");
+    await addAccount(pglite, "gh-1", "github", "github-sub-1");
+    await pglite.exec(`
+      INSERT INTO "session" (id, token, user_id) VALUES ('s-1', 'credential-session', 'user-1');
+    `);
+    const promote = await loadWithPglite(pglite);
+
+    await expect(
+      promote({
+        userId: "user-1",
+        email: "owner@example.test",
+        accountId: "google-sub-1",
+      }),
+    ).rejects.toThrow("ambiguous unverified identity");
+
+    const rows = (await pglite
+      .prepare(`SELECT token FROM "session"`)
+      .all()) as Array<{ token: string }>;
+    expect(rows.map((row) => row.token)).toEqual(["credential-session"]);
   }, 30_000);
 
   it("refuses to promote when a third-party account also holds the address", async () => {

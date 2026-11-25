@@ -64,6 +64,8 @@ import {
 } from "../shared/builder-mdx.js";
 import { keepRuledOptions } from "../shared/column-rules.js";
 import {
+  documentPropertyDateTimestamp,
+  isDocumentPropertyDateValue,
   normalizePropertyValueWithOptions,
   parsePropertyOptions,
   parsePropertyValue,
@@ -273,6 +275,8 @@ type SourceMetadataRecord = {
   builderContinuationClaimId?: string;
   builderContinuationClaimOffset?: number;
   builderContinuationClaimedAt?: string;
+  readOnlyRefreshClaimId?: string;
+  readOnlyRefreshClaimedAt?: string;
   allowDraftWrites?: boolean;
   allowPublishWrites?: boolean;
   allowedWriteModes?: ContentDatabaseSourcePushMode[];
@@ -507,6 +511,97 @@ export async function renewBuilderCmsSourceRefreshClaim(args: {
     if (renewed.length > 0) return true;
   }
   return false;
+}
+
+export const READ_ONLY_SOURCE_REFRESH_CLAIM_LEASE_MS = 2 * 60 * 1000;
+
+export async function claimReadOnlySourceRefresh(args: {
+  sourceId: string;
+  now: string;
+}): Promise<{ claimId: string; metadata: Record<string, unknown> } | null> {
+  const db = getDb();
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const [current = null] = await db
+      .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, args.sourceId))
+      .limit(1);
+    if (!current) {
+      fail("Content database source not found.", {
+        errorCode: "source_not_found",
+        statusCode: 404,
+      });
+    }
+    const metadata =
+      parseObject<SourceMetadataRecord>(current.metadataJson) ?? {};
+    const claimedAt = metadata.readOnlyRefreshClaimedAt
+      ? Date.parse(metadata.readOnlyRefreshClaimedAt)
+      : Number.NaN;
+    if (
+      metadata.readOnlyRefreshClaimId &&
+      Number.isFinite(claimedAt) &&
+      Date.parse(args.now) - claimedAt < READ_ONLY_SOURCE_REFRESH_CLAIM_LEASE_MS
+    ) {
+      return null;
+    }
+    const claimId = nanoid();
+    const claimed = await db
+      .update(schema.contentDatabaseSources)
+      .set({
+        metadataJson: JSON.stringify({
+          ...metadata,
+          readOnlyRefreshClaimId: claimId,
+          readOnlyRefreshClaimedAt: args.now,
+        }),
+      })
+      .where(
+        and(
+          eq(schema.contentDatabaseSources.id, args.sourceId),
+          eq(schema.contentDatabaseSources.metadataJson, current.metadataJson),
+        ),
+      )
+      .returning({ id: schema.contentDatabaseSources.id });
+    if (claimed.length > 0) return { claimId, metadata };
+  }
+  return null;
+}
+
+function withoutReadOnlyRefreshClaim(
+  metadataJson: string | null,
+  claimId: string,
+): SourceMetadataRecord | null {
+  const metadata = parseObject<SourceMetadataRecord>(metadataJson) ?? {};
+  if (metadata.readOnlyRefreshClaimId !== claimId) return null;
+  delete metadata.readOnlyRefreshClaimId;
+  delete metadata.readOnlyRefreshClaimedAt;
+  return metadata;
+}
+
+export async function recordReadOnlySourceRefreshFailure(args: {
+  sourceId: string;
+  refreshClaimId: string;
+  message: string;
+  now: string;
+}) {
+  await mutateContentDatabaseSourceMetadata({
+    sourceId: args.sourceId,
+    now: args.now,
+    buildPatch: (current) => {
+      const metadata = withoutReadOnlyRefreshClaim(
+        current.metadataJson,
+        args.refreshClaimId,
+      );
+      if (!metadata) return { metadataJson: current.metadataJson };
+      return {
+        metadataJson: JSON.stringify(metadata),
+        syncState: "error",
+        freshness: "stale",
+        lastError: args.message,
+      };
+    },
+    failureMessage:
+      "Source metadata changed repeatedly while saving the error.",
+  });
 }
 
 function parseArray<T>(value: string | null | undefined): T[] {
@@ -1201,11 +1296,40 @@ function builderPageTitleRead(args: {
 function builderSourceFieldComparisonValue(
   field: { sourceFieldKey: string; sourceFieldType?: string | null },
   values: Record<string, DocumentPropertyValue>,
+  localValue?: unknown,
 ) {
   const value = values[field.sourceFieldKey];
-  return field.sourceFieldType?.trim().toLowerCase() === "reference"
-    ? (values[builderReferenceIdSourceValueKey(field.sourceFieldKey)] ?? value)
-    : value;
+  const sourceFieldType = field.sourceFieldType?.trim().toLowerCase();
+  if (sourceFieldType === "reference") {
+    return (
+      values[builderReferenceIdSourceValueKey(field.sourceFieldKey)] ?? value
+    );
+  }
+  if (
+    (sourceFieldType === "date" || sourceFieldType === "datetime") &&
+    typeof value === "number" &&
+    isDocumentPropertyDateValue(localValue)
+  ) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    const start = localValue.start.trim();
+    const same = /^\d{4}-\d{2}-\d{2}$/.test(start)
+      ? date.toISOString().slice(0, 10) === start
+      : documentPropertyDateTimestamp(start) === value;
+    return same ? localValue : value;
+  }
+  if (sourceFieldType === "file" && typeof value === "string") {
+    const links = Array.isArray(localValue) ? localValue : [localValue];
+    return links.length === 1 && canonicalWebLink(links[0]) === value
+      ? localValue
+      : value;
+  }
+  return value;
+}
+
+function canonicalWebLink(value: unknown) {
+  if (typeof value !== "string" || !URL.canParse(value)) return null;
+  return new URL(value).toString();
 }
 
 function stringSourceValue(
@@ -1241,6 +1365,7 @@ const BUILDER_BODY_HYDRATION_PROCESS_CONCURRENCY = 72;
 const BUILDER_BODY_HYDRATION_BULK_PRELOAD_MIN_JOBS = 20;
 const BUILDER_BODY_HYDRATION_MAX_ATTEMPTS = 5;
 const BUILDER_BODY_HYDRATION_CLAIM_LEASE_MS = 2 * 60 * 1000;
+const BUILDER_BODY_HYDRATION_RUN_BUDGET_MS = 20 * 1000;
 const BUILDER_BODY_HYDRATION_POSTGRES_BULK_LIMIT = 200;
 const BUILDER_BODY_HYDRATION_MAX_BOUND_PARAMS_PER_ROW = 8;
 const BUILDER_BODY_HYDRATION_CODEC_VERSION =
@@ -1961,6 +2086,7 @@ async function enqueueBuilderBodyHydrations(
 async function reenqueueRetryableBuilderBodyHydration(args: {
   sourceId: string;
   documentId?: string | null;
+  includeTerminal?: boolean;
   now: string;
 }) {
   const rows = await getDb()
@@ -2003,8 +2129,15 @@ async function reenqueueRetryableBuilderBodyHydration(args: {
         args.documentId
           ? eq(schema.contentDatabaseSourceRows.documentId, args.documentId)
           : undefined,
-        eq(schema.contentDatabaseItems.bodyHydrationStatus, "error"),
-        eq(schema.contentDatabaseItems.bodyHydrationRetryable, 1),
+        args.includeTerminal
+          ? inArray(schema.contentDatabaseItems.bodyHydrationStatus, [
+              "error",
+              "unavailable",
+            ])
+          : and(
+              eq(schema.contentDatabaseItems.bodyHydrationStatus, "error"),
+              eq(schema.contentDatabaseItems.bodyHydrationRetryable, 1),
+            ),
         isNull(schema.contentDatabaseBodyHydrationQueue.id),
       ),
     );
@@ -3300,11 +3433,13 @@ async function preparePristineBuilderBodyHydration(args: {
 async function persistPristineBuilderBodyHydrationsInBulk(
   prepared: PreparedPristineBuilderBodyHydration[],
   now: string,
+  runDeadline = Number.POSITIVE_INFINITY,
 ) {
   const db = getDb();
   const persistedJobIds = new Set<string>();
   const chunkLimit = builderBodyHydrationBulkChunkLimit();
   for (const batch of chunks(prepared, chunkLimit)) {
+    if (persistedJobIds.size > 0 && Date.now() >= runDeadline) break;
     try {
       await db.transaction(async (tx) => {
         const queueOwnership = batch.map(({ job }) =>
@@ -3605,7 +3740,11 @@ export async function processBuilderBodyHydrationQueue(args: {
   preloadedJobs?: ContentDatabaseBodyHydrationQueueRowDb[];
   preloadBodies?: boolean;
   retryFailed?: boolean;
+  retryTerminal?: boolean;
+  runBudgetMs?: number;
 }) {
+  const runDeadline =
+    Date.now() + (args.runBudgetMs ?? BUILDER_BODY_HYDRATION_RUN_BUDGET_MS);
   const db = getDb();
   const [hydrationSource] = await db
     .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
@@ -3620,6 +3759,7 @@ export async function processBuilderBodyHydrationQueue(args: {
     await reenqueueRetryableBuilderBodyHydration({
       sourceId: args.sourceId,
       documentId: args.documentId,
+      includeTerminal: args.retryTerminal,
       now,
     });
   }
@@ -3645,6 +3785,9 @@ export async function processBuilderBodyHydrationQueue(args: {
         ),
       );
   }
+  const claimLeaseCutoff = new Date(
+    Date.now() - BUILDER_BODY_HYDRATION_CLAIM_LEASE_MS,
+  ).toISOString();
   const persistedJobs = async (queryLimit: number) =>
     db
       .select()
@@ -3655,6 +3798,17 @@ export async function processBuilderBodyHydrationQueue(args: {
             isNull(schema.contentDatabaseBodyHydrationQueue.nextAttemptAt),
             lte(schema.contentDatabaseBodyHydrationQueue.nextAttemptAt, now),
           ),
+          args.preloadBodies === true
+            ? or(
+                isNull(
+                  schema.contentDatabaseBodyHydrationQueue.lastAttemptedAt,
+                ),
+                lt(
+                  schema.contentDatabaseBodyHydrationQueue.lastAttemptedAt,
+                  claimLeaseCutoff,
+                ),
+              )
+            : undefined,
           args.documentId
             ? and(
                 eq(
@@ -3683,7 +3837,10 @@ export async function processBuilderBodyHydrationQueue(args: {
           args.preloadedJobs!.filter(
             (job) =>
               job.sourceId === args.sourceId &&
-              (!job.nextAttemptAt || job.nextAttemptAt <= now),
+              (!job.nextAttemptAt || job.nextAttemptAt <= now) &&
+              (args.preloadBodies !== true ||
+                !job.lastAttemptedAt ||
+                job.lastAttemptedAt < claimLeaseCutoff),
           ),
         ).slice(0, limit);
         return persistedJobs(limit + preloadedJobs.length).then((rows) => {
@@ -3695,9 +3852,6 @@ export async function processBuilderBodyHydrationQueue(args: {
         });
       })()
     : persistedJobs(limit));
-  const claimLeaseCutoff = new Date(
-    Date.now() - BUILDER_BODY_HYDRATION_CLAIM_LEASE_MS,
-  ).toISOString();
 
   let succeeded = 0;
   let failed = 0;
@@ -3897,13 +4051,23 @@ export async function processBuilderBodyHydrationQueue(args: {
   const bulkPersistedJobIds = await persistPristineBuilderBodyHydrationsInBulk(
     preparedPristineHydrations,
     now,
+    runDeadline,
   );
   succeeded += bulkPersistedJobIds.size;
+  let startedJobs = bulkPersistedJobIds.size;
+  let releasedJobs = 0;
   await processWithConcurrency(
     claimedJobs.filter((job) => !bulkPersistedJobIds.has(job.id)),
     BUILDER_BODY_HYDRATION_PROCESS_CONCURRENCY,
     async (job) => {
       const attemptNow = new Date().toISOString();
+      if (startedJobs > 0 && Date.now() >= runDeadline) {
+        if (await releaseBuilderBodyHydrationClaim(job, attemptNow)) {
+          releasedJobs += 1;
+        }
+        return;
+      }
+      startedJobs += 1;
       try {
         const delayMs = builderBodyHydrationDelayMs();
         if (delayMs > 0) await sleep(delayMs);
@@ -4006,27 +4170,83 @@ export async function processBuilderBodyHydrationQueue(args: {
       }
     },
   );
-  const [remaining] = await db
+  const leaseCutoff = new Date(
+    Date.now() - BUILDER_BODY_HYDRATION_CLAIM_LEASE_MS,
+  ).toISOString();
+  const queue = schema.contentDatabaseBodyHydrationQueue;
+  const remainingRows = await db
     .select({
       count: sql<number>`COUNT(*)`,
-      ready: sql<number>`SUM(CASE WHEN ${schema.contentDatabaseBodyHydrationQueue.lastAttemptedAt} IS NULL AND (${schema.contentDatabaseBodyHydrationQueue.nextAttemptAt} IS NULL OR ${schema.contentDatabaseBodyHydrationQueue.nextAttemptAt} <= ${now}) THEN 1 ELSE 0 END)`,
+      ready: sql<number>`SUM(CASE WHEN (${queue.lastAttemptedAt} IS NULL AND (${queue.nextAttemptAt} IS NULL OR ${queue.nextAttemptAt} <= ${now})) OR ${queue.lastAttemptedAt} < ${leaseCutoff} THEN 1 ELSE 0 END)`,
       nextAttemptAt: sql<
         string | null
-      >`MIN(CASE WHEN ${schema.contentDatabaseBodyHydrationQueue.lastAttemptedAt} IS NULL THEN ${schema.contentDatabaseBodyHydrationQueue.nextAttemptAt} END)`,
+      >`MIN(CASE WHEN ${queue.lastAttemptedAt} IS NULL THEN ${queue.nextAttemptAt} END)`,
+      oldestClaimAt: sql<
+        string | null
+      >`MIN(CASE WHEN ${queue.lastAttemptedAt} >= ${leaseCutoff} THEN ${queue.lastAttemptedAt} END)`,
     })
-    .from(schema.contentDatabaseBodyHydrationQueue)
-    .where(
-      eq(schema.contentDatabaseBodyHydrationQueue.sourceId, args.sourceId),
-    );
+    .from(queue)
+    .where(eq(queue.sourceId, args.sourceId));
+  const remaining = remainingRows.length > 0 ? remainingRows[0] : null;
   return {
     sourceId: args.sourceId,
-    processed: claimedJobs.length,
+    processed: claimedJobs.length - releasedJobs,
     succeeded,
     failed,
     remaining: Number(remaining?.count ?? 0),
     ready: Number(remaining?.ready ?? 0),
-    nextAttemptAt: remaining?.nextAttemptAt ?? null,
+    nextAttemptAt: earliestBuilderBodyHydrationAttemptAt(
+      remaining?.nextAttemptAt ?? null,
+      remaining?.oldestClaimAt ?? null,
+    ),
   };
+}
+
+function earliestBuilderBodyHydrationAttemptAt(
+  nextAttemptAt: string | null,
+  oldestClaimAt: string | null,
+) {
+  const claimLapsesAt = oldestClaimAt
+    ? Date.parse(oldestClaimAt) + BUILDER_BODY_HYDRATION_CLAIM_LEASE_MS
+    : Number.NaN;
+  if (!Number.isFinite(claimLapsesAt)) return nextAttemptAt;
+  const lapse = new Date(claimLapsesAt).toISOString();
+  return nextAttemptAt && nextAttemptAt < lapse ? nextAttemptAt : lapse;
+}
+
+async function releaseBuilderBodyHydrationClaim(
+  job: ContentDatabaseBodyHydrationQueueRowDb,
+  now: string,
+) {
+  const db = getDb();
+  const released = await db
+    .update(schema.contentDatabaseBodyHydrationQueue)
+    .set({
+      attempts: Math.max(0, job.attempts - 1),
+      lastAttemptedAt: null,
+      updatedAt: now,
+    })
+    .where(builderBodyHydrationQueueOwnershipFilter(job))
+    .returning({ id: schema.contentDatabaseBodyHydrationQueue.id });
+  if (released.length === 0) return false;
+  const queue = schema.contentDatabaseBodyHydrationQueue;
+  await db
+    .update(schema.contentDatabaseItems)
+    .set({ bodyHydrationStatus: "pending", updatedAt: now })
+    .where(
+      and(
+        eq(schema.contentDatabaseItems.id, job.databaseItemId),
+        eq(schema.contentDatabaseItems.bodyHydrationStatus, "hydrating"),
+        inArray(
+          schema.contentDatabaseItems.id,
+          db
+            .select({ id: queue.databaseItemId })
+            .from(queue)
+            .where(and(eq(queue.id, job.id), isNull(queue.lastAttemptedAt))),
+        ),
+      ),
+    );
+  return true;
 }
 
 export async function withBuilderBodySourceValues(
@@ -4057,6 +4277,56 @@ export async function withBuilderBodiesSourceValues(
   );
 }
 
+type BuilderBodyConversion = {
+  blocksJson: string | null;
+  blocksHash: string | null;
+  warnings: string[];
+};
+
+const BUILDER_BODY_CONVERSION_CACHE_LIMIT = 100;
+const builderBodyConversionCache = new Map<string, BuilderBodyConversion>();
+
+async function convertBuilderBodyCached(
+  inputs: {
+    localContent: string;
+    losslessContent: string | null;
+    sidecars: Record<string, string>;
+    mergeReadableBaseline: boolean;
+  },
+  convert: () => Promise<{ blocks: unknown[] | null; warnings: string[] }>,
+): Promise<BuilderBodyConversion> {
+  const key = createHash("sha256")
+    .update(
+      stableValueString([
+        inputs.mergeReadableBaseline,
+        inputs.localContent,
+        inputs.losslessContent,
+        inputs.sidecars,
+      ]),
+    )
+    .digest("hex");
+  const cached = builderBodyConversionCache.get(key);
+  if (cached) {
+    builderBodyConversionCache.delete(key);
+    builderBodyConversionCache.set(key, cached);
+    return cached;
+  }
+  const converted = await convert();
+  const conversion: BuilderBodyConversion = converted.blocks
+    ? {
+        blocksJson: JSON.stringify(converted.blocks),
+        blocksHash: builderBlocksHash(converted.blocks),
+        warnings: converted.warnings,
+      }
+    : { blocksJson: null, blocksHash: null, warnings: converted.warnings };
+  builderBodyConversionCache.set(key, conversion);
+  if (builderBodyConversionCache.size > BUILDER_BODY_CONVERSION_CACHE_LIMIT) {
+    const oldest = builderBodyConversionCache.keys().next().value;
+    if (oldest !== undefined) builderBodyConversionCache.delete(oldest);
+  }
+  return conversion;
+}
+
 export async function builderBodyChangeForLocalContent(args: {
   row: Pick<ContentDatabaseSourceRecordRowDb, "sourceValuesJson">;
   localContent: string | null | undefined;
@@ -4067,6 +4337,8 @@ export async function builderBodyChangeForLocalContent(args: {
    * converted and compared by hash.
    */
   liveBaseline?: { blocksHash: string | null; bodyEmpty: boolean } | null;
+  comparison?: "text" | "blocks";
+  onNeedsBlocks?: () => void;
 }): Promise<ContentDatabaseSourceBodyChange | null> {
   const sourceValues =
     parseObject<Record<string, DocumentPropertyValue>>(
@@ -4139,6 +4411,37 @@ export async function builderBodyChangeForLocalContent(args: {
     return null;
   }
   const currentBodyExcerpt = liveBaseline ? null : bodyExcerpt(currentContent);
+  const emptyBaseline: Pick<ContentDatabaseSourceBodyChange, "currentEmpty"> =
+    !liveBaseline && !currentHash && builderCmsBodyKnownEmpty(sourceValues)
+      ? { currentEmpty: true }
+      : {};
+
+  if (args.comparison === "text") {
+    args.onNeedsBlocks?.();
+    if (
+      liveBaseline ||
+      (normalizedLocalContent &&
+        (normalizedLocalContent ===
+          normalizeBuilderBodyBaselineContent(currentContent) ||
+          normalizedLocalContent ===
+            normalizeBuilderBodyBaselineContent(losslessContent)))
+    ) {
+      return null;
+    }
+    return {
+      summary: "Builder body changed.",
+      currentExcerpt: currentBodyExcerpt,
+      proposedExcerpt: bodyExcerpt(localContent),
+      currentHash,
+      proposedHash: null,
+      proposedContent: localContent,
+      proposedBlocksJson: null,
+      sidecarsJson,
+      warnings: [],
+      textOnly: true,
+      ...emptyBaseline,
+    };
+  }
 
   let sidecars: Record<string, string> = {};
   try {
@@ -4159,25 +4462,29 @@ export async function builderBodyChangeForLocalContent(args: {
       !!losslessContent &&
       !localContent.includes("<Builder") &&
       (args.usesCurrentHydrationCodec || !usesCurrentMediaConverter);
-    const proposed = !canMergeReadableBaseline
-      ? {
-          blocks: await builderMdxBodyToBuilderBlocks(
-            normalizeUnsourcedBuilderCreateMdx(localContent),
-            sidecars,
-          ),
-          warnings: [] as string[],
-        }
-      : canMergeReadableBaseline
-        ? await builderReadableBodyToBuilderBlocks({
-            localContent,
-            losslessContent,
-            sidecars,
-          })
-        : {
-            blocks: await builderMdxBodyToBuilderBlocks(localContent, sidecars),
-            warnings: [] as string[],
-          };
-    if (!proposed.blocks) {
+    const proposed = await convertBuilderBodyCached(
+      {
+        localContent,
+        losslessContent: canMergeReadableBaseline ? losslessContent : null,
+        sidecars,
+        mergeReadableBaseline: canMergeReadableBaseline,
+      },
+      async () =>
+        canMergeReadableBaseline
+          ? builderReadableBodyToBuilderBlocks({
+              localContent,
+              losslessContent,
+              sidecars,
+            })
+          : {
+              blocks: await builderMdxBodyToBuilderBlocks(
+                normalizeUnsourcedBuilderCreateMdx(localContent),
+                sidecars,
+              ),
+              warnings: [] as string[],
+            },
+    );
+    if (!proposed.blocksJson) {
       return {
         summary: "Builder body blocks changed, but need attention before push.",
         currentExcerpt: currentBodyExcerpt,
@@ -4190,8 +4497,7 @@ export async function builderBodyChangeForLocalContent(args: {
         warnings: proposed.warnings,
       };
     }
-    const proposedBlocks = proposed.blocks;
-    const proposedHash = builderBlocksHash(proposedBlocks);
+    const proposedHash = proposed.blocksHash;
     if (currentHash && proposedHash === currentHash) return null;
     return {
       summary: "Builder body blocks changed.",
@@ -4200,9 +4506,10 @@ export async function builderBodyChangeForLocalContent(args: {
       currentHash,
       proposedHash,
       proposedContent: localContent,
-      proposedBlocksJson: JSON.stringify(proposedBlocks),
+      proposedBlocksJson: proposed.blocksJson,
       sidecarsJson,
       warnings: proposed.warnings,
+      ...emptyBaseline,
     };
   } catch (error) {
     const message =
@@ -4241,10 +4548,27 @@ function normalizeUnsourcedBuilderCreateMdx(content: string) {
 
 export async function builderBodyChangeForUnsourcedLocalCreate(args: {
   localContent: string | null | undefined;
+  comparison?: "text" | "blocks";
+  onNeedsBlocks?: () => void;
 }): Promise<ContentDatabaseSourceBodyChange | null> {
   const localContent = args.localContent ?? "";
   if (!localContent.trim()) return null;
   const sidecarsJson = "{}";
+  if (args.comparison === "text") {
+    args.onNeedsBlocks?.();
+    return {
+      summary: "Builder draft body ready to create.",
+      currentExcerpt: null,
+      proposedExcerpt: bodyExcerpt(localContent),
+      currentHash: null,
+      proposedHash: null,
+      proposedContent: localContent,
+      proposedBlocksJson: null,
+      sidecarsJson,
+      warnings: [],
+      textOnly: true,
+    };
+  }
 
   try {
     const blocks = await builderMdxBodyToBuilderBlocks(
@@ -4281,6 +4605,26 @@ export async function builderBodyChangeForUnsourcedLocalCreate(args: {
   }
 }
 
+function builderBodyDiffersFromStored(
+  row: { sourceValuesJson: string },
+  localContent: string | null | undefined,
+) {
+  const sourceValues =
+    parseObject<Record<string, DocumentPropertyValue>>(row.sourceValuesJson) ??
+    {};
+  const local = normalizeBuilderBodyBaselineContent(localContent);
+  const lossless = normalizeBuilderBodyBaselineContent(
+    stringSourceValue(sourceValues, BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY),
+  );
+  return (
+    local !==
+      normalizeBuilderBodyBaselineContent(
+        stringSourceValue(sourceValues, BUILDER_CMS_BODY_CONTENT_KEY),
+      ) &&
+    (!lossless || local !== lossless)
+  );
+}
+
 export async function builderBodyChangeForSourceSnapshotDocument(args: {
   row?: {
     documentId: string;
@@ -4294,15 +4638,25 @@ export async function builderBodyChangeForSourceSnapshotDocument(args: {
   allowUnsourcedCreate: boolean;
   localContent: string | null | undefined;
   liveBaseline?: { blocksHash: string | null; bodyEmpty: boolean } | null;
+  comparison?: "text" | "blocks";
+  onNeedsBlocks?: () => void;
+  onBodyUnread?: () => void;
 }): Promise<ContentDatabaseSourceBodyChange | null> {
   if (args.row) {
     const identity = builderCmsSourceRowIdentityState({ row: args.row });
     if (identity.isSyntheticFixture) {
       return builderBodyChangeForUnsourcedLocalCreate({
         localContent: args.localContent,
+        comparison: args.comparison,
+        onNeedsBlocks: args.onNeedsBlocks,
       });
     }
-    if (!args.isHydrated) return null;
+    if (!args.isHydrated) {
+      if (builderBodyDiffersFromStored(args.row, args.localContent)) {
+        args.onBodyUnread?.();
+      }
+      return null;
+    }
     return builderBodyChangeForLocalContent({
       row: args.row,
       localContent: args.localContent,
@@ -4310,12 +4664,31 @@ export async function builderBodyChangeForSourceSnapshotDocument(args: {
         Boolean(args.bodyHydrationVersion) &&
         !builderBodyHydrationIsCodecMigration(args.bodyHydrationVersion),
       liveBaseline: args.liveBaseline,
+      comparison: args.comparison,
+      onNeedsBlocks: args.onNeedsBlocks,
     });
   }
   if (!args.allowUnsourcedCreate) return null;
   return builderBodyChangeForUnsourcedLocalCreate({
     localContent: args.localContent,
+    comparison: args.comparison,
+    onNeedsBlocks: args.onNeedsBlocks,
   });
+}
+
+function sameCancelledBodyChange(
+  stored: ContentDatabaseSourceBodyChange | null | undefined,
+  candidate: ContentDatabaseSourceBodyChange | null | undefined,
+) {
+  if (candidate?.textOnly) {
+    return (
+      !!stored &&
+      (stored.proposedContent ?? null) ===
+        (candidate.proposedContent ?? null) &&
+      (stored.currentHash ?? null) === (candidate.currentHash ?? null)
+    );
+  }
+  return stableValueString(stored) === stableValueString(candidate);
 }
 
 export function buildBuilderLocalOutboundChangeSets(args: {
@@ -4375,8 +4748,7 @@ export function buildBuilderLocalOutboundChangeSets(args: {
         stored.pushMode === candidate.pushMode &&
         stableValueString(stored.fieldChanges) ===
           stableValueString(candidate.fieldChanges) &&
-        stableValueString(stored.bodyChange) ===
-          stableValueString(candidate.bodyChange),
+        sameCancelledBodyChange(stored.bodyChange, candidate.bodyChange),
     );
 
   const storedChangeSetIds = new Set(
@@ -4505,7 +4877,11 @@ export function buildBuilderLocalOutboundChangeSets(args: {
         if (
           sameMappedSourceFieldValue(
             localValue,
-            builderSourceFieldComparisonValue(field, rowSourceValues),
+            builderSourceFieldComparisonValue(
+              field,
+              rowSourceValues,
+              localValue,
+            ),
             field.propertyType,
             field.propertyOptions,
           )
@@ -4531,21 +4907,19 @@ export function buildBuilderLocalOutboundChangeSets(args: {
     const bodyChange = args.bodyChangeByDocumentId?.get(row.documentId) ?? null;
     const transitionOnly = fieldChanges.length === 0 && !bodyChange;
     if (transitionOnly && !stagedTransition) continue;
-    const matchesStoredChange = args.storedChangeSets.some((changeSet) => {
-      if (
-        changeSet.direction !== "outbound" ||
-        changeSet.documentId !== row.documentId ||
-        changeSet.pushMode !== "autosave" ||
-        changeSet.state === "rejected" ||
-        changeSet.state === "applied"
-      ) {
-        return false;
-      }
-      // Any open change for the row carries its staged publish or unpublish.
-      if (transitionOnly) return true;
-      return (
-        changeSet.fieldChanges.some((stored) =>
-          fieldChanges.some((change) => {
+    const openChangeSets = args.storedChangeSets.filter(
+      (changeSet) =>
+        changeSet.direction === "outbound" &&
+        changeSet.documentId === row.documentId &&
+        changeSet.pushMode === "autosave" &&
+        changeSet.state !== "rejected" &&
+        changeSet.state !== "applied",
+    );
+    if (transitionOnly && openChangeSets.length > 0) continue;
+    const pendingFieldChanges = fieldChanges.filter(
+      (change) =>
+        !openChangeSets.some((changeSet) =>
+          changeSet.fieldChanges.some((stored) => {
             if (change.localFieldKey !== stored.localFieldKey) return false;
             const writableField = args.writableFields?.find(
               (field) => field.localFieldKey === change.localFieldKey,
@@ -4564,11 +4938,20 @@ export function buildBuilderLocalOutboundChangeSets(args: {
               sameStoredValue(change.proposedValue, stored.proposedValue)
             );
           }),
-        ) ||
-        (!!bodyChange && !!changeSet.bodyChange)
-      );
-    });
-    if (matchesStoredChange) continue;
+        ),
+    );
+    const pendingBodyChange = openChangeSets.some(
+      (changeSet) => changeSet.bodyChange,
+    )
+      ? null
+      : bodyChange;
+    if (
+      !transitionOnly &&
+      pendingFieldChanges.length === 0 &&
+      !pendingBodyChange
+    ) {
+      continue;
+    }
 
     const now = new Date().toISOString();
     const displayTitle = localTitle || sourceTitle;
@@ -4578,7 +4961,7 @@ export function buildBuilderLocalOutboundChangeSets(args: {
       documentId: row.documentId,
       kind: transitionOnly
         ? "metadata_update"
-        : bodyChange && fieldChanges.length === 0
+        : pendingBodyChange && pendingFieldChanges.length === 0
           ? "body_update"
           : "field_update",
       direction: "outbound",
@@ -4587,16 +4970,16 @@ export function buildBuilderLocalOutboundChangeSets(args: {
       localOnly: true,
       summary: transitionOnly
         ? `Pending local Builder CMS ${stagedTransition} for "${displayTitle}".`
-        : bodyChange && fieldChanges.length === 0
+        : pendingBodyChange && pendingFieldChanges.length === 0
           ? `Pending local Builder CMS body change for "${displayTitle}".`
-          : fieldChanges.length === 1 &&
-              fieldChanges[0]?.localFieldKey === "title"
+          : pendingFieldChanges.length === 1 &&
+              pendingFieldChanges[0]?.localFieldKey === "title"
             ? `Pending local Builder CMS title change for "${localTitle}".`
             : `Pending local Builder CMS changes for "${displayTitle}".`,
-      fieldChanges,
-      bodyChange,
+      fieldChanges: pendingFieldChanges,
+      bodyChange: pendingBodyChange,
       riskLevel: "low",
-      riskReasons: bodyChange ? ["body diff"] : ["single field diff"],
+      riskReasons: pendingBodyChange ? ["body diff"] : ["single field diff"],
       conflictState: "none",
       reviewEvents: [],
       executions: [],
@@ -4770,10 +5153,22 @@ export async function getContentDatabaseSourceSnapshotById(
   });
 }
 
+export type BuilderReviewBodyComparisonOptions = {
+  builderBodyComparison?: "text" | "blocks";
+  blocksCheckDocumentIds?: Set<string>;
+  unreadBodies?: Map<string, BuilderUnreadBody>;
+};
+
+export interface BuilderUnreadBody {
+  failed: boolean;
+  error: string | null;
+}
+
 export async function getContentDatabaseSourceSnapshotForWrite(
   database: ContentDatabaseRow | ContentDatabase,
   sourceId?: string | null,
   documentIds?: string[],
+  comparison: BuilderReviewBodyComparisonOptions = {},
 ): Promise<ContentDatabaseSource | null> {
   const db = getDb();
   if (sourceId) {
@@ -4791,6 +5186,7 @@ export async function getContentDatabaseSourceSnapshotForWrite(
           includeHeavyBuilderBodyValues: true,
           documentIds,
           hydrateExecutionPayloads: documentIds !== undefined,
+          ...comparison,
         })
       : null;
   }
@@ -4807,6 +5203,7 @@ export async function getContentDatabaseSourceSnapshotForWrite(
         includeHeavyBuilderBodyValues: true,
         documentIds,
         hydrateExecutionPayloads: documentIds !== undefined,
+        ...comparison,
       })
     : null;
 }
@@ -4838,6 +5235,7 @@ export function builderReviewSourceValueTextProjection(
 async function findBuilderReviewBodyCandidateDocumentIds(args: {
   database: ContentDatabaseRow | ContentDatabase;
   source: ContentDatabaseSourceRowDb;
+  limit?: number;
 }) {
   const sourceRows = schema.contentDatabaseSourceRows;
   const items = schema.contentDatabaseItems;
@@ -4860,10 +5258,9 @@ async function findBuilderReviewBodyCandidateDocumentIds(args: {
       eq(sourceRows.provenance, BUILDER_CMS_FIXTURE_ROW_PROVENANCE),
     ),
   );
-  const rows = await getDb()
-    .select({
-      documentId: sourceRows.documentId,
-    })
+  const codecSuffix = `:${BUILDER_BODY_HYDRATION_CODEC_VERSION}`;
+  const query = getDb()
+    .select({ documentId: sourceRows.documentId })
     .from(sourceRows)
     .innerJoin(
       items,
@@ -4890,24 +5287,24 @@ async function findBuilderReviewBodyCandidateDocumentIds(args: {
             or(localContentDiffers, usesCurrentMediaConverter),
           ),
         ),
+        or(
+          isSyntheticFixture,
+          localContentDiffers,
+          isNull(items.bodyHydrationVersion),
+          sql<boolean>`RIGHT(${items.bodyHydrationVersion}, CHAR_LENGTH(${codecSuffix})) <> ${codecSuffix}`,
+        ),
       ),
-    );
+    )
+    .orderBy(asc(sourceRows.createdAt));
+  const rows =
+    args.limit === undefined ? await query : await query.limit(args.limit);
   return rows.map((row) => row.documentId);
 }
 
-export async function getContentDatabaseSourceSnapshotForReview(
+async function builderReviewSource(
   database: ContentDatabaseRow | ContentDatabase,
   sourceId?: string | null,
-  documentIds?: string[],
-): Promise<ContentDatabaseSource | null> {
-  if (documentIds?.length) {
-    return getContentDatabaseSourceSnapshotForWrite(
-      database,
-      sourceId,
-      documentIds,
-    );
-  }
-
+): Promise<ContentDatabaseSourceRowDb | undefined> {
   const db = getDb();
   const [source] = sourceId
     ? await db
@@ -4927,51 +5324,153 @@ export async function getContentDatabaseSourceSnapshotForReview(
           asc(schema.contentDatabaseSources.createdAt),
           asc(schema.contentDatabaseSources.id),
         );
+  return source;
+}
+
+export function isReviewableBuilderChangeSet(changeSet: {
+  direction: string;
+  state: string;
+}) {
+  return (
+    changeSet.direction === "outbound" &&
+    (changeSet.state === "pending_push" ||
+      changeSet.state === "staged_revision" ||
+      changeSet.state === "approved")
+  );
+}
+
+export async function builderReviewFirstDocumentIds(
+  database: ContentDatabaseRow | ContentDatabase,
+  sourceId: string | null | undefined,
+  limit: number,
+): Promise<{
+  sourceId: string;
+  sourceTable: string;
+  sourceType: ContentDatabaseSourceType;
+  documentIds: string[];
+} | null> {
+  const source = await builderReviewSource(database, sourceId);
+  if (!source) return null;
+  const found = {
+    sourceId: source.id,
+    sourceTable: source.sourceTable,
+    sourceType: normalizeSourceType(source.sourceType),
+  };
+  const changeSets = await getDb()
+    .select({
+      documentId: schema.contentDatabaseSourceChangeSets.documentId,
+      direction: schema.contentDatabaseSourceChangeSets.direction,
+      state: schema.contentDatabaseSourceChangeSets.state,
+    })
+    .from(schema.contentDatabaseSourceChangeSets)
+    .where(eq(schema.contentDatabaseSourceChangeSets.sourceId, source.id));
+  if (changeSets.some(isReviewableBuilderChangeSet)) {
+    return { ...found, documentIds: [] };
+  }
+  const rejected = new Set(
+    changeSets.flatMap((changeSet) =>
+      changeSet.state === "rejected" && changeSet.documentId
+        ? [changeSet.documentId]
+        : [],
+    ),
+  );
+  const bodyDocumentIds = [
+    ...new Set(
+      await findBuilderReviewBodyCandidateDocumentIds({
+        database,
+        source,
+        limit: limit + rejected.size,
+      }),
+    ),
+  ];
+  return {
+    ...found,
+    documentIds: [
+      ...bodyDocumentIds.filter((documentId) => !rejected.has(documentId)),
+      ...bodyDocumentIds.filter((documentId) => rejected.has(documentId)),
+    ].slice(0, limit),
+  };
+}
+
+export async function builderReviewDocumentScope(
+  database: ContentDatabaseRow | ContentDatabase,
+  sourceId?: string | null,
+): Promise<{
+  source: ContentDatabaseSourceRowDb;
+  lightweight: ContentDatabaseSource;
+  reviewableChangeSetIds: string[];
+  documentIds: string[] | null;
+} | null> {
+  const source = await builderReviewSource(database, sourceId);
   if (!source) return null;
 
   const lightweight = await loadSourceSnapshot(source, database, {
     includeHeavyBuilderBodyValues: false,
   });
   const reviewableChanges = lightweight.changeSets.filter(
-    (changeSet) =>
-      changeSet.direction === "outbound" &&
-      (changeSet.state === "pending_push" ||
-        changeSet.state === "staged_revision" ||
-        changeSet.state === "approved"),
+    isReviewableBuilderChangeSet,
+  );
+  const reviewableChangeSetIds = reviewableChanges.map(
+    (changeSet) => changeSet.id,
   );
   const knownReviewDocumentIds = knownBuilderReviewDocumentIds(
     reviewableChanges,
     100,
   );
   if (knownReviewDocumentIds) {
-    return loadSourceSnapshot(source, database, {
-      includeHeavyBuilderBodyValues: true,
+    return {
+      source,
+      lightweight,
+      reviewableChangeSetIds,
       documentIds: knownReviewDocumentIds,
-    });
+    };
   }
   if (reviewableChanges.some((changeSet) => !changeSet.documentId)) {
-    return loadSourceSnapshot(source, database, {
-      includeHeavyBuilderBodyValues: true,
-      hydrateExecutionPayloadsForChangeSetIds: reviewableChanges.map(
-        (changeSet) => changeSet.id,
-      ),
-    });
+    return { source, lightweight, reviewableChangeSetIds, documentIds: null };
   }
-  const candidateDocumentIds = new Set(
-    reviewableChanges.flatMap((changeSet) =>
+  const candidateDocumentIds = new Set([
+    ...reviewableChanges.flatMap((changeSet) =>
       changeSet.documentId ? [changeSet.documentId] : [],
     ),
-  );
-  for (const documentId of await findBuilderReviewBodyCandidateDocumentIds({
-    database,
+    ...(await findBuilderReviewBodyCandidateDocumentIds({ database, source })),
+  ]);
+  return {
     source,
-  })) {
-    candidateDocumentIds.add(documentId);
-  }
-  if (candidateDocumentIds.size === 0) return lightweight;
-  return loadSourceSnapshot(source, database, {
-    includeHeavyBuilderBodyValues: true,
+    lightweight,
+    reviewableChangeSetIds,
     documentIds: [...candidateDocumentIds],
+  };
+}
+
+export async function getContentDatabaseSourceSnapshotForReview(
+  database: ContentDatabaseRow | ContentDatabase,
+  sourceId?: string | null,
+  documentIds?: string[],
+  comparison: BuilderReviewBodyComparisonOptions = {},
+): Promise<ContentDatabaseSource | null> {
+  if (documentIds?.length) {
+    return getContentDatabaseSourceSnapshotForWrite(
+      database,
+      sourceId,
+      documentIds,
+      comparison,
+    );
+  }
+
+  const scope = await builderReviewDocumentScope(database, sourceId);
+  if (!scope) return null;
+  if (scope.documentIds === null) {
+    return loadSourceSnapshot(scope.source, database, {
+      includeHeavyBuilderBodyValues: true,
+      hydrateExecutionPayloadsForChangeSetIds: scope.reviewableChangeSetIds,
+      ...comparison,
+    });
+  }
+  if (scope.documentIds.length === 0) return scope.lightweight;
+  return loadSourceSnapshot(scope.source, database, {
+    includeHeavyBuilderBodyValues: true,
+    documentIds: scope.documentIds,
+    ...comparison,
   });
 }
 
@@ -5052,6 +5551,7 @@ async function readSourceSnapshotRowsOnce(args: {
           id: schema.contentDatabaseItems.id,
           documentId: schema.contentDatabaseItems.documentId,
           bodyHydrationStatus: schema.contentDatabaseItems.bodyHydrationStatus,
+          bodyHydrationError: schema.contentDatabaseItems.bodyHydrationError,
           bodyHydrationVersion:
             schema.contentDatabaseItems.bodyHydrationVersion,
         })
@@ -5318,7 +5818,7 @@ async function loadSourceSnapshot(
     documentIds?: string[];
     hydrateExecutionPayloads?: boolean;
     hydrateExecutionPayloadsForChangeSetIds?: string[];
-  },
+  } & BuilderReviewBodyComparisonOptions,
 ): Promise<ContentDatabaseSource> {
   const db = getDb();
   const [fieldRows, changeRows, propertyDefs] = await Promise.all([
@@ -5605,6 +6105,17 @@ async function loadSourceSnapshot(
         item.bodyHydrationVersion,
       ]),
     );
+    const unreadBodyByDocumentId = new Map(
+      databaseItemRows.map((item) => [
+        item.documentId,
+        {
+          failed:
+            item.bodyHydrationStatus === "error" ||
+            item.bodyHydrationStatus === "unavailable",
+          error: item.bodyHydrationError,
+        },
+      ]),
+    );
     await Promise.all(
       allDocumentIds.map(async (documentId) => {
         const row = sourceRowByDocumentId.get(documentId);
@@ -5628,6 +6139,16 @@ async function loadSourceSnapshot(
                   ) ?? {},
                 )
               : null,
+          comparison: options.builderBodyComparison,
+          onNeedsBlocks: () => options.blocksCheckDocumentIds?.add(documentId),
+          onBodyUnread: () =>
+            options.unreadBodies?.set(
+              documentId,
+              unreadBodyByDocumentId.get(documentId) ?? {
+                failed: false,
+                error: null,
+              },
+            ),
         });
         if (bodyChange) bodyChangeByDocumentId.set(documentId, bodyChange);
       }),
@@ -7069,6 +7590,13 @@ function builderSourceValuesWithPreservedBodyBaseline(args: {
         args.existingLastSourceUpdatedAt;
     }
   }
+  if (
+    builderCmsBodyKnownEmpty(existing) &&
+    !incomingHash &&
+    !(BUILDER_CMS_BODY_BLOCK_COUNT_KEY in next)
+  ) {
+    next[BUILDER_CMS_BODY_BLOCK_COUNT_KEY] = 0;
+  }
   const referenceIdPrefix = "__agent_native_builder_reference_id:";
   for (const [key, value] of Object.entries(existing)) {
     if (!key.startsWith(referenceIdPrefix)) continue;
@@ -7282,6 +7810,7 @@ async function sourceFieldValueWrites(
         const previousValue = builderSourceFieldComparisonValue(
           field,
           previousSourceValues,
+          localValue,
         );
         const editedInContent =
           existing.valueJson !==
@@ -7297,6 +7826,7 @@ async function sourceFieldValueWrites(
           const nextValue = builderSourceFieldComparisonValue(
             field,
             sourceValues,
+            localValue,
           );
           const flaggedBefore =
             previousConflicts?.state === "invalid" ||
@@ -8847,16 +9377,57 @@ export async function storeSecondarySourceRows(args: {
   sourceTable: string;
   entries: BuilderCmsSourceEntry[];
   now: string;
+  keepRowsNotRead?: boolean | { syncedSince: string };
+  refreshClaimId?: string;
 }) {
   const db = getDb();
+  const sourceRowIds = args.entries.map(
+    (entry, index) => entry.id || `${args.sourceType}-${index + 1}`,
+  );
+  const keep = args.keepRowsNotRead ?? false;
+  const rowsRead =
+    sourceRowIds.length > 0
+      ? inArray(schema.contentDatabaseSourceRows.sourceRowId, sourceRowIds)
+      : undefined;
   await db.transaction(async (tx) => {
+    if (args.refreshClaimId) {
+      const [claimed = null] = await tx
+        .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+        .from(schema.contentDatabaseSources)
+        .where(eq(schema.contentDatabaseSources.id, args.sourceId))
+        .for("update");
+      if (
+        !claimed ||
+        !withoutReadOnlyRefreshClaim(claimed.metadataJson, args.refreshClaimId)
+      ) {
+        fail("Source refresh claim was lost before completion.", {
+          errorCode: "source_refresh_claim_lost",
+          statusCode: 409,
+        });
+      }
+    }
+    if (keep === true && !rowsRead) return;
+    const replaced =
+      keep === false
+        ? eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId)
+        : and(
+            eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId),
+            keep === true
+              ? rowsRead
+              : or(
+                  rowsRead,
+                  isNull(schema.contentDatabaseSourceRows.lastSyncedAt),
+                  lt(
+                    schema.contentDatabaseSourceRows.lastSyncedAt,
+                    keep.syncedSince,
+                  ),
+                ),
+          );
     const oldRows = await tx
       .select({ documentId: schema.contentDatabaseSourceRows.documentId })
       .from(schema.contentDatabaseSourceRows)
-      .where(eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId));
-    await tx
-      .delete(schema.contentDatabaseSourceRows)
-      .where(eq(schema.contentDatabaseSourceRows.sourceId, args.sourceId));
+      .where(replaced);
+    await tx.delete(schema.contentDatabaseSourceRows).where(replaced);
     const [source = null] = await tx
       .select({ databaseId: schema.contentDatabaseSources.databaseId })
       .from(schema.contentDatabaseSources)
@@ -8904,7 +9475,7 @@ export async function seedSecondarySourceFields(args: {
   ownerEmail: string;
   sourceType?: ContentDatabaseSourceType;
   modelFields: BuilderCmsModelFieldSummary[];
-  sampleEntry?: BuilderCmsSourceEntry;
+  sampleEntry?: BuilderCmsSourceEntry | undefined;
   now: string;
 }) {
   const db = getDb();
@@ -9105,24 +9676,36 @@ export async function updateReadOnlySourceMetadata(args: {
   fetchedAt: string;
   now: string;
   message: string | null;
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, unknown> | undefined;
   syncState?: ContentDatabaseSourceSyncState;
+  refreshClaimId?: string;
 }) {
   await mutateContentDatabaseSourceMetadata({
     sourceId: args.sourceId,
     now: args.now,
-    buildPatch: (current) => ({
-      syncState: args.syncState ?? (args.message ? "refreshing" : "linked"),
-      freshness: args.message ? "stale" : "fresh",
-      capabilitiesJson: sourceCapabilitiesForType(args.sourceType),
-      metadataJson: JSON.stringify({
-        ...(parseObject<Record<string, unknown>>(current.metadataJson) ?? {}),
-        ...(args.metadata ?? {}),
-      }),
-      lastRefreshedAt: args.now,
-      lastSourceUpdatedAt: args.fetchedAt,
-      lastError: null,
-    }),
+    buildPatch: (current) => {
+      const currentMetadata = args.refreshClaimId
+        ? withoutReadOnlyRefreshClaim(current.metadataJson, args.refreshClaimId)
+        : (parseObject<Record<string, unknown>>(current.metadataJson) ?? {});
+      if (!currentMetadata) {
+        fail("Source refresh claim was lost before completion.", {
+          errorCode: "source_refresh_claim_lost",
+          statusCode: 409,
+        });
+      }
+      return {
+        syncState: args.syncState ?? (args.message ? "refreshing" : "linked"),
+        freshness: args.message ? "stale" : "fresh",
+        capabilitiesJson: sourceCapabilitiesForType(args.sourceType),
+        metadataJson: JSON.stringify({
+          ...currentMetadata,
+          ...(args.metadata ?? {}),
+        }),
+        lastRefreshedAt: args.now,
+        lastSourceUpdatedAt: args.fetchedAt,
+        lastError: null,
+      };
+    },
     failureMessage:
       "Source metadata changed repeatedly while saving read state.",
   });

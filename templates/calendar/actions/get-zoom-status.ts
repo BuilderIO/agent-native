@@ -5,6 +5,7 @@ import { z } from "zod";
 import { getZoomStatus } from "../server/lib/zoom.js";
 
 export default defineAction({
+  mcpTool: false,
   description:
     "Get Zoom OAuth status for the current user. Use before creating Zoom meetings or when helping the user connect Zoom.",
   schema: z.object({}),

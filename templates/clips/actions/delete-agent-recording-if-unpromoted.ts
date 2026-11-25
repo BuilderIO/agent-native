@@ -11,6 +11,7 @@ export default defineAction({
   description:
     "Delete an expired agent-created Clip only if it is still private and has not been renamed, shared, commented on, reacted to, tagged, archived, or trashed.",
   schema: z.object({ id: z.string() }),
+  mcpTool: false,
   run: async ({ id }) => {
     assertRecordingNotExpired(await assertAccess("recording", id, "editor"));
     const db = getDb();

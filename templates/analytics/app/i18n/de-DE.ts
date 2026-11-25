@@ -2210,6 +2210,10 @@ export default {
     flagsUnavailable: "Funktionsschalter sind nicht verfügbar",
     flagsUnreachable:
       "Das Arbeitsbereichsverzeichnis konnte nicht erreicht werden. Versuche es erneut, wenn die Verbindung verfügbar ist.",
+    verifiedFlagChangeOrg:
+      "Um {{time}} bestätigt: {{flag}} in {{app}} steht für diese Organisation auf {{availability}}.",
+    verifiedFlagChangeGlobal:
+      "Um {{time}} bestätigt: {{flag}} in {{app}} steht für alle Organisationen auf {{availability}}.",
     flagsEmpty: "Keine Arbeitsbereichs-App meldet Funktionsschalter",
     flagsEmptyDetail:
       "Registrierte Schalter erscheinen hier, sobald verbundene Apps bereit sind.",
@@ -2377,6 +2381,16 @@ export default {
     addedBy: "Hinzugefügt von {{email}}",
     more: "+{{count}} weitere",
     flagLabel: "Datenhinweise",
+  },
+  citedIn: {
+    menu: "Zitiert in",
+    menuTooltip: "Content-Seiten mit Diagrammen aus diesem Dashboard",
+    empty:
+      "Noch keine Content-Seiten, die Sie öffnen können, enthalten Diagramme aus diesem Dashboard",
+    unavailable:
+      "Content war nicht erreichbar. Versuchen Sie es in einer Minute erneut.",
+    untitledPage: "Ohne Titel",
+    more: "Content hat nur die zuletzt bearbeiteten Seiten geprüft, es kann also weitere geben.",
   },
   annotations: {
     menu: "Anmerkungen",

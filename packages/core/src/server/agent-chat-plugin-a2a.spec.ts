@@ -1676,4 +1676,34 @@ describe("A2A receiver handler with no verified user", () => {
     expect(claimed.message).not.toContain(CLAIMED_EMAIL);
     expect(claimed.message).toBe(unclaimed.message);
   });
+
+  it("does not take the run identity from a Google access token in metadata", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            email: CLAIMED_EMAIL,
+            email_verified: "true",
+            aud: "other-client.apps.googleusercontent.com",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const event = { context: { __a2aIdentityAssurance: "organization" } };
+      const failure = await receive(
+        { googleToken: "google-access-token" },
+        event,
+      );
+
+      expect(failure.agentNativeErrorCode).toBe("permanent_precondition");
+      expect(failure.message).toContain("verified as an organization");
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+  });
 });

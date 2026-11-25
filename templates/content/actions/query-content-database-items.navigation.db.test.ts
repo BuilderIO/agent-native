@@ -21,12 +21,15 @@ import {
   vi,
 } from "vitest";
 
+import { databaseBoardGroups } from "../app/components/editor/database/grouping.js";
 import {
   CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
   type ContentDatabaseFilter,
   type ContentDatabaseFilterMode,
   type ContentDatabaseItem,
   type ContentDatabaseNavigationPageResponse,
+  type ContentDatabaseSort,
+  type ContentDatabaseView,
   type DocumentProperty,
 } from "../shared/api.js";
 import {
@@ -284,12 +287,30 @@ async function saveCustomOrder(itemIds: string[]) {
 
 // Records the SQL the database client runs while `read` is in flight.
 async function statementsDuring(read: () => Promise<unknown>) {
-  const query = vi.spyOn(getDb().$client, "query");
+  const statements: string[] = [];
+  const prototype = Object.getPrototypeOf(getDb().$client);
+  const transaction = prototype.transaction;
+  const spy = vi.spyOn(prototype, "transaction").mockImplementation(function (
+    this: unknown,
+    run: (tx: { query: (...args: unknown[]) => unknown }) => Promise<unknown>,
+  ) {
+    return transaction.call(
+      this,
+      (tx: { query: (...args: unknown[]) => unknown }) => {
+        const query = tx.query.bind(tx);
+        tx.query = (...args: unknown[]) => {
+          statements.push(String(args[0]));
+          return query(...args);
+        };
+        return run(tx);
+      },
+    );
+  });
   try {
     await read();
-    return query.mock.calls.map(([text]) => String(text));
+    return statements;
   } finally {
-    query.mockRestore();
+    spy.mockRestore();
   }
 }
 
@@ -2568,6 +2589,7 @@ describe("Files navigation filters on stored property values", () => {
   async function setView(
     filters: ContentDatabaseFilter[],
     filterMode: ContentDatabaseFilterMode = "and",
+    sorts: ContentDatabaseSort[] = [],
   ) {
     await getDb()
       .update(schema.contentDatabases)
@@ -2579,7 +2601,7 @@ describe("Files navigation filters on stored property values", () => {
               id: "default",
               name: "Table",
               type: "table",
-              sorts: [],
+              sorts,
               filters,
               filterMode,
               columnWidths: {},
@@ -3046,5 +3068,931 @@ describe("Files navigation filters on stored property values", () => {
         errorCode: "unsupported_navigation_filter_expression",
       });
     }
+  });
+
+  const by = (
+    key: Key | "name",
+    direction: ContentDatabaseSort["direction"] = "asc",
+  ): ContentDatabaseSort => ({
+    key: key === "name" ? "name" : definitions[key].id,
+    label: `${key} ${direction}`,
+    direction,
+  });
+  const computedSort = (
+    type: (typeof computedTypes)[number],
+  ): ContentDatabaseSort => ({
+    key: `stored-computed-${type}`,
+    label: `${type} asc`,
+    direction: "asc",
+  });
+
+  async function sortedIds(
+    sorts: ContentDatabaseSort[],
+    filters: ContentDatabaseFilter[] = [],
+  ) {
+    await setView(filters, "and", sorts);
+    const ids: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const page = await readPage("UTC", { cursor, limit: 3 });
+      ids.push(
+        ...page.items.map((item) => item.documentId.replace(/^stored-/, "")),
+      );
+      cursor = page.pagination.nextCursor ?? undefined;
+    } while (cursor);
+    return ids;
+  }
+
+  function evaluatedOrder(
+    sorts: ContentDatabaseSort[],
+    filters: ContentDatabaseFilter[] = [],
+  ) {
+    return applyContentDatabaseTableQuery(
+      evaluatorItems,
+      evaluatorProperties,
+      { search: "", filters, sorts, filterMode: "and" },
+      { today: contentDatabaseFilterToday("UTC"), timeZone: "UTC" },
+    ).map((item) => item.document.id);
+  }
+
+  it("sorts on each stored property type as the shared evaluator does", async () => {
+    expect(await sortedIds([by("points")])).toEqual([
+      "empty",
+      "gap",
+      "after-gap",
+      "overlap",
+      "retired",
+      "odd",
+      "launch",
+      "range",
+      "recap",
+      "bad-date",
+      "draft",
+    ]);
+    for (const key of keys) {
+      for (const direction of ["asc", "desc"] as const) {
+        const sort = by(key, direction);
+        expect({ sort: sort.label, ids: await sortedIds([sort]) }).toEqual({
+          sort: sort.label,
+          ids: evaluatedOrder([sort]),
+        });
+      }
+    }
+  });
+
+  it("breaks ties with the view's later sorts, then the row order", async () => {
+    const cases = [
+      [by("done"), by("name", "desc")],
+      [by("stage", "desc"), by("points")],
+      [by("tags"), by("owner", "desc"), by("name")],
+      [by("state"), by("due", "desc")],
+    ];
+    for (const sorts of cases) {
+      const label = sorts.map((sort) => sort.label).join(", ");
+      expect({ sorts: label, ids: await sortedIds(sorts) }).toEqual({
+        sorts: label,
+        ids: evaluatedOrder(sorts),
+      });
+    }
+  });
+
+  it("stops at a sort on a value worked out as a row is read", async () => {
+    expect(
+      await sortedIds([
+        by("done"),
+        computedSort("formula"),
+        by("name", "desc"),
+      ]),
+    ).toEqual(evaluatedOrder([by("done")]));
+    const unsorted = await sortedIds([]);
+    for (const type of computedTypes) {
+      expect({ type, ids: await sortedIds([computedSort(type)]) }).toEqual({
+        type,
+        ids: unsorted,
+      });
+    }
+  });
+
+  it("filters and sorts together", async () => {
+    const filters = [on("tags", "is_not_empty")];
+    const sorts = [by("tags", "desc")];
+    expect(await sortedIds(sorts, filters)).toEqual(
+      evaluatedOrder(sorts, filters),
+    );
+  });
+
+  async function withChildren(
+    parentId: string,
+    children: Array<{ id: string; title: string; notes?: string }>,
+    check: () => Promise<void>,
+  ) {
+    const childIds = children.map((child) => `${parentId}-${child.id}`);
+    try {
+      for (const [position, child] of children.entries()) {
+        await addFile({
+          id: `${parentId}-${child.id}`,
+          title: child.title,
+          parentId,
+          position,
+        });
+        if (child.notes) {
+          await getDb()
+            .insert(schema.documentPropertyValues)
+            .values({
+              id: `stored-value-${parentId}-${child.id}-notes`,
+              ownerEmail: OWNER,
+              documentId: `${parentId}-${child.id}`,
+              propertyId: definitions.notes.id,
+              valueJson: JSON.stringify(child.notes),
+            });
+        }
+      }
+      await check();
+    } finally {
+      await getDb()
+        .delete(schema.documentPropertyValues)
+        .where(inArray(schema.documentPropertyValues.documentId, childIds));
+      await getDb()
+        .delete(schema.contentDatabaseItems)
+        .where(inArray(schema.contentDatabaseItems.documentId, childIds));
+      await getDb()
+        .delete(schema.documents)
+        .where(inArray(schema.documents.id, childIds));
+    }
+  }
+
+  it("sorts an expanded folder's children the same way", async () => {
+    const children = [
+      { id: "z", title: "z" },
+      { id: "y", title: "y", notes: "apple" },
+      { id: "x", title: "x", notes: "Zebra" },
+      { id: "w", title: "w", notes: "apple" },
+    ];
+    await withChildren("stored-odd", children, async () => {
+      await setView([], "and", [by("notes", "desc"), by("name")]);
+      const tree = await navigate({
+        parentId: PARENT_ID,
+        viewId: "default",
+        expand: ["stored-odd"],
+      });
+      expect(
+        tree.branches?.["stored-odd"]?.items.map((item) => item.documentId),
+      ).toEqual([
+        "stored-odd-x",
+        "stored-odd-w",
+        "stored-odd-y",
+        "stored-odd-z",
+      ]);
+    });
+  });
+
+  it("keeps the view's later sorts after a sort on name", async () => {
+    const children = [
+      { id: "a", title: "Same", notes: "apple" },
+      { id: "b", title: "Same", notes: "pear" },
+      { id: "c", title: "Other" },
+    ];
+    await withChildren("stored-retired", children, async () => {
+      await setView([], "and", [by("name"), by("notes", "desc")]);
+      const page = await navigate({
+        parentId: "stored-retired",
+        viewId: "default",
+      });
+      expect(page.items.map((item) => item.documentId)).toEqual([
+        "stored-retired-c",
+        "stored-retired-b",
+        "stored-retired-a",
+      ]);
+    });
+    expect(await sortedIds([by("name", "desc"), by("points")])).toEqual(
+      evaluatedOrder([by("name", "desc"), by("points")]),
+    );
+  });
+
+  it("keeps a cursor until a row moves across it", async () => {
+    await setView([], "and", [by("points")]);
+    const first = await readPage("UTC", { limit: 3 });
+    expect(first.items.map((item) => item.documentId)).toEqual([
+      "stored-empty",
+      "stored-gap",
+      "stored-after-gap",
+    ]);
+    const cursor = first.pagination.nextCursor ?? undefined;
+    expect(cursor).toEqual(expect.any(String));
+    const draftPoints = eq(
+      schema.documentPropertyValues.id,
+      "stored-value-draft-points",
+    );
+    await getDb()
+      .update(schema.documentPropertyValues)
+      .set({ valueJson: JSON.stringify("abd") })
+      .where(draftPoints);
+    try {
+      const second = await readPage("UTC", { cursor, limit: 3 });
+      expect(second.items.map((item) => item.documentId)).toEqual([
+        "stored-overlap",
+        "stored-retired",
+        "stored-odd",
+      ]);
+    } finally {
+      await getDb()
+        .update(schema.documentPropertyValues)
+        .set({ valueJson: JSON.stringify("abc") })
+        .where(draftPoints);
+    }
+    await getDb().insert(schema.documentPropertyValues).values({
+      id: "stored-value-gap-points",
+      ownerEmail: OWNER,
+      documentId: "stored-gap",
+      propertyId: definitions.points.id,
+      valueJson: "100",
+    });
+    try {
+      await expect(readPage("UTC", { cursor, limit: 3 })).rejects.toMatchObject(
+        { errorCode: "invalid_navigation_cursor" },
+      );
+    } finally {
+      await getDb()
+        .delete(schema.documentPropertyValues)
+        .where(eq(schema.documentPropertyValues.id, "stored-value-gap-points"));
+    }
+  });
+});
+
+describe("Files navigation groups", () => {
+  const GROUP_SPACE_ID = "grouping-space";
+  const GROUP_DATABASE_ID = "grouping-files";
+  const color = "gray";
+  const definitions = {
+    stage: {
+      id: "group-stage",
+      name: "Stage",
+      type: "select",
+      options: {
+        options: [
+          { id: "stage-idea", name: "Idea", color },
+          { id: "stage-draft", name: "Draft", color },
+          { id: "stage-live", name: "Live", color },
+        ],
+      },
+    },
+    state: {
+      id: "group-state",
+      name: "State",
+      type: "status",
+      options: {
+        options: [
+          { id: "state-todo", name: "Not started", color },
+          { id: "state-blocked", name: "Blocked", color },
+          { id: "state-done", name: "Done", color },
+        ],
+      },
+    },
+    tags: {
+      id: "group-tags",
+      name: "Tags",
+      type: "multi_select",
+      options: {
+        options: [
+          { id: "tag-red", name: "Red", color },
+          { id: "tag-blue", name: "Blue", color },
+          { id: "tag-green", name: "Green", color },
+        ],
+      },
+    },
+    done: { id: "group-done", name: "Done", type: "checkbox", options: {} },
+    notes: { id: "group-notes", name: "Notes", type: "text", options: {} },
+  } satisfies Record<
+    string,
+    Pick<DocumentProperty["definition"], "id" | "name" | "type" | "options">
+  >;
+  type Key = keyof typeof definitions;
+  const keys = Object.keys(definitions) as Key[];
+  const groupable = ["stage", "state", "tags", "done"] as const;
+  class SavedText {
+    constructor(readonly text: string) {}
+  }
+  const savedJson = (value: unknown) =>
+    value instanceof SavedText ? value.text : JSON.stringify(value);
+  const files: Array<{
+    id: string;
+    parentId?: string;
+    hidden?: boolean;
+    trashed?: boolean;
+    values: Partial<Record<Key, unknown>>;
+  }> = [
+    {
+      id: "alpha",
+      values: {
+        stage: "stage-draft",
+        state: "state-todo",
+        tags: ["tag-red", "tag-blue"],
+        done: true,
+        notes: "first",
+      },
+    },
+    {
+      id: "beta",
+      values: { stage: "stage-live", tags: ["tag-green"], done: false },
+    },
+    {
+      id: "beta-child",
+      parentId: "beta",
+      values: {
+        stage: "stage-draft",
+        state: "state-done",
+        tags: [],
+        done: "yes",
+      },
+    },
+    {
+      id: "beta-grandchild",
+      parentId: "beta-child",
+      values: { stage: "Retired", state: "state-gone", tags: ["tag-unknown"] },
+    },
+    { id: "delta", values: {} },
+    {
+      id: "epsilon",
+      values: {
+        stage: "stage-idea",
+        tags: ["tag-unknown", "tag-blue"],
+        done: true,
+        notes: "second",
+      },
+    },
+    {
+      id: "broken",
+      values: {
+        stage: new SavedText('"stage-draft'),
+        tags: new SavedText("[tag-red"),
+        done: new SavedText("tru"),
+      },
+    },
+    {
+      id: "hidden",
+      hidden: true,
+      values: { stage: "stage-draft", tags: ["tag-red"], done: true },
+    },
+    {
+      id: "trashed",
+      trashed: true,
+      values: { stage: "stage-draft", tags: ["tag-red"], done: true },
+    },
+  ];
+  const visibleFiles = files.filter((file) => !file.hidden && !file.trashed);
+
+  beforeAll(async () => {
+    const now = "2026-01-01T00:00:00.000Z";
+    await getDb().insert(schema.documents).values({
+      id: "grouping-files-document",
+      spaceId: GROUP_SPACE_ID,
+      ownerEmail: OWNER,
+      title: "Files",
+      content: "",
+      visibility: "private",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb().insert(schema.contentSpaces).values({
+      id: GROUP_SPACE_ID,
+      name: "Grouping",
+      kind: "personal",
+      ownerEmail: OWNER,
+      filesDatabaseId: GROUP_DATABASE_ID,
+      createdBy: OWNER,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb().insert(schema.contentDatabases).values({
+      id: GROUP_DATABASE_ID,
+      spaceId: GROUP_SPACE_ID,
+      ownerEmail: OWNER,
+      documentId: "grouping-files-document",
+      title: "Files",
+      systemRole: "files",
+      createdAt: now,
+      updatedAt: now,
+    });
+    for (const definition of Object.values(definitions)) {
+      await getDb()
+        .insert(schema.documentPropertyDefinitions)
+        .values({
+          id: definition.id,
+          ownerEmail: OWNER,
+          databaseId: GROUP_DATABASE_ID,
+          name: definition.name,
+          type: definition.type,
+          optionsJson: JSON.stringify(definition.options),
+        });
+    }
+    for (const [position, file] of files.entries()) {
+      await getDb()
+        .insert(schema.documents)
+        .values({
+          id: `group-${file.id}`,
+          spaceId: GROUP_SPACE_ID,
+          parentId: file.parentId ? `group-${file.parentId}` : null,
+          ownerEmail: file.hidden ? OTHER : OWNER,
+          title: file.id,
+          content: "",
+          visibility: "private",
+          trashedAt: file.trashed ? now : null,
+          createdAt: now,
+          updatedAt: now,
+        });
+      await getDb()
+        .insert(schema.contentDatabaseItems)
+        .values({
+          id: `membership-group-${file.id}`,
+          ownerEmail: OWNER,
+          databaseId: GROUP_DATABASE_ID,
+          documentId: `group-${file.id}`,
+          position,
+          createdAt: now,
+          updatedAt: now,
+        });
+      for (const key of keys) {
+        if (!(key in file.values)) continue;
+        await getDb()
+          .insert(schema.documentPropertyValues)
+          .values({
+            id: `group-value-${file.id}-${key}`,
+            ownerEmail: OWNER,
+            documentId: `group-${file.id}`,
+            propertyId: definitions[key].id,
+            valueJson: savedJson(file.values[key]),
+          });
+      }
+    }
+  });
+
+  afterEach(async () => {
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({ viewConfigJson: "{}" })
+      .where(eq(schema.contentDatabases.id, GROUP_DATABASE_ID));
+    const { personalDatabaseViewSettingKey } =
+      await import("./_content-database-personal-view.js");
+    await deleteUserSetting(
+      OWNER,
+      personalDatabaseViewSettingKey(GROUP_DATABASE_ID),
+    );
+  });
+
+  const evaluatorProperty = (key: Key, position: number): DocumentProperty => ({
+    definition: {
+      ...definitions[key],
+      databaseId: GROUP_DATABASE_ID,
+      visibility: "always_show",
+      position,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    },
+    value: null,
+    editable: true,
+  });
+  const evaluatorProperties = keys.map(evaluatorProperty);
+  const evaluatorItems: ContentDatabaseItem[] = visibleFiles.map((file) => ({
+    id: `membership-group-${file.id}`,
+    databaseId: GROUP_DATABASE_ID,
+    position: files.indexOf(file),
+    document: {
+      id: `group-${file.id}`,
+      parentId: file.parentId ? `group-${file.parentId}` : null,
+      title: file.id,
+      content: "",
+      icon: null,
+      position: files.indexOf(file),
+      isFavorite: false,
+      hideFromSearch: false,
+      visibility: "private",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    },
+    properties: keys.map((key, position) => {
+      const value = file.values[key];
+      return {
+        ...evaluatorProperty(key, position),
+        value:
+          value === undefined ? null : parsePropertyValue(savedJson(value)),
+      };
+    }),
+  }));
+
+  async function setView(view: Partial<ContentDatabaseView>) {
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({
+        viewConfigJson: JSON.stringify({
+          activeViewId: "grouped",
+          views: [
+            {
+              id: "grouped",
+              name: "Table",
+              type: "table",
+              sorts: [],
+              filters: [],
+              filterMode: "and",
+              columnWidths: {},
+              ...view,
+            },
+          ],
+        }),
+      })
+      .where(eq(schema.contentDatabases.id, GROUP_DATABASE_ID));
+  }
+
+  const read = (
+    navigation: {
+      parentId: string | null;
+      cursor?: string;
+      group?: string;
+      locate?: string;
+    },
+    limit?: number,
+  ) =>
+    runWithRequestContext({ userEmail: OWNER, timezone: "UTC" }, () =>
+      action.run(
+        {
+          databaseId: GROUP_DATABASE_ID,
+          navigation,
+          ...(limit ? { limit } : {}),
+        },
+        { userEmail: OWNER } as ActionRunContext,
+      ),
+    ) as Promise<ContentDatabaseNavigationPageResponse>;
+
+  const shownGroups = (page: ContentDatabaseNavigationPageResponse) =>
+    page.groups?.map((group) => ({
+      id: group.id,
+      label: group.label,
+      count: group.count,
+      ids: group.page.items.map((item) => item.documentId),
+    }));
+
+  function tableGroups(
+    key: Key,
+    options: {
+      sorts?: ContentDatabaseSort[];
+      filters?: ContentDatabaseFilter[];
+    } = {},
+  ) {
+    const items = applyContentDatabaseTableQuery(
+      evaluatorItems,
+      evaluatorProperties,
+      {
+        search: "",
+        filters: options.filters ?? [],
+        sorts: options.sorts ?? [],
+        filterMode: "and",
+      },
+      { timeZone: "UTC" },
+    );
+    return databaseBoardGroups(
+      items,
+      evaluatorProperties,
+      definitions[key].id,
+    ).map((group) => ({
+      id: group.id,
+      label: group.label,
+      count: group.items.length,
+      ids: group.items.map((item) => item.document.id),
+    }));
+  }
+
+  const by = (
+    key: Key | "name",
+    direction: ContentDatabaseSort["direction"] = "asc",
+  ): ContentDatabaseSort => ({
+    key: key === "name" ? "name" : definitions[key].id,
+    label: `${key} ${direction}`,
+    direction,
+  });
+
+  it("groups pages flat, from every level, as the table groups them", async () => {
+    for (const key of groupable) {
+      await setView({ groupByPropertyId: definitions[key].id });
+      const page = await read({ parentId: null });
+      expect({ key, groups: shownGroups(page) }).toEqual({
+        key,
+        groups: tableGroups(key),
+      });
+      expect(page.items.map((item) => item.documentId)).toEqual([
+        "group-alpha",
+        "group-beta",
+        "group-delta",
+        "group-epsilon",
+        "group-broken",
+      ]);
+    }
+  });
+
+  it("orders each group by the view's sorts", async () => {
+    const cases = [
+      [by("name", "desc")],
+      [by("stage", "desc"), by("name")],
+      [by("done"), by("notes", "desc")],
+    ];
+    for (const sorts of cases) {
+      for (const key of groupable) {
+        await setView({ groupByPropertyId: definitions[key].id, sorts });
+        const label = `${key} by ${sorts.map((sort) => sort.label).join(", ")}`;
+        expect({
+          label,
+          groups: shownGroups(await read({ parentId: null })),
+        }).toEqual({ label, groups: tableGroups(key, { sorts }) });
+      }
+    }
+  });
+
+  it("orders each group by a saved sidebar order", async () => {
+    await setView({ groupByPropertyId: definitions.tags.id });
+    const { personalDatabaseViewSettingKey } =
+      await import("./_content-database-personal-view.js");
+    await putUserSetting(
+      OWNER,
+      personalDatabaseViewSettingKey(GROUP_DATABASE_ID),
+      {
+        version: CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+        activeViewId: "grouped",
+        views: [
+          {
+            id: "grouped",
+            sorts: [],
+            filters: [],
+            filterMode: "and",
+            sidebarOrder: {
+              mode: "custom",
+              itemIds: ["membership-group-epsilon", "membership-group-delta"],
+            },
+          },
+        ],
+      },
+    );
+    const groups = shownGroups(await read({ parentId: null }));
+    expect(groups?.find((group) => group.label === "Blue")?.ids).toEqual([
+      "group-epsilon",
+      "group-alpha",
+    ]);
+    expect(groups?.find((group) => group.label === "No Tags")?.ids).toEqual([
+      "group-delta",
+      "group-beta-child",
+      "group-beta-grandchild",
+      "group-broken",
+    ]);
+  });
+
+  it("filters before it groups", async () => {
+    const filters: ContentDatabaseFilter[] = [
+      {
+        key: definitions.done.id,
+        label: "Done",
+        operator: "is_checked",
+        value: "",
+      },
+    ];
+    for (const key of groupable) {
+      await setView({ groupByPropertyId: definitions[key].id, filters });
+      expect({
+        key,
+        groups: shownGroups(await read({ parentId: null })),
+      }).toEqual({ key, groups: tableGroups(key, { filters }) });
+    }
+  });
+
+  it("leaves out empty groups only when the view hides them", async () => {
+    await setView({ groupByPropertyId: definitions.state.id });
+    const shown = await read({ parentId: null });
+    expect(shown.groups?.find((group) => group.label === "Blocked")).toEqual({
+      id: "group-state:state-blocked",
+      label: "Blocked",
+      unset: false,
+      count: 0,
+      page: {
+        items: [],
+        pagination: { limit: 20, hasMore: false, nextCursor: null },
+      },
+    });
+    await setView({
+      groupByPropertyId: definitions.state.id,
+      hideEmptyGroups: true,
+    });
+    expect(shownGroups(await read({ parentId: null }))).toEqual(
+      tableGroups("state").filter((group) => group.count > 0),
+    );
+  });
+
+  it("marks the group that holds pages with no value", async () => {
+    for (const key of groupable) {
+      await setView({ groupByPropertyId: definitions[key].id });
+      const page = await read({ parentId: null });
+      expect({
+        key,
+        unset: page.groups
+          ?.filter((group) => group.unset)
+          .map((group) => group.id),
+      }).toEqual({
+        key,
+        unset: [
+          `${definitions[key].id}:${key === "done" ? "false" : "__ungrouped__"}`,
+        ],
+      });
+    }
+  });
+
+  it("pages through each group on its own", async () => {
+    for (const sorts of [[], [by("name", "desc")], [by("stage")]]) {
+      await setView({ groupByPropertyId: definitions.tags.id, sorts });
+      const first = await read({ parentId: null }, 1);
+      const paged = [];
+      for (const group of first.groups ?? []) {
+        const ids = group.page.items.map((item) => item.documentId);
+        let cursor = group.page.pagination.nextCursor ?? undefined;
+        while (cursor) {
+          const next = await read(
+            { parentId: null, group: group.id, cursor },
+            1,
+          );
+          expect(next.groups).toBeUndefined();
+          ids.push(...next.items.map((item) => item.documentId));
+          cursor = next.pagination.nextCursor ?? undefined;
+        }
+        paged.push({
+          id: group.id,
+          label: group.label,
+          count: group.count,
+          ids,
+        });
+      }
+      expect(paged).toEqual(tableGroups("tags", { sorts }));
+    }
+  });
+
+  it("keeps a group's cursor to that group and its options", async () => {
+    await setView({ groupByPropertyId: definitions.tags.id });
+    const first = await read({ parentId: null }, 1);
+    const blue = first.groups?.find((group) => group.label === "Blue");
+    const blueId = "group-tags:tag-blue";
+    expect(blue?.id).toBe(blueId);
+    const cursor = blue?.page.pagination.nextCursor ?? undefined;
+    expect(cursor).toEqual(expect.any(String));
+    await expect(read({ parentId: null, cursor }, 1)).rejects.toMatchObject({
+      errorCode: "invalid_navigation_cursor",
+    });
+    await expect(
+      read({ parentId: null, group: "group-tags:tag-red", cursor }, 1),
+    ).rejects.toMatchObject({ errorCode: "invalid_navigation_cursor" });
+    await expect(
+      read({ parentId: "group-beta", group: blueId, cursor }, 1),
+    ).rejects.toMatchObject({ errorCode: "invalid_navigation_group" });
+    await expect(
+      read({ parentId: null, group: "group-tags:tag-missing" }, 1),
+    ).rejects.toMatchObject({ errorCode: "invalid_navigation_group" });
+    const tags = eq(schema.documentPropertyDefinitions.id, definitions.tags.id);
+    await getDb()
+      .update(schema.documentPropertyDefinitions)
+      .set({
+        optionsJson: JSON.stringify({
+          options: [
+            ...definitions.tags.options.options,
+            { id: "tag-new", name: "New", color },
+          ],
+        }),
+      })
+      .where(tags);
+    try {
+      await expect(
+        read({ parentId: null, group: blueId, cursor }, 1),
+      ).rejects.toMatchObject({ errorCode: "invalid_navigation_cursor" });
+    } finally {
+      await getDb()
+        .update(schema.documentPropertyDefinitions)
+        .set({ optionsJson: JSON.stringify(definitions.tags.options) })
+        .where(tags);
+    }
+    expect(
+      (await read({ parentId: null, group: blueId, cursor }, 1)).items.map(
+        (item) => item.documentId,
+      ),
+    ).toEqual(["group-epsilon"]);
+  });
+
+  it("keeps a group's cursor until a row moves across it", async () => {
+    await setView({
+      groupByPropertyId: definitions.tags.id,
+      sorts: [by("notes")],
+    });
+    const blueId = "group-tags:tag-blue";
+    const first = await read({ parentId: null }, 1);
+    const blue = first.groups?.find((group) => group.id === blueId);
+    expect(blue?.page.items.map((item) => item.documentId)).toEqual([
+      "group-alpha",
+    ]);
+    const cursor = blue?.page.pagination.nextCursor ?? undefined;
+    expect(cursor).toEqual(expect.any(String));
+    const epsilonNotes = eq(
+      schema.documentPropertyValues.id,
+      "group-value-epsilon-notes",
+    );
+    const setEpsilonNotes = (notes: string) =>
+      getDb()
+        .update(schema.documentPropertyValues)
+        .set({ valueJson: JSON.stringify(notes) })
+        .where(epsilonNotes);
+    try {
+      await setEpsilonNotes("third");
+      expect(
+        (await read({ parentId: null, group: blueId, cursor }, 1)).items.map(
+          (item) => item.documentId,
+        ),
+      ).toEqual(["group-epsilon"]);
+      await setEpsilonNotes("a note");
+      await expect(
+        read({ parentId: null, group: blueId, cursor }, 1),
+      ).rejects.toMatchObject({ errorCode: "invalid_navigation_cursor" });
+    } finally {
+      await setEpsilonNotes("second");
+    }
+  });
+
+  it("locates a page in the groups that list it", async () => {
+    await setView({ groupByPropertyId: definitions.tags.id });
+    const groupsListing = (documentId: string) =>
+      tableGroups("tags")
+        .filter((group) => group.ids.includes(documentId))
+        .map((group) => group.id);
+    for (const documentId of ["group-alpha", "group-beta-grandchild"]) {
+      const located = await read({ parentId: null, locate: documentId });
+      expect(located.items).toEqual([]);
+      expect(located.groups).toBeUndefined();
+      expect(located.locatedGroupIds).toEqual(groupsListing(documentId));
+    }
+    expect(groupsListing("group-alpha")).toHaveLength(2);
+    for (const documentId of ["group-hidden", "group-trashed", "missing"]) {
+      expect(
+        (await read({ parentId: null, locate: documentId })).locatedGroupIds,
+      ).toEqual([]);
+    }
+    await setView({
+      groupByPropertyId: definitions.tags.id,
+      filters: [
+        { key: "name", label: "Name", operator: "equals", value: "epsilon" },
+      ],
+    });
+    expect(
+      (await read({ parentId: null, locate: "group-alpha" })).locatedGroupIds,
+    ).toEqual([]);
+    await setView({});
+    expect(
+      (await read({ parentId: null, locate: "group-alpha" })).locatedGroupIds,
+    ).toEqual([]);
+    await setView({ groupByPropertyId: definitions.tags.id });
+    const first = await read({ parentId: null }, 1);
+    const cursor =
+      first.groups?.find((group) => group.id === "group-tags:tag-blue")?.page
+        .pagination.nextCursor ?? undefined;
+    expect(cursor).toEqual(expect.any(String));
+    for (const navigation of [
+      { parentId: "group-beta", locate: "group-alpha" },
+      { parentId: null, group: "group-tags:tag-blue", locate: "group-alpha" },
+      { parentId: null, cursor, locate: "group-alpha" },
+    ]) {
+      await expect(read(navigation)).rejects.toMatchObject({
+        errorCode: "invalid_navigation_group",
+      });
+    }
+  });
+
+  it("doesn't group on a property or view the sidebar can't group", async () => {
+    for (const view of [
+      { groupByPropertyId: definitions.notes.id },
+      { groupByPropertyId: "group-missing" },
+      { groupByPropertyId: definitions.tags.id, type: "board" as const },
+      { groupByPropertyId: null },
+    ]) {
+      await setView(view);
+      const page = await read({ parentId: null });
+      expect(page.groups).toBeUndefined();
+      expect(page.items).toHaveLength(5);
+    }
+  });
+
+  it("reads groups only for the top level's first page", async () => {
+    await setView({ groupByPropertyId: definitions.tags.id });
+    const child = await read({ parentId: "group-beta" });
+    expect(child.groups).toBeUndefined();
+    expect(child.items.map((item) => item.documentId)).toEqual([
+      "group-beta-child",
+    ]);
+    const first = await read({ parentId: null }, 2);
+    const next = await read(
+      { parentId: null, cursor: first.pagination.nextCursor ?? undefined },
+      2,
+    );
+    expect(next.groups).toBeUndefined();
+    expect(next.items.map((item) => item.documentId)).toEqual([
+      "group-delta",
+      "group-epsilon",
+    ]);
   });
 });

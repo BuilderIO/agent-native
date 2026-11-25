@@ -22,6 +22,7 @@ vi.mock("./store.js", () => ({
 
 const mockDbExecute = vi.fn();
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: mockDbExecute }),
   isLocalDatabase: () => true,
 }));
@@ -327,6 +328,7 @@ describe("application-state script-helpers", () => {
   describe("a call from no tab, pointed at the tab used last", () => {
     async function inMcpCall<T>(
       target:
+        | { kind: "requested"; tabId: string }
         | { kind: "last-used"; tabId: string; usedAt: number }
         | { kind: "unavailable" },
       fn: () => Promise<T>,
@@ -399,6 +401,35 @@ describe("application-state script-helpers", () => {
         browserTabId: null,
         stateTab: { tabId: "tab-b", unavailable: false },
       });
+    });
+
+    it("resolves a caller-requested tab target while keeping getCurrentRequestBrowserTabId null", async () => {
+      const helpers = await import("./script-helpers.js");
+      mockAppStatePut.mockResolvedValue(undefined);
+
+      const { result } = await inMcpCall(
+        { kind: "requested", tabId: "tab-requested" },
+        async () => {
+          await helpers.writeAppStateForCurrentTab("navigate", {
+            path: "/home?split=other",
+          });
+          return {
+            browserTabId: helpers.getCurrentRequestBrowserTabId(),
+            stateTab: await helpers.resolveCurrentRequestStateTab(),
+          };
+        },
+      );
+
+      expect(result).toEqual({
+        browserTabId: null,
+        stateTab: { tabId: "tab-requested", unavailable: false },
+      });
+      expect(mockAppStatePut).toHaveBeenCalledWith(
+        "alice@test.com",
+        "navigate:tab-requested",
+        { path: "/home?split=other" },
+        { requestSource: "agent" },
+      );
     });
 
     it("prefers the tab a request came from and never looks one up", async () => {

@@ -21,6 +21,7 @@ let executeCalls: number;
 let currentSecret: string;
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({
     execute: async (query: { sql: string; args: unknown[] }) => {
       executeCalls += 1;

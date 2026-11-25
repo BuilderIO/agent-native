@@ -108,6 +108,7 @@ const LOOPBACK_ORIGIN = "http://127.0.0.1:8080";
 const FALLBACK_ORIGIN = "https://preview-branch-abc123.builderio.xyz";
 const STATUS_PATH = "/_agent-native/builder/status";
 const CALLBACK_PATH = "/_agent-native/builder/callback";
+const POPUP_PATH = "/_agent-native/oauth/popup";
 
 function createNitroApp() {
   return { h3: { "~middleware": [] as any[] } };
@@ -290,5 +291,39 @@ describe("Builder preview-origin routes", () => {
       expect.objectContaining({ ownerEmail: OWNER, orgId: "org-example" }),
     );
     expect(mocks.settings.has(pendingKey)).toBe(false);
+  });
+
+  it("keeps the waiting page's opener policy on the redirect to Builder", async () => {
+    const nitroApp = createNitroApp();
+    await createCoreRoutesPlugin()(nitroApp);
+
+    const popup = await dispatch(nitroApp, LOOPBACK_ORIGIN + POPUP_PATH, {
+      host: "127.0.0.1:8080",
+    });
+    const status = await dispatch(nitroApp, LOOPBACK_ORIGIN + STATUS_PATH, {
+      host: "127.0.0.1:8080",
+      origin: PREVIEW_ORIGIN,
+      "sec-fetch-site": "same-origin",
+      "x-agent-native-preview-origin": PREVIEW_ORIGIN,
+    });
+    const connectUrl = new URL(getStatusConnectUrl(status.body));
+    const connect = await dispatch(
+      nitroApp,
+      LOOPBACK_ORIGIN + connectUrl.pathname + connectUrl.search,
+      { host: "127.0.0.1:8080", "sec-fetch-site": "cross-site" },
+    );
+
+    expect(status.headers.get("cross-origin-opener-policy")).toBe(
+      "same-origin-allow-popups",
+    );
+    expect(popup.headers.get("cross-origin-opener-policy")).toBe("unsafe-none");
+    expect(connect.status).toBe(302);
+    expect(connect.headers.get("location")).toContain(
+      "https://mcp.builder.io/",
+    );
+    expect(connect.headers.get("cache-control")).toBe("no-store");
+    expect(connect.headers.get("cross-origin-opener-policy")).toBe(
+      "unsafe-none",
+    );
   });
 });

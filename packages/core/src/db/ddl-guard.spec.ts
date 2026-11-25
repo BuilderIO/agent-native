@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { DbExec } from "./client.js";
+
 describe("ddl-guard", () => {
   let originalEnv: NodeJS.ProcessEnv;
   beforeEach(() => {
@@ -776,8 +778,42 @@ describe("ddl-guard", () => {
           ddl: "CREATE TABLE foo (id TEXT)",
           label: "table foo",
           injectedClient: client,
+          lockRetryDelayMs: 0,
         }),
       ).rejects.toThrow(/still missing after a lock-timed-out DDL/);
+    });
+
+    it("retries a transient lock timeout and succeeds once the lock clears", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+      const { ensureSchemaObject } = await import("./ddl-guard.js");
+      const lockErr = Object.assign(
+        new Error("canceling statement due to lock timeout"),
+        { code: "55P03" },
+      );
+      let ddlAttempts = 0;
+      const client = {
+        execute: async () => ({ rows: [], rowsAffected: 0 }),
+        transaction: async (fn: (tx: DbExec) => Promise<unknown>) =>
+          fn({
+            execute: async (sql: string | { sql: string }) => {
+              const text = typeof sql === "string" ? sql : sql.sql;
+              if (/ADD COLUMN/i.test(text)) {
+                ddlAttempts++;
+                if (ddlAttempts < 3) throw lockErr;
+              }
+              return { rows: [], rowsAffected: 0 };
+            },
+          }),
+      } as unknown as DbExec;
+      const ran = await ensureSchemaObject({
+        probe: async () => false,
+        ddl: "ALTER TABLE foo ADD COLUMN writer TEXT",
+        label: "column foo.writer",
+        injectedClient: client,
+        lockRetryDelayMs: 0,
+      });
+      expect(ran).toBe(true);
+      expect(ddlAttempts).toBe(3);
     });
 
     it("rethrows a non-lock-timeout DDL error without re-probing", async () => {
@@ -786,7 +822,7 @@ describe("ddl-guard", () => {
       let probeCount = 0;
       const client = {
         execute: async () => ({ rows: [], rowsAffected: 0 }),
-        transaction: async (fn: (tx: any) => Promise<unknown>) =>
+        transaction: async (fn: (tx: DbExec) => Promise<unknown>) =>
           fn({
             execute: async (sql: string | { sql: string }) => {
               const text = typeof sql === "string" ? sql : sql.sql;
@@ -796,7 +832,7 @@ describe("ddl-guard", () => {
               return { rows: [], rowsAffected: 0 };
             },
           }),
-      } as any;
+      } as unknown as DbExec;
       await expect(
         ensureSchemaObject({
           probe: async () => {
@@ -855,7 +891,7 @@ describe("ddl-guard", () => {
       transaction: async () => {
         throw new Error("concurrent index creation must not use a transaction");
       },
-    } as any;
+    } as unknown as DbExec;
 
     await expect(
       ensureIndexExistsConcurrently(
@@ -919,7 +955,7 @@ describe("ddl-guard", () => {
       },
       transaction: async (fn: (tx: unknown) => Promise<unknown>) =>
         fn({ execute: client.execute }),
-    } as any;
+    } as unknown as DbExec;
 
     await ensureIndexExists(
       "t_idx",
@@ -970,7 +1006,7 @@ describe("ddl-guard", () => {
       transaction: async () => {
         throw new Error("concurrent index creation must not use a transaction");
       },
-    } as any;
+    } as unknown as DbExec;
 
     await expect(
       ensureIndexExistsConcurrently(
@@ -1003,7 +1039,7 @@ describe("ddl-guard", () => {
       },
       transaction: async (fn: (tx: unknown) => Promise<unknown>) =>
         fn({ execute: client.execute }),
-    } as any;
+    } as unknown as DbExec;
 
     await ensureIndexExists(
       "t_idx",
@@ -1014,5 +1050,59 @@ describe("ddl-guard", () => {
     );
 
     expect(calls.some((sql) => /^DROP INDEX/.test(sql))).toBe(false);
+  });
+});
+
+describe("ensureTableExists foreign table guard", () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it("derives required columns from NOT NULL / PRIMARY KEY without defaults", async () => {
+    const { requiredColumnsOf } = await import("./ddl-guard.js");
+    expect(
+      requiredColumnsOf(
+        `CREATE TABLE IF NOT EXISTS email_log (
+          id TEXT PRIMARY KEY,
+          owner_email TEXT NOT NULL,
+          created_at BIGINT NOT NULL DEFAULT 0,
+          note TEXT,
+          amounts NUMERIC(10, 2) NOT NULL,
+          UNIQUE (owner_email, note)
+        )`,
+      ),
+    ).toEqual(["id", "owner_email", "amounts"]);
+  });
+
+  it("fails loudly instead of altering an existing table that lacks required columns", async () => {
+    vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+    const { ensureTableExists, ForeignTableSchemaError } =
+      await import("./ddl-guard.js");
+    const calls: string[] = [];
+    const client = {
+      execute: async (stmt: string | { sql: string; args?: unknown[] }) => {
+        const sql = typeof stmt === "string" ? stmt : stmt.sql;
+        calls.push(sql);
+        if (/SELECT table_name, column_name/.test(sql)) {
+          return {
+            rows: [{ table_name: "email_log", column_name: "id" }],
+            rowsAffected: 0,
+          };
+        }
+        return { rows: [], rowsAffected: 0 };
+      },
+    } as unknown as DbExec;
+    const error = await ensureTableExists(
+      "email_log",
+      "CREATE TABLE IF NOT EXISTS email_log (id TEXT PRIMARY KEY, owner_email TEXT NOT NULL)",
+      { injectedClient: client },
+    ).catch((e) => e);
+    expect(error).toBeInstanceOf(ForeignTableSchemaError);
+    expect(error.message).toMatch(/email_log.*owner_email/);
+    expect(calls.some((c) => /ALTER|CREATE TABLE/i.test(c))).toBe(false);
   });
 });

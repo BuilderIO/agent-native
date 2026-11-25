@@ -1801,6 +1801,87 @@ export const runContentMigrations = runMigrations(
       name: "content-comment-attachments",
       sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS attachments_json TEXT`,
     },
+    {
+      version: 142,
+      name: "content-database-builder-autosaves",
+      sql: `CREATE TABLE IF NOT EXISTS content_database_builder_autosaves (
+        id TEXT PRIMARY KEY,
+        source_id TEXT NOT NULL,
+        database_item_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        state TEXT NOT NULL DEFAULT 'idle',
+        reason TEXT,
+        last_error TEXT,
+        attempt_id TEXT,
+        saved_edit_at TEXT,
+        last_saved_at TEXT,
+        created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+        updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_database_builder_autosaves_source_item_unique
+        ON content_database_builder_autosaves (source_id, database_item_id)`,
+    },
+    {
+      version: 143,
+      name: "content-database-builder-autosave-claimed-edit",
+      sql: `ALTER TABLE content_database_builder_autosaves ADD COLUMN IF NOT EXISTS claimed_edit_at TEXT`,
+    },
+    {
+      version: 144,
+      name: "content-analytics-chart-citations",
+      sql: `CREATE TABLE IF NOT EXISTS content_analytics_chart_citations (
+        document_id TEXT NOT NULL,
+        dashboard_id TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_analytics_chart_citation_unique
+        ON content_analytics_chart_citations (document_id, dashboard_id);
+      CREATE INDEX IF NOT EXISTS content_analytics_chart_citation_dashboard_idx
+        ON content_analytics_chart_citations (dashboard_id)`,
+    },
+    {
+      version: 145,
+      name: "content-column-fills",
+      sql: `CREATE TABLE IF NOT EXISTS content_column_fills (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        database_id TEXT NOT NULL,
+        database_document_id TEXT NOT NULL,
+        property_id TEXT NOT NULL,
+        instruction TEXT NOT NULL,
+        rewrite BOOLEAN NOT NULL DEFAULT FALSE,
+        status TEXT NOT NULL DEFAULT 'running',
+        total INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+        updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE INDEX IF NOT EXISTS content_column_fills_database_idx
+        ON content_column_fills (database_id, created_at);
+      CREATE INDEX IF NOT EXISTS content_column_fills_status_idx
+        ON content_column_fills (status);
+      CREATE UNIQUE INDEX IF NOT EXISTS content_column_fills_active_idx
+        ON content_column_fills (database_id, property_id)
+        WHERE status IN ('running', 'stopping');
+      CREATE TABLE IF NOT EXISTS content_column_fill_cells (
+        fill_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'waiting',
+        base_generation BIGINT,
+        task_id TEXT,
+        agent_thread_id TEXT,
+        run_id TEXT,
+        attempt INTEGER NOT NULL DEFAULT 0,
+        error TEXT,
+        updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_column_fill_cells_cell_idx
+        ON content_column_fill_cells (fill_id, document_id);
+      CREATE INDEX IF NOT EXISTS content_column_fill_cells_status_idx
+        ON content_column_fill_cells (fill_id, status, position)`,
+    },
   ],
   { table: "content_migrations" },
 );

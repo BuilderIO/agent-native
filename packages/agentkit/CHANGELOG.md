@@ -1,5 +1,20 @@
 # @agent-native/agentkit
 
+## 0.233.0
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.232.0
+
+### Patch Changes
+
+- 6facea0: Keep the Thinking indicator visible after a chat message appears while its run is starting, including when a queued message starts immediately.
+- 4163448: Define typed action suggestions and receipts so hosts can execute the specific action a user selects.
+- Release all public npm packages with a patch version bump.
+- 88dad0f: Keep a stopped chat reply's text the same live and after reload: Stop tells the server the last part of the reply the browser showed, the server saves the reply only up to there, and a run whose Stop reached another server still saves its reply.
+
 ## 0.231.0
 
 ### Patch Changes

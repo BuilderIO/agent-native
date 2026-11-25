@@ -4,6 +4,7 @@ const execute = vi.hoisted(() => vi.fn());
 const findOne = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute }),
 }));
 

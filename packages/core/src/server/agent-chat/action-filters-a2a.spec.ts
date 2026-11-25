@@ -473,6 +473,25 @@ describe("filterDirectA2AActions", () => {
     ).toEqual(["search-text", "semantic"]);
   });
 
+  it("keeps a read whose MCP calls may ask for approval, and drops one that always may", () => {
+    const actions = {
+      "mcp-asks": action({
+        mcpNeedsApproval: () => true,
+        approvalNotice: () => "Allow up to $5.00 of BigQuery today?",
+        approvalProof: "review-page",
+      }),
+      "always-asks": action({ needsApproval: () => true }),
+    };
+
+    expect(
+      Object.keys(
+        filterDirectA2AActions(actions, {
+          connectorCatalog: Object.keys(actions),
+        }),
+      ),
+    ).toEqual(["mcp-asks"]);
+  });
+
   it("reads `mcpTool` as catalog membership and as a veto", () => {
     const actions = {
       "list-plans": action({ mcpTool: true }),

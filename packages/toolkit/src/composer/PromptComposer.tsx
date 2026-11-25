@@ -232,6 +232,7 @@ export interface PromptComposerProps {
    * See TiptapComposer's modelTriggerNamesSelectionOnly: the picker keeps the connect rows.
    */
   modelTriggerNamesSelectionOnly?: boolean;
+  modelTriggerLabel?: string | undefined;
   /** Show the legacy provider-level Auto model option (default: true). */
   showAutoModelOption?: boolean;
   /** Show the voice dictation button. Defaults to DEFAULT_VOICE_DICTATION_ENABLED. */
@@ -865,6 +866,7 @@ function PromptComposerInner({
   enterSubmitMode = "default",
   modelSelectorOpen,
   modelTriggerNamesSelectionOnly = false,
+  modelTriggerLabel,
   showAutoModelOption = true,
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
   dictationShortcut = false,
@@ -1052,6 +1054,8 @@ function PromptComposerInner({
       (engineState !== "configured" && modelListNeedsConnection));
   const [setupBouncePulse, setSetupBouncePulse] = useState(0);
   const [providerCheckPending, setProviderCheckPending] = useState(false);
+  const [providerSetupRequired, setProviderSetupRequired] = useState(false);
+  const ProviderSettingsLink = modelsAdapter.ProviderSettingsLink;
   const heldProviderDraftRef = useRef<ComposerDraftSnapshot | null>(null);
   const [heldProviderDraftRevision, setHeldProviderDraftRevision] = useState(0);
   const [heldModel, setHeldModel] = useState<{
@@ -1109,6 +1113,7 @@ function PromptComposerInner({
       setProviderCheckPending(true);
       try {
         const state = await validateEngineBeforeSubmit();
+        setProviderSetupRequired(state === "missing");
         if (state === "missing") {
           if (draft) {
             heldProviderDraftRef.current = draft;
@@ -1136,6 +1141,9 @@ function PromptComposerInner({
       validateEngineBeforeSubmit,
     ],
   );
+  useEffect(() => {
+    if (engineState === "configured") setProviderSetupRequired(false);
+  }, [engineState]);
   useEffect(() => {
     if (!heldModel) return;
     if (
@@ -1267,6 +1275,17 @@ function PromptComposerInner({
             : undefined
         }
       >
+        {providerSetupRequired ? (
+          <ComposerNotice
+            role="alert"
+            noticeId="provider-setup-required"
+            actions={ProviderSettingsLink ? <ProviderSettingsLink /> : null}
+            onDismiss={() => setProviderSetupRequired(false)}
+            dismissLabel={t("agentChat.common.dismiss")}
+          >
+            {t("agentChat.setup.connectToChat")}
+          </ComposerNotice>
+        ) : null}
         {engineState === "unavailable" &&
         !setupCardVisible &&
         !engineNoticeDismissed ? (
@@ -1398,6 +1417,7 @@ function PromptComposerInner({
           onModelSelectorOpenChange={onModelSelectorOpenChange}
           providerConnectStatusEnabled={resolvedModelStatusChecksEnabled}
           modelTriggerNamesSelectionOnly={modelTriggerNamesSelectionOnly}
+          modelTriggerLabel={modelTriggerLabel}
           onConnectProvider={onConnectProvider}
           onConnectLocalRuntime={onConnectLocalRuntime}
           imageModelMenu={imageModelMenu}

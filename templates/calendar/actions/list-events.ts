@@ -13,6 +13,11 @@ import { and, gte, inArray, lte, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  accountDescriptionFor,
+  getAccountDescriptions,
+} from "../server/lib/calendar-descriptions.js";
+import { calendarReadFailure } from "../server/lib/calendar-read-error.js";
 import { getCalendarTimezone } from "../server/lib/calendar-settings.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import { fetchICalEvents } from "../server/lib/ical-fetcher.js";
@@ -23,6 +28,7 @@ import {
   type CalendarEvent,
   type ExternalCalendar,
 } from "../shared/api.js";
+import { normalizeCalendarDescription } from "../shared/calendar-descriptions.js";
 import {
   addDaysToDateKey,
   dateKeyInTimezone,
@@ -98,6 +104,7 @@ interface ListCalendarEventsArgs {
   calendarSourceKeys?: string[];
   sources?: CalendarInventorySource[];
   providerPageSize?: number;
+  incremental?: boolean;
 }
 
 interface ListCalendarEventsOptions {
@@ -110,8 +117,8 @@ type CalendarInventorySource = "google" | "bookings" | "ics" | "overlays";
 
 interface CalendarEventsResult {
   events: CalendarEvent[];
-  errors: Array<{ email: string; error: string }>;
-  primaryErrors: Array<{ email: string; error: string }>;
+  errors: Array<{ email: string; error: string; code?: string }>;
+  primaryErrors: Array<{ email: string; error: string; code?: string }>;
   primaryEventCount: number;
   googleConnected: boolean;
   range: CalendarEventRange;
@@ -119,6 +126,7 @@ interface CalendarEventsResult {
   icalSources: Array<{
     id: string;
     name: string;
+    description?: string;
     status: "ok" | "error";
     error?: string;
   }>;
@@ -126,6 +134,7 @@ interface CalendarEventsResult {
     email: string;
     status: "ok" | "error";
     error?: string;
+    code?: string;
   }>;
   requestedAccounts: string[] | null;
   resolvedAccounts: string[];
@@ -145,6 +154,7 @@ export interface CalendarInventoryItem {
   transparency?: CalendarEvent["transparency"];
   source: "google" | "booking" | "ics" | "overlay";
   sourceId?: string;
+  revision?: string;
   accountEmail?: string;
   calendarSourceKey?: string;
   calendarId?: string;
@@ -360,6 +370,7 @@ function compactInventoryEvent(event: CalendarEvent): CalendarInventoryItem {
     transparency: event.transparency,
     source,
     sourceId: event.sourceId,
+    revision: event.revision,
     accountEmail: event.accountEmail,
     calendarSourceKey: event.calendarSourceKey,
     calendarId: event.calendarId,
@@ -617,7 +628,7 @@ export async function listCalendarEvents(
   const includeOverlays = sources.includes("overlays");
 
   let googleEvents: CalendarEvent[] = [];
-  let errors: Array<{ email: string; error: string }> = [];
+  let errors: Array<{ email: string; error: string; code?: string }> = [];
   let overlaySources: Array<{
     email: string;
     status: "ok" | "error";
@@ -664,6 +675,9 @@ export async function listCalendarEvents(
           accountEmails: args.accountEmails,
           calendarSourceKeys: args.calendarSourceKeys,
           maxResults: args.providerPageSize,
+          ...(args.incremental === undefined
+            ? {}
+            : { incremental: args.incremental }),
         })
       : Promise.resolve({ events: [], errors: [] });
   const overlayRead =
@@ -673,7 +687,14 @@ export async function listCalendarEvents(
           range.to,
           requestedOverlayEmails,
           email,
-          { accountEmails: args.accountEmails },
+          {
+            ...(args.accountEmails
+              ? { accountEmails: args.accountEmails }
+              : {}),
+            ...(args.incremental === undefined
+              ? {}
+              : { incremental: args.incremental }),
+          },
         )
       : Promise.resolve({ events: [], errors: [], accountErrors: [] });
   const icalRead = sources.includes("ics")
@@ -710,6 +731,7 @@ export async function listCalendarEvents(
             email: overlayEmail,
             status: "error" as const,
             error: error.error,
+            ...(error.code ? { code: error.code } : {}),
           }
         : { email: overlayEmail, status: "ok" as const };
     });
@@ -737,11 +759,16 @@ export async function listCalendarEvents(
   );
   const icalSources = externalCalendars.map((calendar, index) => {
     const result = icalResults[index]!;
+    const description = normalizeCalendarDescription(calendar.description);
+    const feed = {
+      id: calendar.id,
+      name: calendar.name,
+      ...(description ? { description } : {}),
+    };
     return result.status === "fulfilled"
-      ? { id: calendar.id, name: calendar.name, status: "ok" as const }
+      ? { ...feed, status: "ok" as const }
       : {
-          id: calendar.id,
-          name: calendar.name,
+          ...feed,
           status: "error" as const,
           error:
             result.reason instanceof Error
@@ -866,6 +893,10 @@ export default defineAction({
       .enum(["legacy", "inventory"])
       .optional()
       .describe("Use inventory for compact, coverage-aware external reads"),
+    incremental: z
+      .union([z.boolean(), z.enum(["true", "false"])])
+      .transform((value) => value === true || value === "true")
+      .optional(),
     cursor: z
       .string()
       .max(4096)
@@ -1013,14 +1044,22 @@ export default defineAction({
               key: last.key,
             })
           : undefined;
+      const accountDescriptions = owner
+        ? await getAccountDescriptions(owner)
+        : {};
       const accounts = result.queriedAccounts.map((accountEmail) => {
         const error = result.errors.find(
           (entry) =>
             entry.email.trim().toLowerCase() ===
             accountEmail.trim().toLowerCase(),
         );
+        const description = accountDescriptionFor(
+          accountDescriptions,
+          accountEmail,
+        );
         return {
           accountEmail,
+          ...(description ? { description } : {}),
           status: error ? ("error" as const) : ("ok" as const),
           count: compact.filter(
             (item) => item.accountEmail?.trim().toLowerCase() === accountEmail,
@@ -1055,6 +1094,7 @@ export default defineAction({
         ...result.icalSources.map((feed) => ({
           source: "ics" as const,
           id: feed.id,
+          ...(feed.description ? { description: feed.description } : {}),
           status: feed.status,
           ...(feed.error
             ? {
@@ -1109,9 +1149,26 @@ export default defineAction({
       };
     }
 
-    if (result.primaryEventCount === 0 && result.primaryErrors.length > 0) {
-      throw new Error(
-        result.primaryErrors.map((e) => `${e.email}: ${e.error}`).join("; "),
+    const readFailures = [
+      ...result.primaryErrors,
+      ...(args.incremental
+        ? result.overlaySources.flatMap((source) =>
+            source.error
+              ? [
+                  {
+                    error: source.error,
+                    ...(source.code ? { code: source.code } : {}),
+                  },
+                ]
+              : [],
+          )
+        : []),
+      ...(args.incremental ? result.icalErrors : []),
+    ];
+    if (readFailures.length > 0) {
+      throw calendarReadFailure(
+        readFailures,
+        args.incremental ? { partialEvents: result.events } : undefined,
       );
     }
 

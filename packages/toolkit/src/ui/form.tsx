@@ -13,7 +13,7 @@ import {
 import { cn } from "../utils.js";
 import { Label } from "./label.js";
 
-const Form = FormProvider;
+const Form: typeof FormProvider = FormProvider;
 
 type FormFieldContextValue<
   TFieldValues extends FieldValues = FieldValues,

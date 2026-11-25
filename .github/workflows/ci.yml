@@ -4,7 +4,7 @@ on:
   # No `branches` filter: a stacked PR targets its parent PR's branch, and the
   # required checks must report on it too.
   pull_request:
-    types: [opened, edited, synchronize, reopened]
+    types: [opened, synchronize, reopened]
 
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
@@ -64,6 +64,7 @@ jobs:
       slides_authoring_e2e: ${{ steps.scope.outputs.slides_authoring_e2e }}
       slides_authoring_matrix: ${{ steps.scope.outputs.slides_authoring_matrix }}
       slides_oracle: ${{ steps.scope.outputs.slides_oracle }}
+      storybook_tests: ${{ steps.scope.outputs.storybook_tests }}
       changeset: ${{ steps.scope.outputs.changeset }}
       verify_execution_lease: ${{ steps.scope.outputs.verify_execution_lease }}
       core_mutation: ${{ steps.scope.outputs.core_mutation }}
@@ -165,6 +166,9 @@ jobs:
     if: ${{ !cancelled() && (needs.change-scope.result != 'success' || needs.change-scope.outputs.lint == 'true' || needs.change-scope.outputs.has_reports == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
     steps:
       - name: Require a successful change scope
         env:
@@ -236,6 +240,34 @@ jobs:
       - name: Enforce package bump policy
         if: ${{ !cancelled() && needs.change-scope.result == 'success' && steps.setup.outcome == 'success' && needs.change-scope.outputs.changeset == 'true' && github.event.pull_request.head.ref != 'changeset-release/main' }}
         run: node scripts/guard-no-major-changeset.mjs
+
+      - name: Start PostgreSQL for navigation proof
+        if: needs.change-scope.outputs.has_reports == 'true' && contains(github.event.pull_request.body, 'query-content-database-items.navigation.postgres.integration.test.ts')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          export DOCKER_CONFIG="$(mktemp -d "$RUNNER_TEMP/feedback-proof-docker.XXXXXX")"
+          trap 'rm -rf "$DOCKER_CONFIG"' EXIT
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker pull ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
+          docker logout ghcr.io
+          rm -rf "$DOCKER_CONFIG"
+          trap - EXIT
+          unset DOCKER_CONFIG GH_TOKEN
+          docker run --pull=never -d --name feedback-proof-postgres \
+            -e POSTGRES_DB=content_navigation_test -e POSTGRES_HOST_AUTH_METHOD=trust \
+            -p 127.0.0.1:5432:5432 ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
+          for attempt in {1..30}; do
+            if docker exec feedback-proof-postgres pg_isready -h 127.0.0.1 -U postgres -d content_navigation_test; then
+              echo 'CONTENT_NAVIGATION_POSTGRES_URL=postgres://postgres@127.0.0.1:5432/content_navigation_test' >> "$GITHUB_ENV"
+              echo 'CONTENT_NAVIGATION_POSTGRES_REQUIRED=1' >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs feedback-proof-postgres
+          exit 1
 
       - name: Re-run feedback fix proofs
         if: needs.change-scope.outputs.has_reports == 'true'
@@ -340,6 +372,15 @@ jobs:
           --exclude "**/*.perf.spec.ts"
           --exclude "**/*.perf.test.ts"
           --exclude "**/create-e2e.spec.ts"
+
+      - name: Upload action conformance measurements
+        if: always() && hashFiles('.tmp/action-conformance/*.json') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: action-conformance-${{ github.job }}-${{ matrix.lane }}
+          path: .tmp/action-conformance/*.json
+          include-hidden-files: true
+          retention-days: 14
 
       - name: Run package fast tests for lane
         if: matrix.filters != ''
@@ -468,6 +509,15 @@ jobs:
             --exclude "**/create-e2e.spec.ts"
           )
           pnpm --filter @agent-native/core exec vitest "${args[@]}"
+
+      - name: Upload action conformance measurements
+        if: always() && hashFiles('.tmp/action-conformance/*.json') != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: action-conformance-${{ github.job }}-${{ matrix.lane }}
+          path: .tmp/action-conformance/*.json
+          include-hidden-files: true
+          retention-days: 14
 
       - name: Run package fast tests for lane
         if: matrix.filters != ''
@@ -662,7 +712,7 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.design_canvas_broad_workflows == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ matrix.shard == 'home-system-selection' && 40 || (matrix.shard == 'music-app-workflow' || matrix.shard == 'landing-page-build') && 35 || 30 }}
+    timeout-minutes: ${{ (matrix.shard == 'music-app-workflow' || matrix.shard == 'landing-page-build') && 35 || 30 }}
     strategy:
       fail-fast: false
       matrix:
@@ -765,15 +815,6 @@ jobs:
             exit 2
           fi
           pnpm exec playwright test "$landing_page_spec" --workers=1 --retries=0 --trace on
-
-      - name: Run Home design-system selection regressions
-        if: matrix.shard == 'home-system-selection'
-        working-directory: templates/design
-        timeout-minutes: 28
-        env:
-          E2E_RUN_ID: design-dnd-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}
-          E2E_AI_SIDEBAR_LOOPBACK: "1"
-        run: pnpm exec playwright test e2e/home-system-selection.spec.ts --project=home-system-selection --workers=1 --retries=0 --trace on
 
       - name: Run vertical auto-layout held-guide regression
         if: ${{ matrix.shard == 'autolayout-vertical-center-trailing' && contains(fromJSON(needs.change-scope.outputs.design_canvas_e2e_specs), 'templates/design/e2e/autolayout-drag-drop-matrix.spec.ts') }}
@@ -1203,6 +1244,7 @@ jobs:
         run: |
           psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d content_migration_test -c "CREATE DATABASE content_row_mutation_test"
           psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d content_migration_test -c "CREATE DATABASE content_block_action_test"
+          psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U postgres -d content_migration_test -c "CREATE DATABASE content_navigation_test"
 
       - name: Run Content DB tests
         run: pnpm test:content-db
@@ -1231,11 +1273,14 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           pnpm test:content-db-postgres
+          pnpm --filter content exec vitest run actions/query-content-database-items.navigation.postgres.integration.test.ts
           pnpm --filter content exec vitest --run actions/upsert-database-item-by-key.db.test.ts --config vitest.config.ts
           pnpm --filter content exec vitest --run actions/patch-database-items.db.test.ts --config vitest.config.ts
           pnpm test:content-db-two-connections
         env:
           CONTENT_MIGRATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_migration_test
+          CONTENT_NAVIGATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_navigation_test
+          CONTENT_NAVIGATION_POSTGRES_REQUIRED: "1"
           CONTENT_ROW_MUTATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_row_mutation_test
           CONTENT_BLOCK_ACTION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_block_action_test
 
@@ -1504,7 +1549,9 @@ jobs:
       # uploaded anything. So the job with the latest start time ran the group,
       # and among equal start times the lowest attempt is the one that ran it.
       # A page that fails mid-pagination would leave a list that can miss the
-      # newest attempts, so only a complete list reaches the merge.
+      # newest attempts, so only a complete list reaches the merge. Keep
+      # per_page=25 because GitHub's jobs endpoint returns HTTP 502 on
+      # per_page=100 once a full run accumulates multiple attempts.
       - name: Read the attempt that last ran each group
         id: jobs
         continue-on-error: true
@@ -1515,7 +1562,7 @@ jobs:
           mkdir -p .tmp
           for attempt in 1 2 3 4; do
             if gh api --paginate \
-              "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=all&per_page=100" \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/jobs?filter=all&per_page=25" \
               --jq '.jobs[] | select(.name | startswith("Content convergence (")) | [.name, .run_attempt, (.started_at // ""), (.conclusion // "none")] | @tsv' \
               > "$JOBS_FILE.partial" 2> "$JOBS_FILE.err"; then
               mv "$JOBS_FILE.partial" "$JOBS_FILE"
@@ -1837,6 +1884,18 @@ jobs:
         run: >-
           pnpm exec tsx scripts/edit-fidelity/run.ts --text-surface-qa
           ${{ matrix.browser == 'webkit' && '--browser webkit' || '' }}
+
+  storybook-tests:
+    name: Storybook story tests
+    needs: change-scope
+    if: needs.change-scope.outputs.storybook_tests == 'true'
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/storybook-tests.yml
+    secrets:
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+      STORYBOOK_NETLIFY_SITE_ID: ${{ secrets.STORYBOOK_NETLIFY_SITE_ID }}
 
   brain-evals:
     name: Brain evals
@@ -2276,6 +2335,7 @@ jobs:
           pnpm --filter @agent-native/agentkit build
           pnpm --filter @agent-native/core build
           pnpm --filter @agent-native/otel build
+          pnpm --filter @agent-native/design-system build
           pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/creative-context build
 
@@ -2509,6 +2569,7 @@ jobs:
           pnpm --filter @agent-native/recap-cli build
           pnpm --filter @agent-native/agentkit build
           pnpm --filter @agent-native/core build
+          pnpm --filter @agent-native/design-system build
           pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/creative-context build
           pnpm --filter @agent-native/otel build

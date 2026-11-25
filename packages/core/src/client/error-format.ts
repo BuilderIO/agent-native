@@ -16,6 +16,10 @@ import {
   isRejectedRequestErrorCode,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "../agent/engine/error-detail.js";
+import {
+  PRIVATE_WRITE_TOOL_OUTCOME_UNKNOWN_MESSAGE,
+  WRITE_TOOL_OUTCOME_UNKNOWN_ERROR_CODE,
+} from "../agent/run-errors.js";
 import { commercialSurfacesHidden } from "./app-config.js";
 import {
   RUN_FAILED_MESSAGE,
@@ -91,6 +95,8 @@ const MALFORMED_REQUEST_ATTACHMENT_MESSAGE =
   "The model rejected an attached file, so this message was never sent. Remove the attachment and retry — a PDF, a plain-text file, or a JPEG, PNG, GIF, or WebP image is read directly; other formats have to be uploaded and linked instead.";
 const MALFORMED_REQUEST_MESSAGE =
   "The model provider rejected this request as malformed, so it was not retried. Retry, or start a new chat if it keeps happening.";
+const REQUEST_NOT_READ_MESSAGE =
+  "The model could not read this request because it was too large or complex, for example too many tools, so it was not retried. Start a new chat or pick a different model.";
 export const CHAT_REQUEST_TOO_LARGE_MESSAGE =
   "This request exceeded the server's size limit (HTTP 413). Start a new chat or remove large attachments or references, then retry.";
 export const CHAT_CAPABILITY_UNAVAILABLE_MESSAGE =
@@ -161,6 +167,10 @@ type ErrorTranslate = (
 
 const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
   [
+    PRIVATE_WRITE_TOOL_OUTCOME_UNKNOWN_MESSAGE,
+    "agentChat.errorMessages.writeOutcomeUnknown",
+  ],
+  [
     CREDITS_LIMIT_REACHED_MESSAGE,
     "agentChat.errorMessages.creditsLimitReached",
   ],
@@ -201,6 +211,10 @@ const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
   [
     "The provider behind this model rejected the request. Pick a different model, then retry.",
     "agentChat.errorMessages.builderModelUnauthorized",
+  ],
+  [
+    "AI is paused until an email address in this workspace is verified. Check the inbox for the verification link, then retry.",
+    "agentChat.errorMessages.emailVerificationRequired",
   ],
   [
     BUILDER_AUTHENTICATION_ERROR,
@@ -259,6 +273,7 @@ const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
     "agentChat.errorMessages.malformedRequestAttachment",
   ],
   [MALFORMED_REQUEST_MESSAGE, "agentChat.errorMessages.malformedRequest"],
+  [REQUEST_NOT_READ_MESSAGE, "agentChat.errorMessages.requestNotRead"],
   [RUN_INTERRUPTED_MESSAGE, "agentChat.errorMessages.runInterrupted"],
   [RUN_FAILED_MESSAGE, "agentChat.errorMessages.runFailed"],
   [RUN_UNVERIFIED_MESSAGE, "agentChat.errorMessages.runUnverified"],
@@ -336,7 +351,9 @@ function parseProviderErrorPayload(
   raw: string,
 ): ParsedProviderErrorPayload | null {
   try {
-    const parsed: unknown = JSON.parse(raw);
+    const parsed: unknown = JSON.parse(
+      raw.replace(/^(?:Error:\s*)?(?:HTTP\s+)?[45]\d{2}\s+(?=\{)/i, ""),
+    );
     if (!parsed || typeof parsed !== "object") return null;
     const record = parsed as Record<string, unknown>;
     const error = record.error;
@@ -440,6 +457,16 @@ export function normalizeChatError(
   const code = normalizeErrorCode(errorCode ?? providerPayload?.errorCode);
   const credential = chatCredentialState(text, code);
 
+  if (code === WRITE_TOOL_OUTCOME_UNKNOWN_ERROR_CODE) {
+    return {
+      message: PRIVATE_WRITE_TOOL_OUTCOME_UNKNOWN_MESSAGE,
+      ...(text !== PRIVATE_WRITE_TOOL_OUTCOME_UNKNOWN_MESSAGE
+        ? { details: text }
+        : {}),
+    };
+  }
+  const rejectedRequest = isRejectedRequestErrorCode(code);
+
   if (credential?.kind === "exhausted") {
     return { message: CREDITS_LIMIT_REACHED_MESSAGE };
   }
@@ -465,7 +492,7 @@ export function normalizeChatError(
 
   if (
     code === BUILDER_GATEWAY_INTERNAL_ERROR_CODE ||
-    isBuilderGatewayInternalErrorMessage(text)
+    (!rejectedRequest && isBuilderGatewayInternalErrorMessage(text))
   ) {
     return { message: GATEWAY_INTERNAL_ERROR_MESSAGE, details: text };
   }
@@ -511,7 +538,10 @@ export function normalizeChatError(
     };
   }
 
-  if (isProviderRateLimit(text, code)) {
+  if (
+    isProviderRateLimit(text, code) ||
+    providerPayload?.errorCode === "overloaded_error"
+  ) {
     return {
       message:
         providerMessage ??
@@ -555,7 +585,11 @@ export function normalizeChatError(
     };
   }
 
-  if (isRejectedRequestErrorCode(code) && !isContextOverflowMessage(text)) {
+  if (code === "request_not_read") {
+    return { message: REQUEST_NOT_READ_MESSAGE, details: text };
+  }
+
+  if (rejectedRequest && !isContextOverflowMessage(text)) {
     return {
       message: ATTACHMENT_REJECTION_PATTERN.test(text)
         ? MALFORMED_REQUEST_ATTACHMENT_MESSAGE
@@ -571,6 +605,8 @@ export function normalizeChatError(
       details: text,
     };
   }
+
+  if (providerMessage) return { message: providerMessage, details: text };
 
   if (looksHtml) {
     return {

@@ -453,6 +453,10 @@
     {
       "name": "edit-lineage",
       "checksum": "eccb140e27fc907b"
+    },
+    {
+      "name": "automation-thread-source-app-backfill",
+      "checksum": "4259bccc177a284e"
     }
   ],
   "checkpoints": [
@@ -536,6 +540,14 @@
   "data_programs": [
     {
       "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "data-program-runs-credential-uses",
+      "checksum": null
+    },
+    {
+      "name": "data-programs-scheduled-refresh",
       "checksum": null
     }
   ],
@@ -659,6 +671,10 @@
     {
       "name": "review-page-columns",
       "checksum": "5219a7b9642c4847"
+    },
+    {
+      "name": "approval-notice",
+      "checksum": "e0e1c1d2c5df1bb3"
     }
   ],
   "mcp_chat_turns": [
@@ -1103,6 +1119,16 @@
     {
       "name": "author-source-and-client",
       "checksum": null
+    }
+  ],
+  "runner_session_nonces": [
+    {
+      "name": "baseline",
+      "checksum": "c74da203e8c1aa11"
+    },
+    {
+      "name": "expiry-index",
+      "checksum": "8331ca3a62dda83d"
     }
   ],
   "sandbox_executions": [

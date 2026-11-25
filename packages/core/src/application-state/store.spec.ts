@@ -41,6 +41,7 @@ const dbMockState = vi.hoisted(() => ({
 }));
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => rawClient,
   isConnectionError: (error: { code?: string }) => error?.code === "ECONNRESET",
   isLocalDatabase: () => dbMockState.localDatabase,
@@ -71,7 +72,7 @@ const SESSION = "alice@example.com";
 beforeEach(async () => {
   resetAppConfigForTests();
   defineAppConfig({ app: { packageName: "slides" } });
-  postgres = await createTestPglite();
+  postgres = await createTestPglite({ reuseEmptyBootstrap: true });
   await postgres.exec(`CREATE TABLE IF NOT EXISTS application_state (
     session_id TEXT NOT NULL,
     key TEXT NOT NULL,
@@ -268,6 +269,24 @@ describe("application-state store", () => {
       ]),
     );
     expect(entries).toHaveLength(2);
+  });
+
+  it("distinguishes an absent pane from corrupt stored state", async () => {
+    const pane = { appId: "mail", path: "/inbox" };
+    await appStatePut(SESSION, "chat-first-pane", pane);
+    await expect(
+      appStateGetManyEntries(SESSION, ["chat-first-pane", "absent-pane"]),
+    ).resolves.toEqual([{ key: "chat-first-pane", value: pane }]);
+    await rawClient.execute({
+      sql: "UPDATE application_state SET value = ? WHERE session_id = ? AND key = ?",
+      args: ["{invalid", SESSION, "chat-first-pane"],
+    });
+    await expect(
+      appStateGetManyEntries(SESSION, ["chat-first-pane"]),
+    ).rejects.toBeInstanceOf(SyntaxError);
+    await expect(
+      appStateGetManyEntries(SESSION, ["absent-pane"]),
+    ).resolves.toEqual([]);
   });
 
   it("does not report connection failures as missing state", async () => {
@@ -511,5 +530,168 @@ describe("application-state write order", () => {
 
     await expect(appStateDelete(SESSION, "draft", page(1))).resolves.toBe(true);
     await expect(appStateGet(SESSION, "draft")).resolves.toBeNull();
+  });
+});
+
+describe("agent reads keep the user's view", () => {
+  async function inAction<T>(
+    caller: "mcp" | "frontend",
+    readOnly: boolean,
+    write: () => Promise<T>,
+    actionName?: string,
+  ): Promise<T> {
+    const { defineAction } = await import("../action.js");
+    const { z } = await import("zod");
+    const action = defineAction({
+      description: "Run a write inside an action.",
+      schema: z.object({}),
+      readOnly,
+      run: async () => write(),
+    });
+    return action.run(
+      {},
+      { caller, ...(actionName ? { actionName } : {}) },
+    ) as Promise<T>;
+  }
+
+  const value = { path: "/tasks/t1" };
+  const writes = {
+    put: (key: string) => appStatePut(SESSION, key, value),
+    cas: (key: string) => appStateCompareAndSet(SESSION, key, null, value),
+    casMany: (key: string) =>
+      appStateCompareAndSetMany(SESSION, [
+        { key: "other", expectedValue: null, nextValue: { x: 1 } },
+        { key, expectedValue: null, nextValue: value },
+      ]),
+  };
+
+  it.each([
+    ["put", "navigate"],
+    ["put", "navigate:tab-1"],
+    ["cas", "navigate"],
+    ["casMany", "navigate:tab-1"],
+  ] as const)("refuses a %s of %s from an agent's read", async (kind, key) => {
+    await expect(
+      inAction("mcp", true, () => writes[kind](key)),
+    ).rejects.toMatchObject({
+      name: "AgentNavigationRefusedError",
+      code: "agent_navigation_refused",
+    });
+    expect(await appStateGet(SESSION, key)).toBeNull();
+    expect(await appStateGet(SESSION, "other")).toBeNull();
+  });
+
+  it("refuses a navigate write from a write nested in an agent's read", async () => {
+    await expect(
+      inAction("mcp", true, () =>
+        inAction("mcp", false, () => writes.put("navigate")),
+      ),
+    ).rejects.toThrow(/read-only action cannot move the user's view/);
+    expect(await appStateGet(SESSION, "navigate")).toBeNull();
+  });
+
+  it("lets an agent's read clear navigate and write other keys", async () => {
+    await appStatePut(SESSION, "navigate", value);
+    await inAction("mcp", true, async () => {
+      await appStateCompareAndSet(SESSION, "navigate", value, null);
+      await appStatePut(SESSION, "draft", { body: "x" });
+    });
+    expect(await appStateGet(SESSION, "navigate")).toBeNull();
+    expect(await appStateGet(SESSION, "draft")).toEqual({ body: "x" });
+  });
+
+  it("refuses a detail navigate write from an agent without intent open, and allows list or explicit open", async () => {
+    const { defineAction } = await import("../action.js");
+    const { z } = await import("zod");
+
+    await expect(
+      inAction("mcp", false, () => writes.put("navigate")),
+    ).rejects.toMatchObject({
+      name: "AgentNavigationRefusedError",
+      code: "agent_navigation_refused",
+    });
+    expect(await appStateGet(SESSION, "navigate")).toBeNull();
+
+    const listValue = { path: "/tasks" };
+    await expect(
+      inAction(
+        "mcp",
+        false,
+        () => appStatePut(SESSION, "navigate", listValue),
+        "edit-task",
+      ),
+    ).rejects.toMatchObject({
+      name: "AgentNavigationRefusedError",
+      code: "agent_navigation_refused",
+    });
+    expect(await appStateGet(SESSION, "navigate")).toBeNull();
+
+    await inAction(
+      "mcp",
+      false,
+      () => appStatePut(SESSION, "navigate", listValue),
+      "navigate",
+    );
+    expect(await appStateGet(SESSION, "navigate")).toEqual(listValue);
+
+    const openAction = defineAction({
+      description: "Open a detail view explicitly.",
+      schema: z.object({}),
+      run: async () => writes.put("navigate:tab-open"),
+    });
+    await openAction.run({ intent: "open" } as Record<string, never>, {
+      caller: "mcp",
+    });
+    expect(await appStateGet(SESSION, "navigate:tab-open")).toEqual(value);
+
+    await inAction("frontend", true, () => writes.cas("navigate:tab-1"));
+    expect(await appStateGet(SESSION, "navigate:tab-1")).toEqual(value);
+  });
+
+  it("returns a typed kept-view result with currentView when a standalone navigate hits the store guard", async () => {
+    const weekView = {
+      view: "calendar",
+      calendarViewMode: "week",
+      date: "2026-11-21",
+    };
+    await appStatePut(SESSION, "navigation:tab-week", weekView);
+
+    const result = await inAction(
+      "mcp",
+      false,
+      () =>
+        appStatePut(SESSION, "navigate:tab-week", {
+          eventId: "ev-1",
+          calendarViewMode: "day",
+        }),
+      "navigate",
+    );
+
+    expect(result).toMatchObject({
+      kept: true,
+      navigated: false,
+      reason: "detail-requires-open-intent",
+      currentView: weekView,
+      message: expect.stringContaining("week"),
+    });
+    expect(await appStateGet(SESSION, "navigate:tab-week")).toBeNull();
+
+    await appStatePut(SESSION, "navigation", { view: "other-view" });
+    const missingTabResult = await inAction(
+      "mcp",
+      false,
+      () =>
+        appStatePut(SESSION, "navigate:tab-missing", {
+          eventId: "ev-2",
+        }),
+      "navigate",
+    );
+    expect(missingTabResult).toMatchObject({
+      kept: true,
+      navigated: false,
+      reason: "detail-requires-open-intent",
+      currentView: null,
+    });
+    expect(await appStateGet(SESSION, "navigate:tab-missing")).toBeNull();
   });
 });

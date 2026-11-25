@@ -8,6 +8,10 @@ import type {
   ExecuteBuilderSourceBatchTransition,
   ExecuteBuilderSourceBatchResponse,
 } from "@shared/api";
+import type {
+  BuilderBodyDiff,
+  BuilderBodyDiffLine,
+} from "@shared/builder-body-diff";
 import {
   IconAlertTriangle,
   IconCheck,
@@ -340,11 +344,117 @@ function rowEffectTagClass(effect: BuilderCmsWriteEffect) {
     : "rounded border border-border bg-muted/40 px-1.5 py-0.5 text-muted-foreground";
 }
 
+function bodyDiffLineClass(kind: BuilderBodyDiffLine["kind"]) {
+  if (kind === "added") {
+    return "bg-emerald-50 text-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200";
+  }
+  if (kind === "removed") {
+    return "bg-destructive/10 text-destructive";
+  }
+  return "text-muted-foreground";
+}
+
+function BodyDiffLineText({ line }: { line: BuilderBodyDiffLine }) {
+  if (line.changedFrom === undefined || line.changedTo === undefined) {
+    return <>{line.text || " "}</>;
+  }
+  return (
+    <>
+      {line.text.slice(0, line.changedFrom)}
+      <mark
+        className={
+          "rounded-sm text-inherit " +
+          (line.kind === "added"
+            ? "bg-emerald-200/70 dark:bg-emerald-800/60"
+            : "bg-destructive/25")
+        }
+      >
+        {line.text.slice(line.changedFrom, line.changedTo)}
+      </mark>
+      {line.text.slice(line.changedTo)}
+    </>
+  );
+}
+
+function BuilderBodyDiffView({ diff }: { diff: BuilderBodyDiff }) {
+  const t = useT();
+  return (
+    <div
+      className="mt-2 grid gap-2"
+      aria-label={t("database.bodyChangeComparison")}
+    >
+      {diff.hunks.map((hunk, hunkIndex) => (
+        <div
+          key={hunkIndex}
+          className="overflow-hidden rounded border border-border/70 bg-background font-mono text-xs"
+        >
+          {hunk.lines.map((line, lineIndex) => (
+            <div
+              key={lineIndex}
+              className={"flex gap-2 px-2 " + bodyDiffLineClass(line.kind)}
+            >
+              <span aria-hidden="true" className="w-2 shrink-0 select-none">
+                {line.kind === "added"
+                  ? "+"
+                  : line.kind === "removed"
+                    ? "\u2212"
+                    : ""}
+              </span>
+              {line.kind !== "same" ? (
+                <span className="sr-only">
+                  {t(
+                    line.kind === "added"
+                      ? "database.bodyDiffAdded"
+                      : "database.bodyDiffRemoved",
+                  )}
+                </span>
+              ) : null}
+              <span className="min-w-0 whitespace-pre-wrap break-words">
+                <BodyDiffLineText line={line} />
+              </span>
+            </div>
+          ))}
+          {hunk.omittedLineCount > 0 ? (
+            <div className="px-2 text-muted-foreground">
+              {t(
+                hunk.omittedLineCount === 1
+                  ? "database.bodyDiffMoreLinesOne"
+                  : "database.bodyDiffMoreLines",
+                { count: hunk.omittedLineCount },
+              )}
+            </div>
+          ) : null}
+        </div>
+      ))}
+      {diff.omittedHunkCount > 0 ? (
+        <div className="text-muted-foreground">
+          {t(
+            diff.omittedHunkCount === 1
+              ? "database.bodyDiffMoreChangesOne"
+              : "database.bodyDiffMoreChanges",
+            { count: diff.omittedHunkCount },
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function sourceValueText(value: DocumentPropertyValue) {
   if (value === null || value === undefined || value === "") return "empty";
   if (Array.isArray(value)) return value.join(", ") || "empty";
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
+}
+
+export function BuilderReviewLoadingRow() {
+  const t = useT();
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-border p-4 text-sm text-muted-foreground">
+      <Spinner className="size-4" />
+      {t("database.loadingCompleteBuilderDiff")}
+    </div>
+  );
 }
 
 export function BuilderSourceReviewDialog({
@@ -353,6 +463,12 @@ export function BuilderSourceReviewDialog({
   source,
   canEdit,
   pending,
+  loading = false,
+  loadProgress = null,
+  loadError = null,
+  onRetryLoad,
+  unchangedRowCount = 0,
+  moreRowsBeyondLimit = false,
   executionPending = false,
   batchResult = null,
   error = null,
@@ -370,6 +486,15 @@ export function BuilderSourceReviewDialog({
   source: ContentDatabaseSource | null;
   canEdit: boolean;
   pending: boolean;
+  loading?: boolean;
+  loadProgress?: {
+    kind: "listing" | "loading" | "confirming";
+    pageCount: number;
+  } | null;
+  loadError?: string | null;
+  onRetryLoad?: () => void;
+  unchangedRowCount?: number;
+  moreRowsBeyondLimit?: boolean;
   executionPending?: boolean;
   batchResult?: ExecuteBuilderSourceBatchResponse | null;
   error?: string | null;
@@ -399,7 +524,9 @@ export function BuilderSourceReviewDialog({
   const visibleReviewRows = reviewRows.slice(0, visibleRowLimit);
   const hasMoreRenderedRows = visibleReviewRows.length < reviewRows.length;
   const isServerCapped =
-    reviewTotalRowCount > reviewRows.length && !hasMoreRenderedRows;
+    (reviewTotalRowCount > reviewRows.length || moreRowsBeyondLimit) &&
+    !hasMoreRenderedRows;
+  const rowsLocked = pending || loading;
   const reviewRowIds = useMemo(
     () => reviewRows.map((row) => row.changeSetId),
     [reviewRows],
@@ -420,9 +547,11 @@ export function BuilderSourceReviewDialog({
     null,
   );
   const wasOpenRef = useRef(false);
+  const selectionChangedRef = useRef(false);
   useEffect(() => {
     const wasOpen = wasOpenRef.current;
     wasOpenRef.current = open;
+    if (!wasOpen) selectionChangedRef.current = false;
 
     if (!open || (!wasOpen && !autoSelectReviewRows)) {
       setSelectedChangeSetIds([]);
@@ -439,13 +568,14 @@ export function BuilderSourceReviewDialog({
             selectionChangeSetIdMap?.[changeSetId] ?? changeSetId,
         )
         .filter((changeSetId) => reviewRowIdSet.has(changeSetId));
-      if (autoSelectReviewRows && next.length === 0) {
-        return [...reviewRowIdSet];
-      }
-      return next.length === current.length &&
-        next.every((changeSetId, index) => changeSetId === current[index])
+      const target =
+        autoSelectReviewRows && !selectionChangedRef.current
+          ? [...reviewRowIdSet]
+          : next;
+      return target.length === current.length &&
+        target.every((changeSetId, index) => changeSetId === current[index])
         ? current
-        : next;
+        : target;
     });
   }, [autoSelectReviewRows, open, reviewRowIdsKey, selectionChangeSetIdMap]);
   const stagedTransitionsKey = reviewRows
@@ -593,7 +723,9 @@ export function BuilderSourceReviewDialog({
       batchHasIssues);
   const disabled =
     !canEdit ||
-    pending ||
+    rowsLocked ||
+    loadProgress !== null ||
+    loadError !== null ||
     (!retryable && checked) ||
     !review ||
     selectedReviewRows.length === 0 ||
@@ -660,6 +792,7 @@ export function BuilderSourceReviewDialog({
     changeSetId: string,
     publicationTransition: BuilderCmsPublicationTransitionIntent,
   ) {
+    selectionChangedRef.current = true;
     onSelectionChange?.();
     setTransitionSelections((current) => {
       const currentSelection = current[changeSetId];
@@ -680,6 +813,7 @@ export function BuilderSourceReviewDialog({
   }
 
   function setRowSelected(changeSetId: string, selected: boolean) {
+    selectionChangedRef.current = true;
     onSelectionChange?.();
     setSelectedChangeSetIds((current) => {
       if (selected) {
@@ -700,6 +834,7 @@ export function BuilderSourceReviewDialog({
   }
 
   function setRowConfirmUnpublish(changeSetId: string, confirmed: boolean) {
+    selectionChangedRef.current = true;
     onSelectionChange?.();
     setTransitionSelections((current) => {
       const currentSelection = current[changeSetId];
@@ -736,7 +871,7 @@ export function BuilderSourceReviewDialog({
               {t("database.reviewBuilderUpdate")}
             </DialogTitle>
             <DialogDescription className="truncate text-xs text-muted-foreground">
-              {pending && !review ? "Loading complete diff…" : intentSummary}
+              {rowsLocked && !review ? "Loading complete diff…" : intentSummary}
             </DialogDescription>
           </div>
           <button
@@ -789,7 +924,7 @@ export function BuilderSourceReviewDialog({
                           <Checkbox
                             className="mt-0.5"
                             checked={selected}
-                            disabled={pending}
+                            disabled={rowsLocked}
                             aria-label={row.title}
                             onCheckedChange={(checked) =>
                               setRowSelected(row.changeSetId, checked === true)
@@ -832,7 +967,7 @@ export function BuilderSourceReviewDialog({
                                     : "outline"
                                 }
                                 className="h-7 px-2 text-xs"
-                                disabled={pending}
+                                disabled={rowsLocked}
                                 aria-pressed={
                                   transitionSelections[row.changeSetId]
                                     ?.publicationTransition === "publish"
@@ -856,7 +991,7 @@ export function BuilderSourceReviewDialog({
                                     : "outline"
                                 }
                                 className="h-7 px-2 text-xs"
-                                disabled={pending}
+                                disabled={rowsLocked}
                                 aria-pressed={
                                   transitionSelections[row.changeSetId]
                                     ?.publicationTransition === "unpublish"
@@ -879,7 +1014,7 @@ export function BuilderSourceReviewDialog({
                                       transitionSelections[row.changeSetId]
                                         ?.confirmUnpublish === true
                                     }
-                                    disabled={pending}
+                                    disabled={rowsLocked}
                                     onCheckedChange={(checked) =>
                                       setRowConfirmUnpublish(
                                         row.changeSetId,
@@ -915,8 +1050,10 @@ export function BuilderSourceReviewDialog({
                               <div className="font-medium">
                                 {row.bodyChange.summary}
                               </div>
-                              {row.bodyChange.currentExcerpt !== null ||
-                              row.bodyChange.proposedExcerpt !== null ? (
+                              {row.bodyDiff?.hunks.length ? (
+                                <BuilderBodyDiffView diff={row.bodyDiff} />
+                              ) : row.bodyChange.currentExcerpt !== null ||
+                                row.bodyChange.proposedExcerpt !== null ? (
                                 <div
                                   className="mt-2 grid gap-2 text-muted-foreground sm:grid-cols-2"
                                   aria-label={t(
@@ -1012,6 +1149,39 @@ export function BuilderSourceReviewDialog({
                       {t("database.builderReviewRemainingBatches")}
                     </div>
                   ) : null}
+                  {loadProgress ? (
+                    <div
+                      aria-live="polite"
+                      className="flex items-center gap-2 text-xs text-muted-foreground"
+                    >
+                      <Spinner className="size-3.5" />
+                      {loadProgress.kind === "listing"
+                        ? t("database.builderReviewFindingPages")
+                        : loadProgress.kind === "loading"
+                          ? t(
+                              loadProgress.pageCount === 1
+                                ? "database.builderReviewLoadingMorePagesOne"
+                                : "database.builderReviewLoadingMorePages",
+                              { count: loadProgress.pageCount },
+                            )
+                          : t(
+                              loadProgress.pageCount === 1
+                                ? "database.builderReviewConfirmingBodiesOne"
+                                : "database.builderReviewConfirmingBodies",
+                              { count: loadProgress.pageCount },
+                            )}
+                    </div>
+                  ) : null}
+                  {unchangedRowCount > 0 ? (
+                    <div className="text-xs text-muted-foreground">
+                      {t(
+                        unchangedRowCount === 1
+                          ? "database.builderReviewRowsMatchBuilderOne"
+                          : "database.builderReviewRowsMatchBuilder",
+                        { count: unchangedRowCount },
+                      )}
+                    </div>
+                  ) : null}
                 </div>
               </section>
 
@@ -1039,6 +1209,31 @@ export function BuilderSourceReviewDialog({
                   ))}
                 </section>
               ) : null}
+              {loadError ? (
+                <div
+                  role="alert"
+                  aria-live="assertive"
+                  className="flex items-start justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive"
+                >
+                  <span className="min-w-0 break-words">
+                    {t("database.builderReviewLoadFailed", {
+                      message: loadError,
+                    })}
+                  </span>
+                  {onRetryLoad ? (
+                    <Button
+                      type="button"
+                      size="xs"
+                      variant="outline"
+                      className="shrink-0"
+                      disabled={pending}
+                      onClick={onRetryLoad}
+                    >
+                      {t("database.retry")}
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
               {error ? (
                 <div
                   role="alert"
@@ -1049,11 +1244,30 @@ export function BuilderSourceReviewDialog({
                 </div>
               ) : null}
             </div>
-          ) : pending ? (
-            <div className="flex items-center gap-2 rounded-md border border-border p-4 text-sm text-muted-foreground">
-              <Spinner className="size-4" />
-              {t("database.loadingCompleteBuilderDiff")}
+          ) : loadError ? (
+            <div
+              role="alert"
+              aria-live="assertive"
+              className="flex items-start justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive"
+            >
+              <span className="min-w-0 break-words">
+                {t("database.builderReviewLoadFailed", { message: loadError })}
+              </span>
+              {onRetryLoad ? (
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="outline"
+                  className="shrink-0"
+                  disabled={pending}
+                  onClick={onRetryLoad}
+                >
+                  {t("database.retry")}
+                </Button>
+              ) : null}
             </div>
+          ) : rowsLocked ? (
+            <BuilderReviewLoadingRow />
           ) : error ? (
             <div
               role="alert"

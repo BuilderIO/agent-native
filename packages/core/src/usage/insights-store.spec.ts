@@ -21,6 +21,7 @@ const rawClient = {
 };
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => rawClient,
   isProductionServerlessFunctionRuntime: () => false,
 }));
@@ -98,7 +99,7 @@ async function seedSpan(
 beforeAll(async () => {
   resetAppConfigForTests();
   vi.stubEnv("AGENT_NATIVE_APP_ID", "design");
-  pglite = await createTestPglite();
+  pglite = await createTestPglite({ reuseEmptyBootstrap: true });
   await pglite.exec(`CREATE TABLE token_usage (
     id BIGINT PRIMARY KEY, owner_email TEXT NOT NULL,
     input_tokens BIGINT NOT NULL DEFAULT 0, output_tokens BIGINT NOT NULL DEFAULT 0,

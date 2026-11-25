@@ -34,11 +34,16 @@ import { z } from "zod";
 
 import { documentSearchIndex, getDb, schema } from "../server/db/index.js";
 import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
+import type { DocumentDiscoveryPagination } from "../shared/api.js";
 import {
   parseSearchQuery,
   type ParsedSearchQuery,
   type SearchQueryTerm,
 } from "../shared/search-query.js";
+import {
+  contentOutputContract,
+  searchDocumentsOutputSchema,
+} from "./_content-output-contracts.js";
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import {
   DOCUMENT_DISCOVERY_DEFAULT_LIMIT,
@@ -84,6 +89,29 @@ type SemanticSearchStatus =
   | { status: "skipped"; reason: SemanticSkipReason };
 
 type MatchedBy = "words" | "meaning" | "both";
+
+interface SearchDocumentsResult {
+  documents: Array<{
+    id: string;
+    parentId: string | null;
+    parentTitle: string | null;
+    documentType: "page" | "database";
+    sourceKind: string | null;
+    sourceUpdatedAt: string | null;
+    title: string;
+    description: string;
+    icon: string | null;
+    snippet: string;
+    contentLength: number;
+    hideFromSearch: boolean;
+    updatedAt: string;
+    matchedBy?: MatchedBy;
+  }>;
+  pagination: DocumentDiscoveryPagination;
+  spellingCorrections?: SpellingCorrection[];
+  semanticSearch?: SemanticSearchStatus;
+  withinSubtreeTruncated?: boolean;
+}
 
 /**
  * Why a search is answered by words alone before the meaning lane is asked.
@@ -179,6 +207,15 @@ export default defineAction({
         .datetime()
         .optional()
         .describe("Modified before this UTC timestamp"),
+      updatedBy: z
+        .string()
+        .trim()
+        .min(1)
+        .max(320)
+        .optional()
+        .describe(
+          "Only documents last edited by this person: their email, in any case",
+        ),
       limit: z.coerce
         .number()
         .int()
@@ -199,6 +236,10 @@ export default defineAction({
         message: "Provide query or exactTitle.",
       },
     ),
+  outputSchema: contentOutputContract<SearchDocumentsResult>(
+    searchDocumentsOutputSchema,
+  ),
+  mcpOutputSchema: true,
   http: { method: "GET" },
   readOnly: true,
   mcpAnnotations: {
@@ -206,7 +247,8 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
-  run: async (args) => {
+  mcpScript: "read",
+  run: async (args): Promise<SearchDocumentsResult> => {
     const db = getDb();
     const userEmail = getRequestUserEmail();
     const activeOrgId = getRequestOrgId();
@@ -286,6 +328,9 @@ export default defineAction({
               sql`${schema.documents.updatedAt}::timestamptz`,
               args.modifiedBefore,
             )
+          : undefined,
+        args.updatedBy
+          ? sql`lower(${schema.documents.updatedBy}) = ${args.updatedBy.toLowerCase()}`
           : undefined,
       ),
     });

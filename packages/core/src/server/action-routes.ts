@@ -9,6 +9,7 @@ import {
   getQuery,
   getHeader,
   readBody as readH3Body,
+  type H3Event,
 } from "h3";
 
 import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
@@ -20,6 +21,7 @@ import {
 import {
   actionCallIntent,
   ActionContractError,
+  assertNoNulByteActionArgs,
   isActionContractError,
   isActionExposedToExternalAgents,
   isAgentActionStopError,
@@ -296,6 +298,21 @@ function isFrontendActionRequest(event: any): boolean {
   }
 }
 
+function isAppPageRequest(
+  event: H3Event,
+  caller: ActionCaller,
+  userEmail: string | undefined,
+  embedded: boolean,
+): boolean {
+  return (
+    caller === "frontend" &&
+    !!userEmail &&
+    !embedded &&
+    !getHeader(event, "authorization") &&
+    hasSameOriginBrowserEvidence(event)
+  );
+}
+
 /**
  * The frontend header is only the client's claim. A request proves it came
  * from this app's signed-in UI with a browser-cookie identity, a same-origin
@@ -546,6 +563,21 @@ const LLM_CREDENTIAL_TERM_RE =
  * absent: the agent engine's broader `isLlmCredentialError` also matches "LLM
  * response missing required field", a real bug that must stay a captured 500.
  */
+function isPgInvalidNulByteError(error: unknown): boolean {
+  if (
+    isActionContractError(error) ||
+    isAgentActionStopError(error) ||
+    isMarkedExpectedError(error)
+  ) {
+    return false;
+  }
+  const codes = [
+    (error as { code?: unknown } | null | undefined)?.code,
+    (error as { cause?: { code?: unknown } } | null | undefined)?.cause?.code,
+  ];
+  return codes.some((code) => code === "22021" || code === "22P05");
+}
+
 function isLlmProviderMissingError(error: unknown): boolean {
   if (
     isActionContractError(error) ||
@@ -1423,6 +1455,9 @@ function mountActionRoutesInternal(
             ...(requestId ? { requestId } : {}),
             userEmail,
             provenUiRequest,
+            appPageRequest:
+              provenUiRequest ||
+              isAppPageRequest(event, requestCaller, userEmail, embedded),
             ...(verifiedServiceIdentity &&
             verifiedServiceIdentity.userEmail.trim().toLowerCase() ===
               userEmail?.trim().toLowerCase() &&
@@ -1529,7 +1564,6 @@ function mountActionRoutesInternal(
               callArgs: unknown,
               result: unknown,
             ) => {
-              if (runContext?.caller === "mcp-widget") return;
               const markerLanded = await notifyActionChangeForResponse({
                 actionName: name,
                 ...actionChangeResource(entry, callArgs, result),
@@ -1558,6 +1592,9 @@ function mountActionRoutesInternal(
                   errorCode: "invalid_action_request_body",
                   statusCode: 400,
                 });
+              }
+              if (!entry.schema) {
+                assertNoNulByteActionArgs(params);
               }
               if (directoryWidgetReadAllowed) {
                 const normalizedArgs =
@@ -1827,9 +1864,9 @@ function mountActionRoutesInternal(
                 );
               }
               const msg = err?.message ?? String(err);
-              const isValidationError = msg.startsWith(
-                "Invalid action parameters",
-              );
+              const pgNulByteError = isPgInvalidNulByteError(err);
+              const isValidationError =
+                msg.startsWith("Invalid action parameters") || pgNulByteError;
               const explicitStatus =
                 typeof err?.statusCode === "number"
                   ? err.statusCode
@@ -1842,6 +1879,11 @@ function mountActionRoutesInternal(
                   ? LLM_PROVIDER_MISSING_STATUS
                   : (explicitStatus ?? (markedExpected ? 409 : 500));
               setResponseStatus(event, status);
+              setResponseHeader(
+                event,
+                "Content-Type",
+                "application/json; charset=utf-8",
+              );
 
               const failureCaller = requestCaller;
               const privateAction = entry.persistInChatHistory === false;
@@ -1913,30 +1955,34 @@ function mountActionRoutesInternal(
                 markedExpected ||
                 (explicitStatus !== undefined && explicitStatus < 500);
               if (isUserFacing) {
-                return isActionContractError(err) ||
+                const isContractError =
+                  isActionContractError(err) ||
                   isAgentActionStopError(err) ||
-                  markedExpected
-                  ? {
-                      error: msg,
-                      ...(typeof err.errorCode === "string"
-                        ? { errorCode: err.errorCode }
-                        : {}),
-                      ...(err.details === undefined
-                        ? {}
-                        : { details: err.details }),
-                    }
-                  : {
-                      error: msg,
-                      ...(typeof err?.errorCode === "string"
-                        ? { errorCode: err.errorCode }
-                        : {}),
-                      ...(status === 429 &&
+                  markedExpected;
+                const errorCode =
+                  typeof err?.errorCode === "string" && err.errorCode.length > 0
+                    ? err.errorCode
+                    : isValidationError
+                      ? "action_invalid_parameters"
+                      : runContext
+                        ? `action_http_${status}`
+                        : undefined;
+                const details = isContractError
+                  ? err.details
+                  : status === 429 &&
                       typeof retryAfterSeconds === "number" &&
                       Number.isInteger(retryAfterSeconds) &&
                       retryAfterSeconds > 0
-                        ? { details: { retryAfterSeconds } }
-                        : {}),
-                    };
+                    ? { retryAfterSeconds }
+                    : undefined;
+                return {
+                  error:
+                    pgNulByteError || (privateAction && isValidationError)
+                      ? "Invalid action parameters"
+                      : msg,
+                  ...(errorCode === undefined ? {} : { errorCode }),
+                  ...(details === undefined ? {} : { details }),
+                };
               }
               const captureId = captureError(
                 privateAction ? new Error("Private content omitted") : err,
@@ -1962,7 +2008,10 @@ function mountActionRoutesInternal(
                   ? "Private content omitted"
                   : (redactErrorStack(err) ?? redact(String(err))),
               });
-              return { error: "Internal server error" };
+              return {
+                error: "Internal server error",
+                errorCode: "action_execution_failed",
+              };
             }
           },
         );

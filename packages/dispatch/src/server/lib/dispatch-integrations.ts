@@ -252,7 +252,7 @@ async function resolveSlackSenderProfile(
                 : ("trusted" as const),
         }
       : { email: null, name: null, trust: "unknown" as const };
-    if (cacheKey) {
+    if (cacheKey && profile.trust !== "unknown") {
       slackProfileCache.set(cacheKey, {
         profile,
         expiresAt: Date.now() + SLACK_PROFILE_CACHE_TTL,
@@ -603,6 +603,11 @@ export async function resolveDispatchExecutionContext(
   };
   let scope = await getIntegrationScope(key, access);
   if (!scope && incoming.triggerKind === "mention") {
+    if (profile.trust === "unknown" || conversation.trust === "unknown") {
+      throw new Error(
+        "Slack channel policy denied: unverified_conversation_disabled",
+      );
+    }
     scope = await saveIntegrationScope(
       {
         ...key,

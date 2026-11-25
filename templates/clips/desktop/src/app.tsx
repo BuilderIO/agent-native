@@ -77,6 +77,7 @@ import {
   CLIPS_LABS,
   CLIPS_LOOKBACK_CONTEXT,
   CLIPS_MEETINGS,
+  CLIPS_RICH_RECORDINGS,
   CLIPS_VOICE_DICTATION,
   isLabEnabled,
 } from "../../shared/labs";
@@ -143,6 +144,10 @@ import {
   setTakeClipLimitMs,
 } from "./lib/clip-duration-limit";
 import { callClipsActionFor } from "./lib/clips-action";
+import {
+  loadCountdownPreference,
+  saveCountdownPreference,
+} from "./lib/countdown-preference";
 import {
   startUnavailableAuthRecovery,
   trackAuthRecoveryResult,
@@ -1385,6 +1390,8 @@ export function App({
     authStatus === "authed" && isLabEnabled(labValues, CLIPS_VOICE_DICTATION);
   const lookbackLabEnabled =
     authStatus === "authed" && isLabEnabled(labValues, CLIPS_LOOKBACK_CONTEXT);
+  const richRecordingsLabEnabled =
+    authStatus === "authed" && isLabEnabled(labValues, CLIPS_RICH_RECORDINGS);
   const rewindOn = featureConfig?.screenMemory?.enabled === true;
   const voiceDictationEnabled =
     voiceDictationLabEnabled && featureConfig?.voiceEnabled !== false;
@@ -4365,6 +4372,7 @@ export function App({
           mode,
           source,
           cameraId,
+          cameraLabel: cameraLabel || undefined,
           micId: selectedMicId || undefined,
           micLabel: selectedMicLabel || micLabel || undefined,
           authToken: loadDesktopAuthToken(serverUrl),
@@ -4374,6 +4382,7 @@ export function App({
           systemAudioOn,
           voiceCleanupEnabled,
           lookbackEnabled: lookbackSecondsForRecording > 0,
+          richTracks: richRecordingsLabEnabled,
           localRecordingMode: recordingLocalMode,
           preAcquiredCameraStream,
           preAcquiredDisplayStream:
@@ -6968,6 +6977,13 @@ function Setup({
   const voiceEnabled = featureConfig?.voiceEnabled !== false;
   const voiceCleanupEnabled = featureConfig?.voiceCleanupEnabled !== false;
   const [cameraCutout, setCameraCutout] = useCameraCutoutPreference();
+  const [countdownEnabled, setCountdownEnabled] = useState(
+    loadCountdownPreference,
+  );
+  const updateCountdownEnabled = useCallback((next: boolean) => {
+    setCountdownEnabled(next);
+    saveCountdownPreference(next);
+  }, []);
   const meetingsEnabled = featureConfig?.meetingsEnabled !== false;
   const showMeetingWidgetEnabled =
     featureConfig?.showMeetingWidgetEnabled !== false;
@@ -8149,6 +8165,17 @@ function Setup({
                 onCheckedChange={setVoiceCleanupEnabled}
                 disabled={captureControlsLocked}
                 label="Voice cleanup"
+              />
+            }
+          />
+          <SettingsRow
+            label="Countdown"
+            description="Show a 3-2-1 countdown before recording starts"
+            control={
+              <SettingsSwitch
+                checked={countdownEnabled}
+                onCheckedChange={updateCountdownEnabled}
+                label="Countdown"
               />
             }
           />
