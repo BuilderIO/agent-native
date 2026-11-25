@@ -1,0 +1,45 @@
+name: QA live verify batch
+on:
+  push:
+    branches: [job/j-20261124-1653-343-vl]
+permissions:
+  contents: read
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - id: m
+        run: node -e 'const i=require("./e2e/labs/qa-live-items.json");require("fs").appendFileSync(process.env.GITHUB_OUTPUT,"matrix="+JSON.stringify({include:i.map((x,n)=>({ref:x.ref,slot:String((n%4)+1),target:JSON.stringify(x.target)}))})+"\n")'
+  verify:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      MAILOSAUR_API_KEY: ${{ secrets.MAILOSAUR_API_KEY }}
+      MAILOSAUR_SERVER_ID: ${{ secrets.MAILOSAUR_SERVER_ID }}
+      BROWSERBASE_API_KEY: ${{ secrets.BROWSERBASE_API_KEY }}
+      QA_TARGET: ${{ matrix.target }}
+      QA_REF: ${{ matrix.ref }}
+      QA_SLOT: ${{ matrix.slot }}
+      QA_PROVIDER: browserbase
+      QA_OUT_DIR: artifacts/qa-live-verify
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - run: npm install --prefix e2e/labs --no-save --no-package-lock --ignore-scripts @playwright/test@1.63.0
+      - run: node e2e/labs/qa-live-verify.ts
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: qa-live-verify-${{ matrix.ref }}
+          path: artifacts/qa-live-verify
+          if-no-files-found: error
