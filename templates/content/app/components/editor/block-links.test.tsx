@@ -7,7 +7,12 @@ import {
   editorBlockIdsOf,
   identityBlockIds,
 } from "@shared/block-identity-ids";
-import { contentBlockLinkPath } from "@shared/block-link";
+import {
+  contentBlockLinkPath,
+  readBlockLink,
+  readFullScreenBlockLink,
+  withoutBlockLink,
+} from "@shared/block-link";
 import {
   legacyBlocksFieldIdentity,
   blocksFieldPathsById,
@@ -16,6 +21,7 @@ import { nfmToDoc, type PMNode } from "@shared/nfm";
 import { Editor } from "@tiptap/core";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
 import { act } from "react";
+import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -28,6 +34,7 @@ import {
   stampBlockIdentityIds,
   useBlockIdentityStamps,
   useLinkedBlockReveal,
+  usePublicBlockIds,
 } from "./block-links";
 import type { BlockAt } from "./block-menu-registry";
 import { linkedBlockKey } from "./extensions/BlockIdentityIds";
@@ -470,16 +477,29 @@ describe("stamping a page's block IDs", () => {
 });
 
 describe("opening a block link", () => {
-  async function reveal(target: Editor, blockId: string) {
+  async function reveal(
+    target: Editor,
+    blockId: string,
+    moved?: { to: string | null },
+  ) {
     const onDeleted = vi.fn();
     const onMissing = vi.fn();
     const onFailed = vi.fn();
-    function Harness() {
+    const onRevealed = vi.fn();
+    function Harness({
+      fullScreen = false,
+      id = blockId,
+    }: {
+      fullScreen?: boolean;
+      id?: string | null;
+    }) {
       useLinkedBlockReveal({
         editor: target,
         documentId: "doc-1",
-        blockId,
+        blockId: id,
+        fullScreen,
         ready: true,
+        onRevealed,
         onDeleted,
         onMissing,
         onFailed,
@@ -488,13 +508,33 @@ describe("opening a block link", () => {
     }
     const container = document.createElement("div");
     root = createRoot(container);
-    await act(async () => root?.render(<Harness />));
-    for (let frame = 0; frame < 2; frame++) {
+    const settle = async () => {
+      for (let frame = 0; frame < 2; frame++) {
+        await act(async () => {
+          await new Promise((resolve) => requestAnimationFrame(resolve));
+        });
+      }
+    };
+    const render = async (fullScreen: boolean) => {
+      await act(async () => root?.render(<Harness fullScreen={fullScreen} />));
+      await settle();
+    };
+    if (moved) {
       await act(async () => {
-        await new Promise((resolve) => requestAnimationFrame(resolve));
+        flushSync(() => root?.render(<Harness />));
+        flushSync(() => root?.render(<Harness id={moved.to} />));
       });
+      await settle();
+    } else {
+      await render(false);
     }
-    return { onDeleted, onMissing, onFailed };
+    return {
+      onDeleted,
+      onMissing,
+      onFailed,
+      onRevealed,
+      openFullScreen: () => render(true),
+    };
   }
 
   function highlighted(target: Editor) {
@@ -512,10 +552,41 @@ describe("opening a block link", () => {
       shape: editorDocBlockIds(target.state.doc).shape,
       idsByPath: { "1": "block_pears" },
     });
-    await reveal(target, "block_pears");
+    const { onRevealed } = await reveal(target, "block_pears");
 
     expect(highlighted(target)).toEqual(["Pears"]);
+    expect(onRevealed).toHaveBeenCalledTimes(1);
+    expect(onRevealed.mock.calls[0]?.[0].node.textContent).toBe("Pears");
     expect(hooks.callAction).not.toHaveBeenCalled();
+  });
+
+  it.each([null, "block_apples"])(
+    "opens no block the link moved away from, to %s, before it opened",
+    async (to) => {
+      const target = open("Apples\nPears");
+      stampBlockIdentityIds(target, {
+        shape: editorDocBlockIds(target.state.doc).shape,
+        idsByPath: { "0": "block_apples", "1": "block_pears" },
+      });
+      const { onRevealed } = await reveal(target, "block_pears", { to });
+
+      expect(
+        onRevealed.mock.calls.map(([place]) => place.node.textContent),
+      ).toEqual(to ? ["Apples"] : []);
+    },
+  );
+
+  it("finds the same block again when the link now opens it full screen", async () => {
+    const target = open("Apples\nPears");
+    stampBlockIdentityIds(target, {
+      shape: editorDocBlockIds(target.state.doc).shape,
+      idsByPath: { "1": "block_pears" },
+    });
+    const { onRevealed, openFullScreen } = await reveal(target, "block_pears");
+
+    await openFullScreen();
+
+    expect(onRevealed).toHaveBeenCalledTimes(2);
   });
 
   it("keeps the highlight on the linked block when the server's newer copy replaces the page", async () => {
@@ -760,6 +831,43 @@ describe("opening a block link", () => {
   });
 });
 
+describe("a public page's interactive blocks", () => {
+  const block = "```html interactive\n<p>Hi</p>\n```";
+
+  async function load(target: Editor, idsByPath: Record<string, string>) {
+    function Harness() {
+      usePublicBlockIds(target, idsByPath);
+      return null;
+    }
+    root = createRoot(document.createElement("div"));
+    await act(async () => root?.render(<Harness />));
+  }
+  const idsOf = (target: Editor) =>
+    target.state.doc.content.content.map(
+      (node) => node.attrs[BLOCK_IDENTITY_ATTR] ?? null,
+    );
+
+  it("hold the IDs the page loads with, and no other block does", async () => {
+    const target = open(`Text\n${block}`);
+
+    await load(target, { "0": "block_text", "1": "block_html" });
+
+    expect(idsOf(target)).toEqual([null, "block_html", null]);
+    expect(hooks.callAction).not.toHaveBeenCalled();
+  });
+
+  it("hold them once the page's body arrives after it", async () => {
+    const target = open("");
+    await load(target, { "1": "block_html" });
+
+    await act(async () => {
+      target.commands.setContent(nfmToDoc(`Text\n${block}`));
+    });
+
+    expect(idsOf(target)).toEqual([null, "block_html", null]);
+  });
+});
+
 describe("a block link's URL", () => {
   it("keeps the app's base path", () => {
     expect(blockLinkUrl("doc-1", "block_a")).toBe(
@@ -768,5 +876,40 @@ describe("a block link's URL", () => {
         window.location.origin,
       ).href,
     );
+  });
+
+  it("opens the block full screen until the block is closed", () => {
+    const { pathname, search } = new URL(
+      blockLinkUrl("doc 1", "block_a", { fullScreen: true }),
+    );
+
+    expect(readBlockLink(search)).toEqual({
+      blockId: "block_a",
+      fullScreen: true,
+    });
+    expect(readBlockLink("?block=block_a").fullScreen).toBe(false);
+    expect(withoutBlockLink(`${search}&view=board`)).toBe("?view=board");
+    expect(withoutBlockLink(search)).toBe("");
+    expect(pathname.endsWith("/page/doc%201")).toBe(true);
+  });
+
+  it.each([
+    ["https://content.example.com/page/doc-1?block=b&full=1", "b"],
+    ["https://content.example.com/page/doc-1?block=b&amp;full=1", "b"],
+    ["https://example.com/content/page/doc-1?full=1", null],
+  ])("is read from an address: %s", (href, blockId) => {
+    expect(readFullScreenBlockLink(href)).toEqual({
+      pagePath: "/page/doc-1",
+      blockId,
+    });
+  });
+
+  it.each([
+    "https://content.example.com/page/doc-1?block=b",
+    "https://content.example.com/p/doc-1?block=b&full=1",
+    "/page/doc-1?full=1",
+    null,
+  ])("is told apart from other addresses: %s", (href) => {
+    expect(readFullScreenBlockLink(href)).toBeNull();
   });
 });

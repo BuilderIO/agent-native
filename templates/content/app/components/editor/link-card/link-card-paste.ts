@@ -2,11 +2,12 @@ import {
   linkSummaryItemFromUrl,
   parseDesignScreenLink,
   parseLinkSummaryUrl,
-  type LinkSummaryApp,
 } from "@agent-native/core/shared";
 import {
   LINK_CARD_BLOCK_TYPE,
+  isLinkCardApp,
   linkCardBlockRaw,
+  type LinkCardApp,
   type LinkCardData,
 } from "@shared/link-card-block";
 import { Extension, type Editor } from "@tiptap/core";
@@ -20,7 +21,7 @@ import { findPastedLink } from "../source-link-paste";
 
 export interface LinkCardPasteContext {
   canEdit: boolean;
-  appUrls: Partial<Record<LinkSummaryApp, readonly string[]>>;
+  appUrls: Partial<Record<LinkCardApp, readonly string[]>>;
 }
 
 export interface LinkCardPasteOptions {
@@ -35,7 +36,7 @@ export function linkCardFromPaste(
   if (!link || /\s/.test(link)) return null;
   const item = linkSummaryItemFromUrl(link, appUrls);
   const url = parseLinkSummaryUrl(link);
-  if (!item || !url) return null;
+  if (!item || !url || !isLinkCardApp(item.app)) return null;
   if (
     item.app === "design" &&
     parseDesignScreenLink(link, appUrls.design ?? [])?.kind === "screen"

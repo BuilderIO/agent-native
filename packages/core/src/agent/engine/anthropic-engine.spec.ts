@@ -647,11 +647,56 @@ describe("createAnthropicEngine", () => {
       abortSignal: new AbortController().signal,
     });
 
-    expect(requestParams.thinking).toEqual({
+    expect(requestParams.thinking).toMatchObject({
       type: "adaptive",
       display: "summarized",
     });
     expect(requestParams).not.toHaveProperty("output_config");
+  });
+
+  it("lets the API drop a thinking block bound to a changed tool list", async () => {
+    const run = async (model: string) => {
+      const finalMsg = {
+        content: [{ type: "text", text: "ok" }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 1, output_tokens: 1 },
+      };
+      const streamSpy = vi.fn().mockReturnValue({
+        [Symbol.asyncIterator]: async function* () {},
+        finalMessage: vi.fn().mockResolvedValue(finalMsg),
+      });
+      vi.doMock("@anthropic-ai/sdk", () => ({
+        default: class MockAnthropic {
+          messages = { stream: streamSpy };
+        },
+      }));
+      vi.resetModules();
+      const { createAnthropicEngine: freshCreate } =
+        await import("./anthropic-engine.js");
+      await collectEvents(
+        freshCreate({ apiKey: "test" }).stream({
+          model,
+          systemPrompt: "You are helpful.",
+          messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+          tools: [],
+          abortSignal: new AbortController().signal,
+        }),
+      );
+      vi.doUnmock("@anthropic-ai/sdk");
+      return streamSpy.mock.calls[0];
+    };
+
+    const [params, requestOptions] = await run("claude-sonnet-5-5");
+    expect(params.thinking.block_binding).toEqual({
+      prefix_mismatch_behavior: "drop_block",
+    });
+    expect(requestOptions.headers["anthropic-beta"]).toBe(
+      "thinking-binding-controls-2026-08-01",
+    );
+
+    const [oldParams, oldOptions] = await run("claude-sonnet-4-6");
+    expect(oldParams.thinking).toEqual({ type: "adaptive" });
+    expect(oldOptions.headers).toBeUndefined();
   });
 
   it("asks for summarized thinking only where the default omits it", async () => {
@@ -673,7 +718,7 @@ describe("createAnthropicEngine", () => {
       "claude-opus-4-7",
       "claude-fable-5-1",
     ]) {
-      expect(await thinkingFor(model)).toEqual({
+      expect(await thinkingFor(model)).toMatchObject({
         type: "adaptive",
         display: "summarized",
       });
@@ -725,7 +770,7 @@ describe("createAnthropicEngine", () => {
       reasoningEffort: "medium",
     });
 
-    expect(requestParams.thinking).toEqual({
+    expect(requestParams.thinking).toMatchObject({
       type: "adaptive",
       display: "summarized",
     });
@@ -755,7 +800,7 @@ describe("createAnthropicEngine", () => {
       reasoningEffort: "high",
     });
 
-    expect(requestParams.thinking).toEqual({
+    expect(requestParams.thinking).toMatchObject({
       type: "adaptive",
       display: "summarized",
     });
@@ -1130,7 +1175,7 @@ describe("createAnthropicEngine streamed tool-input reconciliation", () => {
       temperature: 0,
     });
 
-    expect(requestParams.thinking).toEqual({
+    expect(requestParams.thinking).toMatchObject({
       type: "adaptive",
       display: "summarized",
     });

@@ -66,6 +66,7 @@ describe("public page blocks", () => {
               content: 'Intro\n<page id="plots">Untitled</page>',
               clipsAppUrl: null,
               pageLinks,
+              interactiveHtml: null,
               basePath: "",
             }),
           ),

@@ -1,3 +1,4 @@
+// oracle-change: restore no longer stages a blob or builds a full snapshot for its Before restore checkpoint; that checkpoint and its rollback are covered in design-versions.manifest.pglite.spec.ts
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
@@ -367,109 +368,6 @@ describe("restoreDesignVersion transaction boundary", () => {
     expect(result.restoredFileCount).toBe(1);
     expect(state.files[0]?.content).toBe("<main>restored</main>");
     expect(state.loadAwarenessRowsStrict).toHaveBeenCalledTimes(4);
-  });
-
-  it("captures Before restore on the active transaction before rewriting files", async () => {
-    const result = await restoreDesignVersion({
-      designId: "design-1",
-      versionId: "version-1",
-    });
-
-    expect(result.restoredFileCount).toBe(1);
-    expect(state.files[0]?.content).toBe("<main>restored</main>");
-    expect(state.checkpoints).toHaveLength(1);
-    expect(state.events.indexOf("snapshot")).toBeLessThan(
-      state.events.indexOf("transaction"),
-    );
-    expect(state.events.indexOf("advisory")).toBeLessThan(
-      state.events.indexOf("table"),
-    );
-    expect(state.events.indexOf("table")).toBeLessThan(
-      state.events.indexOf("checkpoint"),
-    );
-    expect(state.events.indexOf("checkpoint")).toBeLessThan(
-      state.events.indexOf("file-update"),
-    );
-    expect(state.buildDesignSnapshot).toHaveBeenCalledWith(
-      "design-1",
-      expect.any(String),
-      {
-        preparedFiles: [
-          expect.objectContaining({ id: "file-1", source: "collab" }),
-        ],
-      },
-    );
-  });
-
-  it("preserves a staged blob when the database commit outcome is unknown", async () => {
-    const blob = {
-      id: "staged-blob",
-      provider: "test",
-      opaque: true as const,
-      encrypted: true,
-    };
-    state.currentSnapshot = {
-      ...state.currentSnapshot,
-      files: [
-        {
-          ...state.currentSnapshot.files[0]!,
-          content: "x".repeat(300 * 1024),
-        },
-      ],
-    };
-    state.failCommitAfterCallback = true;
-    const privateBlob = await import("@agent-native/core/private-blob");
-    vi.mocked(privateBlob.putPrivateBlob).mockResolvedValue(blob);
-    vi.mocked(privateBlob.deletePrivateBlob).mockResolvedValue({
-      deleted: true,
-      provider: "test",
-    });
-
-    await expect(
-      restoreDesignVersion({
-        designId: "design-1",
-        versionId: "version-1",
-      }),
-    ).rejects.toThrow("commit outcome unknown");
-
-    expect(state.checkpoints).toEqual([]);
-    expect(state.files[0]?.content).toBe("<main>current</main>");
-    expect(privateBlob.deletePrivateBlob).not.toHaveBeenCalled();
-  });
-
-  it("deletes the staged blob after a confirmed callback rollback", async () => {
-    const blob = {
-      id: "staged-blob",
-      provider: "test",
-      opaque: true as const,
-      encrypted: true,
-    };
-    state.currentSnapshot = {
-      ...state.currentSnapshot,
-      files: [
-        {
-          ...state.currentSnapshot.files[0]!,
-          content: "x".repeat(300 * 1024),
-        },
-      ],
-    };
-    state.failFinalDesignConfirmation = true;
-    const privateBlob = await import("@agent-native/core/private-blob");
-    vi.mocked(privateBlob.putPrivateBlob).mockResolvedValue(blob);
-    vi.mocked(privateBlob.deletePrivateBlob).mockResolvedValue({
-      deleted: true,
-      provider: "test",
-    });
-
-    await expect(
-      restoreDesignVersion({
-        designId: "design-1",
-        versionId: "version-1",
-      }),
-    ).rejects.toThrow(/Design changed while history was being restored/i);
-
-    expect(state.checkpoints).toEqual([]);
-    expect(privateBlob.deletePrivateBlob).toHaveBeenCalledWith(blob);
   });
 
   it("rolls back the checkpoint and file rewrite when the design CAS fails", async () => {

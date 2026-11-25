@@ -45,6 +45,7 @@ import type {
   DocumentSyncStatus,
 } from "@shared/api";
 import type { EditorBlockIds } from "@shared/block-identity-ids";
+import { readBlockLink, withoutBlockLink } from "@shared/block-link";
 import { suggestionBlocksFieldId } from "@shared/blocks-field-suggestions";
 import type { CommentAiRequest } from "@shared/comment-ai";
 import { commentPropertyTarget } from "@shared/comment-property-target";
@@ -3336,10 +3337,18 @@ function PageEditorSessionBody({
   );
   const navigate = useNavigate();
   const location = useLocation();
-  const linkedBlockId = useMemo(
-    () => new URLSearchParams(location.search).get("block"),
+  const blockLink = useMemo(
+    () => readBlockLink(location.search),
     [location.search],
   );
+  const runInteractiveHtml = document.accessRole === "owner";
+  const closeBlockLink = useCallback(() => {
+    if (!blockLink.fullScreen) return;
+    void navigate(
+      { search: withoutBlockLink(location.search), hash: location.hash },
+      { replace: true, preventScrollReset: true },
+    );
+  }, [blockLink.fullScreen, location.hash, location.search, navigate]);
   const mcpDirectoryWidgetReadOnly =
     document.mcpDirectoryWidgetReadOnly === true;
   const widgetEditability = directoryWidgetEditability(document);
@@ -12432,6 +12441,7 @@ function PageEditorSessionBody({
                                 schema={getContentEditorSchema()}
                                 content={visualEditorContent}
                                 documentId={documentId}
+                                runInteractiveHtml={runInteractiveHtml}
                               />
                             </div>
                           ) : (
@@ -12674,7 +12684,10 @@ function PageEditorSessionBody({
                                   !isLocalFileDocument &&
                                   !mcpDirectoryWidgetReadOnly
                                 }
-                                linkedBlockId={linkedBlockId}
+                                linkedBlockId={blockLink.blockId}
+                                linkedBlockFullScreen={blockLink.fullScreen}
+                                onFullScreenClosed={closeBlockLink}
+                                runInteractiveHtml={runInteractiveHtml}
                                 onBlockIdentityIds={
                                   isSuggesting
                                     ? undefined
@@ -12719,6 +12732,7 @@ function PageEditorSessionBody({
                                 primaryEditor={primaryEditor}
                                 primaryContent={exportContent}
                                 privateImageUploads={privateImageUploads}
+                                runInteractiveHtml={runInteractiveHtml}
                                 onFieldTabChange={
                                   blockFieldComments.onFieldTabChange
                                 }

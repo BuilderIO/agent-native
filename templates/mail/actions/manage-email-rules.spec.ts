@@ -427,7 +427,7 @@ describe("manage-email-rules chat action", () => {
     expect(mocks.createAutomationRule).toHaveBeenCalledWith(
       ownerEmail,
       expect.objectContaining({
-        name: "AI tag: Receipts and order confirmations",
+        name: "AI label: Receipts and order confirmations",
         condition: "Receipts and order confirmations",
         actions: [{ type: "label", labelName: "Receipts" }],
         kind: "ai-filter",
@@ -479,7 +479,7 @@ describe("manage-email-rules chat action", () => {
       id: "rule-1",
       domain: "mail",
       kind: "ai-filter",
-      name: "AI tag: Receipts from online shops",
+      name: "AI label: Receipts from online shops",
       condition: "Receipts from online shops",
       actions: [{ type: "label", labelName: "Receipts" }, { type: "archive" }],
       enabled: true,
@@ -498,7 +498,7 @@ describe("manage-email-rules chat action", () => {
       "rule-1",
       expect.objectContaining({
         kind: "ai-filter",
-        name: "AI tag: Receipts from online shops",
+        name: "AI label: Receipts from online shops",
         condition: "Receipts from online shops",
         actions: [
           { type: "label", labelName: "Receipts" },

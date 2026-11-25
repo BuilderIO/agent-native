@@ -1,4 +1,5 @@
 import { listWorkspaceApps } from "./app-creation-store.js";
+import { hostedCatalogEnabled } from "./dispatch-config.js";
 
 export interface CuratedWorkspaceTemplate {
   id: string;
@@ -167,6 +168,7 @@ export function getCuratedWorkspaceTemplate(
 export async function listCuratedWorkspaceTemplates(): Promise<
   CuratedWorkspaceTemplateStatus[]
 > {
+  if (!hostedCatalogEnabled()) return [];
   const installedIds = new Set(
     (
       await listWorkspaceApps({

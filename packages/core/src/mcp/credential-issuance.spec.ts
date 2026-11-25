@@ -8,7 +8,10 @@ const state = vi.hoisted(() => ({
   membership: vi.fn(),
   db: undefined as DbExec | undefined,
 }));
-vi.mock("../db/client.js", () => ({ getDbExec: () => state.db }));
+vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
+  getDbExec: () => state.db,
+}));
 vi.mock("./credential-membership.js", () => ({
   checkCredentialOrgMembership: state.membership,
 }));

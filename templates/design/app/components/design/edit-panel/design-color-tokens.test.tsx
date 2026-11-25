@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act } from "react";
+import { act, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -10,6 +10,7 @@ import enUS from "../../../i18n/en-US";
 import {
   DesignColorTokensProvider,
   readColorTokens,
+  useDesignTokenSource,
 } from "./design-color-tokens";
 import { ColorInput } from "./panel-primitives";
 
@@ -156,7 +157,32 @@ function tab(name: string) {
   ).find((candidate) => candidate.textContent === name)!;
 }
 
+function TokenStatus() {
+  const source = useDesignTokenSource();
+  const request = source?.request;
+  useEffect(() => request?.(), [request]);
+  return <output>{source?.tokens.status}</output>;
+}
+
 describe("DesignColorTokensProvider", () => {
+  it("shows a switched-to design's cached tokens instead of staying on loading", () => {
+    queryState.result = { data: INDEXED, isError: false };
+    const render = (designId: string) =>
+      act(() =>
+        root.render(
+          <DesignColorTokensProvider designId={designId}>
+            <TokenStatus />
+          </DesignColorTokensProvider>,
+        ),
+      );
+    render("d1");
+    expect(container.textContent).toBe("ready");
+
+    render("d2");
+
+    expect(container.textContent).toBe("ready");
+  });
+
   it("does not read the design's tokens until a picker opens", () => {
     queryState.result = { data: INDEXED, isError: false };
     mount();
@@ -167,7 +193,7 @@ describe("DesignColorTokensProvider", () => {
     expect(queryState.calls.length).toBeGreaterThan(0);
     expect(queryState.calls[0]).toEqual([
       "index-design-tokens",
-      { designId: "d1" },
+      { designId: "d1", compact: true },
     ]);
   });
 

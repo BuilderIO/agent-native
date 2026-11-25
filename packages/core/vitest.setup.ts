@@ -40,3 +40,7 @@ if (!process.env.DATABASE_URL && poolId) {
   const dataDir = path.join(inject("pgliteRoot"), `slot-${poolId}`);
   process.env.DATABASE_URL = `pglite:${dataDir}`; // guard:allow-env-mutation — Vitest setup runs once per test process, before any test code
 }
+
+for (const name of ["FUSION_ENVIRONMENT", "FUSION_POD_UID"]) {
+  delete process.env[name]; // guard:allow-env-mutation — a Builder cloud dev container sets these, which turns off loopback trust; specs that need them stub them
+}

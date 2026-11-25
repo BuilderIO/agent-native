@@ -4,6 +4,10 @@ import {
   APP_STATE_WRITER_HEADER,
   TAB_SCOPED_APP_STATE_KEYS,
 } from "../shared/app-state-routes.js";
+import {
+  readSessionInvalidationMarker,
+  SESSION_BOOTSTRAP_INVALIDATION_GLOBAL,
+} from "../shared/ssr-session-bootstrap.js";
 import { agentNativePath } from "./api-path.js";
 import { assertAgentNativeApiEnabled } from "./api-surface.js";
 import {
@@ -15,7 +19,13 @@ import {
   reserveKeepaliveBytes,
 } from "./keepalive-budget.js";
 import { recordStateWrite } from "./recorder.js";
-import { currentSessionScope } from "./session-identity.js";
+import {
+  currentSessionIdentity,
+  currentSessionScope,
+  subscribeSessionIdentityPublished,
+  subscribeSessionInvalidation,
+  subscribeSessionScope,
+} from "./session-identity.js";
 
 const APP_STATE_KEY_PATTERN = /^[a-zA-Z0-9_:-]+$/;
 const CORE_BEFORE_TURN_STATE_KEYS = [
@@ -43,6 +53,59 @@ const beforeTurnContexts = new WeakMap<
 const mutationRevisions = new Map<string, number>();
 const requestSessionIds = new WeakMap<object, number>();
 let nextRequestSessionId = 0;
+let appStateSessionScope = currentSessionScope();
+let awaitingInitialSession = currentSessionIdentity() === undefined;
+let invalidatedSession: { session: object; appState: object } | undefined;
+const initialInvalidationMarker =
+  typeof window === "undefined"
+    ? undefined
+    : (window[SESSION_BOOTSTRAP_INVALIDATION_GLOBAL] ??
+      readSessionInvalidationMarker());
+if (
+  typeof window === "undefined" ||
+  typeof window.addEventListener === "function"
+) {
+  subscribeSessionInvalidation(() => {
+    const session = currentSessionScope();
+    if (!invalidatedSession || invalidatedSession.session !== session) {
+      invalidatedSession = { session, appState: appStateSessionScope };
+    }
+    awaitingInitialSession = false;
+    appStateSessionScope = {};
+  });
+}
+subscribeSessionScope(() => {
+  const identity = currentSessionIdentity();
+  if (
+    invalidatedSession &&
+    identity !== undefined &&
+    invalidatedSession.session !== currentSessionScope()
+  ) {
+    invalidatedSession = undefined;
+  }
+  if (
+    !awaitingInitialSession ||
+    identity === undefined ||
+    (initialInvalidationMarker !== undefined &&
+      initialInvalidationMarker !== readSessionInvalidationMarker())
+  ) {
+    appStateSessionScope = currentSessionScope();
+  }
+  if (identity !== undefined) awaitingInitialSession = false;
+});
+subscribeSessionIdentityPublished(() => {
+  if (currentSessionIdentity() === undefined) return;
+  if (invalidatedSession?.session === currentSessionScope()) {
+    appStateSessionScope = invalidatedSession.appState;
+  }
+  invalidatedSession = undefined;
+});
+
+function assertAppStateSessionReady(): void {
+  if (invalidatedSession) {
+    throw new Error("Application state session is being verified");
+  }
+}
 
 export interface ClientAppStateReadOptions {
   signal?: AbortSignal;
@@ -120,7 +183,7 @@ function browserTabHeaders(): Record<string, string> | undefined {
 // Identifies the server row a key reaches, so writes and reads through
 // `navigation` and through `navigation:<this tab>` wait on each other.
 function requestKey(key: string): string {
-  const session = currentSessionScope();
+  const session = appStateSessionScope;
   let sessionId = requestSessionIds.get(session);
   if (sessionId === undefined) {
     sessionId = ++nextRequestSessionId;
@@ -145,7 +208,7 @@ function appStateTurnScope(): string {
 }
 
 function currentBeforeTurnContext(): BeforeTurnContext {
-  const session = currentSessionScope();
+  const session = appStateSessionScope;
   let contexts = beforeTurnContexts.get(session);
   if (!contexts) {
     contexts = new Map();
@@ -212,6 +275,7 @@ export function registerBeforeAgentTurnFlush(
 export async function flushClientAppStateBeforeAgentTurn(
   signal?: AbortSignal,
 ): Promise<void> {
+  assertAppStateSessionReady();
   const context = currentBeforeTurnContext();
   const pendingInScope = () =>
     [...pendingTurnMutations]
@@ -950,17 +1014,28 @@ export interface ClientAppStateBatch {
   missing: string[];
 }
 
+class AppStateScopeChangedError extends Error {
+  constructor() {
+    super("Application state scope changed before reading");
+  }
+}
+
 const MAX_BATCH_KEYS = 100;
 
 export async function readClientAppStateMany(
   keys: readonly string[],
   options: ClientAppStateReadOptions = {},
 ): Promise<ClientAppStateBatch> {
+  assertAppStateSessionReady();
   assertAgentNativeApiEnabled(`read application state [${keys.join(", ")}]`);
   const context = currentBeforeTurnContext();
+  const session = currentSessionScope();
   const assertScope = () => {
-    if (currentBeforeTurnContext() !== context) {
-      throw new Error("Application state scope changed before reading");
+    if (
+      currentBeforeTurnContext() !== context ||
+      currentSessionScope() !== session
+    ) {
+      throw new AppStateScopeChangedError();
     }
   };
   const unique = [...new Set(keys)];
@@ -1030,12 +1105,14 @@ let pendingBatch:
       keys: Set<string>;
       promise: Promise<ClientAppStateBatch>;
       context: BeforeTurnContext;
+      session: object;
     }
   | undefined;
 
 function scheduleBatchedRead(key: string): Promise<ClientAppStateBatch> {
   const context = currentBeforeTurnContext();
-  if (pendingBatch?.context === context) {
+  const session = currentSessionScope();
+  if (pendingBatch?.context === context && pendingBatch.session === session) {
     pendingBatch.keys.add(key);
     return pendingBatch.promise;
   }
@@ -1043,14 +1120,17 @@ function scheduleBatchedRead(key: string): Promise<ClientAppStateBatch> {
   const promise = new Promise<ClientAppStateBatch>((resolve, reject) => {
     setTimeout(() => {
       if (pendingBatch?.promise === promise) pendingBatch = undefined;
-      if (currentBeforeTurnContext() !== context) {
-        reject(new Error("Application state scope changed before reading"));
+      if (
+        currentBeforeTurnContext() !== context ||
+        currentSessionScope() !== session
+      ) {
+        reject(new AppStateScopeChangedError());
         return;
       }
       readClientAppStateMany([...keys]).then(resolve, reject);
     }, 0);
   });
-  pendingBatch = { keys, promise, context };
+  pendingBatch = { keys, promise, context, session };
   return promise;
 }
 
@@ -1087,12 +1167,38 @@ export async function readClientAppState<T = unknown>(
   key: string,
   options: ClientAppStateReadOptions = {},
 ): Promise<T | null> {
+  assertAppStateSessionReady();
   appStateUrl(key);
   if (options.signal?.aborted) {
     throw options.signal.reason ?? new Error("Aborted");
   }
-  const batch = await awaitWithAbort(scheduleBatchedRead(key), options.signal);
-  return (batch.values[key] ?? null) as T | null;
+  const initialIdentityUnknown = currentSessionIdentity() === undefined;
+  let scopeChanges = 0;
+  let readScope = currentSessionScope();
+  const unsubscribe = subscribeSessionScope(() => scopeChanges++);
+  try {
+    let batch: ClientAppStateBatch;
+    try {
+      batch = await awaitWithAbort(scheduleBatchedRead(key), options.signal);
+    } catch (error) {
+      if (
+        !(error instanceof AppStateScopeChangedError) ||
+        !initialIdentityUnknown ||
+        scopeChanges !== 1 ||
+        currentSessionIdentity() === undefined
+      ) {
+        throw error;
+      }
+      readScope = currentSessionScope();
+      batch = await awaitWithAbort(scheduleBatchedRead(key), options.signal);
+    }
+    if (currentSessionScope() !== readScope) {
+      throw new AppStateScopeChangedError();
+    }
+    return (batch.values[key] ?? null) as T | null;
+  } finally {
+    unsubscribe();
+  }
 }
 
 export async function writeClientAppState<T = unknown>(
@@ -1100,6 +1206,7 @@ export async function writeClientAppState<T = unknown>(
   value: T,
   options: ClientAppStateWriteOptions = {},
 ): Promise<T> {
+  assertAppStateSessionReady();
   assertAgentNativeApiEnabled(`write application state "${key}"`);
   const ownRequest = !!options.signal || options.ownRequest === true;
   // Numbered now, in the order it was made, like a queued write.
@@ -1147,6 +1254,7 @@ export async function compareAndSetClientAppState(
   next: Record<string, unknown> | null,
   options: ClientAppStateWriteOptions = {},
 ): Promise<boolean> {
+  assertAppStateSessionReady();
   assertAgentNativeApiEnabled(`compare application state \"${key}\"`);
   return runBarrierMutation(
     key,
@@ -1184,6 +1292,7 @@ export async function deleteClientAppState(
   key: string,
   options: ClientAppStateWriteOptions = {},
 ): Promise<void> {
+  assertAppStateSessionReady();
   assertAgentNativeApiEnabled(`delete application state "${key}"`);
   const seq = options.signal ? nextWriteSeq() : 0;
   const deletion = options.signal

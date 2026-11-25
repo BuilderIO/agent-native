@@ -167,7 +167,7 @@ async function pickAppForIntent(
 
 export default defineAction({
   description:
-    "Show a found or created mail, event, document, or record when viewing it is the useful result. Pass app (or just intent, in the user's words, to let Dispatch pick the app). Returns a registered app route for the chat client to open beside the conversation.",
+    "Return a registered app route for the host to open beside the conversation to show a view or item such as mail, a draft, a calendar view, a chart, a dashboard, a document, or a record. Accepts an `app` id or a natural-language `intent` to select a matching granted app.",
   schema: openAppSchema,
   http: { method: "GET" },
   readOnly: true,

@@ -344,7 +344,7 @@ test("column heads are 48px and keep Share in the right head and zoom in the bot
   await page.reload();
   await expect(rightHead).toBeVisible();
   expect(must(await rightHead.boundingBox(), "right head").width).toBeCloseTo(
-    240,
+    280,
     0,
   );
   await expect(page.locator("[data-design-comments-toggle]")).toBeVisible();

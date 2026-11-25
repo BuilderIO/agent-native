@@ -1,9 +1,9 @@
-import { useT } from "@agent-native/core/client/i18n";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import type { GmailReadState } from "@shared/gmail-freshness";
 import { IconAlertCircle } from "@tabler/icons-react";
+import { isToday } from "date-fns";
 import { useEffect, useRef, useState } from "react";
 
-/** One-line, non-blocking notice shown above rows that are not live from Gmail. */
 export function GmailCooldownNotice({
   read,
   onRetry,
@@ -12,9 +12,10 @@ export function GmailCooldownNotice({
   onRetry?: () => unknown;
 }) {
   const t = useT();
+  const { formatDate } = useFormatters();
   const retryRef = useRef(onRetry);
   retryRef.current = onRetry;
-  const cooldownUntil = read.cooldownUntil;
+  const { cooldownUntil, staleSince } = read;
   const [now, setNow] = useState(() => Date.now());
   const remainingSeconds =
     cooldownUntil === undefined
@@ -43,14 +44,28 @@ export function GmailCooldownNotice({
       className="flex shrink-0 items-center gap-2 border-b border-border/30 bg-muted/40 px-4 py-1.5 text-xs text-muted-foreground"
     >
       <IconAlertCircle className="h-3.5 w-3.5 shrink-0" />
-      <span className="min-w-0 flex-1 truncate">
-        {t("mail.error.rateLimitDescription")}
+      <span className="min-w-0 flex-1">
+        {staleSince === undefined
+          ? t("mail.error.limitedList")
+          : t("mail.error.limitedListFrom", {
+              time: formatDate(
+                staleSince,
+                isToday(staleSince)
+                  ? { timeStyle: "short" }
+                  : {
+                      month: "short",
+                      day: "numeric",
+                      hour: "numeric",
+                      minute: "2-digit",
+                    },
+              ),
+            })}{" "}
+        {remainingSeconds > 0 && (
+          <span className="whitespace-nowrap tabular-nums">
+            {t("mail.error.tryAgainIn", { seconds: remainingSeconds })}
+          </span>
+        )}
       </span>
-      {remainingSeconds > 0 && (
-        <span className="shrink-0 tabular-nums">
-          {t("mail.error.tryAgainIn", { seconds: remainingSeconds })}
-        </span>
-      )}
     </div>
   );
 }

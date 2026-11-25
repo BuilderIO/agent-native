@@ -38,6 +38,7 @@ const CHROME_FIXTURE = `<!doctype html>
 </html>`;
 
 // oracle-change: the File tab grid gives section heads 40px, their buttons 24px, and chrome glyphs Radix's 15px
+// oracle-change: ENG-14616 puts inspector sections on a 16px side margin and 16px under each section, with 8px between a pair's controls
 const APP_GEOMETRY_CONTRACT = {
   layersHeaderHeight: 40,
   layerRowHeight: 32,
@@ -48,8 +49,8 @@ const APP_GEOMETRY_CONTRACT = {
   layerChevronGlyphSize: 15,
   layerIndentWidth: 24,
   autoLayoutSectionHeaderHeight: 40,
-  autoLayoutSectionPadding: 8,
-  autoLayoutPairGutter: 16,
+  autoLayoutSectionPadding: 16,
+  autoLayoutPairGutter: 8,
   sizingMenuItemMinHeight: 24,
   sizingMenuItemMaxHeight: 32,
 } as const;
@@ -173,7 +174,8 @@ async function assertInspectorHeader(page: Page): Promise<void> {
   expect(grids.length).toBeGreaterThan(2);
   // oracle-change: the panel's inner-edge hairline is now drawn above its content instead of as a 1px border, so it no longer pushes the grid 1px in.
   for (const grid of grids) {
-    expect(grid.x).toBeCloseTo(panelGeometry.x + 8, 0);
+    // oracle-change: ENG-14616 moves inspector headers onto the 16px side margin.
+    expect(grid.x).toBeCloseTo(panelGeometry.x + 16, 0);
     expect(grid.width).toBeCloseTo(grids[0]!.width, 0);
   }
 }

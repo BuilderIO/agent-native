@@ -19,7 +19,9 @@
 2. **Roles** (`src/tokens/roles.ts`, mapped per theme). `--surface-*`, `--fg-*`,
    `--line-*`, `--fill-*`, `--status-<s>-{solid,subtle,fg,line}`,
    `--shadow-1..6`, `--gradient-*`; shape tokens `--shape-*`; focus ring.
-3. **Parts** read tiers 1 and 2 directly; they have no inputs of their own.
+3. **Parts** read tiers 1 and 2 at the control. Switch also accepts the styling
+   inputs listed in its parts catalog entry. Set an input such as
+   `--switch-soft-track-color` on a theme root to override its fallback.
 
 Radix's step semantics hold: 1–2 backgrounds, 3–5 component fills
 (rest/hover/pressed), 6–8 borders, 9–10 solid fills, 11–12 text.
@@ -41,10 +43,17 @@ pnpm --filter @agent-native/design-system tokens:import <dir>  # a Figma export 
 pnpm --filter @agent-native/design-system css                  # then regenerate and review
 ```
 
+The Components collection holds the Switch defaults. Dimensions use pixels;
+color swatches represent the default theme in light mode. Unchanged swatches
+retain their runtime role or scale binding. Editing a swatch supplies a literal
+color, including its alpha, in every appearance. The thumb shadow is a string
+accepting `none` or a system elevation from `var(--shadow-1)` through
+`var(--shadow-6)`. The Switch catalog describes each input and state.
+
 Import each exported folder into Figma as a collection, one file per mode.
 `tokens:import` takes any subset of collections, but every mode of one it
 takes; it refuses an unknown collection, a token code does not read, a missing
-token, a changed type, an alias, an alpha, or a palette input
+token, a changed type, an alias, an alpha in an opaque-only collection, or a palette input
 `createPalette` cannot build, and writes nothing unless every file passes.
 Adding a token is a code change: add it to the file and to its reader.
 

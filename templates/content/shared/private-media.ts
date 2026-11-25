@@ -22,6 +22,15 @@ export function privateMediaIdsInContent(content: string): Set<string> {
   return found;
 }
 
+export function replacePrivateMediaLinks(
+  content: string,
+  replacement: (id: string, link: string) => string,
+): string {
+  return content.replace(PRIVATE_MEDIA_LINK, (link, id: string) =>
+    replacement(id, link),
+  );
+}
+
 /** The image ID when `src` is a stored private image link, else null. */
 export function privateMediaIdFromSrc(src: string): string | null {
   const id = /^\/api\/private-media\/([0-9a-f-]{36})$/u.exec(src)?.[1];

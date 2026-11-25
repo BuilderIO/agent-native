@@ -15,6 +15,7 @@ import {
   searchConsoleSiteSchema,
   signupsSettingsUpdateSchema,
   storedSearchConsoleSiteSchema,
+  youtubeChannelSchema,
 } from "../server/lib/content-metrics/config.js";
 import { readContentCollectionStatus } from "../server/lib/content-metrics/status.js";
 import {
@@ -47,6 +48,11 @@ export default defineAction({
       .optional()
       .describe(
         "Numeric GA4 property ID that measures the blog. Required for this collection's pageviews; never falls back to the shared GA4_PROPERTY_ID. Omit to keep the saved value or pass null to clear it.",
+      ),
+    dailyDev: cliBoolean
+      .optional()
+      .describe(
+        "Collect daily visits from daily.dev to each blog article (on by default). Reads sessions that landed with daily.dev's via=dailydev tag or referrer from the same GA4 property, so it needs no other connection.",
       ),
     searchConsole: cliBoolean
       .optional()
@@ -89,6 +95,18 @@ export default defineAction({
       .describe(
         "Agent-Native signups settings, merged into the saved ones: enabled, eventsTable (this organization's first-party analytics events, project.dataset.table) and maxBytesBilled. Signups whose link has utm_source set to the blog's host and utm_content set to an article's handle count for that article, as Agent-Native signups. Measure maxBytesBilled with estimate-content-signups-cost and get it approved before turning the step on, since every run scans the warehouse.",
       ),
+    youtube: cliBoolean
+      .optional()
+      .describe(
+        "Collect every video on youtubeChannels with its lifetime views, likes and comments, read once a day. Needs a YouTube Data API key under Data Sources; a run costs about one quota unit per 25 videos of the key's 10,000 a day.",
+      ),
+    youtubeChannels: z
+      .array(youtubeChannelSchema)
+      .max(20)
+      .optional()
+      .describe(
+        'YouTube channels to collect, replacing the saved list, each a channel ID or @handle, e.g. ["@Builderio"]. A run reads at most 10,000 videos in all.',
+      ),
   }),
   run: async (
     {
@@ -96,6 +114,7 @@ export default defineAction({
       builderBlog,
       ga4,
       ga4PropertyId,
+      dailyDev,
       searchConsole,
       searchConsoleSites,
       searchConsoleHistoryMonths,
@@ -103,6 +122,8 @@ export default defineAction({
       searchConsoleQueriesPerPage,
       signups,
       agentNativeSignups,
+      youtube,
+      youtubeChannels,
     },
     ctx,
   ) => {
@@ -123,6 +144,7 @@ export default defineAction({
         propertyId:
           ga4PropertyId === undefined ? saved.ga4.propertyId : ga4PropertyId,
       },
+      dailyDev: { enabled: dailyDev ?? saved.dailyDev.enabled },
       searchConsole: {
         enabled: searchConsole ?? saved.searchConsole.enabled,
         sites: searchConsoleSites ?? saved.searchConsole.sites,
@@ -138,6 +160,10 @@ export default defineAction({
       agentNativeSignups: {
         ...saved.agentNativeSignups,
         ...agentNativeSignups,
+      },
+      youtube: {
+        enabled: youtube ?? saved.youtube.enabled,
+        channels: youtubeChannels ?? saved.youtube.channels,
       },
     });
     if (enabled && config.searchConsole.enabled) {

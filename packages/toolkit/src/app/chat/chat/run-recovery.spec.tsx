@@ -443,6 +443,9 @@ describe("run recovery surfaces", () => {
       );
     });
 
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "The agent run failed before it finished.",
+    );
     expect(container.querySelector("p")?.textContent).toBe(
       "AI features aren't available on this site right now.",
     );
@@ -521,7 +524,7 @@ describe("run recovery surfaces", () => {
       "person@example.com",
       `${window.location.origin}/design/thread`,
     );
-    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+    expect(container.querySelector('p[role="status"]')?.textContent).toContain(
       "Check your inbox and spam folder.",
     );
     expect(resendButton?.disabled).toBe(true);

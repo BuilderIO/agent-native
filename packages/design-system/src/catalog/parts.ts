@@ -1,3 +1,4 @@
+import { switchCssInputs } from "../tokens/component-inputs.js";
 import {
   alertDialogPopupProps,
   alignmentPickerProps,
@@ -68,6 +69,26 @@ import {
   toggleProps,
   toolbarProps,
 } from "./components/index.js";
+import {
+  checkboxCardsCssInputs,
+  designFilePanelCssInputs,
+  designPropertyInspectorCssInputs,
+  dockWorkspaceCssInputs,
+  insetCssInputs,
+  inspectorCssInputs,
+  layerTreeCssInputs,
+  layoutCssInputs,
+  menuCssInputs,
+  paintEditorCssInputs,
+  progressCssInputs,
+  radioCardsCssInputs,
+  selectCssInputs,
+  splitPaneCssInputs,
+  tableCssInputs,
+  tabsCssInputs,
+  toastCssInputs,
+  type CssInputs,
+} from "./css-inputs.js";
 import type { PropDefs } from "./props.js";
 
 /**
@@ -96,6 +117,8 @@ export interface PartDefinition {
    * boolean prop is a data attribute the part CSS reads.
    */
   props?: PropDefs;
+  /** Inherited CSS customization inputs and their stylesheet fallbacks. */
+  cssInputs?: CssInputs;
   /** Props of a sub-part that takes its own, as Radix Themes' `Select.Content`. */
   subPartProps?: Readonly<Record<string, PropDefs>>;
   /** False for a pattern that only composes components and draws no CSS of its own. */
@@ -325,6 +348,7 @@ export const PARTS: readonly PartDefinition[] = [
   },
   {
     name: "menu",
+    cssInputs: menuCssInputs,
     kind: "component",
     subParts: [
       "positioner",
@@ -419,6 +443,7 @@ export const PARTS: readonly PartDefinition[] = [
   },
   {
     name: "progress",
+    cssInputs: progressCssInputs,
     kind: "component",
     subParts: ["label", "value", "track", "indicator"],
     baseUi: "@base-ui/react/progress",
@@ -455,6 +480,7 @@ export const PARTS: readonly PartDefinition[] = [
   },
   {
     name: "select",
+    cssInputs: selectCssInputs,
     kind: "component",
     subParts: [
       "trigger",
@@ -498,6 +524,7 @@ export const PARTS: readonly PartDefinition[] = [
   },
   {
     name: "switch",
+    cssInputs: switchCssInputs,
     kind: "component",
     subParts: ["thumb"],
     baseUi: "@base-ui/react/switch",
@@ -507,6 +534,7 @@ export const PARTS: readonly PartDefinition[] = [
   },
   {
     name: "tabs",
+    cssInputs: tabsCssInputs,
     kind: "component",
     subParts: ["list", "tab", "indicator", "panel"],
     baseUi: "@base-ui/react/tabs",
@@ -516,6 +544,7 @@ export const PARTS: readonly PartDefinition[] = [
   },
   {
     name: "toast",
+    cssInputs: toastCssInputs,
     kind: "component",
     subParts: [
       "portal",
@@ -681,6 +710,7 @@ export const PARTS: readonly PartDefinition[] = [
   },
   {
     name: "table",
+    cssInputs: tableCssInputs,
     kind: "component",
     subParts: [
       "root",
@@ -764,6 +794,7 @@ export const PARTS: readonly PartDefinition[] = [
   },
   {
     name: "inset",
+    cssInputs: insetCssInputs,
     kind: "component",
     subParts: [],
     toolkit: "@agent-native/toolkit/ui/base-ui/inset",
@@ -772,6 +803,7 @@ export const PARTS: readonly PartDefinition[] = [
   },
   {
     name: "radio-cards",
+    cssInputs: radioCardsCssInputs,
     kind: "component",
     subParts: ["item"],
     baseUi: "@base-ui/react/radio-group",
@@ -781,6 +813,7 @@ export const PARTS: readonly PartDefinition[] = [
   },
   {
     name: "checkbox-cards",
+    cssInputs: checkboxCardsCssInputs,
     kind: "component",
     subParts: ["item", "checkbox", "mark"],
     baseUi: "@base-ui/react/checkbox-group",
@@ -933,6 +966,7 @@ export const PARTS: readonly PartDefinition[] = [
   planned("chart", "pattern", ["legend", "tooltip"], undefined, "ui/chart"),
   {
     name: "layer-tree",
+    cssInputs: layerTreeCssInputs,
     kind: "pattern",
     subParts: ["row", "icon", "label", "disclosure", "actions", "measure"],
     toolkit: "@agent-native/toolkit/ui/base-ui/layer-tree",
@@ -940,6 +974,7 @@ export const PARTS: readonly PartDefinition[] = [
   },
   {
     name: "layout",
+    cssInputs: layoutCssInputs,
     kind: "component",
     subParts: ["stack", "inline", "grid"],
     toolkit: "@agent-native/toolkit/ui/base-ui/layout",
@@ -947,6 +982,7 @@ export const PARTS: readonly PartDefinition[] = [
   },
   {
     name: "dock-workspace",
+    cssInputs: dockWorkspaceCssInputs,
     kind: "pattern",
     subParts: ["group", "actions", "split", "surface"],
     toolkit: "@agent-native/toolkit/ui/base-ui/dock-workspace",
@@ -954,6 +990,7 @@ export const PARTS: readonly PartDefinition[] = [
   },
   {
     name: "split-pane",
+    cssInputs: splitPaneCssInputs,
     kind: "pattern",
     subParts: ["panel", "handle", "content"],
     toolkit: "@agent-native/toolkit/ui/base-ui/split-pane",
@@ -961,6 +998,7 @@ export const PARTS: readonly PartDefinition[] = [
   },
   {
     name: "design-file-panel",
+    cssInputs: designFilePanelCssInputs,
     kind: "pattern",
     subParts: [
       "brand",
@@ -982,6 +1020,7 @@ export const PARTS: readonly PartDefinition[] = [
   },
   {
     name: "design-property-inspector",
+    cssInputs: designPropertyInspectorCssInputs,
     kind: "pattern",
     subParts: [
       "collaboration",
@@ -1003,6 +1042,7 @@ export const PARTS: readonly PartDefinition[] = [
   },
   {
     name: "inspector",
+    cssInputs: inspectorCssInputs,
     kind: "pattern",
     subParts: [
       "header",
@@ -1034,6 +1074,7 @@ export const PARTS: readonly PartDefinition[] = [
   },
   {
     name: "paint-editor",
+    cssInputs: paintEditorCssInputs,
     kind: "pattern",
     subParts: [
       "actions",

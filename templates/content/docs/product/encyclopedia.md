@@ -16,8 +16,8 @@ This index summarizes the atomic product contracts beneath the public roadmap. E
 | Verified         |     4 |
 | Failing          |     1 |
 | Stale            |     0 |
-| In Progress      |    21 |
-| Approved Shape   |    86 |
+| In Progress      |    22 |
+| Approved Shape   |    85 |
 | Exploring        |     9 |
 | Deferred         |     0 |
 | Superseded       |     5 |
@@ -78,6 +78,7 @@ graph LR
   family_access --> family_api
   family_access --> family_embed
   family_access --> family_feedback
+  family_access --> family_form
   family_access --> family_knowledge
   family_access --> family_organization
   family_access --> family_portability
@@ -98,6 +99,7 @@ graph LR
   family_agent --> family_rule
   family_agent --> family_security
   family_agent --> family_view
+  family_author --> family_form
   family_author --> family_reader
   family_author --> family_review
   family_command --> family_action
@@ -309,9 +311,9 @@ graph LR
 
 ## Form
 
-| Capability                                                       | State          | User promise                                                                                                        |
-| ---------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------- |
-| [Shared Form engine](capabilities/content.form.shared-engine.md) | Approved Shape | Content Form Views and Agent-Native Forms use one schema, validation, permission, and idempotent submission engine. |
+| Capability                                                       | State          | User promise                                                                                                                                                   |
+| ---------------------------------------------------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Shared Form engine](capabilities/content.form.shared-engine.md) | Approved Shape | Content's Form pages, Forms shown inside other Pages, and agents use one schema, validation, permission, and idempotent submission engine over the Collection. |
 
 ## History
 
@@ -439,7 +441,7 @@ graph LR
 
 | Capability                                                                        | State          | User promise                                                                                                                                              |
 | --------------------------------------------------------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [Artifact Blocks](capabilities/content.renderer.artifact-block.md)                | Approved Shape | Make a one-off interactive or visual artifact on one page, then promote it only if reuse becomes real.                                                    |
+| [Artifact Blocks](capabilities/content.renderer.artifact-block.md)                | In Progress    | Make a one-off interactive or visual artifact on one page, then promote it only if reuse becomes real.                                                    |
 | [Custom Blocks](capabilities/content.renderer.custom-block.md)                    | Approved Shape | Name, govern, and reuse a safe renderer without making it a hidden application.                                                                           |
 | [Collection graph renderers (superseded)](capabilities/content.renderer.graph.md) | Superseded     | Historical umbrella for graph and chart rendering, now split into distinct semantic Graph and analytical Chart capabilities                               |
 | [Typed renderers](capabilities/content.renderer.typed.md)                         | Approved Shape | Compatible renderers present typed Content values consistently across surfaces while preserving meaning, accessibility, inheritance, and export fallback. |

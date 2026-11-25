@@ -101,6 +101,60 @@ describe("gmailMutationQueue", () => {
     });
   });
 
+  it.each([
+    { kind: "mark-read", action: "mark-read", sent: { unread: true } },
+    { kind: "star", action: "star-email", sent: { unstar: true } },
+  ] as const)(
+    "sends only the last of several quick $kind presses on one message",
+    async ({ kind, action, sent }) => {
+      const presses = [false, true, false].map((flag) =>
+        gmailMutationQueue.enqueue(kind, {
+          id: "m1",
+          threadId: "t1",
+          accountEmail: "a@x.com",
+          flag,
+        }),
+      );
+      const other = gmailMutationQueue.enqueue(kind, {
+        id: "m2",
+        threadId: "t2",
+        accountEmail: "a@x.com",
+        flag: true,
+      });
+
+      await vi.advanceTimersByTimeAsync(200);
+      await Promise.all([...presses, other]);
+
+      const forFirst = callAction.mock.calls.filter(([, args]) =>
+        (args as { id: string }).id.split(",").includes("m1"),
+      );
+      expect(forFirst).toEqual([[action, expect.objectContaining(sent)]]);
+    },
+  );
+
+  it("keeps the same message ID in two accounts apart", async () => {
+    const pending = [
+      { accountEmail: "a@x.com", flag: false },
+      { accountEmail: "b@x.com", flag: true },
+    ].map((target) =>
+      gmailMutationQueue.enqueue("mark-read", { id: "m1", ...target }),
+    );
+
+    await vi.advanceTimersByTimeAsync(200);
+    await Promise.all(pending);
+
+    expect(callAction.mock.calls).toEqual([
+      [
+        "mark-read",
+        expect.objectContaining({ accountEmails: "a@x.com", unread: true }),
+      ],
+      [
+        "mark-read",
+        expect.objectContaining({ accountEmails: "b@x.com", unread: false }),
+      ],
+    ]);
+  });
+
   it("forwards every selected message ID when marking a multi-message thread read", async () => {
     const pending = ["m1", "m2", "m3"].map((id) =>
       gmailMutationQueue.enqueue("mark-read", {

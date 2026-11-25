@@ -6098,6 +6098,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       "overflow",
       "lineHeight",
       "letterSpacing",
+      "fontSize",
+      "opacity",
       "gridTemplateColumns",
       "gridTemplateRows",
       "gridAutoFlow",

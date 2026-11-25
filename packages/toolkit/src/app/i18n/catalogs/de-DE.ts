@@ -1464,6 +1464,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Diese App kann deinen gespeicherten Prompt noch nicht sicher erneut senden. Aktualisiere die App und versuche es erneut.",
   "errorMessages.runInterrupted": "Der Agent hat vor dem Abschluss aufgehört.",
   "errorMessages.runFailed": "Der Agent-Lauf ist fehlgeschlagen.",
+  "errorMessages.writeOutcomeUnknown":
+    "Ich habe die Schreibaktion angehalten, weil ein früherer Versuch möglicherweise bereits Änderungen gespeichert hat und ich das Ergebnis nicht bestätigen konnte. Prüfe vor einem erneuten Versuch, was gespeichert wurde.",
   "errorMessages.runUnverified":
     "Dieser Chat hat den Agenten aus den Augen verloren; er läuft möglicherweise noch. Laden Sie neu, um den Fortschritt zu sehen.",
   "errorMessages.runSignedOut":
@@ -3727,6 +3729,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpApps.openInNewTab": "In neuem Tab öffnen",
   "mcpApps.initFailed": "Die MCP-App konnte nicht initialisiert werden.",
   "mcpApps.readOnly": "Diese gespeicherte MCP-App ist schreibgeschützt.",
+  "markdown.opensInNewTab": "(öffnet sich in einem neuen Tab)",
   "iframeEmbed.blocked": "Einbettung blockiert",
   "iframeEmbed.missingSrc": "Quelle fehlt",
   "iframeEmbed.crossOrigin": "Ursprungsübergreifende URL nicht erlaubt",

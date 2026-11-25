@@ -722,6 +722,8 @@ const messages: ToolkitAgentChatTranslation = {
     "이 앱은 저장된 프롬프트를 아직 안전하게 다시 시도할 수 없습니다. 앱을 업데이트한 뒤 다시 시도하세요.",
   "errorMessages.runInterrupted": "에이전트가 완료하기 전에 중지되었습니다.",
   "errorMessages.runFailed": "에이전트 실행이 실패했습니다.",
+  "errorMessages.writeOutcomeUnknown":
+    "이전 시도에서 이미 변경 사항이 저장되었을 수 있고 결과를 확인할 수 없어 쓰기 작업을 반복하기 전에 중단했습니다. 다시 시도하기 전에 저장된 내용을 확인하세요.",
   "errorMessages.runUnverified":
     "이 채팅에서 에이전트를 더 이상 추적할 수 없습니다. 에이전트가 아직 실행 중일 수 있습니다. 새로고침하여 진행 상황을 확인하세요.",
   "errorMessages.runSignedOut":
@@ -3482,6 +3484,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpApps.openInNewTab": "새 탭에서 열기",
   "mcpApps.initFailed": "MCP 앱을 초기화하지 못했습니다.",
   "mcpApps.readOnly": "저장된 이 MCP 앱은 읽기 전용입니다.",
+  "markdown.opensInNewTab": "(새 탭에서 열림)",
   "iframeEmbed.blocked": "임베드 차단됨",
   "iframeEmbed.missingSrc": "소스 없음",
   "iframeEmbed.crossOrigin": "다른 출처의 URL은 허용되지 않습니다",
