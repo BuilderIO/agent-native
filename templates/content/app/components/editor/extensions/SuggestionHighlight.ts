@@ -213,12 +213,18 @@ function settlingCommentHighlight(
   spec: SuggestionHighlightSpec,
 ): SettlingCommentHighlight | null {
   if (!comments) return null;
-  const threadIds = comments.specs
-    .filter(
-      (comment) =>
-        !comment.blockId && comment.to > spec.from && spec.to > comment.from,
-    )
-    .map((comment) => comment.threadId);
+  const threadIds = [
+    ...new Set(
+      comments.specs
+        .filter(
+          (comment) =>
+            !comment.blockId &&
+            comment.to > spec.from &&
+            spec.to > comment.from,
+        )
+        .map((comment) => comment.threadId),
+    ),
+  ];
   const threadId =
     threadIds.find(
       (id) => id === comments.activeId || id === comments.hoveredId,
@@ -227,7 +233,9 @@ function settlingCommentHighlight(
   return {
     threadId,
     threadIds,
-    className: `comment-highlight${commentHighlightEmphasis(
+    className: `comment-highlight${
+      threadIds.length > 1 ? " comment-highlight--overlap" : ""
+    }${commentHighlightEmphasis(
       threadIds,
       comments.activeId,
       comments.hoveredId,
@@ -845,6 +853,7 @@ function buildDecorations(
               spec.insertedPresentation?.from,
               spec.insertedPresentation?.to,
               comment?.threadId,
+              comment?.threadIds.join(" "),
               comment?.className,
               side,
             ]),

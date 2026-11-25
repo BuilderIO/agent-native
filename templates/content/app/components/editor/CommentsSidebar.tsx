@@ -2858,6 +2858,7 @@ export function CommentsSidebar({
           attributeFilter: [
             "hidden",
             "data-comment-thread",
+            "data-comment-threads",
             "data-comment-block-threads",
             "data-clip-comment-threads",
           ],
@@ -2873,6 +2874,7 @@ export function CommentsSidebar({
         attributes: true,
         attributeFilter: [
           "data-comment-thread",
+          "data-comment-threads",
           "data-comment-block-threads",
           "data-clip-comment-threads",
         ],
