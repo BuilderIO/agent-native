@@ -5,6 +5,7 @@ import type {
   ContentDatabaseItem,
   ContentDatabaseSourceChangeSet,
   DocumentProperty,
+  DocumentPropertyValue,
 } from "../shared/api";
 import { builderBlocksHash } from "../shared/builder-mdx";
 import {
@@ -3330,6 +3331,59 @@ describe("database source helpers", () => {
     expect(
       JSON.parse(refreshed[BUILDER_CMS_UNPUBLISHED_CHANGES_KEY] as string),
     ).toEqual({ liveValues: {}, liveBlocksHash: "live-body-hash" });
+  });
+
+  it("keeps a body known-empty through refreshes until Builder returns one", () => {
+    const refresh = (
+      existing: Record<string, unknown>,
+      incoming: Record<string, DocumentPropertyValue>,
+    ) =>
+      sourceValuesForSeededSourceRow({
+        sourceType: "builder-cms",
+        item: item("doc-1", "Same title"),
+        sourceTable: "blog_article",
+        now: "2026-06-08T13:00:00.000Z",
+        builderEntry: {
+          id: "entry-1",
+          model: "blog_article",
+          title: "Same title",
+          urlPath: "/blog/same-title",
+          updatedAt: "2026-06-08T13:00:00.000Z",
+          sourceValues: {
+            published: "draft",
+            "data.title": "Same title",
+            ...incoming,
+          },
+        },
+        existingSourceValuesJson: JSON.stringify(existing),
+        existingLastSourceUpdatedAt: "1000",
+      });
+
+    const sameVersion = refresh(
+      {
+        published: "draft",
+        "data.title": "Same title",
+        [BUILDER_CMS_BODY_BLOCK_COUNT_KEY]: 0,
+      },
+      { lastUpdated: "1000" },
+    );
+    expect(sameVersion[BUILDER_CMS_BODY_BLOCK_COUNT_KEY]).toBe(0);
+
+    const afterFieldEdit = refresh(sameVersion, { lastUpdated: "2000" });
+    expect(afterFieldEdit[BUILDER_CMS_BODY_BLOCK_COUNT_KEY]).toBe(0);
+
+    const bodyAdded = refresh(afterFieldEdit, {
+      lastUpdated: "3000",
+      [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "body-typed-in-builder",
+      [BUILDER_CMS_BODY_BLOCK_COUNT_KEY]: 2,
+    });
+    expect(bodyAdded[BUILDER_CMS_BODY_BLOCK_COUNT_KEY]).toBe(2);
+
+    const neverRead = refresh(
+      { published: "draft", "data.title": "Same title" },
+      { lastUpdated: "1000" },
+    );
+    expect(neverRead).not.toHaveProperty(BUILDER_CMS_BODY_BLOCK_COUNT_KEY);
   });
 
   it("lets an empty body Builder published replace a saved body on refresh", () => {
