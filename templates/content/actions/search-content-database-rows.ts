@@ -37,6 +37,13 @@ export default defineAction({
   ),
   mcpOutputSchema: true,
   http: { method: "GET" },
+  readOnly: true,
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
+  mcpScript: "read",
   run: async (args): Promise<ContentDatabaseRowSearchResponse> => {
     const resolution = await resolveContentDatabaseRead({
       databaseId: args.databaseId,

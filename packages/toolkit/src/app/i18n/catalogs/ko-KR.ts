@@ -712,6 +712,8 @@ const messages: ToolkitAgentChatTranslation = {
     "도구 스키마가 올바르지 않아 모델이 요청 시작 전에 거부했습니다. 올바르지 않은 도구를 건너뛰고 요청을 다시 시도할 수 있습니다.",
   "errorMessages.malformedRequest":
     "모델 제공업체가 이 요청을 잘못된 형식으로 거부하여 재시도하지 않았습니다. 다시 시도하거나 문제가 계속되면 새 채팅을 시작하세요.",
+  "errorMessages.requestNotRead":
+    "요청이 너무 크거나 복잡해서(예: 도구가 너무 많음) 모델이 이 요청을 읽지 못했고, 재시도하지 않았습니다. 새 채팅을 시작하거나 다른 모델을 선택하세요.",
   "errorMessages.requestTooLarge":
     "이 요청은 서버 크기 제한을 초과했습니다(HTTP 413). 새 채팅을 시작하거나 큰 첨부 파일 또는 참조를 제거한 뒤 다시 시도하세요.",
   "errorMessages.capabilityUnavailable":
@@ -720,6 +722,8 @@ const messages: ToolkitAgentChatTranslation = {
     "이 앱은 저장된 프롬프트를 아직 안전하게 다시 시도할 수 없습니다. 앱을 업데이트한 뒤 다시 시도하세요.",
   "errorMessages.runInterrupted": "에이전트가 완료하기 전에 중지되었습니다.",
   "errorMessages.runFailed": "에이전트 실행이 실패했습니다.",
+  "errorMessages.writeOutcomeUnknown":
+    "이전 시도에서 이미 변경 사항이 저장되었을 수 있고 결과를 확인할 수 없어 쓰기 작업을 반복하기 전에 중단했습니다. 다시 시도하기 전에 저장된 내용을 확인하세요.",
   "errorMessages.runUnverified":
     "이 채팅에서 에이전트를 더 이상 추적할 수 없습니다. 에이전트가 아직 실행 중일 수 있습니다. 새로고침하여 진행 상황을 확인하세요.",
   "errorMessages.runSignedOut":
@@ -3480,6 +3484,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpApps.openInNewTab": "새 탭에서 열기",
   "mcpApps.initFailed": "MCP 앱을 초기화하지 못했습니다.",
   "mcpApps.readOnly": "저장된 이 MCP 앱은 읽기 전용입니다.",
+  "markdown.opensInNewTab": "(새 탭에서 열림)",
   "iframeEmbed.blocked": "임베드 차단됨",
   "iframeEmbed.missingSrc": "소스 없음",
   "iframeEmbed.crossOrigin": "다른 출처의 URL은 허용되지 않습니다",

@@ -207,6 +207,7 @@ const messages = {
       moveToTrash: "Mover a la papelera",
       star: "Marcar con estrella",
       unstar: "Quitar estrella",
+      copyLink: "Copiar enlace",
     },
     labels: {
       labelAsPlaceholder: "Etiquetar como…",
@@ -470,10 +471,13 @@ const messages = {
       tryDifferentKeywords: "Prueba con otras palabras clave",
       nothingHere: "Nada aquí todavía",
       loadingMore: "Cargando más...",
+      loadOlder: "Cargar conversaciones anteriores",
       openAllMailForOlder: "Abrir todo el correo para mensajes más antiguos",
     },
     toasts: {
       noEmailSelected: "No hay email seleccionado.",
+      linkCopied: "Enlace copiado.",
+      linkCopyFailed: "No se pudo copiar el enlace.",
       reportedSpam: "Marcado como spam.",
       reportedSpamBlocked: "Reported as spam & blocked {{email}}.",
       noThreadSelected: "No hay conversación seleccionada.",
@@ -568,8 +572,14 @@ const messages = {
       tryAgain: "Intentar de nuevo",
       rateLimitTitle: "Se alcanzó el límite de frecuencia de Gmail",
       loadTitle: "No se pudieron cargar los emails",
+      staleSaved:
+        "No se pudo actualizar el correo. Se muestran las conversaciones guardadas.",
       rateLimitDescription:
         "Demasiadas solicitudes recientes a Google. Esperando un momento antes de reintentar.",
+      limitedListFrom:
+        "Última actualización: {{time}}. Puede que falten correos. Google está limitando las solicitudes de Mail.",
+      limitedList:
+        "Puede que falten correos. Google está limitando las solicitudes de Mail.",
       failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",
       failedToParseJson: "No se pudo analizar JSON",
       missingGoogleCredentials:
@@ -670,7 +680,7 @@ const messages = {
       instructionsTitle: "Instrucciones",
       instructionCount: "{{count}} instrucción(es)",
       instructionPlaceholder:
-        "p. ej. Los asuntos como «question for you, Steve» no son deseados",
+        "p. ej. Los asuntos como «quick question for you» no son deseados",
       addInstruction: "Añadir",
       noInstructions: "Aún no hay instrucciones.",
       instructionExample:
@@ -719,19 +729,19 @@ const messages = {
       aiTagsTitle: "Etiquetas de IA",
       ruleHelpLabel: "Explicar las reglas de {{mode}}",
       aiTagRuleHelp:
-        "Escribe una instrucción en lenguaje natural. Jev añade esta etiqueta al correo que coincida.",
+        "Escribe una instrucción en lenguaje natural. Mail añade esta etiqueta al correo que coincida.",
       importantRuleHelp:
-        "Escribe una instrucción en lenguaje natural. Jev marca como importante el correo que coincida.",
+        "Escribe una instrucción en lenguaje natural. Mail marca como importante el correo que coincida.",
       skipInboxRuleHelp:
-        "Escribe una instrucción en lenguaje natural. Jev archiva el correo que coincida para omitir la bandeja de entrada.",
+        "Escribe una instrucción en lenguaje natural. Mail archiva el correo que coincida para omitir la bandeja de entrada.",
       spamRuleHelp:
-        "Escribe una instrucción en lenguaje natural. Jev añade la etiqueta agent-native-filtered y archiva el correo que coincida. No es el Spam de Gmail.",
+        "Escribe una instrucción en lenguaje natural. Mail añade la etiqueta agent-native-filtered y archiva el correo que coincida. No es el Spam de Gmail.",
       filteredMode: "Filtrado",
       manageSettings: "Administrar",
-      askJev: "Preguntar a Jev",
+      askJev: "Preguntar al agente de Mail",
       askJevPrompt:
         "Ayúdame a ajustar esta regla de Mail: {{condition}}. Pregúntame qué quiero cambiar y luego actualízala.",
-      composerPlaceholder: "Pídele a Jev que organice tu bandeja…",
+      composerPlaceholder: "Pídele al agente de Mail que organice tu bandeja…",
       chatSuggestionFilter: "Filtrar mensajes como este",
       chatSuggestionPriority: "Priorizar los correos de…",
       chatSuggestionArchive:
@@ -876,7 +886,8 @@ const messages = {
     },
   },
   agent: {
-    emptyState: "Preguntame cualquier cosa sobre tus correos",
+    emptyState:
+      "Soy el agente de Mail. Pregúntame por tu correo o pídeme que lo ordene.",
     suggestionSummarize: "Resume mis correos no leidos",
     suggestionReplies: "Que necesita mi respuesta hoy?",
     suggestionWidget: "Crea un widget personalizado para mi bandeja",
@@ -944,6 +955,7 @@ const messages = {
     autocomplete: "Autocompletar",
     sendAndMarkDone: "Enviar y marcar como hecho",
     autocompleteSaveFailed: "No se pudo guardar el ajuste de autocompletado.",
+    signaturePlaceholder: "Saludos,\nTu nombre",
     writingStylePlaceholder:
       "Breve, específico y cálido. Evita relleno formal.",
     saveDraftingSettings: "Guardar ajustes de redacción",

@@ -1,121 +1,77 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  getDataProgram: vi.fn(),
-  getLatestFinishedRun: vi.fn(),
-  getLatestSuccessfulRun: vi.fn(),
-  resolveAccess: vi.fn(),
+  getDataProgramDetails: vi.fn(),
+  listDataProgramSummaries: vi.fn(),
+  credentialContext: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/data-programs", () => ({
-  getDataProgram: mocks.getDataProgram,
-  getLatestFinishedRun: mocks.getLatestFinishedRun,
-  getLatestSuccessfulRun: mocks.getLatestSuccessfulRun,
-  hashDataProgramParams: (
-    params: Record<string, unknown>,
-    email: string,
-    orgId: string | null,
-  ) => `hash:${email}:${orgId}:${JSON.stringify(params)}`,
+  getDataProgramDetails: mocks.getDataProgramDetails,
+  listDataProgramSummaries: mocks.listDataProgramSummaries,
 }));
 vi.mock("@agent-native/core/server/request-context", () => ({
-  getCredentialContext: () => ({
-    userEmail: "alice@example.com",
-    orgId: "org-1",
-  }),
-}));
-vi.mock("@agent-native/core/sharing", () => ({
-  resolveAccess: mocks.resolveAccess,
+  getCredentialContext: mocks.credentialContext,
 }));
 
 const { default: getDataProgram } = await import("./get-data-program");
+const { default: listDataPrograms } = await import("./list-data-programs");
 
-const PROGRAM = {
-  id: "dp_1",
-  name: "collector",
-  title: "Collector",
-  description: "",
-  code: "emit([])",
-  paramsSchema: null,
-  defaultParams: null,
-  refreshMode: "ttl",
-  refreshTtlMs: 3_600_000,
-  background: true,
-  archivedAt: null,
-  outputColumns: null,
-};
+const CALLER = { userEmail: "alice@example.com", orgId: "org-1" };
 
-describe("get-data-program", () => {
+describe("Analytics data program read actions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.getDataProgram.mockResolvedValue(PROGRAM);
-    mocks.resolveAccess.mockResolvedValue({ role: "owner" });
+    mocks.credentialContext.mockReturnValue(CALLER);
   });
 
-  it("reads the newest finished run, not a queued one", async () => {
-    mocks.getLatestFinishedRun.mockResolvedValue({
-      status: "succeeded",
-      rowCount: 2,
-      truncated: false,
-      errorCode: null,
-      errorMessage: null,
-      finishedAt: 500,
-      rowsJson: JSON.stringify([{ n: 1 }, { n: 2 }]),
-    });
+  it("get-data-program reads through core for the Analytics app and the caller", async () => {
+    const details = {
+      id: "dp_1",
+      scheduledRefresh: true,
+      orgSharedRun: { status: "succeeded", finishedAt: 900 },
+      lastRun: null,
+    };
+    mocks.getDataProgramDetails.mockResolvedValue(details);
 
     const result = await getDataProgram.run({
       programId: "dp_1",
       includeRows: true,
     });
 
-    expect(mocks.getLatestFinishedRun).toHaveBeenCalledWith(
+    expect(mocks.getDataProgramDetails).toHaveBeenCalledWith(
       "dp_1",
-      "hash:alice@example.com:org-1:{}",
+      "analytics",
+      CALLER,
+      { includeRows: true },
     );
-    expect(result.lastRun).toEqual(
-      expect.objectContaining({
-        status: "succeeded",
-        rows: [{ n: 1 }, { n: 2 }],
-      }),
-    );
-    expect(mocks.getLatestSuccessfulRun).not.toHaveBeenCalled();
-    expect(result).not.toHaveProperty("lastGoodRun");
+    expect(result).toBe(details);
   });
 
-  it("adds the newest successful run as lastGoodRun when the newest finished run failed", async () => {
-    mocks.getLatestFinishedRun.mockResolvedValue({
-      status: "failed",
-      rowCount: 0,
-      truncated: false,
-      errorCode: "program_error",
-      errorMessage: "Sample orders file is missing",
-      finishedAt: 900,
-      rowsJson: null,
-    });
-    mocks.getLatestSuccessfulRun.mockResolvedValue({
-      status: "succeeded",
-      rowCount: 1,
-      truncated: false,
-      finishedAt: 800,
-      rowsJson: JSON.stringify([{ repo: "demo" }]),
-    });
+  it("list-data-programs reads through core for the Analytics app and the caller", async () => {
+    const summaries = { programs: [{ id: "dp_1", scheduledRefresh: false }] };
+    mocks.listDataProgramSummaries.mockResolvedValue(summaries);
 
-    const result = await getDataProgram.run({
-      programId: "dp_1",
-      includeRows: true,
-    });
+    const result = await listDataPrograms.run({ includeArchived: true });
 
-    expect(result.lastRun).toEqual(
-      expect.objectContaining({
-        status: "failed",
-        errorCode: "program_error",
-        errorMessage: "Sample orders file is missing",
-      }),
+    expect(mocks.listDataProgramSummaries).toHaveBeenCalledWith(
+      "analytics",
+      CALLER,
+      { includeArchived: true },
     );
-    expect(result.lastGoodRun).toEqual({
-      rowCount: 1,
-      truncated: false,
-      finishedAt: 800,
-      rows: [{ repo: "demo" }],
-    });
+    expect(result).toBe(summaries);
+  });
+
+  it("refuses a read with no signed-in caller", async () => {
+    mocks.credentialContext.mockReturnValue(null);
+
+    await expect(getDataProgram.run({ programId: "dp_1" })).rejects.toThrow(
+      "No authenticated context for get-data-program.",
+    );
+    await expect(listDataPrograms.run({})).rejects.toThrow(
+      "No authenticated context for list-data-programs.",
+    );
+    expect(mocks.getDataProgramDetails).not.toHaveBeenCalled();
+    expect(mocks.listDataProgramSummaries).not.toHaveBeenCalled();
   });
 });

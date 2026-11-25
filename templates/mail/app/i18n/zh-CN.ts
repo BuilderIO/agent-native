@@ -187,6 +187,7 @@ const messages = {
       moveToTrash: "移到垃圾箱",
       star: "加星标",
       unstar: "取消星标",
+      copyLink: "复制链接",
     },
     labels: {
       labelAsPlaceholder: "添加标签…",
@@ -446,10 +447,13 @@ const messages = {
       tryDifferentKeywords: "试试其他关键词",
       nothingHere: "这里还没有内容",
       loadingMore: "正在加载更多...",
+      loadOlder: "加载更早的会话",
       openAllMailForOlder: "打开全部邮件查看更早的邮件",
     },
     toasts: {
       noEmailSelected: "未选择邮件。",
+      linkCopied: "链接已复制。",
+      linkCopyFailed: "无法复制链接。",
       reportedSpam: "已举报为垃圾邮件。",
       reportedSpamBlocked: "已举报为垃圾邮件并屏蔽 {{email}}。",
       noThreadSelected: "未选择会话。",
@@ -537,7 +541,11 @@ const messages = {
       tryAgain: "重试",
       rateLimitTitle: "触发 Gmail 速率限制",
       loadTitle: "无法加载邮件",
+      staleSaved: "无法刷新邮件。正在显示已保存的会话。",
       rateLimitDescription: "最近对 Google 的请求过多。稍等片刻后会重试。",
+      limitedListFrom:
+        "上次更新：{{time}}。部分邮件可能未显示。Google 正在限制 Mail 的请求。",
+      limitedList: "部分邮件可能未显示。Google 正在限制 Mail 的请求。",
       failedToConnect: "连接失败。请重试。",
       failedToParseJson: "解析 JSON 失败",
       missingGoogleCredentials: "在 JSON 中找不到 client_id 和 client_secret",
@@ -634,7 +642,7 @@ const messages = {
       instructionsTitle: "指令",
       instructionCount: "{{count}} 条指令",
       instructionPlaceholder:
-        "例如：主题包含“question for you, Steve”的邮件是不需要的",
+        "例如：主题包含“quick question for you”的邮件是不需要的",
       addInstruction: "添加",
       noInstructions: "还没有指令。",
       instructionExample: "试试“所有政治竞选邮件都不需要”。",
@@ -679,13 +687,13 @@ const messages = {
       skipInboxRuleHelp:
         "用自然语言编写指令。符合条件的邮件会被归档并跳过收件箱。",
       spamRuleHelp:
-        "用自然语言编写指令。Jev 会为匹配的邮件添加 agent-native-filtered 标签并归档。这不是 Gmail 垃圾邮件。",
+        "用自然语言编写指令。Mail 会为匹配的邮件添加 agent-native-filtered 标签并归档。这不是 Gmail 垃圾邮件。",
       filteredMode: "已筛选",
       manageSettings: "管理",
-      askJev: "询问 Jev",
+      askJev: "询问 Mail 的代理",
       askJevPrompt:
         "帮我优化这条 Mail 规则：{{condition}}。先询问我想如何修改，再更新规则。",
-      composerPlaceholder: "让 Jev 帮你整理收件箱…",
+      composerPlaceholder: "让 Mail 的代理帮你整理收件箱…",
       chatSuggestionFilter: "过滤类似这样的邮件",
       chatSuggestionPriority: "优先处理来自…的邮件",
       chatSuggestionArchive: "自动归档机器人通知",
@@ -816,7 +824,8 @@ const messages = {
     },
   },
   agent: {
-    emptyState: "可以问我任何关于邮件的问题",
+    emptyState:
+      "我是 Mail 的代理。可以问我邮件相关的问题，也可以让我帮你整理邮件。",
     suggestionSummarize: "总结我的未读邮件",
     suggestionReplies: "今天哪些邮件需要我回复？",
     suggestionWidget: "为我的收件箱创建自定义小组件",
@@ -879,6 +888,7 @@ const messages = {
     autocomplete: "自动补全",
     sendAndMarkDone: "发送并标记为已完成",
     autocompleteSaveFailed: "无法保存自动补全设置。",
+    signaturePlaceholder: "祝好，\n你的名字",
     writingStylePlaceholder: "简短、具体、温暖。避免正式套话。",
     saveDraftingSettings: "保存草稿设置",
     reset: "重置",

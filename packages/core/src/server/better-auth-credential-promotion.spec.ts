@@ -80,6 +80,7 @@ async function addAccount(
 
 async function loadWithPglite(pglite: Pglite) {
   vi.doMock("../db/client.js", () => ({
+    getEnclosingTransactionDbExec: () => undefined,
     getDbExec: () => createPgliteExec(pglite),
     isLocalDatabase: () => true,
     onSharedDbPoolsClosed: () => {},

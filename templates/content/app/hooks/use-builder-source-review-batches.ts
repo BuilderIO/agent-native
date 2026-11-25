@@ -262,15 +262,16 @@ export function useBuilderSourceReviewBatches(args: {
                       BUILDER_REVIEW_FIRST_BATCH_SIZE,
                     ),
                   }
-                : {}),
+                : { quickStart: true }),
               bodyComparison: "text",
               batchSize: BUILDER_REVIEW_FIRST_BATCH_SIZE,
             });
           }
           if (isAborted()) return;
           work.firstBatchLoaded = true;
-          work.firstPages = firstPages;
-          work.pagesListed = firstPages.length === 0;
+          work.firstPages =
+            firstPages.length > 0 ? firstPages : (response.documentIds ?? []);
+          work.pagesListed = scope !== "all";
           work.response = mergedResponse(null, response, []);
           work.textPages = [
             ...(response.remainingDocumentIds ?? []),

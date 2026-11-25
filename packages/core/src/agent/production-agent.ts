@@ -585,6 +585,7 @@ import {
   RunEvent,
   RESPONSE_GUARD_DRAFT_KEPT_EVENT,
   RESPONSE_GUARD_RICH_EVENT_NAMESPACE,
+  UNKNOWN_TOOL_ERROR_CODE,
   type ToolErrorClass,
   type UnknownWriteCause,
 } from "./types.js";
@@ -1692,6 +1693,11 @@ export interface AgentActionSurfaceDetails {
   requestedTurnId?: string;
   queuedMessageId?: string;
   actionScope?: Readonly<AgentActionScope>;
+  /**
+   * Set for a saved automation run, which has no request: `event` is
+   * `undefined` and `threadId` is unset.
+   */
+  automation?: { name: string };
   availableActionNames: readonly string[];
 }
 
@@ -2422,11 +2428,7 @@ export interface ProductionAgentOptions {
    * not describe tools that require an extra discovery turn before use.
    */
   initialToolNames?: string[];
-  toolLimits?: {
-    timeoutMs?: number;
-    maxResultChars?: number;
-    hardMaxResultChars?: number;
-  };
+  toolLimits?: ToolLimits;
 }
 
 export async function resolveAgentOwnerEmail(
@@ -5661,6 +5663,30 @@ const DEFAULT_TOOL_TIMEOUT_MS = 12 * 60_000;
 const MAX_IDENTICAL_TOOL_ERRORS = 3;
 export const MAX_SAME_ERROR_ACROSS_ARGUMENTS = 3;
 const MAX_TOOL_FAILURE_STREAK = 5;
+
+export interface ToolLimits {
+  timeoutMs?: number;
+  maxResultChars?: number;
+  hardMaxResultChars?: number;
+  /** Identical failures of one tool with the same arguments before the turn stops. Default 3. */
+  maxIdenticalErrors?: number;
+  /** Failures of one tool with the same error across different arguments before the turn stops. Default 3. */
+  maxSameErrorAcrossArguments?: number;
+  /** Consecutive failures of one tool before the loop is told to change course. Default 5. */
+  maxFailureStreak?: number;
+}
+
+/** A limit counts attempts, so only a positive whole number replaces the default. */
+export function resolveToolFailureLimit(
+  configured: number | undefined,
+  fallback: number,
+): number {
+  return typeof configured === "number" &&
+    Number.isSafeInteger(configured) &&
+    configured >= 1
+    ? configured
+    : fallback;
+}
 export const MAX_IDENTICAL_TOOL_CALLS = 8;
 const MAX_ALREADY_LOADED_TOOL_SEARCHES = 4;
 const MAX_STOP_ERROR_LINE_CHARS = 300;
@@ -7797,11 +7823,7 @@ export async function runAgentLoop(opts: {
   durableStepIdForToolCall?: (logicalStepId: string) => string;
   loadedSkillSlugs?: readonly string[];
   runSoftTimeoutMs?: number;
-  toolLimits?: {
-    timeoutMs?: number;
-    maxResultChars?: number;
-    hardMaxResultChars?: number;
-  };
+  toolLimits?: ToolLimits;
   approvedToolCalls?: string[];
   approvedToolCallAskId?: string;
   /** Recorded by an approved call's own audit rows, and read by nothing else. */
@@ -8584,6 +8606,18 @@ export async function runAgentLoop(opts: {
     toolCallCacheKey,
     normalizeToolErrorForBreaker,
   );
+  const maxToolFailureStreak = resolveToolFailureLimit(
+    opts.toolLimits?.maxFailureStreak,
+    MAX_TOOL_FAILURE_STREAK,
+  );
+  const maxIdenticalToolErrors = resolveToolFailureLimit(
+    opts.toolLimits?.maxIdenticalErrors,
+    MAX_IDENTICAL_TOOL_ERRORS,
+  );
+  const maxSameErrorAcrossArguments = resolveToolFailureLimit(
+    opts.toolLimits?.maxSameErrorAcrossArguments,
+    MAX_SAME_ERROR_ACROSS_ARGUMENTS,
+  );
   const toolFailureBudget = (name: string) => {
     const failures = failureStreaks.get(name) ?? 0;
     let equivalentFailures = 0;
@@ -8593,8 +8627,8 @@ export async function runAgentLoop(opts: {
     return {
       failures: Math.max(failures, equivalentFailures),
       remaining: Math.min(
-        MAX_TOOL_FAILURE_STREAK - failures,
-        MAX_SAME_ERROR_ACROSS_ARGUMENTS - equivalentFailures,
+        maxToolFailureStreak - failures,
+        maxSameErrorAcrossArguments - equivalentFailures,
       ),
     };
   };
@@ -9743,7 +9777,7 @@ export async function runAgentLoop(opts: {
               }
             : {
                 message:
-                  "The model returned an empty response. This usually means reasoning used the full output-token budget. Try again, or pick a different model from the model menu.",
+                  "The model returned an empty response, even after retrying. Try again, or pick a different model from the model menu.",
                 errorCode: "empty_final_response",
               };
         const keptDraft = finalGuardKeptDraft.current;
@@ -10274,9 +10308,9 @@ export async function runAgentLoop(opts: {
         const anyArgsCount = (toolErrors.get(anyArgsKey) ?? 0) + 1;
         toolErrors.set(anyArgsKey, anyArgsCount);
         if (
-          failureCount >= MAX_TOOL_FAILURE_STREAK &&
-          count < MAX_IDENTICAL_TOOL_ERRORS &&
-          anyArgsCount < MAX_SAME_ERROR_ACROSS_ARGUMENTS
+          failureCount >= maxToolFailureStreak &&
+          count < maxIdenticalToolErrors &&
+          anyArgsCount < maxSameErrorAcrossArguments
         ) {
           requestedActionStop ??= repeatedToolFailureStop(
             toolCall.name,
@@ -10286,8 +10320,8 @@ export async function runAgentLoop(opts: {
           return sanitizedResult;
         }
         if (
-          count < MAX_IDENTICAL_TOOL_ERRORS &&
-          anyArgsCount >= MAX_SAME_ERROR_ACROSS_ARGUMENTS
+          count < maxIdenticalToolErrors &&
+          anyArgsCount >= maxSameErrorAcrossArguments
         ) {
           const result =
             `Stopped after ${anyArgsCount} attempts at ${toolCall.name} that all failed the same way ` +
@@ -10307,7 +10341,7 @@ export async function runAgentLoop(opts: {
           return result;
         }
 
-        if (count < MAX_IDENTICAL_TOOL_ERRORS) return sanitizedResult;
+        if (count < maxIdenticalToolErrors) return sanitizedResult;
         const result =
           `Stopped after ${count} identical errors from ${toolCall.name} with the same arguments. ` +
           `Last error: ${sanitizedResult}`;
@@ -10457,6 +10491,7 @@ export async function runAgentLoop(opts: {
           result,
           isError: true,
           completedSideEffect: false,
+          ...(noLongerAvailable ? {} : { errorCode: UNKNOWN_TOOL_ERROR_CODE }),
         });
         recordToolResult(result, true);
         if (noLongerAvailable && isHistoryToolName(toolCall.name)) {
@@ -13582,34 +13617,131 @@ interface QueueableAttachments {
   requestAttachments: AgentRequestAttachment[];
 }
 
-function requestAttachmentIndexes(
+type SubmissionBinding = {
+  index: number;
+  name: string;
+  type: string;
+  imageFile: boolean;
+};
+
+function submissionAttachmentBindings(
   submission: AgentSubmissionPayload,
   attachments: AgentChatAttachment[],
-): Set<number> | null {
-  const unmatched = new Set(attachments.map((_, index) => index));
-  for (const identity of submission.attachments ?? []) {
-    const match = [...unmatched].find(
-      (index) =>
-        fingerprintAgentSubmissionAttachment(attachments[index], "file") ===
-        identity.fingerprint,
-    );
-    if (match === undefined) return null;
-    unmatched.delete(match);
-  }
+): {
+  count: number;
+  files: SubmissionBinding[];
+  images: SubmissionBinding[];
+} | null {
+  const remaining = new Set(attachments.map((_, index) => index));
+  const bind = (
+    items: readonly { fingerprint: string; name: string }[],
+    kind: "file" | "image",
+  ): SubmissionBinding[] | null => {
+    const bindings: SubmissionBinding[] = [];
+    for (const item of items) {
+      const index = [...remaining].find(
+        (candidate) =>
+          (kind !== "image" || attachments[candidate]?.type === "image") &&
+          fingerprintAgentSubmissionAttachment(attachments[candidate], kind) ===
+            item.fingerprint,
+      );
+      if (index === undefined) return null;
+      remaining.delete(index);
+      const original = attachments.at(index);
+      if (!original || original.name !== item.name) return null;
+      bindings.push({
+        index,
+        name: item.name,
+        type: original.type,
+        imageFile:
+          (original.type === "file" || original.type === "document") &&
+          typeof original.url === "string" &&
+          original.url.startsWith("data:image/"),
+      });
+    }
+    return bindings;
+  };
+  const files = bind(submission.attachments ?? [], "file");
+  const images = bind(submission.requestAttachments ?? [], "image");
+  return files && images ? { count: attachments.length, files, images } : null;
+}
 
-  const requestIndexes = new Set<number>();
-  for (const identity of submission.requestAttachments ?? []) {
-    const match = [...unmatched].find(
-      (index) =>
-        attachments[index]?.type === "image" &&
-        fingerprintAgentSubmissionAttachment(attachments[index], "image") ===
-          identity.fingerprint,
-    );
-    if (match === undefined) return null;
-    unmatched.delete(match);
-    requestIndexes.add(match);
+const DURABLE_SUBMISSION_PROJECTION =
+  "__agentNativeDurableSubmissionProjection";
+
+function submissionDigest(value: unknown): string {
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("Submission identity is missing");
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+function submissionDigestAt(values: string[], index: number): string {
+  const value = values.at(index);
+  if (value === undefined)
+    throw new Error("Submission projection is incomplete");
+  return value;
+}
+
+function isSubmissionDigestArray(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (entry: unknown) =>
+        typeof entry === "string" && /^[a-f0-9]{64}$/.test(entry),
+    )
+  );
+}
+
+function serializeBoundDurableSubmission(
+  body: Record<string, unknown>,
+  bindings: ReturnType<typeof submissionAttachmentBindings> | undefined,
+): string {
+  const sanitized = JSON.parse(serializeDurableDispatchPayload(body)) as Record<
+    string,
+    unknown
+  >;
+  if (bindings) {
+    const durableAttachments = sanitized.attachments;
+    if (
+      !Array.isArray(durableAttachments) ||
+      durableAttachments.length !== bindings.count
+    ) {
+      throw new Error("Durable submission attachment binding lost");
+    }
+    const project = (bindings: SubmissionBinding[], kind: "file" | "image") =>
+      bindings.map(({ index, name, type, imageFile }) => {
+        const attachment = durableAttachments[index];
+        if (
+          attachment &&
+          typeof attachment === "object" &&
+          type === "image" &&
+          attachment.type === "file" &&
+          attachment.referenceOnly === true &&
+          (attachment.contentType === "image/svg+xml" ||
+            (attachment.contentType === "application/octet-stream" &&
+              name.toLowerCase().endsWith(".svg")))
+        ) {
+          attachment.type = "image";
+        }
+        if (
+          !attachment ||
+          typeof attachment !== "object" ||
+          attachment.name !== name ||
+          (attachment.type !== type &&
+            !(imageFile && attachment.type === "image") &&
+            !(type === "document" && attachment.type === "file"))
+        ) {
+          throw new Error("Durable submission attachment binding lost");
+        }
+        return fingerprintAgentSubmissionAttachment(attachment, kind);
+      });
+    sanitized[DURABLE_SUBMISSION_PROJECTION] = {
+      canonicalDigest: submissionDigest(sanitized.submissionPayload),
+      files: project(bindings.files, "file"),
+      images: project(bindings.images, "image"),
+    };
   }
-  return requestIndexes;
+  return JSON.stringify(sanitized);
 }
 
 async function queueableAttachments(
@@ -14168,6 +14300,7 @@ export async function chainServerDrivenContinuation(opts: {
   chainViaDurableBackground: boolean;
   turnInitiator?: AgentTurnInitiator;
   workerProvenInBackgroundFunction?: boolean;
+  submissionBindings?: ReturnType<typeof submissionAttachmentBindings>;
   deps?: ChainServerDrivenContinuationDeps;
 }): Promise<void> {
   const d = {
@@ -14351,11 +14484,15 @@ export async function chainServerDrivenContinuation(opts: {
         `chain_dispatch_start nextRunId=${nextRunId} reason=${continuationReason} path=${continuationDispatchPath}`,
       )
       .catch(() => {});
+    const continuationPayload = serializeBoundDurableSubmission(
+      continuationBody,
+      opts.submissionBindings,
+    );
     let nextRowInserted = false;
     try {
       await d.insertRun(nextRunId, effectiveThreadId, effectiveTurnId, {
         dispatchMode: "background",
-        dispatchPayload: serializeDurableDispatchPayload(continuationBody),
+        dispatchPayload: continuationPayload,
         ...(opts.turnInitiator ? { turnInitiator: opts.turnInitiator } : {}),
       });
       nextRowInserted = true;
@@ -14417,7 +14554,9 @@ export async function chainServerDrivenContinuation(opts: {
           },
         }
       : {
-          ...continuationBody,
+          ...(opts.submissionBindings
+            ? (JSON.parse(continuationPayload) as Record<string, unknown>)
+            : continuationBody),
           [AGENT_CHAT_BACKGROUND_RUN_FIELD]: continuationMarker,
         };
     const { dispatched, lastDispatchErr, nestedDepthExceeded } =
@@ -14931,6 +15070,9 @@ export function createProductionAgentHandler(
     if (!isBackgroundWorker) {
       delete body[AGENT_CHAT_BACKGROUND_RUN_FIELD];
       delete (body as unknown as Record<string, unknown>)[
+        DURABLE_SUBMISSION_PROJECTION
+      ];
+      delete (body as unknown as Record<string, unknown>)[
         AGENT_CHAT_RECOVERY_OF_RUN_FIELD
       ];
       delete body.__resolvedActionSurface;
@@ -15114,15 +15256,66 @@ export function createProductionAgentHandler(
     }
     let requestMessage = hasMessageText ? message : "Use the attached context.";
     let requestAttachments = Array.isArray(attachments) ? attachments : [];
-    // The worker's body is the foreground's server-built dispatch payload, whose
-    // attachments were sanitized after the client fingerprints were validated, so
-    // they can no longer match those fingerprints.
+    const projection = isBackgroundWorker
+      ? (body as unknown as Record<string, unknown>)[
+          DURABLE_SUBMISSION_PROJECTION
+        ]
+      : undefined;
+    let attachmentSubmission = submissionPayload;
+    if (projection !== undefined && submissionPayload) {
+      const candidate =
+        projection &&
+        typeof projection === "object" &&
+        !Array.isArray(projection)
+          ? (projection as Record<string, unknown>)
+          : {};
+      const files = candidate.files;
+      const images = candidate.images;
+      if (
+        candidate.canonicalDigest !==
+          submissionDigest(requestedSubmissionPayload) ||
+        !isSubmissionDigestArray(files) ||
+        !isSubmissionDigestArray(images) ||
+        files.length !== (submissionPayload.attachments?.length ?? 0) ||
+        images.length !== (submissionPayload.requestAttachments?.length ?? 0)
+      ) {
+        setResponseStatus(event, 400);
+        return {
+          error: "submissionPayload does not match this message",
+          code: "submission_payload_attachments_mismatch",
+        };
+      }
+      attachmentSubmission = {
+        ...submissionPayload,
+        ...(submissionPayload.attachments
+          ? {
+              attachments: submissionPayload.attachments.map((item, index) => ({
+                ...item,
+                fingerprint: submissionDigestAt(files, index),
+              })),
+            }
+          : {}),
+        ...(submissionPayload.requestAttachments
+          ? {
+              requestAttachments: submissionPayload.requestAttachments.map(
+                (item, index) => ({
+                  ...item,
+                  fingerprint: submissionDigestAt(images, index),
+                }),
+              ),
+            }
+          : {}),
+      };
+    }
     const validateSubmissionAttachments =
-      submissionPayload !== undefined && !isBackgroundWorker;
+      !isBackgroundWorker || projection !== undefined;
+    const submissionAttachmentsAreConsistent =
+      attachmentSubmission !== undefined &&
+      submissionAttachmentsMatch(attachmentSubmission, requestAttachments);
     if (
       submissionPayload &&
       validateSubmissionAttachments &&
-      !submissionAttachmentsMatch(submissionPayload, requestAttachments)
+      !submissionAttachmentsAreConsistent
     ) {
       setResponseStatus(event, 400);
       return {
@@ -15130,17 +15323,28 @@ export function createProductionAgentHandler(
         code: "submission_payload_attachments_mismatch",
       };
     }
-    const submissionRequestAttachmentIndexes =
-      submissionPayload && validateSubmissionAttachments
-        ? requestAttachmentIndexes(submissionPayload, requestAttachments)
-        : new Set<number>();
-    if (!submissionRequestAttachmentIndexes) {
+    const bindings =
+      attachmentSubmission && validateSubmissionAttachments
+        ? submissionAttachmentBindings(attachmentSubmission, requestAttachments)
+        : { count: requestAttachments.length, files: [], images: [] };
+    if (!bindings) {
       setResponseStatus(event, 400);
       return {
         error: "submissionPayload does not match this message",
         code: "submission_payload_attachment_indexes_mismatch",
       };
     }
+    const submissionRequestAttachmentIndexes = new Set(
+      bindings.images.map(({ index }) => index),
+    );
+    const durableSubmissionBindings =
+      submissionPayload && !isBackgroundWorker && requestAttachments.length > 0
+        ? bindings
+        : undefined;
+    if (isBackgroundWorker)
+      requestAttachments = requestAttachments.map((attachment) => ({
+        ...attachment,
+      }));
     let attachmentHydrationBudget: OwnedAttachmentHydrationBudget | undefined;
     let requestDisplayMessage = displayMessage;
     let requestContext = buildRecentUserRequestContext({
@@ -16690,7 +16894,10 @@ export function createProductionAgentHandler(
             : {}),
         } as unknown as Record<string, unknown>;
         delete dispatchBody.queuedMessageClaimId;
-        durableDispatchPayload = serializeDurableDispatchPayload(dispatchBody);
+        durableDispatchPayload = serializeBoundDurableSubmission(
+          dispatchBody,
+          durableSubmissionBindings,
+        );
       } catch (error) {
         if (!(error instanceof DurableAttachmentReferenceRequiredError)) {
           throw error;
@@ -18320,6 +18527,11 @@ export function createProductionAgentHandler(
                     ? { attachments: requestAttachments }
                     : {}),
                 } as unknown as Record<string, unknown>,
+                ...(submissionPayload &&
+                validateSubmissionAttachments &&
+                requestAttachments.length > 0
+                  ? { submissionBindings: bindings }
+                  : {}),
                 backgroundContinuationCount,
                 noProgressRepeat,
                 turnInputTokens,

@@ -1866,8 +1866,6 @@ export default {
       redoSkippedConcurrentEdit: "Se omitió rehacer: otra persona movió eso",
       saveConflict:
         "Esta página cambió en otro lugar. Tu último cambio no se guardó.",
-      versionHistoryUnavailable:
-        "El historial de versiones no está disponible para este diseño. Tu edición se guardó de todos modos.",
       removeAutoLayoutFailed: "No se pudo quitar el auto layout",
       autoLayoutScreensUnsupported:
         "Añadir diseño automático no se aplica a las páginas",

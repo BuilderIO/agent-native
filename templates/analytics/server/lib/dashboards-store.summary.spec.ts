@@ -391,9 +391,35 @@ describe("listDashboardSummaries", () => {
 
     await expect(
       assertDashboardNameIsAvailable(" revenue  dashboard ", ctx),
-    ).rejects.toThrow(
-      'Dashboard name "revenue  dashboard" is already used by visible dashboard "Revenue Dashboard"',
-    );
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "name_taken",
+      details: {
+        name: "revenue  dashboard",
+        suggestion: "revenue  dashboard-2",
+      },
+    });
+  });
+
+  it("checks legacy names and excludes the updated dashboard", async () => {
+    state.rows = [
+      { id: "existing", kind: "sql", name: "Revenue" },
+      { id: "self", kind: "sql", name: "Revenue-3" },
+    ];
+    state.settings = {
+      "u:alice@example.com:sql-dashboard-legacy": { name: " REVENUE-2 " },
+    };
+
+    await expect(
+      assertDashboardNameIsAvailable("Revenue", ctx, "self"),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "name_taken",
+      details: { name: "Revenue", suggestion: "Revenue-3" },
+    });
+    await expect(
+      assertDashboardNameIsAvailable("Revenue-3", ctx, "self"),
+    ).resolves.toBeUndefined();
   });
 
   it("allows the dashboard being updated to keep its current name", async () => {

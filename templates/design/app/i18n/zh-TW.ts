@@ -1822,7 +1822,6 @@ export default {
       undoSkippedConcurrentEdit: "已略過復原 — 其他人移動了該項目",
       redoSkippedConcurrentEdit: "已略過重做 — 其他人移動了該項目",
       saveConflict: "此頁面已在別處變更。你的上一次編輯未儲存。",
-      versionHistoryUnavailable: "此設計暫無法使用版本歷史。您的編輯已儲存。",
       removeAutoLayoutFailed: "無法移除自動版面配置",
       autoLayoutScreensUnsupported: "新增自動布局不適用於頁面",
       booleanSubtractUnsupported:

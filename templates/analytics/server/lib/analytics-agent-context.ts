@@ -61,6 +61,7 @@ const QUERY_TOOL_NAMES = new Set([
   "bigquery",
   "query-agent-native-analytics",
   "query-dashboard-panel",
+  "query-postgres",
   "query-staged-dataset",
 ]);
 const NON_QUERY_GROUNDING_ACTION_NAMES = new Set([

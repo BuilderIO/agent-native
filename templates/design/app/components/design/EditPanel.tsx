@@ -2638,7 +2638,7 @@ export const EditPanel = memo(function EditPanel({
             "design-sidebar shrink-0 bg-[var(--design-editor-panel-bg)]",
             "relative flex h-full min-h-0 flex-col overflow-hidden",
           )}
-          style={{ width }}
+          style={{ width, maxWidth: "100%" }}
         >
           {showFramePresets ? (
             <FramePresetsPanel

@@ -12,6 +12,8 @@ import {
   isInvalidAttachmentProviderMessage,
   isProviderConnectionError,
   isProviderConnectionErrorMessage,
+  isRejectedRequestErrorCode,
+  isTerminalRecoveryErrorCode,
 } from "./error-detail.js";
 
 describe("describeErrorWithCauses", () => {
@@ -490,5 +492,22 @@ describe("classifyProviderError retryAfterMs", () => {
       responseHeaders: { "retry-after": "600" },
     });
     expect(classifyProviderError(apiError).retryAfterMs).toBe(60_000);
+  });
+});
+
+describe("request_not_read", () => {
+  it("is a rejected request, so it is terminal and never resent unchanged", () => {
+    expect(isRejectedRequestErrorCode("request_not_read")).toBe(true);
+    expect(isTerminalRecoveryErrorCode("request_not_read")).toBe(true);
+    expect(isTerminalRecoveryErrorCode("Request_Not_Read")).toBe(true);
+  });
+
+  it("survives Builder gateway canonicalization unchanged", () => {
+    expect(
+      canonicalizeBuilderGatewayErrorCode(
+        "request_not_read",
+        'Model "gpt-test" did not read the request',
+      ),
+    ).toBe("request_not_read");
   });
 });

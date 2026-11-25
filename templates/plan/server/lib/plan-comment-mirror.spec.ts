@@ -825,6 +825,52 @@ describe("Plan comments in the review kit", () => {
     expect(await stored("kit-only-root")).toMatchObject({ status: "deleted" });
   });
 
+  it("deletes a reply written through the kit in a thread Plan deleted", async () => {
+    const planId = await newPlan([
+      { id: "thread-gone", message: "Deleted by a server on the old code" },
+      { id: "thread-here", message: "Still in Plan" },
+    ]);
+    const at = "2026-11-20T12:00:00.000Z";
+    const kitReply = (id: string, threadId: string) => ({
+      id,
+      threadId,
+      parentCommentId: threadId,
+      body: "A reply through the kit's own actions",
+      authorEmail: OWNER.userEmail,
+      authorName: null,
+      createdBy: "human" as const,
+      resolved: false,
+      createdAt: at,
+      updatedAt: at,
+    });
+    await mirrorReviewComments({ resourceType: "plan", resourceId: planId }, [
+      kitReply("kit-reply-gone", "thread-gone"),
+      kitReply("kit-reply-here", "thread-here"),
+    ]);
+    const { getDb, schema } = dbModule;
+    await getDb()
+      .update(schema.planComments)
+      .set({ deletedAt: "2026-11-20T13:00:00.000Z", deletedBy: "ops@x.test" })
+      .where(eq(schema.planComments.id, "thread-gone"));
+
+    const report = await mirror.copyPlanCommentsToReviewKit();
+
+    expect(report.failedPlans).toEqual([]);
+    expect(report.differences).toEqual([]);
+    expect(await stored("thread-gone")).toMatchObject({ status: "deleted" });
+    expect(await stored("kit-reply-gone")).toMatchObject({ status: "deleted" });
+    expect(report.orphanedReplies).toEqual([{ planId, id: "kit-reply-gone" }]);
+    expect(await stored("kit-reply-here")).toMatchObject({ status: "open" });
+    expect(report.kitWrittenComments).toContainEqual({
+      planId,
+      id: "kit-reply-here",
+    });
+    expect(report.kitWrittenComments).not.toContainEqual({
+      planId,
+      id: "kit-reply-gone",
+    });
+  });
+
   it("refuses plan comment writes through the kit's own actions", async () => {
     const planId = await newPlan([
       { id: "kit-root", message: "Written in Plan", resolutionTarget: "agent" },

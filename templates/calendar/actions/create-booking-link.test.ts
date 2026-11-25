@@ -40,7 +40,10 @@ vi.mock("../server/db/index.js", () => ({
   },
 }));
 
-vi.mock("../server/lib/booking-link-utils.js", () => ({
+vi.mock("../server/lib/booking-link-utils.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/lib/booking-link-utils.js")
+  >()),
   rowToBookingLink: vi.fn((row) => row),
   serializeBookingHosts: vi.fn(() => '[{"email":"cohost@example.com"}]'),
 }));

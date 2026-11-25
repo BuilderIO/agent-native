@@ -9,6 +9,7 @@ import type {
 
 import "../authorization/check-action.js";
 import type { JWTPayload } from "jose";
+import { z } from "zod";
 
 import {
   A2A_ORG_MEMBER_DELEGATION_TYPE,
@@ -99,6 +100,8 @@ import {
 import {
   type McpAnalyticsContext,
   describeMcpError,
+  mcpAnalyticsEnabled,
+  mcpToolResultSize,
   readClientInfoFromRequest,
   trackMcpResourceRead,
   trackMcpResourcesList,
@@ -113,6 +116,12 @@ import {
 import { mcpApprovalAppId } from "./approval-store.js";
 import { runWithMcpChatTurnCall } from "./chat-turn-scope.js";
 import { isFrameworkMcpTool } from "./framework-tools.js";
+import {
+  MCP_SKILLS_EXTENSION_ID,
+  getMcpSkill,
+  listMcpSkills,
+  readMcpSkillFile,
+} from "./skills-extension.js";
 import {
   admitWithMcpTurnGrantAdmitters,
   type McpTurnGrantAdmitterDecision,
@@ -195,6 +204,7 @@ import {
   recordMcpScriptDenial,
   runMcpScript,
   searchMcpScriptActions,
+  withMcpScriptCatalogPointer,
 } from "./script-tools.js";
 import {
   createScriptWriteGate,
@@ -285,6 +295,8 @@ export interface MCPConfig {
   builtinCrossAppTools?: boolean;
   /** Opt in to an MCP-only, strictly read-only resource lookup. */
   readOnlyResources?: boolean;
+  /** Serve the `an` skill through the MCP Skills extension (SEP-2640). */
+  servesAnSkill?: boolean;
   /** Server-only candidate source; it must enforce current workspace grants. */
   taskCandidates?: (input: {
     callableActionNames: readonly string[];
@@ -3625,14 +3637,10 @@ export async function createMCPServerForRequest(
         orgId: orgId ?? null,
       }),
   );
-  // A connection that asks for the script catalog, on an app that turned the
-  // script tools on, is offered only `search-actions` and `run-script`, and
-  // every other tool name is unknown to it. Directory mode keeps its own
-  // closed catalog.
+  const scriptCatalogOffered =
+    !directoryCatalog && mcpScriptCatalogOfferedToOrg(orgId);
   const scriptCatalog =
-    requestMeta.scriptCatalog === true &&
-    !directoryCatalog &&
-    getAppConfig().mcp.scriptTools === true;
+    requestMeta.scriptCatalog === true && scriptCatalogOffered;
   const scriptWrites =
     scriptCatalog && getAppConfig().mcp.scriptWrites === true;
   // The compact catalog is the default for every caller. Directory mode is a
@@ -3924,26 +3932,40 @@ export async function createMCPServerForRequest(
   const servedKeyToolNames = config.keyToolNames?.filter(
     (name) => name in advertisedActions && isAdvertisable(name),
   );
+  const pointedScriptCatalog =
+    scriptCatalogOffered && !scriptCatalog
+      ? await scriptCatalogForPointer()
+      : undefined;
+  const servesSkills =
+    config.servesAnSkill === true && Boolean(effectiveIdentity?.userEmail);
   const server = new Server(mcpServerInfo(config, requestMeta), {
     instructions: directoryCatalog
       ? config.directoryProfile?.instructions
       : scriptCatalog
         ? mcpScriptInstructions({ writes: scriptWrites })
-        : agentNativeMcpInstructions(
-            config.instructions,
-            servedKeyToolNames,
-            TOOL_SEARCH_TOOL_NAME in advertisedActions &&
-              isAdvertisable(TOOL_SEARCH_TOOL_NAME),
+        : withMcpScriptCatalogPointer(
+            agentNativeMcpInstructions(
+              config.instructions,
+              servedKeyToolNames,
+              TOOL_SEARCH_TOOL_NAME in advertisedActions &&
+                isAdvertisable(TOOL_SEARCH_TOOL_NAME),
+            ),
+            pointedScriptCatalog,
           ),
     capabilities: {
       tools: {},
-      ...(supportsMcpApps
+      ...(supportsMcpApps || servesSkills
         ? {
             resources: {},
             extensions: {
-              [MCP_APP_EXTENSION_ID]: {
-                mimeTypes: [MCP_APP_MIME_TYPE],
-              },
+              ...(supportsMcpApps
+                ? {
+                    [MCP_APP_EXTENSION_ID]: {
+                      mimeTypes: [MCP_APP_MIME_TYPE],
+                    },
+                  }
+                : {}),
+              ...(servesSkills ? { [MCP_SKILLS_EXTENSION_ID]: {} } : {}),
             },
           }
         : {}),
@@ -4520,6 +4542,28 @@ export async function createMCPServerForRequest(
     });
   }
 
+  async function scriptCatalogForPointer() {
+    if (!hasMcpOAuthScope(effectiveIdentity?.oauthScopes, "mcp:read")) {
+      return undefined;
+    }
+    let allowedActions: string[] | null;
+    try {
+      ({ allowedActions } = await resolveServiceGrant());
+    } catch {
+      // coercion-ok: an unreadable grant only leaves out the optional instructions pointer; each tool call checks the grant again.
+      return undefined;
+    }
+    const toolsGranted = [MCP_SCRIPT_SEARCH_TOOL, MCP_SCRIPT_RUN_TOOL].every(
+      (name) =>
+        isActionGranted(allowedActions, name) && !deniedToolNames.has(name),
+    );
+    return toolsGranted
+      ? buildMcpScriptCatalog(directlyReachable(allowedActions), {
+          writes: getAppConfig().mcp.scriptWrites === true,
+        })
+      : undefined;
+  }
+
   async function callScriptTool(
     call: {
       name: string;
@@ -4997,6 +5041,7 @@ export async function createMCPServerForRequest(
           : {}),
         parameters: analyticsParameters(toolName, calledArgs),
         durationMs: Date.now() - startedAt,
+        ...(mcpAnalyticsEnabled() ? mcpToolResultSize(result) : {}),
         isError: (result as { isError?: boolean }).isError === true,
         ...(failure ?? {}),
       });
@@ -5096,6 +5141,8 @@ export async function createMCPServerForRequest(
             await grantedResourceActions("mcp:resources/read");
           return await withCallerContext(async () => {
             const uri = request.params?.uri;
+            const skillFile = servesSkills ? readMcpSkillFile(uri) : null;
+            if (skillFile) return skillFile;
             let found: {
               actionName: string;
               resource: ResolvedMcpAppResource;
@@ -5160,6 +5207,47 @@ export async function createMCPServerForRequest(
         }
       },
     );
+  }
+
+  if (servesSkills) {
+    const notFound = (uri: unknown) =>
+      new ResourceNotFoundError(String(uri ?? ""), `Skill not found: ${uri}`);
+    const skillParams = z.object({
+      uri: z.string().optional(),
+      cursor: z.string().optional(),
+    });
+    server.setRequestHandler(
+      "skills/list",
+      { params: skillParams },
+      async () => {
+        await resolveServiceGrant("mcp:skills/list");
+        return listMcpSkills();
+      },
+    );
+    server.setRequestHandler(
+      "skills/get",
+      { params: skillParams },
+      async (params) => {
+        await resolveServiceGrant("mcp:skills/get");
+        const result = getMcpSkill(params.uri);
+        if (!result) throw notFound(params.uri);
+        return result;
+      },
+    );
+    if (!supportsMcpApps) {
+      server.setRequestHandler("resources/list", async () => ({
+        resources: [],
+      }));
+      server.setRequestHandler(
+        "resources/read",
+        async (request: { params?: { uri?: unknown } }) => {
+          await resolveServiceGrant("mcp:resources/read");
+          const skillFile = readMcpSkillFile(request.params?.uri);
+          if (!skillFile) throw notFound(request.params?.uri);
+          return skillFile;
+        },
+      );
+    }
   }
 
   return server;
@@ -6025,6 +6113,25 @@ export async function resolveOrgIdFromDomain(
     throw new McpIdentityVerificationRefusedError();
   }
   return result.status === "found" ? result.org.orgId : undefined;
+}
+
+/**
+ * Whether this request's caller may use the script catalog: the app turned
+ * the script tools on and lists the caller's organization in
+ * `mcp.scriptOrgs`. Read per request from the organization resolved for the
+ * caller, which every listing and call of the request shares, so a caller
+ * with no organization, or no identity, never gets it.
+ */
+export function mcpScriptCatalogOfferedToOrg(
+  orgId: string | null | undefined,
+): boolean {
+  const { scriptTools, scriptOrgs } = getAppConfig().mcp;
+  return (
+    scriptTools === true &&
+    typeof orgId === "string" &&
+    orgId.length > 0 &&
+    scriptOrgs.includes(orgId)
+  );
 }
 
 export async function resolveMcpIdentityOrgId(

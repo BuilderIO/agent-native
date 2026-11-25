@@ -1194,6 +1194,8 @@ const messages = {
     visibilityDescription:
       "S'applique aux enregistrements que vous créez. Vous pouvez la modifier sur chaque enregistrement.",
     useOrgDefault: "Utiliser la valeur par défaut de {{org}} ({{visibility}})",
+    enforceOrgDefault:
+      "Les membres ne peuvent pas définir leur propre valeur par défaut",
     useDefault: "Utiliser la valeur par défaut ({{visibility}})",
     transcriptExport: "Export des transcriptions",
     logoDescription:

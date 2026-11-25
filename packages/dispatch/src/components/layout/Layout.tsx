@@ -148,6 +148,7 @@ import {
   CHAT_FIRST_PANE_BINDING_MAX_AGE_MS,
   CHAT_FIRST_PANE_CONTEXT_STATE_KEY,
   CHAT_FIRST_PANE_STATE_KEY,
+  parsePersistedChatFirstPane,
 } from "../../shared/chat-first-pane";
 import { AppIcon } from "../app-icon";
 import { CreateAppPopover } from "../create-app-popover";
@@ -180,6 +181,7 @@ import {
   WorkspaceAppFrame,
   type WorkspaceAppViewReader,
   WorkspaceAppKeepAlive,
+  useWorkspaceAppChildBrowserTab,
 } from "../workspace-app-host";
 import {
   AppNotice,
@@ -598,20 +600,6 @@ function createDispatchChatFirstCopy(
 
 function chatThreadPath(threadId: string | null): string {
   return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/chat";
-}
-
-function persistedChatFirstPane(value: unknown): DispatchChatFirstPane | null {
-  if (!value || typeof value !== "object") return null;
-  const record = value as Record<string, unknown>;
-  if (typeof record.appId !== "string" || !record.appId.trim()) return null;
-  return {
-    appId: record.appId,
-    ...(record.placement === "main" || record.placement === "side"
-      ? { placement: record.placement }
-      : {}),
-    ...(typeof record.path === "string" ? { path: record.path } : {}),
-    ...(typeof record.view === "string" ? { view: record.view } : {}),
-  };
 }
 
 function threadIdFromPath(pathname: string): string | null {
@@ -1694,6 +1682,8 @@ function DispatchLayout({
     chatFirstSurfaceScope,
   );
   const chatFirstPaneHydratedRef = useRef(false);
+  const chatFirstSurfaceScopeRef = useRef(chatFirstSurfaceScope);
+  chatFirstSurfaceScopeRef.current = chatFirstSurfaceScope;
   const pendingChatFirstOpenAppRef = useRef<ChatFirstOpenAppDetail | null>(
     null,
   );
@@ -1703,6 +1693,7 @@ function DispatchLayout({
     tabId: string;
   } | null>(null);
   const turnViewportLockRef = useRef(createTurnViewportLock());
+  const workspaceAppChildTab = useWorkspaceAppChildBrowserTab();
   const previousChatFirstSurfaceScopeRef = useRef(chatFirstSurfaceScope);
   const previousChatFirstSurfaceTabCountRef = useRef<number | null>(null);
   const activeChatFirstSurfaceTab = useMemo(
@@ -2216,21 +2207,33 @@ function DispatchLayout({
     }
     chatFirstPaneHydratedRef.current = true;
     if (chatFirstPane) return;
+    const unreadable = () =>
+      setChatFirstNotice(
+        "The last app pane could not be restored from workspace state.",
+      );
+    const scope = chatFirstSurfaceScope;
     let active = true;
+    let settled = false;
     void readClientAppState<unknown>(CHAT_FIRST_PANE_STATE_KEY)
       .then((value) => {
+        settled = true;
         if (!active) return;
-        setPendingChatFirstPaneRestore(persistedChatFirstPane(value));
+        const state = parsePersistedChatFirstPane(value);
+        if (state.status === "restorable") {
+          setPendingChatFirstPaneRestore(state.pane);
+        } else if (state.status === "unreadable") {
+          unreadable();
+        }
       })
       .catch(() => {
-        if (active) {
-          setChatFirstNotice(
-            "The last app pane could not be restored from workspace state.",
-          );
-        }
+        settled = true;
+        if (active) unreadable();
       });
     return () => {
       active = false;
+      if (!settled && chatFirstSurfaceScopeRef.current === scope) {
+        chatFirstPaneHydratedRef.current = false;
+      }
     };
   }, [chatFirstMode, chatFirstPane, chatFirstSurfaceScope, isChatRoute]);
 
@@ -2766,7 +2769,7 @@ function DispatchLayout({
                 src={url}
                 title={title ?? chatFirstCopy("browserPage")}
                 referrerPolicy="no-referrer"
-                allow="clipboard-read; clipboard-write"
+                allow="clipboard-read; clipboard-write; fullscreen"
                 className="h-full w-full border-0 bg-background"
               />
             )}
@@ -3060,9 +3063,12 @@ function DispatchLayout({
           appName={workspaceAppChatRegistration.name ?? workspaceAppId}
           agentPageHref={agentPageHref}
           onFullscreenRequest={openAskAgentFullscreen}
+          browserTabId={workspaceAppChildTab.browserTabId}
         >
           <WorkspaceAppKeepAlive
             activeAppId={workspaceAppId}
+            claimBrowserTab
+            onViewReaderChange={workspaceAppChildTab.onViewReaderChange}
             {...(workspaceAppDeepPath
               ? { initialPath: workspaceAppDeepPath }
               : {})}

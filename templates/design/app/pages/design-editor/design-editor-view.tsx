@@ -1562,7 +1562,6 @@ export function renderDesignEditorView({
             leftChromeOverlayInset,
             rightSidebarVisible,
             chromeInsetLeft,
-            readOnlyZoomControl: toolbarZoomControl,
           })
         )}
 
