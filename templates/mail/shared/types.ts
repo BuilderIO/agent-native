@@ -1,3 +1,5 @@
+import type { ContactPanelWidgets } from "./contact-panel-widgets.js";
+
 export type EmailAddress = {
   name: string;
   email: string;
@@ -39,6 +41,26 @@ export type EmailMessage = {
     oneClick?: boolean;
   };
 };
+
+export type ContactAttachment = Attachment & {
+  emailId: string;
+  threadId: string;
+  subject: string;
+  date: string;
+  accountEmail?: string;
+};
+
+export type ContactAttachmentList = { attachments: ContactAttachment[] };
+
+export type ContactNote = {
+  markdown: string;
+  url?: string;
+  updatedAt?: string;
+};
+
+export type ContactNoteResult = { note: ContactNote | null };
+
+export type AddContactNoteResult = { note: ContactNote; created: boolean };
 
 export type EmailThread = {
   id: string;
@@ -160,6 +182,7 @@ export type UserSettings = {
   trustedSenders?: string[];
   mobileActions?: MobileActionId[];
   tracking?: { opens: boolean; clicks: boolean };
+  contactPanelWidgets?: ContactPanelWidgets;
 };
 
 export type EmailTrackingStats = {

@@ -335,14 +335,10 @@ const messages = {
       close: "Schließen",
     },
     integrations: {
-      addIntegration: "Integration hinzufügen",
       checking: "Prüfe...",
       connect: "Verbinden",
       disconnect: "Trennen",
       getApiKey: "So erhältst du deinen API-Schlüssel:",
-      newIntegration: "Neue Integration",
-      newIntegrationPlaceholder:
-        "z. B. Salesforce CRM — Dealphase und letzte Aktivität des Kontakts anzeigen",
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "Kontaktanreicherung und Unternehmensdaten",
       hubspotDescription: "CRM-Kontakte, Deals und Tickets",
@@ -358,8 +354,6 @@ const messages = {
       experience: "Erfahrung",
       tickets: "Tickets",
       save: "Speichern",
-      submit: "Submit",
-      submitShortcut: "Submit ({{shortcut}})",
       updateKey: "Schlüssel aktualisieren",
     },
     recipients: {
@@ -889,6 +883,37 @@ const messages = {
     },
     contacts: {
       noContactSelected: "Kein Kontakt ausgewählt",
+    },
+    contactPanel: {
+      addToPanel: "Zu diesem Bereich hinzufügen",
+      builtIn: "Integriert",
+      connections: "Verbindungen",
+      yourWidgets: "Deine Widgets",
+      notes: "Notizen",
+      attachments: "Anhänge",
+      recent: "Neueste",
+      connected: "An",
+      buildYourOwn: "Eigenes erstellen…",
+      buildYourOwnTitle: "Eigenes erstellen",
+      back: "Zurück",
+      widgetSees:
+        "Ein Widget sieht Name und E-Mail-Adresse dieser Person und die geöffnete Unterhaltung.",
+      widgetDoes:
+        "Es kann deine Mail-Daten anzeigen, andere Dienste mit gespeicherten Schlüsseln aufrufen und eigene Notizen führen.",
+      examplePrompt:
+        'Erstelle ein Widget für den Bereich neben einer geöffneten E-Mail (Slot "{{slotId}}") und füge es meinem Bereich hinzu: {{idea}}',
+      exampleDeals: "Offene Deals dieser Person aus Salesforce anzeigen",
+      exampleLinks:
+        "Auf die Firmenwebsite und LinkedIn-Seite dieser Person verlinken",
+      addNote: "Notiz hinzufügen",
+      notesLoadError: "Notizen konnten nicht geladen werden.",
+      noteSaveError: "Die Notiz konnte nicht gespeichert werden.",
+      savedToMailNotes: "In Mail-Notizen gespeichert",
+      open: "Öffnen",
+      openInContent: "In Content öffnen",
+      attachmentsLoadError: "Dateien konnten nicht geladen werden.",
+      noAttachments: "Noch keine Dateien",
+      moreAttachments: "{{count}} weitere",
     },
     readingPane: {
       empty: "Keine E-Mail ausgewählt",

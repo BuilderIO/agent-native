@@ -124,7 +124,6 @@ templates/mail/app/components/agent-engine-picker.tsx|Install: pnpm add
 templates/mail/app/components/agent-engine-picker.tsx|Requires:
 templates/mail/app/components/agent-engine-picker.tsx|Test connection
 templates/mail/app/components/email/EmailThread.tsx|To:
-templates/mail/app/components/email/IntegrationsSidebar.tsx|+Enter
 templates/mail/app/components/email/IntegrationsSidebar.tsx|API key is invalid or expired —
 templates/mail/app/components/email/IntegrationsSidebar.tsx|Could not reach
 templates/mail/app/components/email/IntegrationsSidebar.tsx|Est.

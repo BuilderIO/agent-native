@@ -321,14 +321,10 @@ const messages = {
       close: "Close",
     },
     integrations: {
-      addIntegration: "Add integration",
       checking: "Checking...",
       connect: "Connect",
       disconnect: "Disconnect",
       getApiKey: "To get your API key:",
-      newIntegration: "New integration",
-      newIntegrationPlaceholder:
-        "e.g. Salesforce CRM — show deal stage and recent activity for the contact",
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "Contact enrichment & company data",
       hubspotDescription: "CRM contacts, deals & tickets",
@@ -343,8 +339,6 @@ const messages = {
       experience: "Experience",
       tickets: "Tickets",
       save: "Save",
-      submit: "Submit",
-      submitShortcut: "Submit ({{shortcut}})",
       updateKey: "Update key",
     },
     recipients: {
@@ -849,6 +843,36 @@ const messages = {
     },
     contacts: {
       noContactSelected: "No contact selected",
+    },
+    contactPanel: {
+      addToPanel: "Add to this panel",
+      builtIn: "Built in",
+      connections: "Connections",
+      yourWidgets: "Your widgets",
+      notes: "Notes",
+      attachments: "Attachments",
+      recent: "Recent",
+      connected: "On",
+      buildYourOwn: "Build your own…",
+      buildYourOwnTitle: "Build your own",
+      back: "Back",
+      widgetSees:
+        "A widget sees this person's name and email and the conversation you have open.",
+      widgetDoes:
+        "It can show your Mail data, call other services with keys you save, and keep its own notes.",
+      examplePrompt:
+        'Build a widget for the panel beside an open email (slot "{{slotId}}") and add it to my panel: {{idea}}',
+      exampleDeals: "Show this person's open deals from Salesforce",
+      exampleLinks: "Link to this person's company website and LinkedIn page",
+      addNote: "Add a note",
+      notesLoadError: "Couldn't load notes.",
+      noteSaveError: "Couldn't save the note.",
+      savedToMailNotes: "Saved to Mail notes",
+      open: "Open",
+      openInContent: "Open in Content",
+      attachmentsLoadError: "Couldn't load files.",
+      noAttachments: "No files yet",
+      moreAttachments: "{{count}} more",
     },
     readingPane: {
       empty: "No email selected",

@@ -20,6 +20,14 @@ export {
 } from "./InlineExtensionFrame.js";
 export { ExtensionSlot, type ExtensionSlotProps } from "./ExtensionSlot.js";
 export {
+  slotInstallsQueryKey,
+  useSlotExtensions,
+  useSlotInstallActions,
+  useSlotInstalls,
+  type SlotExtension,
+  type SlotInstall,
+} from "./slot-installs.js";
+export {
   deleteOrHideExtension,
   hideExtensionForCurrentUser,
   invalidateExtensionRemoval,

@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   copy: {
-    "mail.integrations.addIntegration": "Add integration",
+    "mail.contactPanel.addToPanel": "Add to this panel",
+    "mail.contactPanel.connected": "On",
     "mail.integrations.gongDescription": "Gong call history",
     "mail.integrations.gongAccessCheckFailed":
       "Couldn't check whether you can connect to Gong.",
@@ -52,12 +53,29 @@ vi.mock("@agent-native/core/client/resources", () => ({
   useCreateMcpServer: () => ({ mutateAsync: vi.fn() }),
 }));
 
-vi.mock("@agent-native/toolkit/app/chat/composer", () => ({
-  useSendToAgentChat: () => ({ send: vi.fn(), codeRequiredDialog: null }),
+vi.mock("@agent-native/core/client/agent-chat", () => ({
+  sendToAgentChat: vi.fn(),
 }));
 
 vi.mock("@agent-native/toolkit/app/extensions", () => ({
   ExtensionSlot: () => null,
+  useSlotExtensions: () => ({ data: [], isPending: false, isError: false }),
+  useSlotInstalls: () => ({ data: [], isPending: false, isError: false }),
+  useSlotInstallActions: () => ({ install: vi.fn(), uninstall: vi.fn() }),
+}));
+
+vi.mock("@/hooks/use-contact-panel", () => ({
+  useContactPanelWidgets: () => ({
+    widgets: { notes: false, attachments: false, recent: false },
+    loaded: true,
+    setWidget: vi.fn(),
+  }),
+}));
+
+vi.mock("@/components/email/ContactPanelWidgets", () => ({
+  AttachmentsWidget: () => null,
+  NotesWidget: () => null,
+  RecentWidget: () => null,
 }));
 
 vi.mock("@agent-native/toolkit/app/resources", () => ({
@@ -67,7 +85,7 @@ vi.mock("@agent-native/toolkit/app/resources", () => ({
 vi.mock("@/components/ui/popover", () => ({
   Popover: ({ children }: { children: ReactNode }) => <>{children}</>,
   PopoverTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
-  PopoverContent: () => null,
+  PopoverContent: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
 vi.mock("@/components/ui/dropdown-menu", () => ({
@@ -146,7 +164,7 @@ describe("Gong permission lookup in the integrations sidebar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(refetch).toHaveBeenCalledOnce();
 
-    fireEvent.click(screen.getByRole("button", { name: "Add integrations" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add to this panel" }));
     expect(screen.queryByText("Gong call history")).toBeNull();
   });
 
@@ -179,7 +197,7 @@ describe("Gong permission lookup in the integrations sidebar", () => {
     };
 
     renderSidebar();
-    fireEvent.click(screen.getByRole("button", { name: "Add integrations" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add to this panel" }));
 
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.queryByText("Gong call history")).toBeNull();
@@ -211,7 +229,7 @@ describe("Gong permission lookup in the integrations sidebar", () => {
     };
 
     renderSidebar();
-    fireEvent.click(screen.getByRole("button", { name: /Integrations/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Add to this panel" }));
 
     expect(screen.getByText("Gong call history")).not.toBeNull();
     expect(screen.queryByRole("menuitem", { name: "Connect" })).toBeNull();
@@ -245,9 +263,10 @@ describe("Gong permission lookup in the integrations sidebar", () => {
     };
 
     renderSidebar();
-    fireEvent.click(screen.getByRole("button", { name: "Integrations (1/4)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add to this panel" }));
 
     expect(screen.getByText("Gong call history")).not.toBeNull();
+    expect(screen.getByText("On")).not.toBeNull();
     expect(screen.getByRole("alert").textContent).toContain(
       "Couldn't check whether you can connect to Gong.",
     );
@@ -265,7 +284,7 @@ describe("Gong permission lookup in the integrations sidebar", () => {
     mocks.statuses.gong = true;
 
     renderSidebar();
-    fireEvent.click(screen.getByRole("button", { name: /Integrations/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Add to this panel" }));
 
     expect(screen.getByText("Gong call history")).not.toBeNull();
     expect(screen.getByRole("menuitem", { name: "Update key" })).not.toBeNull();
@@ -304,7 +323,7 @@ describe("Gong permission lookup in the integrations sidebar", () => {
     };
 
     renderSidebar();
-    fireEvent.click(screen.getByRole("button", { name: /Integrations/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Add to this panel" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
 
     expect(mocks.navigate).toHaveBeenCalledWith("/settings/integrations");
