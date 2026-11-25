@@ -18,7 +18,7 @@
     "radius": {
       "$type": "number",
       "$value": 9999,
-      "$description": "Track corner radius in CSS pixels. An explicit radius preset falls back to var(--shape-control).",
+      "$description": "Overrides the track corner radius, including when the radius prop is set. When this input is unset, an explicit radius prop uses var(--shape-control).",
       "$extensions": {
         "com.agent-native": {
           "cssVariable": "--radius-full"

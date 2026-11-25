@@ -52,7 +52,6 @@ function cssColor(value: unknown, file: string, name: string): DtcgColor {
 }
 
 function rgba(value: DtcgColor) {
-  // Use hex for byte colors and preserve fractional Figma channels on edits.
   const channels = [...value.components, value.alpha];
   if (
     channels.every((n) => Math.abs(n - Math.round(n * 255) / 255) < 0.00000051)
@@ -150,7 +149,6 @@ export function readSwitchComponent(group: unknown) {
         );
       fallback = "var(" + binding.cssVariable + ")";
     } else if (token.$type === "color") {
-      // A detached literal may live at :root. Role aliases must resolve on the part.
       const literalName = "--component" + property.slice(1);
       colorLiterals[literalName] = value;
       fallback = "var(" + literalName + ")";

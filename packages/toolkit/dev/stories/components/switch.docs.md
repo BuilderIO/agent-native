@@ -21,6 +21,8 @@ To customize a group of switches, set a styling input on their container. This c
 }
 ```
 
+An inherited `--switch-radius` takes precedence over the `radius` prop. When the input is unset, the prop uses the control shape and a switch without the prop uses the default pill radius.
+
 The Switch entry in the parts catalog lists all 15 inputs and their defaults.
 
 [Base UI behavior and API](https://base-ui.com/react/components/switch)
