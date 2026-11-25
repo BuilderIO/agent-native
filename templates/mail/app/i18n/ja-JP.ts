@@ -199,6 +199,7 @@ const messages = {
       moveToTrash: "ゴミ箱へ移動",
       star: "スターを付ける",
       unstar: "スターを外す",
+      copyLink: "リンクをコピー",
     },
     labels: {
       labelAsPlaceholder: "ラベルを付ける…",
@@ -465,6 +466,8 @@ const messages = {
     },
     toasts: {
       noEmailSelected: "メールが選択されていません。",
+      linkCopied: "リンクをコピーしました。",
+      linkCopyFailed: "リンクをコピーできませんでした。",
       reportedSpam: "迷惑メールとして報告しました。",
       reportedSpamBlocked: "Reported as spam & blocked {{email}}.",
       noThreadSelected: "スレッドが選択されていません。",
@@ -564,6 +567,10 @@ const messages = {
         "メールを更新できませんでした。保存済みの会話を表示しています。",
       rateLimitDescription:
         "Google への最近のリクエストが多すぎます。少し待ってから再試行します。",
+      limitedListFrom:
+        "最終更新: {{time}}。一部のメールが表示されていない可能性があります。Google が Mail のリクエストを制限しています。",
+      limitedList:
+        "一部のメールが表示されていない可能性があります。Google が Mail のリクエストを制限しています。",
       failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",
       failedToParseJson: "No se pudo analizar JSON",
       missingGoogleCredentials:

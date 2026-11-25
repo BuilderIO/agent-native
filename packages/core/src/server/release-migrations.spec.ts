@@ -69,6 +69,7 @@ vi.mock("../app-config/index.js", () => ({
   getAppConfig: mocks.getAppConfig,
 }));
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   isLocalDatabase: mocks.isLocalDatabase,
   getDatabaseUrl: mocks.getDatabaseUrl,
 }));

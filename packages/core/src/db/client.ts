@@ -2551,15 +2551,22 @@ export function insideDbTransactionCallback(): boolean {
  * that should join the caller's transaction rather than open its own, since
  * PGlite can't nest one. A `getDbExec().transaction()` callback that hasn't
  * scoped its handle with `withDbExec` keeps it to itself, so this throws there
- * rather than return an executor that writes outside it.
+ * rather than return an executor that writes outside it. Legacy callers that
+ * intentionally operate independently of an unscoped transaction may opt out.
  */
-export function getEnclosingTransactionDbExec(): DbExec | undefined {
+export function getEnclosingTransactionDbExec(options?: {
+  allowUnscoped?: boolean;
+}): DbExec | undefined {
   const scoped = getScopedDbExec();
   if (scoped && drizzleTransactionExecs.has(scoped)) return scoped;
   const callbackScoped = getScopedTransactionDbExec();
   if (callbackScoped) return callbackScoped;
-  if ((pgliteTransactionStorage?.getStore()?.size ?? 0) > 0) return getDbExec();
-  if (insideDbTransactionCallback()) {
+  if ((pgliteTransactionStorage?.getStore()?.size ?? 0) > 0) {
+    return getActivePgliteTransactionExec(
+      getRuntimeDatabaseUrl("pglite:./data/pglite"),
+    );
+  }
+  if (insideDbTransactionCallback() && !options?.allowUnscoped) {
     throw new Error(
       "Scope this transaction's handle with withDbExec(tx, …) so the code it calls writes in it.",
     );

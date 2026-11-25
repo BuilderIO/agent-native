@@ -166,6 +166,10 @@ rejects the whole call and writes nothing.
 
 ## Evidence and signals
 
+- `log-crm-interaction` records a call, meeting, email, note, or message on a
+  record's timeline (bounded summary only) and advances
+  `lastMeaningfulInteractionAt` when the entry is meaningful and newer. Use it
+  from automations and external agents instead of writing the table directly.
 - `attach-call-evidence` stores only a source URL/id, bounded quote, timestamp,
   speaker, and metadata. For Clips use a durable `/share/<id>` or `/r/<id>` page
   URL with no access token or transcript fragment — never a `clip.created` event

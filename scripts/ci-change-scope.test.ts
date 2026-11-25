@@ -4004,6 +4004,16 @@ test("selects the Content two-tab convergence lane for its runtime dependencies"
 test("scopes Content DB tests to Content and shared database runtime changes", () => {
   for (const path of [
     "templates/content/actions/update-document.ts",
+    "templates/content/actions/query-content-database-items.ts",
+    "templates/content/actions/_database-navigation.ts",
+    "templates/content/actions/_content-database-personal-view.ts",
+    "templates/content/actions/_content-space-access.ts",
+    "templates/content/actions/_database-utils.ts",
+    "packages/core/src/settings/store.ts",
+    "packages/core/src/settings/index.ts",
+    "packages/core/src/org/federation.ts",
+    "packages/core/src/org/membership.ts",
+    "packages/core/src/org/index.ts",
     "templates/content/server/db/schema.ts",
     "templates/content/actions/update-document.db.test.ts",
     "templates/content/acceptance/one-stored-form.db.test.ts",

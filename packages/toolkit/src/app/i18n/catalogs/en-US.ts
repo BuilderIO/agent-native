@@ -3552,6 +3552,7 @@ const messages = {
   "mcpApps.openInNewTab": "Open in new tab",
   "mcpApps.initFailed": "Failed to initialize MCP App.",
   "mcpApps.readOnly": "This saved MCP App is read-only.",
+  "markdown.opensInNewTab": "(opens in a new tab)",
   "iframeEmbed.blocked": "Embed blocked",
   "iframeEmbed.missingSrc": "Missing source",
   "iframeEmbed.crossOrigin": "Cross-origin URL not allowed",

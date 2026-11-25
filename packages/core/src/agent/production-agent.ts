@@ -1693,6 +1693,11 @@ export interface AgentActionSurfaceDetails {
   requestedTurnId?: string;
   queuedMessageId?: string;
   actionScope?: Readonly<AgentActionScope>;
+  /**
+   * Set for a saved automation run, which has no request: `event` is
+   * `undefined` and `threadId` is unset.
+   */
+  automation?: { name: string };
   availableActionNames: readonly string[];
 }
 

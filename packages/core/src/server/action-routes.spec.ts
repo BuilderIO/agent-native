@@ -6937,6 +6937,7 @@ describe("mountActionRoutes", () => {
     const recordActionAudit = vi.fn();
     const track = vi.fn();
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => ({ execute }),
       isTransientDatabaseError: () => false,
     }));

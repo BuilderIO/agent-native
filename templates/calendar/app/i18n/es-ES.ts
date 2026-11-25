@@ -2,6 +2,8 @@ import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js"
 
 export default {
   common: {
+    calendarRateLimited:
+      "Google Calendar ha limitado las solicitudes. Es posible que los eventos guardados no estén actualizados.",
     connect: "Conectar",
     connected: "Conectado",
     connecting: "Conectando...",

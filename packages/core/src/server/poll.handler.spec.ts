@@ -22,6 +22,7 @@ vi.mock("h3", () => ({
 }));
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: mockExecute }),
   isProductionServerlessFunctionRuntime:
     mockIsProductionServerlessFunctionRuntime,

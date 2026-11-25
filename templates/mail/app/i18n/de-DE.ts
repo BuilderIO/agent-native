@@ -211,6 +211,7 @@ const messages = {
       moveToTrash: "In Papierkorb verschieben",
       star: "Markieren",
       unstar: "Markierung entfernen",
+      copyLink: "Link kopieren",
     },
     labels: {
       labelAsPlaceholder: "Label zuweisen…",
@@ -479,6 +480,8 @@ const messages = {
     },
     toasts: {
       noEmailSelected: "Keine E-Mail ausgewählt.",
+      linkCopied: "Link kopiert.",
+      linkCopyFailed: "Der Link konnte nicht kopiert werden.",
       reportedSpam: "Als Spam gemeldet.",
       reportedSpamBlocked: "Reported as spam & blocked {{email}}.",
       noThreadSelected: "Kein Thread ausgewählt.",
@@ -578,6 +581,10 @@ const messages = {
         "E-Mails konnten nicht aktualisiert werden. Gespeicherte Unterhaltungen werden angezeigt.",
       rateLimitDescription:
         "Zu viele aktuelle Anfragen an Google. Vor dem erneuten Versuch wird kurz gewartet.",
+      limitedListFrom:
+        "Zuletzt aktualisiert: {{time}}. Möglicherweise fehlen E-Mails. Google begrenzt die Anfragen von Mail.",
+      limitedList:
+        "Möglicherweise fehlen E-Mails. Google begrenzt die Anfragen von Mail.",
       failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",
       failedToParseJson: "No se pudo analizar JSON",
       missingGoogleCredentials:

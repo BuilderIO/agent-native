@@ -132,6 +132,7 @@ export interface BrainSource {
   status?: "active" | "paused" | "archived" | "error";
   enabled?: boolean;
   recordCount?: number;
+  hasIngestSourceKey?: boolean;
   coverage?: number;
   lastSyncAt?: string | null;
   lastSyncedAt?: string | null;

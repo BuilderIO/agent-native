@@ -2,6 +2,8 @@ import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js"
 
 export default {
   common: {
+    calendarRateLimited:
+      "Google 캘린더 요청이 제한되었습니다. 저장된 일정이 최신 상태가 아닐 수 있습니다.",
     connect: "연결",
     connected: "연결됨",
     connecting: "연결 중...",
