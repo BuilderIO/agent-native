@@ -35,7 +35,7 @@ test("W binds to a token from its list, keeps it through reload, and Detach keep
 }) => {
   const designId = await openScreen(app);
   await selectLayer(app, "card");
-  const width = page.getByRole("textbox", { name: "W size in pixels" });
+  const width = page.getByRole("combobox", { name: "W size in pixels" });
   await expect(width).toHaveValue("120");
 
   await width.focus();
@@ -76,7 +76,7 @@ test("an em line height shows as its percentage and a typed bare number is px", 
 }) => {
   const designId = await openScreen(app);
   await selectLayer(app, "copy");
-  const lineHeight = page.getByRole("textbox", { name: "Line Height" });
+  const lineHeight = page.getByRole("combobox", { name: "Line Height" });
   await expect(lineHeight).toHaveValue("125%");
 
   await lineHeight.fill("30");
@@ -93,7 +93,7 @@ test("H binds to a rem spacing token and a rem radius detaches to its rem value"
 }) => {
   const designId = await openScreen(app);
   await selectLayer(app, "card");
-  const height = page.getByRole("textbox", { name: "H size in pixels" });
+  const height = page.getByRole("combobox", { name: "H size in pixels" });
   await height.focus();
   await page.keyboard.press("ArrowDown");
   await page
@@ -112,7 +112,7 @@ test("H binds to a rem spacing token and a rem radius detaches to its rem value"
     "1rem",
   );
 
-  const radius = page.getByRole("textbox", { name: "Corner radius" });
+  const radius = page.getByRole("combobox", { name: "Corner radius" });
   await expect(radius).toHaveValue("radius-rem");
   await radius.focus();
   await page.keyboard.press("Backspace");
@@ -133,7 +133,7 @@ test("binding W with proportions locked scales H to match", async ({
   await expect(
     page.getByRole("button", { name: "Unlock aspect ratio" }),
   ).toHaveAttribute("aria-pressed", "true");
-  const width = page.getByRole("textbox", { name: "W size in pixels" });
+  const width = page.getByRole("combobox", { name: "W size in pixels" });
   await width.focus();
   await page.keyboard.press("ArrowDown");
   await page
@@ -146,7 +146,7 @@ test("binding W with proportions locked scales H to match", async ({
   expect(photo.width).toBe("var(--container-sm)");
   expect(photo.height).toBe("427px");
 
-  const height = page.getByRole("textbox", { name: "H size in pixels" });
+  const height = page.getByRole("combobox", { name: "H size in pixels" });
   await height.focus();
   await page.keyboard.press("ArrowDown");
   await page
@@ -178,9 +178,9 @@ test("opacity and font size keep their token names through reload and detach to 
     await app.settled();
   };
   const opacity = page
-    .getByRole("textbox", { name: "Opacity", exact: true })
+    .getByRole("combobox", { name: "Opacity", exact: true })
     .first();
-  const size = page.getByRole("textbox", { name: "Size", exact: true });
+  const size = page.getByRole("combobox", { name: "Size", exact: true });
   await pickToken(opacity, "opacity-muted");
   await pickToken(size, "font-size-lg");
   const bound = styleOf((await app.savedNodes(designId)).get("copy"));

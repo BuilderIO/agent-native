@@ -83,8 +83,11 @@ export interface ScrubInputProps extends ScrubExpressionOptions {
   onDraftChange?: (draft: string) => void;
   inputAriaProps?: Pick<
     AriaAttributes,
-    "aria-activedescendant" | "aria-autocomplete" | "aria-controls"
-  >;
+    | "aria-activedescendant"
+    | "aria-autocomplete"
+    | "aria-controls"
+    | "aria-expanded"
+  > & { role?: "combobox" };
   apiRef?: MutableRefObject<ScrubInputApi | null>;
 }
 

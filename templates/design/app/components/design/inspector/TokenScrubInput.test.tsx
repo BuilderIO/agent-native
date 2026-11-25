@@ -278,6 +278,77 @@ describe("TokenScrubInput", () => {
     expect(document.activeElement).toBe(input);
   });
 
+  it("is a combobox that names its list only while the list is open", () => {
+    const { input } = render(undefined);
+    expect(input.getAttribute("role")).toBe("combobox");
+    expect(input.getAttribute("aria-expanded")).toBe("false");
+    expect(input.hasAttribute("aria-controls")).toBe(false);
+
+    act(() => input.focus());
+    key(input, "ArrowDown");
+    const listId = input.getAttribute("aria-controls");
+    expect(input.getAttribute("aria-expanded")).toBe("true");
+    expect(
+      listId && document.getElementById(listId)?.getAttribute("role"),
+    ).toBe("listbox");
+  });
+
+  it("scrolls the keyboard-highlighted token into view", () => {
+    const scrolled: string[] = [];
+    vi.spyOn(HTMLElement.prototype, "scrollIntoView").mockImplementation(
+      function (this: HTMLElement) {
+        scrolled.push(this.getAttribute("data-token-field-option") ?? "");
+      },
+    );
+    const { input } = render(undefined);
+    act(() => input.focus());
+    key(input, "ArrowDown");
+    key(input, "ArrowDown");
+    key(input, "ArrowDown");
+
+    expect(scrolled[scrolled.length - 1]).toBe("space-1");
+    vi.restoreAllMocks();
+  });
+
+  it("applies Mixed+2 as a relative change on a mixed selection", () => {
+    const onChange = vi.fn();
+    act(() =>
+      root.render(
+        <DesignColorTokensProvider designId="design-1">
+          <TokenScrubInput
+            label="Size"
+            ariaLabel="Size"
+            value={16}
+            mixed
+            onChange={onChange}
+            unit="px"
+            tokenBinding={{
+              accepts: ["font-size"],
+              authored: undefined,
+              onBind: vi.fn(),
+              onDetach: vi.fn(),
+            }}
+          />
+        </DesignColorTokensProvider>,
+      ),
+    );
+    const input = container.querySelector<HTMLInputElement>(
+      'input[aria-label="Size"]',
+    );
+    if (!input) throw new Error("missing field");
+    act(() => input.focus());
+    type(input, "Mixed+2");
+    key(input, "Enter");
+    act(() => input.blur());
+
+    expect(onChange).toHaveBeenCalledWith(
+      18,
+      expect.objectContaining({
+        relativeExpression: expect.objectContaining({ expression: "Mixed+2" }),
+      }),
+    );
+  });
+
   it("keeps ↑ nudging the value", () => {
     const { input, onChange } = render(undefined);
     act(() => input.focus());

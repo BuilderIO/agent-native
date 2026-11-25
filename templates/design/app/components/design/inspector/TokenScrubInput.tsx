@@ -263,6 +263,11 @@ function TokenCombobox({
   );
   const activeIndex = rows.length ? Math.min(active, rows.length - 1) : -1;
   const activeRow = rowAt(rows, activeIndex);
+  const activeRowId = open ? activeRow?.id : undefined;
+  useEffect(() => {
+    if (!activeRowId) return;
+    document.getElementById(activeRowId)?.scrollIntoView({ block: "nearest" });
+  }, [activeRowId]);
 
   const openList = () => {
     source?.request();
@@ -408,7 +413,9 @@ function TokenCombobox({
             onInputKeyDown={handleKeyDown}
             onDraftChange={handleDraftChange}
             inputAriaProps={{
-              "aria-controls": listId,
+              role: "combobox",
+              "aria-expanded": open,
+              "aria-controls": open ? listId : undefined,
               "aria-autocomplete": "list",
               "aria-activedescendant": open ? activeRow?.id : undefined,
             }}
