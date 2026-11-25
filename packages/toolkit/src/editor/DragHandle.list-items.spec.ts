@@ -376,9 +376,43 @@ describe("DragHandle with list items as blocks", () => {
       expect(editor.state.selection.$from.parentOffset).toBe(1);
 
       expect(press(editor, "ArrowUp", true).defaultPrevented).toBe(true);
-      expect(press(editor, "ArrowUp", true).defaultPrevented).toBe(false);
       expect(outline(editor.state.doc)).toBe(
         "Intro | ul(One, Two ul(Two A, Two A), Three) | Outro",
+      );
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("moves an item at the edge of its list out past the block beside the list", () => {
+    const { editor } = mountEditor(NESTED);
+
+    try {
+      caretIn(editor, "One", 1);
+      expect(press(editor, "ArrowUp", true).defaultPrevented).toBe(true);
+      expect(outline(editor.state.doc)).toBe(
+        "ul(One) | Intro | ul(Two ul(Two A), Three) | Outro",
+      );
+      expect(editor.state.selection.$from.parent.textContent).toBe("One");
+      expect(editor.state.selection.$from.parentOffset).toBe(1);
+      expect(press(editor, "ArrowUp", true).defaultPrevented).toBe(false);
+
+      expect(press(editor, "ArrowDown", true).defaultPrevented).toBe(true);
+      expect(outline(editor.state.doc)).toBe(
+        "Intro | ul(One, Two ul(Two A), Three) | Outro",
+      );
+
+      caretIn(editor, "Three", 1);
+      expect(press(editor, "ArrowDown", true).defaultPrevented).toBe(true);
+      expect(outline(editor.state.doc)).toBe(
+        "Intro | ul(One, Two ul(Two A)) | Outro | ul(Three)",
+      );
+
+      caretIn(editor, "Two A", 1);
+      expect(press(editor, "ArrowUp", true).defaultPrevented).toBe(false);
+      expect(press(editor, "ArrowDown", true).defaultPrevented).toBe(false);
+      expect(outline(editor.state.doc)).toBe(
+        "Intro | ul(One, Two ul(Two A)) | Outro | ul(Three)",
       );
     } finally {
       editor.destroy();

@@ -1,5 +1,9 @@
 import { type Editor, Extension } from "@tiptap/core";
-import type { Node as ProseMirrorNode, NodeType } from "@tiptap/pm/model";
+import type {
+  Node as ProseMirrorNode,
+  NodeType,
+  ResolvedPos,
+} from "@tiptap/pm/model";
 import {
   Plugin,
   PluginKey,
@@ -398,6 +402,19 @@ const selectNear = (tr: Transaction, pos: number, bias: -1 | 1) =>
     ),
   );
 
+const dropPosPastListEdge = (
+  $item: ResolvedPos,
+  direction: -1 | 1,
+): number | null => {
+  const $list = $item.doc.resolve($item.before());
+  if (isListItem($list.parent)) return null;
+  const neighbor = $list.parent.maybeChild($list.index() + direction);
+  if (!neighbor) return null;
+  return direction < 0
+    ? $list.pos - neighbor.nodeSize
+    : $item.after() + neighbor.nodeSize;
+};
+
 const dispatchAndFocus = (view: EditorView, tr: Transaction) => {
   view.dispatch(tr.scrollIntoView());
   view.focus();
@@ -722,11 +739,12 @@ export const DragHandle = Extension.create<DragHandleOptions>({
       if (!item || !editor.isEditable) return false;
       const $item = state.doc.resolve(item.pos);
       const sibling = $item.parent.maybeChild($item.index() + direction);
-      if (!sibling) return false;
-      const dropPos =
-        direction < 0
+      const dropPos = !sibling
+        ? dropPosPastListEdge($item, direction)
+        : direction < 0
           ? item.pos - sibling.nodeSize
           : item.pos + item.node.nodeSize + sibling.nodeSize;
+      if (dropPos === null) return false;
       const moved = moveBlockTransaction(state, item.pos, item.node, dropPos);
       if (!moved) return false;
       keepCaret(moved.tr, state, moved.pos - item.pos);
