@@ -39,6 +39,7 @@ const SOURCE_LABELS: Record<DataSourceType, string> = {
   demo: "Demo Prometheus",
   prometheus: "Prometheus",
   program: "Data program",
+  postgres: "PostgreSQL",
 };
 
 interface ViewSqlPopoverProps {

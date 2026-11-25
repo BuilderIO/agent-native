@@ -255,6 +255,11 @@ const CONTENT_DB_CORE_FILES = new Set([
   "packages/core/src/server/release-migrations.ts",
   "packages/core/src/server/release-schema.ts",
   "packages/core/src/server/request-context.ts",
+  "packages/core/src/settings/store.ts",
+  "packages/core/src/settings/index.ts",
+  "packages/core/src/org/federation.ts",
+  "packages/core/src/org/membership.ts",
+  "packages/core/src/org/index.ts",
   "packages/core/src/sharing/indexes.ts",
 ]);
 
@@ -520,6 +525,11 @@ const CONTENT_DB_ACTION_RUNTIME_FILES = new Set([
   "templates/content/actions/_comment-write-pool.test-fixture.ts",
   "templates/content/actions/_blocks-field-identity.ts",
   "templates/content/actions/_content-database-mutation-lock.ts",
+  "templates/content/actions/_content-database-personal-view.ts",
+  "templates/content/actions/_content-space-access.ts",
+  "templates/content/actions/_database-navigation.ts",
+  "templates/content/actions/_database-utils.ts",
+  "templates/content/actions/query-content-database-items.ts",
   "templates/content/actions/_content-favorites.ts",
   "templates/content/actions/_content-files.ts",
   "templates/content/actions/_database-membership-lock.ts",
@@ -785,6 +795,7 @@ const CORE_INTEGRATION_PATH_PREFIXES = [
 ] as const;
 
 const CORE_INTEGRATION_RUNTIME_FILES = new Set([
+  "packages/core/src/client/route-chunk-recovery.ts",
   "packages/core/src/client/session-replay-iframe.e2e-host.tsx",
   "packages/core/src/extensions/session-replay-iframe.ts",
   "packages/core/src/mcp/script-ledger.ts",
@@ -795,7 +806,10 @@ const CORE_INTEGRATION_RUNTIME_FILES = new Set([
   "packages/core/src/server/embedded.ts",
   "packages/core/src/server/framework-request-handler.ts",
   "packages/core/src/server/request-context.ts",
+  "packages/core/src/server/ssr-handler.ts",
   "packages/core/src/session-replay-iframe-protocol.ts",
+  "packages/core/src/shared/cache-control.ts",
+  "packages/core/src/shared/route-chunk-recovery-bootstrap.ts",
   "templates/analytics/scripts/journey-capture-iframe-audit.ts",
   "templates/design/app/components/templates/TemplatePreview.tsx",
   "templates/design/shared/design-template-presets/social-story.ts",
@@ -807,6 +821,7 @@ const CORE_INTEGRATION_TEST_FILES = new Set([
   "packages/core/src/agent/engine/translate-ai-sdk.integration.spec.ts",
   "packages/core/src/agent/run-loop-with-resume.integration.spec.ts",
   "packages/core/src/agent/run-store.fencing.postgres.integration.spec.ts",
+  "packages/core/src/client/route-chunk-recovery.e2e.spec.ts",
   "packages/core/src/client/session-replay-iframe.e2e.spec.ts",
   "packages/core/src/mcp/script-receipt-fence.postgres.integration.spec.ts",
   "packages/core/src/scripts/db/migrate-encrypt-credentials.e2e.spec.ts",
@@ -978,6 +993,48 @@ export type QueryBudgetShard = { shard: string; apps: string[] };
 
 export function normalizeChangedPath(path: string): string {
   return path.replaceAll("\\", "/").replace(/^\.\/+/, "");
+}
+
+export function isStandaloneE2eRunner(
+  path: string,
+  repositoryRoot = process.cwd(),
+): boolean {
+  const normalized = normalizeChangedPath(path);
+  if (
+    !/^(?:templates|packages|community-templates)\/[^/]+\/e2e\//u.test(
+      normalized,
+    ) ||
+    !/\.[cm]?[jt]sx?$/u.test(normalized) ||
+    /\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(normalized)
+  )
+    return false;
+  try {
+    const source = readFileSync(join(repositoryRoot, normalized), "utf8");
+    if (/\bexport\b/u.test(source)) return false;
+    const { tokens } = tokenizeE2eSource(source);
+    for (let index = 0; index < tokens.length; index += 1) {
+      const token = tokens[index];
+      if (
+        (token.kind === "string" && token.uncertain) ||
+        (token.kind === "punctuation" && token.value === "/")
+      )
+        return false;
+      if (
+        token.kind === "identifier" &&
+        token.value === "process" &&
+        tokens[index + 1]?.value === "." &&
+        tokens[index + 2]?.kind === "identifier" &&
+        tokens[index + 2]?.value === "argv"
+      )
+        return true;
+    }
+    return false;
+  } catch {
+    console.error(
+      `Cannot read E2E entry ${normalized}; keeping production tests selected.`,
+    );
+    return false;
+  }
 }
 
 export function runtimeSourceChangesInTestTitledPr(
@@ -2440,6 +2497,10 @@ function buildChecks(
   }
 
   const workspaceChanged = changedPaths.some(isWorkspacePath);
+  const fastTestsChanged = changedPaths.some(
+    (path) =>
+      isWorkspacePath(path) && !isStandaloneE2eRunner(path, repositoryRoot),
+  );
   const instructionsChanged = changedPaths.some(isInstructionPath);
   const guardScriptsChanged = changedPaths.some(isGuardScopedScriptPath);
   const readmeChanged = changedPaths.some(isReadmePath);
@@ -2500,7 +2561,7 @@ function buildChecks(
   return {
     lint: workspaceChanged || instructionsChanged || guardScriptsChanged,
     typecheck: workspaceChanged,
-    fast_tests: workspaceChanged || instructionsChanged,
+    fast_tests: fastTestsChanged || instructionsChanged,
     content:
       contentChanged ||
       schedulingChanged ||

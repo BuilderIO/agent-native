@@ -285,6 +285,20 @@ describe("Recordings › Your defaults", () => {
     );
   });
 
+  it("hides the personal visibility setting while the organization enforces its default", async () => {
+    mocks.queries["get-clips-recording-defaults"] = {
+      defaultPlaybackSpeed: "1.2",
+      defaultRecordingVisibility: null,
+      organizationDefaultVisibility: "private",
+      organizationVisibilityEnforced: true,
+      effectiveRecordingVisibility: "private",
+      recordingVisibilitySource: "organization",
+    };
+    await render(<ClipsRecordingsArea canManage={false} />);
+    expect(row("playback")).toBeTruthy();
+    expect(document.querySelector('[data-row="visibility"]')).toBeNull();
+  });
+
   it("applies a choice at once and rolls it back with a toast when the save fails", async () => {
     await render(<ClipsRecordingsArea canManage={false} />);
     await choose(visibilitySelect(), "public");

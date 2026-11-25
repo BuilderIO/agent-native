@@ -10,7 +10,9 @@ import type {
 import { createBuilderSourceTiming } from "./_builder-source-timings.js";
 import {
   builderReviewDocumentScope,
+  builderReviewFirstDocumentIds,
   getContentDatabaseSourceSnapshotForReview,
+  isReviewableBuilderChangeSet,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
 import {
@@ -73,6 +75,12 @@ export default defineAction({
       .describe(
         "Review only this many pages and list the rest in remainingDocumentIds; 0 lists a whole-source review's pages without reviewing any, unless a change has no page, when the whole source is reviewed",
       ),
+    quickStart: z
+      .boolean()
+      .optional()
+      .describe(
+        "With scope all and a batchSize above 0, review the first pages whose body changed, without working out field edits from the rows or listing the rest; reviews none when a saved change is pending. List the rest after with batchSize 0",
+      ),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -97,7 +105,35 @@ export default defineAction({
     const bodyComparison = args.bodyComparison ?? "blocks";
     let reviewDocumentIds =
       args.scope === "selected" ? args.documentIds : undefined;
-    if (args.batchSize !== undefined && args.scope !== "selected") {
+    const quickStartBatchSize =
+      args.quickStart && args.scope !== "selected" ? (args.batchSize ?? 0) : 0;
+    if (quickStartBatchSize > 0) {
+      const first = await timing.measure("scope", () =>
+        builderReviewFirstDocumentIds(
+          database,
+          args.sourceId,
+          quickStartBatchSize,
+        ),
+      );
+      if (!first || first.sourceType !== "builder-cms") {
+        fail("Attach a Builder CMS source before reviewing updates.", {
+          errorCode: "builder_source_missing",
+          statusCode: 412,
+        });
+      }
+      if (first.documentIds.length === 0) {
+        return {
+          sourceId: first.sourceId,
+          sourceTable: first.sourceTable,
+          changeSetIds: [],
+          review: null,
+          bodyComparison,
+          documentIds: [],
+          timings: timing.finish(),
+        };
+      }
+      reviewDocumentIds = first.documentIds;
+    } else if (args.batchSize !== undefined && args.scope !== "selected") {
       const scope = await timing.measure("scope", () =>
         builderReviewDocumentScope(database, args.sourceId),
       );
@@ -161,7 +197,7 @@ export default defineAction({
       }
     }
     let remainingDocumentIds: string[] | undefined;
-    if (args.batchSize && reviewDocumentIds) {
+    if (args.batchSize && reviewDocumentIds && quickStartBatchSize === 0) {
       remainingDocumentIds = reviewDocumentIds.slice(args.batchSize);
       reviewDocumentIds = reviewDocumentIds.slice(0, args.batchSize);
     }
@@ -183,14 +219,7 @@ export default defineAction({
       ? new Set(reviewDocumentIds)
       : null;
     const allReviewableChanges = source.changeSets.filter((changeSet) => {
-      if (
-        changeSet.direction !== "outbound" ||
-        (changeSet.state !== "pending_push" &&
-          changeSet.state !== "staged_revision" &&
-          changeSet.state !== "approved")
-      ) {
-        return false;
-      }
+      if (!isReviewableBuilderChangeSet(changeSet)) return false;
       return (
         !reviewDocumentIdSet ||
         (!!changeSet.documentId &&

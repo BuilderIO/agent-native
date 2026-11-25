@@ -13,6 +13,10 @@ export const authConfig = z.object({
     env: "AGENT_NATIVE_IDENTITY_SSO_EXISTING_ACCOUNTS_ONLY",
     doc: "Restrict identity SSO to verified existing accounts with existing organization membership; do not provision users or organizations.",
   }),
+  allowBuilderPreviewLocalDev: z.boolean().default(false).meta({
+    env: "AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV",
+    doc: "Enable local development conveniences (local-dev sign-in, the automatic dev account, and dev agent tools) when running in a Builder cloud dev container. Ignored in production.",
+  }),
   disableDesktopSsoFallbackInDevelopment: z.boolean().default(false).meta({
     env: "AGENT_NATIVE_DISABLE_DESKTOP_SSO_FALLBACK",
     doc: "Disable the loopback Desktop SSO fallback in development so isolated acceptance runs can use their configured local identity. Ignored in production.",

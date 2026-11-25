@@ -15,24 +15,48 @@ export type SidebarProps = useRender.ComponentProps<"div">;
  *
  * @import import { Sidebar, SidebarHeader, SidebarBrand, SidebarContent, SidebarFooter } from "@agent-native/toolkit/ui/base-ui/sidebar";
  */
-function Sidebar({ render, ...props }: SidebarProps) {
+function Sidebar({ render, ref, ...props }: SidebarProps) {
   const shell = useAppShell("Sidebar");
   const rail = shell.collapsed && !shell.mobile;
+  const navigation = React.useRef<HTMLDivElement>(null);
+  const wasOpen = React.useRef(false);
+  React.useLayoutEffect(() => {
+    const node = navigation.current;
+    if (
+      wasOpen.current &&
+      !shell.mobile &&
+      node &&
+      node.ownerDocument.activeElement === node.ownerDocument.body
+    )
+      node.focus({ preventScroll: true });
+    wasOpen.current = shell.mobile && shell.drawerOpen;
+  }, [shell.mobile, shell.drawerOpen]);
   const own: React.ComponentProps<"div"> &
     Record<`data-${string}`, string | undefined> = {
     className: "sidebar",
+    tabIndex: -1,
     "data-collapsed": rail ? "" : undefined,
   };
-  const sidebar = useRender({
+  const sidebar = useRender<Record<string, never>, HTMLDivElement>({
+    ref: ref ? [navigation, ref] : navigation,
     defaultTagName: "div",
     render,
     props: mergeProps<"div">(own, props),
   });
   const element = <IconOnlyProvider value={rail}>{sidebar}</IconOnlyProvider>;
   if (!shell.mobile) return element;
-  const label = props["aria-label"];
+  const name = React.isValidElement<React.AriaAttributes>(sidebar)
+    ? sidebar.props
+    : props;
   return (
-    <SidebarDrawer label={typeof label === "string" ? label : undefined}>
+    <SidebarDrawer
+      {...(name["aria-label"] === undefined
+        ? {}
+        : { label: name["aria-label"] })}
+      {...(name["aria-labelledby"] === undefined
+        ? {}
+        : { "aria-labelledby": name["aria-labelledby"] })}
+    >
       {element}
     </SidebarDrawer>
   );

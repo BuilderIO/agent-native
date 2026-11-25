@@ -391,7 +391,10 @@ import { shouldDisableInProcessSweeps } from "./sweep-runtime.js";
 import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
 import { mountUiActionCapabilityRoute } from "./ui-action-capability.js";
 import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
-import { createWorkspaceProviderOAuthHandler } from "./workspace-provider-oauth.js";
+import {
+  createWorkspaceProviderOAuthHandler,
+  WORKSPACE_PROVIDER_OAUTH_PROVIDERS,
+} from "./workspace-provider-oauth.js";
 
 /**
  * The base path prefix for all framework-level routes.
@@ -3111,6 +3114,22 @@ export function createOpenAiAppsChallengeHandler(
   });
 }
 
+/**
+ * Sends a connect popup on to Builder with the waiting page's opener policy.
+ * The framework's own policy would sever a popup that came from that page, and
+ * its opener would read it as closed while the person is still signing in.
+ */
+export function redirectToBuilderAuthorization(
+  event: H3Event,
+  authorizationUrl: string,
+): string {
+  setResponseStatus(event, 302);
+  setResponseHeader(event, "Cache-Control", "no-store");
+  setResponseHeader(event, "Cross-Origin-Opener-Policy", "unsafe-none");
+  setResponseHeader(event, "Location", authorizationUrl);
+  return "";
+}
+
 export function createOAuthPopupWaitingHandler() {
   return defineEventHandler((event: H3Event) => {
     if (getMethod(event) !== "GET") {
@@ -4019,23 +4038,7 @@ export function createCoreRoutesPlugin(
         // Audit module not available — skip
       }
 
-      for (const provider of [
-        "figma",
-        "gmail",
-        "google_calendar",
-        "google_docs",
-        "google_drive",
-        "bigquery",
-        "google_sheets",
-        "google_slides",
-        "github",
-        "hubspot",
-        "salesforce",
-        "jira",
-        "sentry",
-        "notion",
-        "sigma",
-      ] as const) {
+      for (const provider of WORKSPACE_PROVIDER_OAUTH_PROVIDERS) {
         getH3App(nitroApp).use(
           `${P}/connections/oauth/${provider}/start`,
           createWorkspaceProviderOAuthHandler(provider, "start"),
@@ -5162,10 +5165,7 @@ export function createCoreRoutesPlugin(
                 !connectTokenOwner || connectTokenOwner === ownerEmail,
             },
           );
-          setResponseStatus(event, 302);
-          setResponseHeader(event, "Cache-Control", "no-store");
-          setResponseHeader(event, "Location", authorizationUrl);
-          return "";
+          return redirectToBuilderAuthorization(event, authorizationUrl);
         }),
       );
 

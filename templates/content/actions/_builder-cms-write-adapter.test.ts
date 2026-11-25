@@ -664,6 +664,106 @@ describe("Builder CMS write adapter plan", () => {
     });
   });
 
+  it("empties a date, image, reference or option cleared in Content", () => {
+    const builderSource = source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+      builderModelFields: [
+        { name: "title", type: "string", required: true },
+        { name: "date", type: "date", required: false },
+        { name: "thumbnail", type: "file", required: false },
+        {
+          name: "author",
+          type: "reference",
+          model: "blog-author",
+          required: false,
+        },
+        {
+          name: "topic",
+          type: "string",
+          enum: ["Testing", "Web Development"],
+          required: false,
+        },
+        { name: "tags", type: "tags", required: false },
+      ],
+    });
+    const cleared = (name: string) => ({
+      propertyId: `${name}-property`,
+      propertyName: name,
+      localFieldKey: `${name}-property`,
+      sourceFieldKey: `data.${name}`,
+      currentValue: null,
+      proposedValue: null,
+      builderValueJson: "null",
+    });
+    const plan = buildBuilderCmsExecutionPlan({
+      source: { ...builderSource, rows: [] },
+      changeSet: {
+        ...approvedChangeSet(),
+        pushMode: "draft",
+        fieldChanges: [
+          ...approvedChangeSet().fieldChanges,
+          cleared("date"),
+          cleared("thumbnail"),
+          cleared("author"),
+          cleared("topic"),
+          cleared("tags"),
+        ],
+      },
+      pushModeConfirmation: "draft",
+    });
+
+    expect(plan).toMatchObject({
+      state: "ready",
+      payload: {
+        request: {
+          body: {
+            data: {
+              date: null,
+              thumbnail: null,
+              author: null,
+              topic: null,
+              tags: [],
+            },
+          },
+        },
+        safety: { blockers: [] },
+      },
+    });
+  });
+
+  it("saves a time without a zone as that time in UTC", () => {
+    const plan = buildBuilderCmsExecutionPlan({
+      source: {
+        ...source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+          builderModelFields: [
+            { name: "title", type: "string", required: true },
+            { name: "date", type: "date", required: false },
+          ],
+        }),
+        rows: [],
+      },
+      changeSet: {
+        ...approvedChangeSet(),
+        pushMode: "draft",
+        fieldChanges: [
+          ...approvedChangeSet().fieldChanges,
+          {
+            propertyId: "date-property",
+            propertyName: "Date",
+            localFieldKey: "date-property",
+            sourceFieldKey: "data.date",
+            currentValue: null,
+            proposedValue: { start: "2026-11-23T17:00", includeTime: true },
+          },
+        ],
+      },
+      pushModeConfirmation: "draft",
+    });
+
+    expect(plan.payload.request.body).toMatchObject({
+      data: { date: Date.UTC(2026, 10, 23, 17) },
+    });
+  });
+
   it("passes through trimmed labels for free-form Builder Tags fields", () => {
     const plan = buildBuilderCmsExecutionPlan({
       source: {
@@ -788,7 +888,7 @@ describe("Builder CMS write adapter plan", () => {
     expect(plan.payload.request.body).not.toHaveProperty("data.topics");
   });
 
-  it("blocks safe-model creates when a required field is missing", () => {
+  it("creates a safe-model draft without the fields Builder needs to publish", () => {
     const plan = buildBuilderCmsExecutionPlan({
       source: {
         ...source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
@@ -806,6 +906,48 @@ describe("Builder CMS write adapter plan", () => {
       pushModeConfirmation: "draft",
     });
 
+    expect(plan.payload.effect).toBe("create_draft");
+    expect(plan.payload.safety.blockers).toEqual([]);
+    expect(plan.state).toBe("ready");
+    expect(plan.payload.request).toMatchObject({
+      method: "POST",
+      body: { published: "draft" },
+    });
+    expect(plan.payload.request.body.data).not.toHaveProperty("author");
+  });
+
+  it("still blocks publishing that draft while a required field is missing", () => {
+    const publishSource = source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+      writeMode: "publish_updates",
+      pushMode: "publish",
+      allowedWriteModes: ["autosave", "publish"],
+      allowPublicationTransitions: true,
+      builderModelFields: [
+        { name: "title", type: "string", required: true },
+        { name: "author", type: "reference", required: true },
+      ],
+    });
+    expect(
+      buildBuilderCmsExecutionPlan({
+        source: { ...publishSource, rows: [] },
+        changeSet: { ...approvedChangeSet(), pushMode: "publish" },
+        pushModeConfirmation: "publish",
+        publicationTransition: "publish",
+      }).payload.effect,
+    ).toBe("create_draft");
+
+    publishSource.rows = publishSource.rows.map((row) => ({
+      ...row,
+      sourceValues: { "data.title": "Old title", published: "draft" },
+    }));
+    const plan = buildBuilderCmsExecutionPlan({
+      source: publishSource,
+      changeSet: { ...approvedChangeSet(), pushMode: "publish" },
+      pushModeConfirmation: "publish",
+      publicationTransition: "publish",
+    });
+
+    expect(plan.payload.effect).toBe("publish");
     expect(plan).toMatchObject({
       state: "blocked",
       payload: {
@@ -1645,6 +1787,48 @@ describe("Builder CMS write adapter plan", () => {
         ],
       },
     });
+  });
+
+  it("marks a gate stale when the body it was reviewed over is no longer empty", () => {
+    const bodyChange = {
+      summary: "Builder body blocks changed.",
+      currentExcerpt: null,
+      proposedExcerpt: "New",
+      currentHash: null,
+      proposedHash: "next-hash",
+      proposedContent: "New",
+      proposedBlocksJson: JSON.stringify([{ id: "text-1" }]),
+      sidecarsJson: "{}",
+      warnings: [],
+    };
+    const planFor = (change: ContentDatabaseSourceChangeSet["bodyChange"]) =>
+      buildBuilderCmsExecutionPlan({
+        source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL),
+        changeSet: {
+          ...approvedChangeSet(),
+          kind: "body_update",
+          fieldChanges: [],
+          bodyChange: change,
+        },
+        pushModeConfirmation: "autosave",
+      });
+    const overNothing = planFor({ ...bodyChange, currentEmpty: true });
+    const overBody = planFor({ ...bodyChange, currentHash: "builder-hash" });
+    const mismatches = (
+      reviewed: ReturnType<typeof planFor>,
+      rebuilt: ReturnType<typeof planFor>,
+    ) =>
+      validateBuilderCmsExecutionDryRun({
+        storedPayload: reviewed.payload as unknown as Record<string, unknown>,
+        plan: rebuilt,
+        now: "2026-06-08T01:00:00.000Z",
+      }).dryRun?.mismatches;
+
+    expect(mismatches(overNothing, overBody)).toEqual([
+      "Builder body changed since this change was reviewed. Refresh and review it again.",
+    ]);
+    expect(mismatches(overNothing, overNothing)).toEqual([]);
+    expect(mismatches(overBody, overNothing)).toEqual([]);
   });
 
   it("validates a stored dry-run payload when it matches the rebuilt plan", () => {

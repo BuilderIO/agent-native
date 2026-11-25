@@ -28,6 +28,67 @@ afterEach(() => {
   }
 });
 
+const plainAction = (msg: string) =>
+  [
+    "export default {",
+    '  tool: { description: "x", parameters: { type: "object", properties: {} } },',
+    "  readOnly: true,",
+    `  run: async () => ({ message: "${msg}" }),`,
+    "};",
+  ].join("\n");
+
+describe("action discovery in subfolders", () => {
+  const makeDir = () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-nested-"));
+    tmpDirs.push(dir);
+    const actionsDir = path.join(dir, "actions");
+    fs.mkdirSync(path.join(actionsDir, "billing"), { recursive: true });
+    fs.mkdirSync(path.join(actionsDir, "_shared"), { recursive: true });
+    return { dir, actionsDir };
+  };
+
+  it("registers subfolder actions under a hyphen-joined name", async () => {
+    const { dir, actionsDir } = makeDir();
+    fs.writeFileSync(path.join(actionsDir, "ping.ts"), plainAction("ping"));
+    fs.writeFileSync(
+      path.join(actionsDir, "billing", "create-invoice.ts"),
+      plainAction("invoice"),
+    );
+    fs.writeFileSync(
+      path.join(actionsDir, "_shared", "hidden.ts"),
+      plainAction("hidden"),
+    );
+    const registry = await autoDiscoverActions(actionsDir);
+    expect(Object.keys(registry)).toEqual(
+      expect.arrayContaining(["ping", "billing-create-invoice"]),
+    );
+    expect(registry["_shared-hidden"]).toBeUndefined();
+    expect(registry["hidden"]).toBeUndefined();
+    const files = await listDevActionFiles(dir);
+    expect(files.map((f) => path.relative(actionsDir, f)).sort()).toEqual([
+      path.join("billing", "create-invoice.ts"),
+      "ping.ts",
+    ]);
+  });
+
+  it("fails boot when two files resolve to the same action name", async () => {
+    const { actionsDir } = makeDir();
+    fs.writeFileSync(
+      path.join(actionsDir, "billing-create-invoice.ts"),
+      plainAction("flat"),
+    );
+    fs.writeFileSync(
+      path.join(actionsDir, "billing", "create-invoice.ts"),
+      plainAction("nested"),
+    );
+    await expect(autoDiscoverActions(actionsDir)).rejects.toSatisfy(
+      (err: unknown) =>
+        isActionDefinitionError(err) &&
+        String((err as Error).message).includes("billing-create-invoice"),
+    );
+  });
+});
+
 describe("action discovery", () => {
   it("excludes the Design test fixture from dev action discovery", async () => {
     const files = await listDevActionFiles(

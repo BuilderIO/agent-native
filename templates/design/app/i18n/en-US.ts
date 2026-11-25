@@ -2,6 +2,9 @@ import { enUSJourneyCanvasMessages } from "../../shared/journey-canvas-messages.
 
 export default {
   journeyCanvas: enUSJourneyCanvasMessages,
+  responseGuard: {
+    noDesignChangesSaved: "No design changes were saved in this turn.",
+  },
   composer: { menu: { integrations: "Integrations" } },
   root: {
     commandActions: "Actions",
@@ -185,7 +188,7 @@ export default {
     pageHelpDescription:
       "Edit typography, spacing, sizing, borders and fill for whatever you select. Page defaults below.",
     sections: {
-      page: "Screen",
+      page: "Page",
       canvas: "Canvas",
       typography: "Typography",
       autoLayout: "Auto layout",
@@ -341,7 +344,7 @@ export default {
       addRecordRow: "Add {{item}}",
       recordRowLabel: "{{item}} {{index}}",
       removeRecordRow: "Remove {{item}} {{index}}",
-      selectElementFirst: "Select a screen element first",
+      selectElementFirst: "Select an element on the page first",
       selectCanvasElementFirst: "Select an element on the canvas first",
       saveFailed: "Could not save the shader",
       custom: "Custom",
@@ -762,11 +765,11 @@ export default {
     screenSource: {
       title: "Source",
       url: "URL",
-      urlLabel: "Screen URL",
+      urlLabel: "Page URL",
       urlPlaceholder: "/plans or http://localhost:5173/plans",
       update: "Update",
       chooseLocalApp: "Choose local app",
-      remove: "Remove screen",
+      remove: "Remove page",
     },
     borderStyleOptions: {
       none: "None",
@@ -842,7 +845,7 @@ export default {
       original: "Try original page",
     },
 
-    sourceLoadFailed: "Could not load this screen.",
+    sourceLoadFailed: "Could not load this page.",
     selectionPublishFailed:
       "The agent may not see your latest selection. Select it again.",
     liveCollaboration: {
@@ -959,6 +962,19 @@ export default {
       collapse: "Collapse sidebar",
       expand: "Expand sidebar",
     },
+    leftTabs: {
+      label: "Side panel",
+      agent: "Agent",
+      file: "File",
+      library: "Library",
+    },
+    columnHead: {
+      comments: "Comments",
+      unreadComments: "Unread comments",
+      resizeLeftPanel: "Resize left panel",
+      resizeInspector: "Resize inspector",
+      whatsNew: "What’s new",
+    },
     breakpointBar: {
       base: "Base",
       editBaseWidth: "Edit base width",
@@ -991,7 +1007,7 @@ export default {
       themeSystem: "System",
       themeSystemHint:
         "Shows the design as authored (uses your system setting)",
-      screen: "Screen",
+      screen: "Page",
       back: "Back",
       forward: "Forward",
       reload: "Reload preview",
@@ -1002,8 +1018,8 @@ export default {
       zoomFit: "Scaled to fit the canvas",
       zoomFitOption: "Fit",
       exit: "Exit responsive preview",
-      noScreens: "This design has no screens to preview.",
-      unknownScreen: "That screen is not part of this design.",
+      noScreens: "This design has no pages to preview.",
+      unknownScreen: "That page is not part of this design.",
     },
     applyToSource: "Apply to source",
     applyToSourcePath: "Apply to source ({{path}})",
@@ -1064,7 +1080,7 @@ export default {
     },
     import: {
       description:
-        "Bring in Figma clipboard HTML or standalone HTML as Design screens.",
+        "Bring in Figma clipboard HTML or standalone HTML as Design pages.",
       figmaUrlLabel: "Figma frame or file URL",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
       figmaTokenLabel: "Figma access token",
@@ -1129,10 +1145,10 @@ export default {
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
       htmlDescription:
-        "Paste or upload standalone HTML. Design stores it as a new screen without injecting it into this editor UI.",
+        "Paste or upload standalone HTML. Design stores it as a new page without injecting it into this editor UI.",
       allSupportedFiles: "All supported files",
       githubDescription:
-        "Coming soon: import screens and components directly from a repository.",
+        "Coming soon: import pages and components directly from a repository.",
       localDescription: "Connect any running local app with /visual-edit.",
       warningsToast: "Import completed with warnings",
       pasteUnreadable: "The copied layers could not be read.",
@@ -1146,7 +1162,7 @@ export default {
         "Images that may stop loading because they could not be confirmed as saved: {{count}}",
       pasteNeedsEditAccess: "You need edit access to paste into this design.",
       pastePartialImport:
-        "The paste failed and some screens may have been created. Check your screens.",
+        "The paste failed and some pages may have been created. Check your pages.",
       figmaSuccess: "Figma paste imported",
       htmlSuccess: "HTML imported",
       uploadSuccess: "File imported",
@@ -1198,16 +1214,17 @@ export default {
     retryAccessCheck: "Try again",
     saveAsTemplate: "Save as template…",
     saveTemplateDescription:
-      "Capture the current screens, dimensions, defaults, and locked layers as a reusable starting point.",
+      "Capture the current pages, dimensions, defaults, and locked layers as a reusable starting point.",
     templateName: "Template name",
     templateDescription: "Description",
     templateCategory: "Category",
     templateSnapshotSummary:
-      "{{screens}} screen(s) · {{locks}} locked layer(s) will be preserved",
+      "{{screens}} page(s) · {{locks}} locked layer(s) will be preserved",
     saveTemplate: "Save template",
     templateSaved: "Template saved to library",
     templateSaveFailed: "Could not save this template",
     appMenu: {
+      backToDashboard: "Back to dashboard",
       file: "File",
       preferences: "Preferences",
       newDesign: "New design",
@@ -1252,7 +1269,7 @@ export default {
       comment: "Comment",
       edit: "Edit",
       interact: "Interact",
-      screens: "Screens",
+      screens: "Pages",
     },
     topBar: {
       modeDesign: "Design",
@@ -1263,7 +1280,7 @@ export default {
     tools: {
       move: "Move",
       frame: "Frame",
-      screen: "Screen",
+      screen: "Page",
       shapes: "Shapes",
       rect: "Rectangle",
       line: "Line",
@@ -1286,7 +1303,7 @@ export default {
       categoriesLabel: "Shortcut categories",
       empty: "No shortcuts match “{{query}}”",
       codeContext: "Code",
-      screenContext: "Screen",
+      screenContext: "Page",
       nudgeAmount: {
         title: "Nudge amount",
         small: "Small nudge",
@@ -1372,8 +1389,8 @@ export default {
         enterSelection: "Enter selection",
         nextSibling: "Next sibling",
         previousSibling: "Previous sibling",
-        nextScreen: "Next screen",
-        previousScreen: "Previous screen",
+        nextScreen: "Next page",
+        previousScreen: "Previous page",
         toggleLayoutGrids: "Show or hide layout grids",
         toggleRulers: "Show or hide rulers",
         nudge: "Nudge",
@@ -1426,10 +1443,10 @@ export default {
     duplicate: "Duplicate",
     delete: "Delete",
     view: "View",
-    returnToCurrentScreen: "Return to current screen",
-    openScreenOverview: "Open screen overview",
-    currentScreen: "Current screen",
-    screenOverview: "Screen overview",
+    returnToCurrentScreen: "Return to current page",
+    openScreenOverview: "Open page overview",
+    currentScreen: "Current page",
+    screenOverview: "Page overview",
     devicePreview: "Device preview",
     devices: {
       responsive: "Responsive",
@@ -1459,7 +1476,7 @@ export default {
     downloadSvg: "Download SVG",
     downloadFigmaSvg: "Download for Figma (SVG)",
     downloadZip: "Download ZIP",
-    downloadPdfAllScreens: "Download PDF (all screens)",
+    downloadPdfAllScreens: "Download PDF (all pages)",
     publishApp: "Publish app",
     exportOptions: "Export options",
     exportHtml: "Export HTML",
@@ -1530,13 +1547,13 @@ export default {
       rollback: "Rollback",
       keep: "Keep",
       selectorMissing:
-        "The selected element has no editable match in this screen's source. If a component renders it, apply the change through the agent.",
+        "The selected element has no editable match in this page's source. If a component renders it, apply the change through the agent.",
       noRenderedBox:
         "The selected layer has no rendered box, so the style change was not applied.",
       clientRenderedShell:
-        "This screen is client-rendered, so the HTML it serves contains no app markup to patch. Ask the agent to apply this change to the component source.",
+        "This page is client-rendered, so the HTML it serves contains no app markup to patch. Ask the agent to apply this change to the component source.",
       snapshotNotLoaded:
-        "This screen's source has not loaded yet, so the edit was not written. Wait for the screen to finish loading and try again.",
+        "This page's source has not loaded yet, so the edit was not written. Wait for the page to finish loading and try again.",
       selectorAmbiguous:
         "This element is one of {{count}} identical instances in the source, so the change was not written. Ask the agent to scope it to this instance.",
       status: {
@@ -1590,17 +1607,17 @@ export default {
       leave: "Leave without applying",
     },
     addLocalhostScreen: {
-      title: "Add a screen from your app",
+      title: "Add a page from your app",
       description: "Pick a route to add as a new frame, or type a path.",
       searchPlaceholder: "Search routes…",
       noRoutes: "No matching routes",
       noDiscoveredRoutes:
-        "This app has no discovered routes. Type a path to add a screen.",
+        "This app has no discovered routes. Type a path to add a page.",
       useCustomPath: 'Add "{{path}}"',
       viewportDesktop: "Desktop",
       viewportMobile: "Mobile",
-      added: "Screen added",
-      addFailed: "Could not add screen",
+      added: "Page added",
+      addFailed: "Could not add page",
     },
     localhostConsent: {
       approvedTitle: "Approved — run the edit again",
@@ -1674,7 +1691,7 @@ export default {
       zipCreateError: "Could not create ZIP download",
       zipDownloaded: "ZIP downloaded",
       zipExportError: "Could not export ZIP",
-      openScreenPng: "Open a screen before exporting PNG",
+      openScreenPng: "Open a page before exporting PNG",
       pngCreateError: "Could not create PNG download",
       pngDownloaded: "PNG downloaded",
       pngCopied: "PNG copied to clipboard",
@@ -1699,8 +1716,8 @@ export default {
         "Export is unavailable because the renderer could not start. Try again later.",
       pdfExportError: "Could not export PDF",
       pdfDownloaded: "PDF downloaded",
-      pdfAllScreensDownloaded: "PDF downloaded (all screens)",
-      openScreenSvg: "Open a screen before exporting SVG",
+      pdfAllScreensDownloaded: "PDF downloaded (all pages)",
+      openScreenSvg: "Open a page before exporting SVG",
       svgDownloaded: "SVG downloaded",
       svgExportError: "Could not export SVG",
       figmaSvgCopied: "Copied as Figma SVG",
@@ -1711,16 +1728,16 @@ export default {
       figmaSvgWriteError: "Could not copy SVG to the clipboard",
       figmaSvgRenderError: "Could not create the Figma SVG",
       figmaSvgExportError: "Could not export Figma SVG",
-      screenDuplicated: "Screen duplicated",
-      screenDuplicateError: "Could not duplicate screen",
+      screenDuplicated: "Page duplicated",
+      screenDuplicateError: "Could not duplicate page",
       copied: "Copied",
       pasted: "Pasted",
       deleted: "Deleted",
       propsCopied: "Properties copied",
       propsPasted: "Properties pasted",
-      primitiveInsertFailed: "Could not add that layer to the screen",
+      primitiveInsertFailed: "Could not add that layer to the page",
       designStateLiveScreen:
-        "Design states can't preview on a live screen — its content is the running app, not a document.",
+        "Design states can't preview on a live page: its content is the running app, not a document.",
       layerMoveFailed: "Could not move that layer",
       groupFillApplyFailed:
         "Could not apply this fill to every layer in the group.",
@@ -1745,11 +1762,9 @@ export default {
       undoSkippedConcurrentEdit: "Skipped an undo — someone else moved that",
       redoSkippedConcurrentEdit: "Skipped a redo — someone else moved that",
       saveConflict:
-        "This screen changed elsewhere. Your last edit was not saved.",
-      versionHistoryUnavailable:
-        "Version history is unavailable for this design. Your edit was still saved.",
+        "This page changed elsewhere. Your last edit was not saved.",
       removeAutoLayoutFailed: "Couldn't remove auto layout",
-      autoLayoutScreensUnsupported: "Add auto layout doesn't apply to screens",
+      autoLayoutScreensUnsupported: "Add auto layout doesn't apply to pages",
       booleanSubtractUnsupported:
         "Select adjacent rectangles or ellipses with solid fills to subtract them.",
       booleanSubtractFailed: "Could not subtract those layers.",
@@ -1759,8 +1774,8 @@ export default {
         "This app doesn't expose source locations to the editor, so this layer can't be traced back to a line. Ask the agent to make the change.",
       sourceLocationSnapshotFailed:
         "Could not check source locations for this preview.",
-      screenSourceUpdated: "Screen source updated",
-      screenSourceUpdateFailed: "Could not update screen source",
+      screenSourceUpdated: "Page source updated",
+      screenSourceUpdateFailed: "Could not update page source",
       vectorEditUnsupported:
         "Vector editing isn't available for this shape or transform.",
       imageUploading: "Uploading image…",
@@ -1781,7 +1796,7 @@ export default {
       swapFillStrokeLayeredFill:
         "Multiple or image fills can't move to a stroke yet",
       alignNeedsTwoLayers: "Select two or more layers to align them",
-      alignNeedsTwoScreens: "Select two or more screens to align them",
+      alignNeedsTwoScreens: "Select two or more pages to align them",
       layoutUnmeasurable:
         "Couldn't measure a selected layer. Make sure it's visible on the canvas and try again.",
       layoutAutoLayoutChildren:
@@ -1830,11 +1845,10 @@ export default {
   },
   layersPanel: {
     title: "Layers",
-    screens: "Screens",
-    resizeScreens: "Resize screens section",
-    allScreens: "All screens",
+    screens: "Pages",
+    resizeScreens: "Resize pages section",
     thumbnail: "Thumbnail",
-    addScreen: "Add screen",
+    addScreen: "Add page",
     searchPlaceholder: "Search layers",
     empty: "No layers",
     noMatches: "No layers match",
@@ -1879,7 +1893,7 @@ export default {
   },
   designCanvas: {
     localBridge: {
-      permissionPromptTitle: "Connect your local screens",
+      permissionPromptTitle: "Connect your local pages",
       permissionPromptDescription:
         "Choose Allow in Chrome's prompt to enable live editing.",
       permissionPromptNoPrompt: "No Chrome prompt?",
@@ -1889,9 +1903,9 @@ export default {
       previewCredentialsUnavailableTitle:
         "Local preview credentials are unavailable",
       previewCredentialsUnavailableDescription:
-        "Reconnect this Screen's localhost connection in the inspector, then retry.",
+        "Reconnect this page's localhost connection in the inspector, then retry.",
       publicPreviewUnavailableDescription:
-        "Localhost previews are not shared with public viewers. Open this Design as a collaborator to view this Screen.",
+        "Localhost previews are not shared with public viewers. Open this Design as a collaborator to view this page.",
       previewCredentialsRetry: "Retry credentials",
       confirmationRetryExhausted:
         "Live editor bridge did not confirm after several attempts.",
@@ -1901,7 +1915,7 @@ export default {
   },
   multiScreenCanvas: {
     addBreakpointToAllScreens:
-      "Add {{label}} breakpoint ({{width}}px) to all screens",
+      "Add {{label}} breakpoint ({{width}}px) to all pages",
     preparingLiveEditor: "Preparing the live editor…",
     duplicate: "Duplicate",
     fork: "Fork",
@@ -2436,10 +2450,10 @@ export default {
     openDesign: "Open Design",
     templatesCta: "Browse templates",
     previewLabel: "Local preview",
-    layoutLabel: "Screen layout ready to save",
+    layoutLabel: "Page layout ready to save",
   },
   templatesPage: {
-    previewEmpty: "No previewable screens in this template.",
+    previewEmpty: "No previewable pages in this template.",
     loading: "Loading templates",
     title: "Templates",
     description:
@@ -2502,8 +2516,8 @@ export default {
     commentsTab: "Comments · {{count}}",
     commentsTitle: "Review comments",
     commentNumber: "Review comment {{count}}",
-    thisScreen: "This screen",
-    allScreens: "All screens",
+    thisScreen: "This page",
+    allScreens: "All pages",
     signInToComment: "Sign in to comment",
     panelTitle: "Feedback",
     placeholder: "Leave feedback…",
@@ -2652,7 +2666,7 @@ export default {
         permission: "You no longer have edit access",
         threadUnavailable: "This thread is no longer open",
         targetChanged: "The design changed while the agent worked",
-        applyUnavailable: "An agent can’t edit this screen",
+        applyUnavailable: "An agent can’t edit this page",
         applyIncomplete:
           "The design was edited but the thread wasn’t resolved. Review the change.",
         cancelledAfterEdit:

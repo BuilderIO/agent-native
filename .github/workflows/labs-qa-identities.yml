@@ -1,0 +1,125 @@
+name: Labs QA Identities (smoke)
+
+on:
+  workflow_dispatch:
+    inputs:
+      host:
+        description: "Target host (beta selectable later)"
+        required: false
+        default: "labs.agent-native.com"
+      apps:
+        description: "Comma-separated Labs apps or 'all' (excludes mail-2 and calendar-2)"
+        required: false
+        default: "all"
+
+concurrency:
+  group: labs-qa-identities
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - name: Build app matrix
+        id: matrix
+        env:
+          INPUT_APPS: ${{ inputs.apps || 'all' }}
+        run: |
+          node -e '
+            const allApps = [
+              "analytics-2",
+              "automations-2",
+              "brain-2",
+              "content-2",
+              "crm-2",
+              "decks-2",
+              "fleet-2",
+              "forms-2",
+              "gtm-2",
+              "journeys-2",
+              "meeting-notes-2",
+              "product-analytics-2",
+              "scheduling-2",
+              "slack-2",
+              "slides-2",
+              "tables-2",
+              "tasks-2",
+              "voice-2",
+            ];
+            const raw = (process.env.INPUT_APPS || "all").trim();
+            const selected = raw.toLowerCase() === "all"
+              ? allApps
+              : raw.split(",").map((s) => s.trim().toLowerCase()).filter((s) => allApps.includes(s));
+            if (selected.length === 0) {
+              console.error("No valid Labs apps selected.");
+              process.exit(1);
+            }
+            const include = selected.map((app, idx) => ({ app, slot: (idx % 5) + 1 }));
+            const fs = require("node:fs");
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify({ include })}\n`);
+          '
+
+  smoke:
+    needs: discover
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    env:
+      LABS_HOST: ${{ inputs.host || 'labs.agent-native.com' }}
+      LABS_APP: ${{ matrix.app }}
+      QA_SLOT: ${{ matrix.slot }}
+      MAILOSAUR_API_KEY: ${{ secrets.MAILOSAUR_API_KEY }}
+      MAILOSAUR_SERVER_ID: ${{ secrets.MAILOSAUR_SERVER_ID }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install chromium
+
+      - name: Derive durable QA identity and mask password
+        run: |
+          node -e '
+            const crypto = require("node:crypto");
+            const fs = require("node:fs");
+            const slot = process.env.QA_SLOT;
+            const serverId = (process.env.MAILOSAUR_SERVER_ID || "").trim();
+            const apiKey = (process.env.MAILOSAUR_API_KEY || "").trim();
+            if (!serverId || !apiKey) {
+              console.error("MAILOSAUR_SERVER_ID and MAILOSAUR_API_KEY are required.");
+              process.exit(1);
+            }
+            const user = `qa-fleet-${slot}`;
+            const email = `${user}@${serverId}.mailosaur.net`;
+            const password = crypto.createHmac("sha256", apiKey).update(user).digest("hex").slice(0, 32) + "!Aa1";
+            console.log(`::add-mask::${password}`);
+            fs.appendFileSync(process.env.GITHUB_ENV, `QA_EMAIL=${email}\nQA_PASSWORD=${password}\n`);
+          '
+
+      - name: Run signed-in Labs smoke test
+        run: pnpm exec tsx e2e/labs/labs-qa-smoke.ts
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: labs-qa-${{ matrix.app }}
+          path: artifacts/labs-qa-${{ matrix.app }}
+          if-no-files-found: ignore

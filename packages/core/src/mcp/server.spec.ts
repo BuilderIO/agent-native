@@ -1218,6 +1218,10 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(await listed(byHeader)).toEqual(usual);
 
     vi.stubEnv("AGENT_NATIVE_MCP_SCRIPT_TOOLS", "true");
+    expect(await listed(byHeader)).toEqual(usual);
+    vi.stubEnv("AGENT_NATIVE_MCP_SCRIPT_ORGS", "org_123");
+    expect(await listed(byHeader)).toEqual(usual);
+    resolveOrgIdForEmailMock.mockResolvedValue("org_123");
     expect(await listed(byHeader)).toEqual(["run-script", "search-actions"]);
     expect(await listed(byQuery)).toEqual(["run-script", "search-actions"]);
     // Values are read trimmed and in any case; any other value asks for none.
@@ -14900,5 +14904,77 @@ describe("handleMcpRequest — x-agent-native-browser-tab header", () => {
       (c: { text?: string }) => c.text ?? "",
     );
     expect(JSON.parse(badTexts[0]).stateTab.tabId).not.toBe("bad tab!");
+  });
+
+  it("propagates x-agent-native-viewport-mode header into request context and ignores invalid values", async () => {
+    const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
+    const { getRequestRunContext } =
+      await import("../server/request-context.js");
+    const token = await signMcpOAuthAccessToken({
+      ownerEmail: "oauth@example.com",
+      clientId: "client-viewport-test",
+      scope: "mcp:read",
+      resource: "https://mail.agent-native.com/mcp",
+      issuer: "https://mail.agent-native.com",
+    });
+
+    const viewportConfig = {
+      ...config,
+      actions: {
+        "inspect-viewport": defineAction({
+          description: "Inspect the resolved viewport mode.",
+          readOnly: true,
+          mcpTool: true,
+          run: async () => ({
+            viewportMode: getRequestRunContext()?.viewportMode ?? null,
+          }),
+        }),
+      },
+    };
+
+    const backgroundOut = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "inspect-viewport", arguments: {} },
+      },
+      {
+        headers: {
+          authorization: `Bearer ${token}`,
+          "x-agent-native-viewport-mode": "background",
+          "x-agent-native-mcp-full-catalog": "1",
+        },
+        config: viewportConfig,
+      },
+    );
+    const backgroundTexts: string[] = (backgroundOut.result?.content ?? []).map(
+      (c: { text?: string }) => c.text ?? "",
+    );
+    expect(JSON.parse(backgroundTexts[0])).toEqual({
+      viewportMode: "background",
+    });
+
+    const missingOut = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "inspect-viewport", arguments: {} },
+      },
+      {
+        headers: {
+          authorization: `Bearer ${token}`,
+          "x-agent-native-mcp-full-catalog": "1",
+        },
+        config: viewportConfig,
+      },
+    );
+    const missingTexts: string[] = (missingOut.result?.content ?? []).map(
+      (c: { text?: string }) => c.text ?? "",
+    );
+    expect(JSON.parse(missingTexts[0])).toEqual({
+      viewportMode: null,
+    });
   });
 });

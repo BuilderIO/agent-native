@@ -2544,7 +2544,7 @@ export async function getOnboardingJourney(
   // side; a failure in one cancels the other.
   const followupTimeoutMs = Math.min(
     ONBOARDING_QUERY_TIMEOUT_MS,
-    Math.max(1_000, budgetEndsAt - performance.now()),
+    Math.max(1_000, Math.floor(budgetEndsAt - performance.now())),
   );
   const followupAbort = new AbortController();
   const followupSignal = signal

@@ -130,6 +130,54 @@ describe("workspace OAuth runtime", () => {
     },
   );
 
+  it.each([
+    { provider: "zoom", extraScopes: ["meeting:read:meeting"] },
+    { provider: "slack", extraScopes: ["identify"] },
+    { provider: "slack", extraScopes: ["identify", "users:read"] },
+  ] as const)(
+    "accepts additional $provider token scopes without granting them to the app",
+    async ({ provider, extraScopes }) => {
+      const { resolve, tokens } = setup(provider);
+      tokens.scope = [tokens.scope, ...extraScopes].join(" ");
+      fetchMock.mockResolvedValueOnce(
+        Response.json(
+          provider === "slack" ? { ok: true } : { id: "zoom-fixture-user" },
+        ),
+      );
+      await expect(resolve()).resolves.toMatchObject({
+        accessToken: fixture.access_token,
+      });
+      await expect(resolve(undefined, [...extraScopes])).rejects.toThrow();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(["slack", "zoom"] as const)(
+    "rejects %s tokens missing a required scope even when extras are present",
+    async (provider) => {
+      const { resolve, tokens } = setup(provider);
+      const scopes = provider === "slack" ? slackScopes : zoomScopes;
+      tokens.scope = [scopes[0], "unrelated:scope"].join(" ");
+      await expect(resolve()).rejects.toMatchObject({ reason: "reauthorize" });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects an operation missing from the app grant despite a broader token", async () => {
+    const { resolve, connection, tokens } = setup("slack");
+    tokens.scope = [...slackScopes, "identify", "users:read"].join(" ");
+    mocks.resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        ...connection,
+        explicitGrant: { scopes: ["channels:read"] },
+      },
+    });
+    await expect(resolve(undefined, ["channels:history"])).rejects.toThrow();
+    expect(mocks.listOAuthAccountsByOwner).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("keeps ordinary requests on the configured bot credential and rejects unscoped personal requests", async () => {
     const { connection } = setup("slack");
     const botCredential = "synthetic-legacy-credential";
@@ -203,6 +251,7 @@ describe("workspace OAuth runtime", () => {
             ...fixture,
             ok: true,
             token_type: "user",
+            scope: `${tokens.scope} unrelated:scope`,
             access_token: "synthetic-rotated-access",
             refresh_token: "synthetic-rotated-refresh",
           }),

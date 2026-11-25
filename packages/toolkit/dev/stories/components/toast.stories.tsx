@@ -15,6 +15,7 @@ import {
   useToastAnchor,
 } from "../../../src/ui/base-ui/toast.js";
 import { propControls } from "../prop-controls.js";
+import guide from "./toast.docs.md?raw";
 
 const controls = propControls(toastProps);
 
@@ -41,7 +42,10 @@ const meta = {
   component: Toaster,
   parameters: {
     layout: "padded",
-    docs: { story: { inline: false, iframeHeight: 360 } },
+    docs: {
+      description: { component: guide },
+      story: { inline: false, iframeHeight: 360 },
+    },
   },
   args: {
     ...controls.args,

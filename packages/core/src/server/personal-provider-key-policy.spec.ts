@@ -18,6 +18,7 @@ vi.mock("../settings/org-settings.js", () => ({
   mutateOrgSetting: mocks.mutateOrgSetting,
 }));
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: mocks.execute }),
 }));
 vi.mock("../org/context.js", () => ({

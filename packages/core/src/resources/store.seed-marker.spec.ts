@@ -1,8 +1,22 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => sharedClient,
   isProductionServerlessFunctionRuntime: () => false,
   retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
@@ -57,11 +71,22 @@ function learnSharedContentMigrationPaths(): unknown[] {
     .map(({ args }) => args[4]);
 }
 
+let isolatedCwd: string;
+
+beforeAll(() => {
+  isolatedCwd = fs.mkdtempSync(path.join(os.tmpdir(), "store-seed-cwd-"));
+});
+
+afterAll(() => {
+  fs.rmSync(isolatedCwd, { recursive: true, force: true });
+});
+
 beforeEach(async () => {
   pglite = await createTestPglite();
   writes = [];
   failLearnSharedApprovalMigration = false;
   failBuiltinAgentSeed = false;
+  vi.spyOn(process, "cwd").mockReturnValue(isolatedCwd);
   vi.resetModules();
 });
 

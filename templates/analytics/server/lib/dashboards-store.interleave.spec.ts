@@ -149,22 +149,35 @@ function rowsResult(rows: unknown[]) {
   return result;
 }
 
+// raw-sql-ok: this Drizzle SQL-tag mock records fragments for in-memory predicates and never executes SQL.
 vi.mock("drizzle-orm", () => ({
   eq: (column: unknown, value: unknown) => ({ kind: "eq", column, value }),
   and: (...conditions: unknown[]) => ({ kind: "and", conditions }),
   desc: (column: unknown) => ({ kind: "desc", column }),
   isNull: (column: unknown) => ({ kind: "isNull", column }),
   isNotNull: (column: unknown) => ({ kind: "isNotNull", column }),
-  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
-    kind: "sql",
-    strings: [...strings],
-    values,
-  }),
+  sql: Object.assign(
+    (strings: TemplateStringsArray, ...values: unknown[]) => ({
+      kind: "sql",
+      strings: [...strings],
+      values,
+    }),
+    { raw: (value: string) => ({ kind: "raw", value }) },
+  ),
 }));
 
-vi.mock("@agent-native/core/server", () => ({
+vi.mock("@agent-native/core/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/server")>()),
   getRequestRunContext: () => undefined,
+  getRequestUserEmail: () => "alice@example.com",
+  getRequestOrgId: () => "org-1",
   recordChange: () => undefined,
+}));
+
+vi.mock("./first-party-analytics.js", () => ({
+  queryFirstPartyAnalytics: vi.fn(),
+  scopedAnalyticsSql: vi.fn(),
+  validateFirstPartyAnalyticsSqlForScope: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/settings", () => ({
@@ -839,9 +852,177 @@ describe("dashboards-store concurrency", () => {
         { name: " revenue ", panels: [] },
         { email: "alice@example.com", orgId: "org-1" },
       ),
-    ).rejects.toThrow(
-      'Dashboard name "revenue" is already used by visible dashboard "Revenue"',
+    ).rejects.toMatchObject({
+      errorCode: "name_taken",
+      details: { name: "revenue", suggestion: "revenue-2" },
+    });
+    expect(state.updateAttempts).toBe(0);
+  });
+
+  it("returns an actionable conflict when a SQL dashboard update uses a visible name", async () => {
+    state.otherDashboards = [
+      { ...baseDashboard(), id: "revenue", title: "Revenue Report" },
+      { ...baseDashboard(), id: "revenue-2", title: "  REVENUE   REPORT-2 " },
+    ];
+    const before = { ...state.dashboard };
+
+    await expect(
+      upsertDashboard(
+        "traffic",
+        "sql",
+        { name: " revenue  report ", panels: [panel("b")] },
+        ctx,
+      ),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "name_taken",
+      details: { name: "revenue  report", suggestion: "revenue  report-3" },
+      message: expect.stringMatching(
+        /a dashboard owner can rename or hide the conflicting dashboard if needed\. the suggestion is not a reservation\./i,
+      ),
+    });
+    expect(state.dashboard).toEqual(before);
+    expect(state.updateAttempts).toBe(0);
+  });
+
+  it("returns the conflict message through the update-dashboard HTTP action", async () => {
+    state.otherDashboards = [
+      { ...baseDashboard(), id: "revenue", title: "Revenue" },
+    ];
+    const before = { ...state.dashboard };
+    const { H3 } = await import("h3");
+    const { mountActionRoutes } = await import("@agent-native/core/server");
+    const { default: updateDashboard } =
+      await import("../../actions/update-dashboard");
+    const h3 = new H3();
+    mountActionRoutes(
+      { h3, hooks: { hook: () => {} } },
+      { "update-dashboard": updateDashboard },
+      {
+        appId: "analytics",
+        getOwnerFromEvent: async () => "alice@example.com",
+        resolveOrgId: async () => "org-1",
+      },
     );
+
+    const response = await h3.fetch(
+      new Request(
+        "https://analytics.example.test/_agent-native/actions/update-dashboard",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            dashboardId: "traffic",
+            config: { name: "Revenue", panels: [] },
+          }),
+        },
+      ),
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: expect.stringContaining(
+        'A dashboard named "Revenue" already exists.',
+      ),
+      errorCode: "name_taken",
+      details: { name: "Revenue", suggestion: "Revenue-2" },
+    });
+    expect(state.dashboard).toEqual(before);
+    expect(state.updateAttempts).toBe(0);
+  });
+
+  it.each([200, 240])(
+    "suggests a usable name for a %i-character collision",
+    async (length) => {
+      const name = "A".repeat(length);
+      const preferred = "A".repeat(197);
+      state.otherDashboards = [
+        { ...baseDashboard(), id: "long", title: name },
+        { ...baseDashboard(), id: "short", title: preferred.toLowerCase() },
+        ...Array.from({ length: 8 }, (_, index) => ({
+          ...baseDashboard(),
+          id: `short-${index + 2}`,
+          title: `${preferred}-${index + 2}`,
+        })),
+      ];
+
+      const error = await upsertDashboard(
+        "traffic",
+        "sql",
+        { name, panels: [] },
+        ctx,
+      ).then(
+        () => null,
+        (error) => error,
+      );
+      expect(error).toMatchObject({
+        statusCode: 409,
+        errorCode: "name_taken",
+        details: { name, suggestion: `${preferred}-10` },
+      });
+      expect(error.details.suggestion).toHaveLength(200);
+      expect(state.updateAttempts).toBe(0);
+
+      const { H3 } = await import("h3");
+      const { mountActionRoutes } = await import("@agent-native/core/server");
+      const { default: duplicateDashboard } =
+        await import("../../actions/duplicate-dashboard");
+      const h3 = new H3();
+      mountActionRoutes(
+        { h3, hooks: { hook: () => {} } },
+        { "duplicate-dashboard": duplicateDashboard },
+        {
+          appId: "analytics",
+          getOwnerFromEvent: async () => "alice@example.com",
+          resolveOrgId: async () => "org-1",
+        },
+      );
+      const response = await h3.fetch(
+        new Request(
+          "https://analytics.example.test/_agent-native/actions/duplicate-dashboard",
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              id: "missing",
+              name: error.details.suggestion,
+            }),
+          },
+        ),
+      );
+      expect(response.status).toBe(404);
+    },
+  );
+
+  it("explains how to resolve a revision restore name conflict", async () => {
+    state.otherDashboards = [
+      { ...baseDashboard(), id: "revenue", title: "Revenue" },
+    ];
+    state.revisions = [
+      {
+        id: "old-revenue",
+        dashboardId: "traffic",
+        kind: "sql",
+        title: "Revenue",
+        config: JSON.stringify({ name: "Revenue", panels: [] }),
+        createdAt: "2026-07-09T00:01:00.000Z",
+        createdBy: "alice@example.com",
+        chatContext: null,
+      },
+    ];
+    const before = { ...state.dashboard };
+
+    await expect(
+      restoreDashboardRevision("traffic", "old-revenue", ctx),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      errorCode: "name_taken",
+      details: { name: "Revenue", suggestion: "Revenue-2" },
+      message: expect.stringMatching(
+        /a dashboard owner can rename or hide the conflicting dashboard if needed\. the suggestion is not a reservation\./i,
+      ),
+    });
+    expect(state.dashboard).toEqual(before);
+    expect(state.revisions).toHaveLength(1);
     expect(state.updateAttempts).toBe(0);
   });
 
@@ -863,9 +1044,10 @@ describe("dashboards-store concurrency", () => {
         email: "alice@example.com",
         orgId: null,
       }),
-    ).rejects.toThrow(
-      'Dashboard name "Traffic" is already used by visible dashboard "Traffic"',
-    );
+    ).rejects.toMatchObject({
+      errorCode: "name_taken",
+      details: { name: "Traffic", suggestion: "Traffic-2" },
+    });
   });
 
   it("rejects promoting a private duplicate to a visible dashboard", async () => {
@@ -885,9 +1067,10 @@ describe("dashboards-store concurrency", () => {
         { visibility: "org", orgId: "org-1" },
         { email: "alice@example.com", orgId: "org-1" },
       ),
-    ).rejects.toThrow(
-      'Dashboard name "Traffic" is already used by visible dashboard "Traffic"',
-    );
+    ).rejects.toMatchObject({
+      errorCode: "name_taken",
+      details: { name: "Traffic", suggestion: "Traffic-2" },
+    });
     expect(state.dashboard.visibility).toBe("private");
   });
 

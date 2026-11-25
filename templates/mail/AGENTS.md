@@ -44,12 +44,13 @@ Use local framework docs, not web research: `pnpm action docs-search --query "<t
 | --- | --- |
 | `list-inbox-threads` / `sync-inbox` / `resync-inbox` | Inbox inventory and sync |
 | `search-emails` / `list-emails` / `get-email` / `get-thread` | Find/read messages |
-| `list-labels` / `find-contact` / `get-hubspot-contact` | Labels and recipient/CRM context |
+| `list-labels` / `create-label` | List or create Gmail labels |
+| `find-contact` / `get-hubspot-contact` | Recipient/CRM context |
 | `create-attachment-upload` | Upload attachments |
 | `manage-draft` / `send-email` / `send-queued-drafts` | Manage drafts and approved sends |
 | `create-scheduled-send` / `send-scheduled-email-now` / `cancel-scheduled-email` | Schedule/cancel sends |
 | `queue-email-draft` / `list-queued-drafts` / `update-queued-draft` / `open-queued-draft` | Team drafts |
-| `mark-read` / `mark-thread-read` / `star-email` / `archive-email` / `unarchive-email` / `trash-email` / `untrash-email` / `move-email` | Change mail state |
+| `mark-read` / `mark-thread-read` / `star-email` / `archive-email` / `unarchive-email` / `trash-email` / `untrash-email` / `label-email` / `move-email` | Change mail state (`label-email` keeps Inbox) |
 | `manage-gmail-filters` / `manage-automations` / `manage-email-rules` / `trigger-automations` | Filters and automation |
 | `get-ai-filter` / `apply-ai-filter` / `refine-ai-filter` / `record-ai-priority-feedback` / `get-ai-priority` | AI filtering and priority |
 | `respond-calendar-invite` | Reply to invite |

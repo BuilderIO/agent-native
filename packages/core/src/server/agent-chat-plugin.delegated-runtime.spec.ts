@@ -1232,6 +1232,7 @@ const SURFACES: Surface[] = [
         "BETTER_AUTH_SECRET",
         "delegated-runtime-auth-secret-0123456789",
       );
+      vi.spyOn(process, "cwd").mockReturnValue(devCwd);
     },
   },
   {

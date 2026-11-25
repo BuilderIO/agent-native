@@ -7,11 +7,12 @@ import {
   CollapsiblePanel,
   CollapsibleTrigger,
 } from "../../../src/ui/base-ui/collapsible.js";
+import guide from "./collapsible.docs.md?raw";
 
 const meta = {
   title: "Components/Collapsible",
   component: Collapsible,
-  parameters: { layout: "padded" },
+  parameters: { docs: { description: { component: guide } }, layout: "padded" },
   args: {
     defaultOpen: false,
     disabled: false,

@@ -9,6 +9,7 @@ import {
   createMenuPopup,
   createMenuItem,
   MenuCheckboxItem,
+  MenuLinkItem,
   MenuGroup,
   MenuGroupLabel,
   MenuPortal,
@@ -21,6 +22,11 @@ import {
   MenuSubmenuTrigger,
 } from "./menu.js";
 import { partClassName } from "./part-class.js";
+
+/** A menu row that navigates to its href.
+ * @import import { ContextMenuLinkItem } from "@agent-native/toolkit/ui/base-ui/context-menu";
+ */
+export const ContextMenuLinkItem = MenuLinkItem;
 
 /**
  * A menu that opens at the pointer when its area is right-clicked or
@@ -93,8 +99,7 @@ export const ContextMenuRadioItem = MenuRadioItem;
 export const ContextMenuRadioGroup = MenuRadioGroup;
 
 /**
- * A heading between items. To label a group, use `Menu.GroupLabel` inside
- * it.
+ * Labels its enclosing ContextMenuGroup or ContextMenuRadioGroup.
  *
  * @import import { ContextMenuGroupLabel } from "@agent-native/toolkit/ui/base-ui/context-menu";
  */
@@ -115,7 +120,7 @@ export const ContextMenuSeparator = MenuSeparator;
 export const ContextMenuShortcut = MenuShortcut;
 
 /**
- * Groups related items, labelled by a `Menu.GroupLabel` inside it.
+ * Groups related items under a ContextMenuGroupLabel.
  *
  * @import import { ContextMenuGroup } from "@agent-native/toolkit/ui/base-ui/context-menu";
  */

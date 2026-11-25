@@ -926,6 +926,49 @@ describe("mountA2A auth", () => {
     expect(handleJsonRpcH3Mock).toHaveBeenCalledOnce();
   });
 
+  it("propagates x-agent-native-browser-tab and x-agent-native-viewport-mode headers onto A2A event context", async () => {
+    process.env.A2A_SECRET = "jwt-secret";
+    process.env.LEGACY_A2A_KEY = "legacy-key";
+    const handler = await mountedA2AHandler({
+      ...config,
+      apiKeyEnv: "LEGACY_A2A_KEY",
+    });
+
+    const eventWithHeaders = {
+      ...postEvent({ authorization: "Bearer legacy-key" }),
+      node: {
+        req: {
+          headers: {
+            "x-agent-native-browser-tab": "child-tab-7",
+            "x-agent-native-viewport-mode": "background",
+          },
+        },
+      },
+    };
+    const responseWithHeaders = await handler(eventWithHeaders);
+
+    expect(responseWithHeaders).toEqual({
+      jsonrpc: "2.0",
+      id: 1,
+      result: { ok: true },
+    });
+    expect(eventWithHeaders.context.__a2aBrowserTabId).toBe("child-tab-7");
+    expect(eventWithHeaders.context.__a2aViewportMode).toBe("background");
+
+    const eventWithoutHeaders = postEvent({
+      authorization: "Bearer legacy-key",
+    });
+    const responseWithoutHeaders = await handler(eventWithoutHeaders);
+
+    expect(responseWithoutHeaders).toEqual({
+      jsonrpc: "2.0",
+      id: 1,
+      result: { ok: true },
+    });
+    expect("__a2aBrowserTabId" in eventWithoutHeaders.context).toBe(false);
+    expect("__a2aViewportMode" in eventWithoutHeaders.context).toBe(false);
+  });
+
   it("verifies org-secret JWTs before deciding production auth is unconfigured", async () => {
     delete process.env.A2A_SECRET;
     resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValueOnce({

@@ -147,6 +147,64 @@ test("normalizes paths from git output", () => {
   );
 });
 
+test("keeps standalone end-to-end runners on their own checks and retains helper unit coverage", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "standalone-e2e-scope-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  for (const path of [
+    "templates/analytics-2/e2e/thread-layout.ts",
+    "templates/mail/e2e/daily/run.ts",
+    "packages/core/e2e/run.ts",
+    "community-templates/demo/e2e/run.ts",
+  ]) {
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    writeFileSync(join(root, path), "console.log(process.argv.slice(2));");
+    const scope = classifyChangedPaths([path], [], root);
+    assert.equal(scope.full, false, path);
+    assert.equal(scope.checks.fast_tests, false, path);
+    assert.equal(scope.checks.lint, true, path);
+    assert.equal(scope.checks.typecheck, true, path);
+    assert.equal(scope.checks.build, true, path);
+    for (const production of [
+      "templates/mail/actions/send-email.ts",
+      "templates/mail/actions/e2e/inspect-catalog.ts",
+      "packages/core/src/mcp/server.ts",
+    ]) {
+      assert.equal(
+        classifyChangedPaths([path, production], [], root).checks.fast_tests,
+        true,
+        production,
+      );
+    }
+  }
+  for (const source of [
+    "export const args = process.argv.slice(2);",
+    "export async function prepare() {}",
+    "console.log('loaded');",
+    "console.log('process.argv');",
+    "/* process.argv */ console.log('loaded');",
+    "console.log(/process.argv/);",
+  ]) {
+    const helper = "templates/mail/e2e/helper.ts";
+    writeFileSync(join(root, helper), source);
+    assert.equal(
+      classifyChangedPaths([helper], [], root).checks.fast_tests,
+      true,
+      source,
+    );
+  }
+  assert.equal(
+    classifyChangedPaths(["templates/mail/e2e/unreadable.ts"], [], root).checks
+      .fast_tests,
+    true,
+  );
+  assert.equal(
+    classifyChangedPaths([
+      "templates/design/e2e/pre-auth-session-replay-smoke.spec.ts",
+    ]).checks.pre_auth_session_replay_e2e,
+    true,
+  );
+});
+
 test("rejects runtime changes hidden under a test-only PR title", () => {
   assert.deepEqual(
     runtimeSourceChangesInTestTitledPr(
@@ -3946,6 +4004,16 @@ test("selects the Content two-tab convergence lane for its runtime dependencies"
 test("scopes Content DB tests to Content and shared database runtime changes", () => {
   for (const path of [
     "templates/content/actions/update-document.ts",
+    "templates/content/actions/query-content-database-items.ts",
+    "templates/content/actions/_database-navigation.ts",
+    "templates/content/actions/_content-database-personal-view.ts",
+    "templates/content/actions/_content-space-access.ts",
+    "templates/content/actions/_database-utils.ts",
+    "packages/core/src/settings/store.ts",
+    "packages/core/src/settings/index.ts",
+    "packages/core/src/org/federation.ts",
+    "packages/core/src/org/membership.ts",
+    "packages/core/src/org/index.ts",
     "templates/content/server/db/schema.ts",
     "templates/content/actions/update-document.db.test.ts",
     "templates/content/acceptance/one-stored-form.db.test.ts",
@@ -4055,8 +4123,13 @@ test("selects Core integration E2E for its runtime dependencies and specs", () =
     "packages/core/src/server/core-routes-plugin.ts",
     "packages/core/src/server/action-routes.ts",
     "packages/core/src/server/embedded.ts",
+    "packages/core/src/server/ssr-handler.ts",
+    "packages/core/src/shared/cache-control.ts",
+    "packages/core/src/shared/route-chunk-recovery-bootstrap.ts",
     "packages/core/src/extensions/session-replay-iframe.ts",
     "packages/core/src/mcp/script-writes.ts",
+    "packages/core/src/client/route-chunk-recovery.ts",
+    "packages/core/src/client/route-chunk-recovery.e2e.spec.ts",
     "packages/core/src/client/session-replay-iframe.e2e.spec.ts",
     "packages/core/src/mcp/script-receipt-fence.postgres.integration.spec.ts",
     "packages/core/src/server/embedded.integration.spec.ts",

@@ -78,6 +78,7 @@ describe("additional session provider", () => {
       getBetterAuthSync: vi.fn(() => undefined),
     }));
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => {
         const execute = vi.fn(async (query: any) => {
           const sql = typeof query === "string" ? query : query.sql;

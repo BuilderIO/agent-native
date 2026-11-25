@@ -75,6 +75,7 @@ vi.mock("../db/client.js", () => {
   };
 
   return {
+    getEnclosingTransactionDbExec: () => undefined,
     getDbExec: () => ({ execute }),
   };
 });

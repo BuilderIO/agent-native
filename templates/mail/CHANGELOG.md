@@ -3,6 +3,70 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-23
+
+### Improved
+
+- AI tags are now called AI labels, since they are the same Gmail labels as the rest, and the chat panel says it's Mail's agent.
+
+### Fixed
+
+- Choosing "I have a Builder.io account" from the sort menu's "Connect an AI provider" keeps its window open, instead of closing it and the dialog at once.
+- The signature box and the AI triage instructions in Settings no longer use the name Steve in their examples.
+
+## 2026-11-22
+
+### Added
+
+- Agents connected to Mail through MCP can now find and use most of its tools, such as inbox triage, snoozes, snippets and queued drafts, and they ask you first before sending mail, answering an invite, changing filters or rules, or handing a draft to a teammate.
+
+## 2026-11-21
+
+### Added
+
+- Create Gmail labels from the app and apply them from the keyboard: l adds a label and keeps the email in Inbox, v moves it, and New label… sits in the selection menu and the sidebar.
+
+## 2026-11-20
+
+### Improved
+
+- The sidebar now stays docked beside your mail and collapses to a strip of icons that Mail remembers; windows narrower than 1280 px start with the icons.
+
+### Fixed
+
+- Switching views from the sidebar, such as Inbox to Unread, shows the new list again instead of freezing on the old one.
+
+## 2026-11-19
+
+### Added
+
+- Attach a Content page to an email as a PDF file: Attach from Content now offers PDF or Markdown for pages, with PDF first.
+- Attach a Content page to an email from the compose window or a reply: a page attaches as a Markdown file and a collection as a CSV file.
+
+### Improved
+
+- Counts in the sidebar and inbox tabs now say what they count, the split-inbox switch explains itself and works with one account, and accounts are picked only from the top bar.
+
+### Fixed
+
+- Keyboard focus in the email list now moves with the highlighted email instead of staying on the row you clicked.
+
+## 2026-11-18
+
+### Added
+
+- New hosted signups now set up a Builder account automatically, so AI features are ready on first load.
+
+## 2026-11-16
+
+### Added
+
+- Wide screens now show your email list and the open email side by side, with a resizable divider and designed emails shown edge to edge.
+
+### Fixed
+
+- Editing a Gmail draft you reopened from Drafts now updates that draft instead of saving a second copy.
+
 ## 2026-11-14
 
 ### Fixed

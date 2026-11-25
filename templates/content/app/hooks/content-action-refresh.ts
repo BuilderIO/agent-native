@@ -41,8 +41,10 @@ const DOCUMENT_MUTATIONS = new Set([
   "permanently-delete-document",
   "duplicate-document-property",
   "edit-document",
+  "edit-table",
   "execute-builder-source-batch",
   "execute-builder-source-execution",
+  "fill-column-cell",
   "create-github-collection",
   "create-github-pull-request-collection",
   "import-content-source",
@@ -92,8 +94,10 @@ export const DATABASE_RESULT_MUTATIONS = new Set([
   "duplicate-database-items",
   "duplicate-document-property",
   "edit-document",
+  "edit-table",
   "execute-builder-source-batch",
   "execute-builder-source-execution",
+  "fill-column-cell",
   "create-github-collection",
   "create-github-pull-request-collection",
   "import-content-source",
@@ -402,6 +406,7 @@ function eventChangesOnlyAnotherPage(
     return true;
   return (
     (event.key === "edit-document" ||
+      event.key === "edit-table" ||
       event.key === "apply-comment-ai-request" ||
       event.key === "undo-comment-ai-request") &&
     typeof queryName === "string" &&

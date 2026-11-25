@@ -5,6 +5,7 @@ const ensureTableMock = vi.hoisted(() => vi.fn());
 const ensureA2ATableMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: executeMock }),
 }));
 

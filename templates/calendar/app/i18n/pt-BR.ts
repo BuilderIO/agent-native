@@ -2,6 +2,8 @@ import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js"
 
 export default {
   common: {
+    calendarRateLimited:
+      "O Google Agenda limitou as solicitações. Os eventos salvos podem estar desatualizados.",
     connect: "Conectar",
     connected: "Conectado",
     connecting: "Conectando...",
@@ -587,6 +589,12 @@ export default {
     custom: "Personalizado",
     customLink: "Link personalizado",
     customLinkDescription: "Cole qualquer reunião URL",
+    reminderEmail: "E-mail de lembrete",
+    reminderEmailDescription:
+      "Enviado para quem reservou e para os convidados que essa pessoa adicionou.",
+    reminderOff: "Sem lembrete",
+    reminderOneHour: "1 hora antes",
+    reminderOneDay: "1 dia antes",
     date: "Data",
     dateAndTime: "Data e hora",
     dateSelection: "seleção de data",

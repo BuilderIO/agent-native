@@ -77,6 +77,15 @@ With Tailwind, roles and steps are utilities: `bg-surface-canvas`,
 | `styles.css`        | component CSS, one file per part                                                 |
 | `themes/<name>.css` | one theme's roles, values and part inputs (generated)                            |
 
+For a smaller bundle, import the component stylesheets used by your screen in place of `styles.css`. Focused entries are available for `announcement`, `autocomplete`, `button`, `combobox`, `design-file-panel`, `dialog`, `dock-workspace`, `icon-button`, `image-card`, `layer-tree`, `meter`, `progress`, `tabs`, and `toast`. Each includes its built-in parts, such as the dialog close button and the combobox chips. The dock workspace entry includes the tab strip, split handles, and Arrange menu. The design file panel entry includes its tabs, page list, and editable layer tree. Import styles for controls you place inside a panel separately. Load tokens and the app theme once.
+
+```css
+@import "@agent-native/design-system/tokens.css";
+@import "@agent-native/design-system/components/dialog.css";
+@import "@agent-native/design-system/components/combobox.css";
+@import "@agent-native/design-system/themes/design.css";
+```
+
 ## Developing
 
 ```sh
