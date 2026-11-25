@@ -128,6 +128,28 @@ const parts = definePartSet({
 An effect nobody handles or an unfilled slot throws too; none of them
 degrades silently.
 
+### Whole parts
+
+A surface with its own typed model (settings sections, the sidebar, the app
+shell) can be drawn whole: the part set's `whole` map, keyed by part name,
+holds a component that takes that model and owns all of its markup.
+
+```ts
+const parts = definePartSet({
+  name: "app",
+  parts: { ...AGENT_NATIVE_PART_SET.parts },
+  whole: { settings: AppSettingsSections },
+});
+```
+
+`useWholePart("settings")` returns it, and `SettingsSections` draws through it
+unless a `SettingsSectionsRendererProvider` above it says otherwise. A whole
+part the set leaves out is drawn by toolkit's own: a whole part draws its
+surface alone, so no surface mixes two part sets. It writes the same
+`data-rid` and `data-part` values as toolkit's, so the checks compare them.
+`withDesignSystemParts(name, { SettingsSections, Sidebar, AppShell })` and
+`useDesignSystemPart(name)` take the earlier names and are deprecated.
+
 ## Writing a part
 
 A part receives `{ row, children }` and must:

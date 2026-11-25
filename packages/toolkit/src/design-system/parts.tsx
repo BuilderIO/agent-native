@@ -15,6 +15,14 @@ import {
 
 import { agentNativeParts } from "./agent-native-parts/index.js";
 import { useDesignSystem } from "./context.js";
+import type { DesignSystemDefinition } from "./definition.js";
+import {
+  useWholePart,
+  type WholePartName,
+  type WholeParts,
+} from "./whole-parts.js";
+
+export { useWholePart, type WholePartName, type WholeParts };
 
 /**
  * A part draws one model row. It spreads `rowAttributes(row)` on the element
@@ -31,11 +39,13 @@ export type PartComponent = ComponentType<PartProps>;
 /**
  * Markup for model parts, keyed by part reference (`settings.row`). A part
  * set draws every part its screens use; one that reuses toolkit's parts
- * spreads `AGENT_NATIVE_PART_SET.parts` into its own.
+ * spreads `AGENT_NATIVE_PART_SET.parts` into its own. `whole` holds the
+ * surfaces it draws whole from their typed models (`settings`).
  */
 export interface PartSet {
   name: string;
   parts: Readonly<Partial<Record<string, PartComponent>>>;
+  whole?: Readonly<Partial<WholeParts>> | undefined;
 }
 
 export function definePartSet<const Set extends PartSet>(partSet: Set): Set {
@@ -290,6 +300,55 @@ export function ModelSurface({ model, ...runtime }: ModelSurfaceProps) {
       </HostRowContext.Provider>
     </ModelRuntimeContext.Provider>
   );
+}
+
+const WHOLE_PART_NAMES: Readonly<Record<string, string>> = {
+  SettingsSections: "settings",
+  Sidebar: "sidebar",
+  AppShell: "app-shell",
+};
+
+function wholePartName(name: string): string {
+  const part = WHOLE_PART_NAMES[name];
+  if (!part) {
+    throw new Error(
+      `"${name}" is not a whole part; use ${Object.keys(WHOLE_PART_NAMES).join(", ")}`,
+    );
+  }
+  return part;
+}
+
+/**
+ * @deprecated Use `defineDesignSystem({ parts: definePartSet({ name, parts,
+ * whole }) })`. Takes whole parts by their earlier names (`SettingsSections`,
+ * `Sidebar`, `AppShell`) and draws every row part with toolkit's.
+ */
+export function withDesignSystemParts(
+  name: string,
+  parts: Readonly<Record<string, ComponentType<never>>>,
+): DesignSystemDefinition {
+  const whole: Partial<WholeParts> = Object.fromEntries(
+    Object.entries(parts).map(([key, part]) => [wholePartName(key), part]),
+  );
+  return {
+    name,
+    parts: {
+      name,
+      get parts() {
+        return AGENT_NATIVE_PART_SET.parts;
+      },
+      whole,
+    },
+  };
+}
+
+/** @deprecated Use `useWholePart` with the part name (`settings`). */
+export function useDesignSystemPart<Props>(
+  name: string,
+): ComponentType<Props> | undefined {
+  const whole: Readonly<Partial<Record<string, unknown>>> =
+    useDesignSystem()?.parts?.whole ?? {};
+  return whole[wholePartName(name)] as ComponentType<Props> | undefined;
 }
 
 export { rowAttributes };
