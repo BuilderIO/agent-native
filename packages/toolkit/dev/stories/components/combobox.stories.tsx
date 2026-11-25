@@ -320,6 +320,11 @@ export const Sizes: Story = {
  * fill the highlighted row, in gray and the accent and in high contrast.
  */
 export const Variants: Story = {
+  parameters: {
+    a11y: {
+      config: { rules: [{ id: "aria-hidden-focus", reviewOnFail: true }] },
+    },
+  },
   play: async ({ canvas, canvasElement, userEvent }) => {
     const name = POPUP_VARIANTS[0] + " accent, high contrast";
     const input = canvas.getByRole("combobox", { name });

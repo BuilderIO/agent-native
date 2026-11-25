@@ -350,7 +350,8 @@ Shared properties: `$mcp_source` (`http` / `stdio`), `$mcp_server_name`,
 `$mcp_client_user_agent`, `$mcp_vendor_client`, `$mcp_protocol_version`. Per
 event: `$mcp_tool_name`, `$mcp_tool_description`, `$mcp_tool_category`
 (`read` / `write`), `$mcp_listed_tool_names`, `$mcp_duration_ms`,
-`$mcp_is_error`, `$mcp_error_type`, `$mcp_error_message`, `$mcp_resource_name`,
+`$mcp_response_text_chars`, `$mcp_response_structured_chars`, `$mcp_is_error`,
+`$mcp_error_type`, `$mcp_error_message`, `$mcp_resource_name`,
 `$mcp_resource_uri`.
 
 - **A client's own name is only on the wire at `initialize`.** The mount is
@@ -364,6 +365,15 @@ event: `$mcp_tool_name`, `$mcp_tool_description`, `$mcp_tool_category`
   where it returns rather than having it guessed back out of the response text.
 - **Payloads stay out.** `$mcp_response` is never emitted. `$mcp_parameters` is
   off by default and redacted when on — tool arguments carry user content.
+- **A result's size goes in, counted per part.** `$mcp_response_text_chars`
+  counts the characters in the result's text blocks, and
+  `$mcp_response_structured_chars` the structured content as JSON (absent when
+  the result has none). Hosts cut or move a result past about 40,000
+  characters, and they read different parts: Claude Code and OpenCode show the
+  model only the structured content when there is one, Codex shows both. The
+  handler measures the result only when MCP analytics are on
+  (`mcpAnalyticsEnabled()`), and passes only the two numbers, so no part of
+  the payload reaches `trackMcpToolCall`.
 
 Off switches: `MCP_ANALYTICS=false` (`observability.mcpEvents`) disables the
 events; `MCP_ANALYTICS_PARAMETERS=true` (`observability.mcpCaptureParameters`)
@@ -426,7 +436,14 @@ Attribution parsing is defensive and never blocks signup. A request with no attr
 
 Other framework-level baseline events:
 
-- `session status` from `useSession()`, with `signed_in`
+- `session status` from `useSession()`, with `signed_in` and `trigger`: what
+  made the tab read the session. `load` is its first read in the page, `focus`
+  a return to the tab (focus or visibility) once the answer was stale,
+  `expired` a component mounting after the answer expired, `auth_change` a
+  sign-in, sign-out, or account or organization switch here or in another tab,
+  `unauthorized` a request answered 401, and `transport_change` requests
+  moving to another transport, such as an embed's token. Only `load` is a page
+  load; count visits from it, not from every `session status`.
 - `action.response` from the browser action transport, with action name,
   the `route` template of the page that made the request (omitted when no
   manifest route matches),
@@ -493,7 +510,15 @@ framework also emits `action_started`, `action_completed`, and
 `action_failed` for mutating `defineAction()` calls so UI, agent, MCP, A2A,
 automation, and CLI activity share one action-level trail. Read-only actions
 and high-frequency refresh, polling, navigation, and application-state actions
-are excluded.
+are excluded. `action_kind` says what kind of call it was: `write` for one
+someone asked for, `read` for a call the action's `planMode` declares a read,
+and `automatic` for a write the app made on its own, declared with
+`automatic` on `defineAction` (a predicate of the input and the call's
+context when only some calls are automatic). Only a call from the app's own UI
+can be automatic; an agent's, MCP client's, or CLI call stays `write`.
+Product-use counts keep `write` only. A new action that runs
+on load, on mount, on a timer, or as experiment or usage bookkeeping must
+declare `automatic`.
 
 App entry is emitted once per app and browser session. Tracking is action-level
 only: it does not install mouse, pointer, scroll, keypress, or DOM autocapture.

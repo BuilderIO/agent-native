@@ -130,6 +130,13 @@ El framework descubre automáticamente cada archivo en `actions/` y lo monta al 
             "Cuando es true (o cuando el predicado devuelve true), un fallo tras la propia escritura de esta acción es un fallo conocido que el modelo puede corregir y reintentar, en lugar de bloquear la herramienta durante el resto del turno actual. Resérvalo para acciones que sean seguras de volver a ejecutar tras cualquier error. Un rechazo antes de cualquier escritura no necesita esta opción. Consulta Escrituras seguras para reintentar más abajo.",
         },
         {
+          name: "automatic",
+          type: "boolean | ((input) => boolean)",
+          optional: true,
+          description:
+            'Marca una escritura que la app hace por su cuenta, sin ningún gesto del usuario: al cargar, al montar, con un temporizador o como registro de experimentos y uso. Sus eventos action_started, action_completed y action_failed llevan action_kind "automatic" en lugar de "write", así que los recuentos de uso del producto la dejan fuera. Un predicado marca solo las llamadas para las que devuelve true. Solo afecta a la analítica: nunca uses readOnly para silenciar una escritura.',
+        },
+        {
           name: "agentTool",
           type: "boolean",
           optional: true,

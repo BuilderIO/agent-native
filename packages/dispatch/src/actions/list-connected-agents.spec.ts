@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  getDispatchConfig: vi.fn<() => Record<string, unknown>>(() => ({
+    hiddenAgentIds: [],
+  })),
   discoverAgents: vi.fn(),
   getBuiltinAgents: vi.fn(),
   getRequestUserEmail: vi.fn<() => string | undefined>(
@@ -59,7 +62,7 @@ vi.mock("@agent-native/core/server/agent-discovery", () => ({
 }));
 
 vi.mock("../server/index.js", () => ({
-  getDispatchConfig: vi.fn(async () => ({ hiddenAgentIds: [] })),
+  getDispatchConfig: mocks.getDispatchConfig,
 }));
 
 describe("list-connected-agents", () => {
@@ -92,6 +95,28 @@ describe("list-connected-agents", () => {
       homeUrl: "https://clips.agent-native.com",
       source: "builtin",
     });
+  });
+
+  it("drops hosted apps entirely when the deployment turns the hosted catalog off", async () => {
+    const clips = {
+      id: "clips",
+      name: "Clips",
+      description: "",
+      url: "https://clips.agent-native.com",
+      color: "#000000",
+    };
+    const partner = { ...clips, id: "partner", url: "https://p.example.test" };
+    mocks.getBuiltinAgents.mockReturnValue([clips]);
+    mocks.discoverAgents.mockResolvedValue([clips, partner]);
+    mocks.resourceListAccessible.mockImplementation(async () => []);
+    mocks.getDispatchConfig.mockReturnValueOnce({ hostedCatalog: false });
+
+    const { default: action } = await import("./list-connected-agents.js");
+    const agents = await action.run({});
+
+    expect(agents.map((agent: { id: string }) => agent.id)).toEqual([
+      "partner",
+    ]);
   });
 
   it("marks hosted apps hidden from launchers when the organization hides them", async () => {

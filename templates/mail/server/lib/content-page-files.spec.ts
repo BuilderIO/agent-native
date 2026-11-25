@@ -1,9 +1,17 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resetAppConfigForTests } from "@agent-native/core/server";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const auth = vi.hoisted(() => ({
   userEmail: "owner@example.com" as string | undefined,
 }));
+const discovery = vi.hoisted(() => ({
+  contentUrl: "https://content.agent-native.com",
+}));
 const invokeAgentAction = vi.hoisted(() => vi.fn());
+
+vi.mock("@agent-native/core/server/agent-discovery", () => ({
+  getBuiltinAgents: () => [{ id: "content", url: discovery.contentUrl }],
+}));
 
 vi.mock("@agent-native/core/a2a", () => ({
   invokeAgentAction,
@@ -36,7 +44,54 @@ function completed(output: unknown) {
 describe("Content page files", () => {
   beforeEach(() => {
     auth.userEmail = "owner@example.com";
+    discovery.contentUrl = "https://content.agent-native.com";
     invokeAgentAction.mockReset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    resetAppConfigForTests();
+  });
+
+  it("asks beta Content when Mail is served from beta", async () => {
+    vi.stubEnv("APP_URL", "https://beta.mail.agent-native.com");
+    resetAppConfigForTests();
+    invokeAgentAction.mockResolvedValue(completed(pageFile));
+    const { readContentPageFile } = await import("./content-page-files.js");
+
+    await readContentPageFile({ id: "plan-page" });
+
+    expect(invokeAgentAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: "https://beta.content.agent-native.com",
+        userEmail: "owner@example.com",
+        orgDomain: "example.com",
+        orgSecret: "org-secret",
+      }),
+    );
+  });
+
+  it("asks for Content by name on production, locally and on other hosts", async () => {
+    invokeAgentAction.mockResolvedValue(completed(pageFile));
+    const { readContentPageFile } = await import("./content-page-files.js");
+
+    for (const lane of [
+      {
+        mail: "https://mail.agent-native.com",
+        content: "https://content.agent-native.com",
+      },
+      { mail: "http://localhost:8085", content: "http://localhost:8083" },
+      {
+        mail: "https://mail.example.com",
+        content: "https://content.agent-native.com",
+      },
+    ]) {
+      vi.stubEnv("APP_URL", lane.mail);
+      resetAppConfigForTests();
+      discovery.contentUrl = lane.content;
+      await readContentPageFile({ id: "plan-page" });
+      expect(invokeAgentAction.mock.lastCall?.[0].target).toBe("content");
+    }
   });
 
   it("lists pages through Content's read-document-file as the signed-in person", async () => {

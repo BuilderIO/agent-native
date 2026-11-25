@@ -197,6 +197,70 @@ describe("useBuilderSourceReviewBatches", () => {
     expect(latest.error).toBeNull();
   });
 
+  it("quick-starts a whole source with no changed pages known, then lists the rest", async () => {
+    const quickStart = deferred<PreviewBuilderSourceReviewResponse>();
+    const listing = deferred<PreviewBuilderSourceReviewResponse>();
+    callAction.mockImplementation(async (_name: string, params: Request) => {
+      if (params.quickStart) return quickStart.promise;
+      if (params.batchSize === 0) return listing.promise;
+      const ids = params.documentIds ?? [];
+      return response(ids.map((id) => row(`c-${id}`, id)));
+    });
+
+    act(() =>
+      root.render(
+        <Probe documentId="page-1" sourceId="source-1" scope="all" enabled />,
+      ),
+    );
+    await settle();
+
+    expect(requests()).toEqual([
+      expect.objectContaining({
+        scope: "all",
+        quickStart: true,
+        bodyComparison: "text",
+        batchSize: 5,
+      }),
+    ]);
+
+    quickStart.resolve(
+      response([row("c-doc-1", "doc-1"), row("c-doc-2", "doc-2")], {
+        documentIds: ["doc-1", "doc-2"],
+      }),
+    );
+    await settle();
+
+    expect(requests().slice(1)).toEqual([
+      expect.objectContaining({ scope: "all", batchSize: 0 }),
+    ]);
+    expect(latest.loadingFirstBatch).toBe(false);
+    expect(latest.data?.review?.rows.map((entry) => entry.changeSetId)).toEqual(
+      ["c-doc-1", "c-doc-2"],
+    );
+    expect(latest.progress).toEqual({ kind: "listing", pageCount: 0 });
+
+    listing.resolve(
+      response([], {
+        documentIds: [],
+        remainingDocumentIds: ["doc-1", "doc-2", "doc-3"],
+      }),
+    );
+    await settle();
+
+    expect(requests().slice(2)).toEqual([
+      expect.objectContaining({
+        scope: "selected",
+        documentIds: ["doc-3"],
+        bodyComparison: "text",
+      }),
+    ]);
+    expect(latest.data?.review?.rows.map((entry) => entry.changeSetId)).toEqual(
+      ["c-doc-1", "c-doc-2", "c-doc-3"],
+    );
+    expect(latest.progress).toBeNull();
+    expect(latest.error).toBeNull();
+  });
+
   it("keeps the first rows when the listing fails, and Retry asks only for the listing", async () => {
     let failListing = true;
     callAction.mockImplementation(async (_name: string, params: Request) => {

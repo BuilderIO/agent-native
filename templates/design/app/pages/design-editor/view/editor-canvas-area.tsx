@@ -117,6 +117,7 @@ export function renderEditorCanvasArea({
     setHasSystemClipboardImages,
     hasSystemClipboardImages,
     minimalUi,
+    floatingTopChromeHeight,
   } = editorHistory;
   const {
     canEditDesign,
@@ -592,8 +593,13 @@ export function renderEditorCanvasArea({
         <div
           className="relative flex min-w-0 flex-1 flex-col overflow-hidden"
           style={
-            responsiveInteractActive && leftChromeOverlayInset
-              ? { paddingLeft: leftChromeOverlayInset }
+            responsiveInteractActive
+              ? {
+                  paddingLeft: leftChromeOverlayInset,
+                  paddingTop: floatingTopChromeHeight || undefined,
+                  background:
+                    canvasBackground || "var(--design-editor-canvas-bg)",
+                }
               : undefined
           }
         >

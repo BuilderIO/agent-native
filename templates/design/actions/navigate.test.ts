@@ -67,6 +67,25 @@ describe("design navigate action", () => {
     expect(result).toContain("(threads panel)");
   });
 
+  it("opens the Library tab for the legacy tokens panel id", async () => {
+    if (!action.schema) throw new Error("navigate has no schema");
+    const parsed = action.schema.safeParse({
+      view: "editor",
+      designId: "design-123",
+      leftPanel: "tokens",
+    });
+    if (!parsed.success) throw parsed.error;
+    expect(parsed.data.leftPanel).toBe("library");
+
+    await action.run(parsed.data);
+
+    expect(mockWriteAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
+      view: "editor",
+      designId: "design-123",
+      leftPanel: "library",
+    });
+  });
+
   it("carries the Interact device and theme into the one-shot navigation command", async () => {
     const result = await action.run({
       view: "editor",

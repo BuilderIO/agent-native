@@ -96,7 +96,7 @@ test("a Screen-root card: a 360x315 Screen with vertical auto layout holds a dra
   await app.settled();
   const before = await readDesign(app, designId);
 
-  await pickFrameMode(page, "Screen");
+  await pickFrameMode(page, "Page");
   const from = await emptyBoardPoint(page);
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();

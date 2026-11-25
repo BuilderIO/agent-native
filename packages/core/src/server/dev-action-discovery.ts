@@ -1,10 +1,42 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
-export const DEV_ACTION_DISCOVERY_PATH = path.join(
+/**
+ * Where older versions wrote the discovery file. It sat inside the app root,
+ * which the dev server serves, so its bearer token could be fetched over
+ * HTTP. Only ever deleted now, never read.
+ */
+export const LEGACY_DEV_ACTION_DISCOVERY_PATH = path.join(
   ".agent-native",
   "dev-server.json",
 );
+
+function canonicalAppRoot(appRoot: string): string {
+  try {
+    return fs.realpathSync(appRoot);
+  } catch {
+    // coercion-ok: an unresolvable root still keys one file for server and CLI alike.
+    return path.resolve(appRoot);
+  }
+}
+
+/**
+ * The discovery file lives in the user's home directory, keyed by app root:
+ * never under a directory the dev server can serve.
+ */
+export function devActionDiscoveryFilePath(
+  appRoot: string,
+  homeDir = os.homedir(),
+): string {
+  const key = crypto
+    .createHash("sha256")
+    .update(canonicalAppRoot(appRoot))
+    .digest("hex")
+    .slice(0, 32);
+  return path.join(homeDir, ".agent-native", "dev-servers", `${key}.json`);
+}
 
 export interface DevActionDiscovery {
   origin: string;
@@ -16,7 +48,7 @@ export interface DevActionDiscovery {
 export function readDevActionDiscoveryFile(
   appRoot: string,
 ): DevActionDiscovery | undefined {
-  const filePath = path.join(appRoot, DEV_ACTION_DISCOVERY_PATH);
+  const filePath = devActionDiscoveryFilePath(appRoot);
   let raw: string;
   try {
     raw = fs.readFileSync(filePath, "utf8");

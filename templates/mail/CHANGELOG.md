@@ -3,11 +3,28 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-23
+
+### Improved
+
+- AI tags are now called AI labels, since they are the same Gmail labels as the rest, and the chat panel says it's Mail's agent.
+
+### Fixed
+
+- Choosing "I have a Builder.io account" from the sort menu's "Connect an AI provider" keeps its window open, instead of closing it and the dialog at once.
+- The signature box and the AI triage instructions in Settings no longer use the name Steve in their examples.
+
 ## 2026-11-22
 
 ### Added
 
 - Agents connected to Mail through MCP can now find and use most of its tools, such as inbox triage, snoozes, snippets and queued drafts, and they ask you first before sending mail, answering an invite, changing filters or rules, or handing a draft to a teammate.
+
+## 2026-11-21
+
+### Added
+
+- Create Gmail labels from the app and apply them from the keyboard: l adds a label and keeps the email in Inbox, v moves it, and New label… sits in the selection menu and the sidebar.
 
 ## 2026-11-20
 

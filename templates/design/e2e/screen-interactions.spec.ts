@@ -13,6 +13,7 @@ import {
   gotoEditor,
   pickFrameMode,
   openAppMenuSubmenu,
+  openPageOverview,
 } from "./helpers";
 import { expect, expectOnlyChanged, test, type App } from "./rails";
 
@@ -357,7 +358,7 @@ test("preset screen dimensions and direct size edits survive reload", async ({
     height: 900,
   });
 
-  await pickFrameMode(page, "Screen");
+  await pickFrameMode(page, "Page");
   await frameToolButton(page).click();
   await expect
     .poll(() => page.getByRole("button", { name: /Desktop.*1440/ }).count())
@@ -559,9 +560,8 @@ test("a screen's east-edge resize keeps its explicit height in the rendered card
     `[data-screen-shell][data-frame-id="${fileId}"]`,
   );
   await expect(screenShell).toBeVisible();
-  const allScreensButton = page.getByRole("button", { name: "All screens" });
-  await allScreensButton.click();
-  await expect(allScreensButton).toHaveAttribute("aria-current", "page");
+  // oracle-change: the All screens row is gone, so the overview is entered from the View menu, which asserts the switch itself.
+  await openPageOverview(page);
   await page.keyboard.press("Shift+1");
   await expect(screenShell.locator("[data-frame-label]")).toBeVisible();
   await screenShell.locator("[data-frame-label]").click();
@@ -643,8 +643,7 @@ test("a Hug screen keeps Hug on width resize and becomes Fixed on height resize"
   const screenShell = page.locator(
     `[data-screen-shell][data-frame-id="${fileId}"]`,
   );
-  const allScreensButton = page.getByRole("button", { name: "All screens" });
-  await allScreensButton.click();
+  await openPageOverview(page);
   await page.keyboard.press("Shift+1");
   await screenShell.locator("[data-frame-label]").click();
   await page.getByRole("button", { name: "H sizing mode — Auto" }).click();
@@ -1211,7 +1210,7 @@ test("all-screens PDF mounts an offscreen Hug screen and exports its natural hei
       await openAppMenuSubmenu(page, "File");
       await page.getByRole("menuitem", { name: "Export" }).hover();
       await page
-        .getByRole("menuitem", { name: "Download PDF (all screens)" })
+        .getByRole("menuitem", { name: "Download PDF (all pages)" })
         .click();
     })(),
   ]);
@@ -1287,7 +1286,7 @@ test("all-screens PDF reports a broken image and can retry after it recovers", a
     await openAppMenuSubmenu(page, "File");
     await page.getByRole("menuitem", { name: "Export" }).hover();
     await page
-      .getByRole("menuitem", { name: "Download PDF (all screens)" })
+      .getByRole("menuitem", { name: "Download PDF (all pages)" })
       .click();
   };
   await expect(imageShell.locator("iframe")).toHaveCount(0);
@@ -1305,7 +1304,7 @@ test("all-screens PDF reports a broken image and can retry after it recovers", a
   ]);
   expect(download.suggestedFilename()).toMatch(/\.pdf$/);
   await expect(
-    page.getByText("PDF downloaded (all screens)", { exact: true }),
+    page.getByText("PDF downloaded (all pages)", { exact: true }),
   ).toBeVisible();
   await expect(imageShell.locator("iframe")).toHaveCount(0);
   expect(downloads).toHaveLength(1);
@@ -1489,7 +1488,7 @@ test("K scales Screen contents and history as one root Frame edit", async ({
     },
   });
   await gotoEditor(page, designId);
-  await page.getByRole("button", { name: "All screens" }).click();
+  await openPageOverview(page);
   await page.keyboard.press("Shift+1");
   const shell = page.locator(`[data-screen-shell][data-frame-id="${fileId}"]`);
   const card = shell.locator("[data-screen-card]");
@@ -2083,7 +2082,7 @@ test("Screen K rolls back when the scale collector disappears mid-gesture", asyn
     geometry: { x: 0, y: 0, width: 400, height: 400, z: 0 },
   });
   await gotoEditor(page, designId);
-  await page.getByRole("button", { name: "All screens" }).click();
+  await openPageOverview(page);
   const shell = page.locator(`[data-screen-shell][data-frame-id="${fileId}"]`);
   const frame = page.frameLocator(`[data-screen-iframe-id="${fileId}"]`);
   await expect(frame.locator("#layout")).toBeVisible();

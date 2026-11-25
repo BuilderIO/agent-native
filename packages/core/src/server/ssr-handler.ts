@@ -552,7 +552,10 @@ export function createH3SSRHandler(getBuild: () => unknown) {
     const isLegacyRecovery = isLegacyChunkRecoveryRequest(event.url);
     const p = stripChunkRecoveryPathSuffix(appPath);
     if (isFrameworkOrAssetPath(p)) {
-      return new Response(null, { status: 404 });
+      return new Response(null, {
+        status: 404,
+        headers: ssrCacheHeadersWithin(resolveSsrCachePolicy(), 0),
+      });
     }
     try {
       const request = requestForAnonymousSsr(

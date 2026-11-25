@@ -157,6 +157,7 @@ export const LEGACY_RUN_CODES = [
   "missing_api_key",
   "missing_credentials",
   "run_events_unreachable",
+  "run_events_incomplete",
   "run_state_unreadable",
   "auto_continue_cap_reached",
   "auto_continue_unavailable",
@@ -209,6 +210,7 @@ const LEGACY_RUN_CODE_OUTCOMES = {
   missing_api_key: "failed",
   missing_credentials: "failed",
   run_events_unreachable: "unverified",
+  run_events_incomplete: "unverified",
   run_state_unreadable: "unverified",
   auto_continue_cap_reached: "interrupted",
   auto_continue_unavailable: "interrupted",
@@ -317,12 +319,14 @@ export type RunAuthorityRead =
    */
   | { readonly kind: "refused"; readonly status?: number };
 
-/** Re-reads of a run the server already ended, to receive its own terminal event. */
+/**
+ * Re-reads of a run the server already ended, to receive its own terminal
+ * event. A drain that delivers that event ends the run from its stream, so a
+ * drain the authority still sees never reached it, however cleanly it closed.
+ */
 export interface TerminalDrain {
   readonly runId: string;
   readonly attempts: number;
-  /** A drain stream was read to its end without a connection failure. */
-  readonly readToEnd: boolean;
 }
 
 export interface StreamClosedContext {
@@ -423,7 +427,10 @@ function interruptedOrFailed(
 
 /** The browser cannot follow the run any more; the server may still be running it. */
 function unverified(
-  code: "run_events_unreachable" | "run_state_unreadable",
+  code:
+    | "run_events_unreachable"
+    | "run_events_incomplete"
+    | "run_state_unreadable",
   runId: string,
   status?: number,
 ): StreamClosedDecision {
@@ -492,16 +499,13 @@ export function decideAfterStreamClosed(
   }
   const drain =
     context.drain?.runId === state.runId ? context.drain : undefined;
-  if (
-    !drain?.readToEnd &&
-    (drain?.attempts ?? 0) < MAX_TERMINAL_DRAIN_ATTEMPTS
-  ) {
+  if ((drain?.attempts ?? 0) < MAX_TERMINAL_DRAIN_ATTEMPTS) {
     return resubscribe(true, drain?.attempts ?? 0);
   }
 
   const reason = state.terminalReason?.trim() ?? "";
   if (state.status === "completed") {
-    return { type: "terminal", outcome: "succeeded" };
+    return unverified("run_events_incomplete", state.runId);
   }
   const abortReason =
     state.status !== "aborted"

@@ -43,6 +43,7 @@ vi.mock("../../settings/org-settings.js", () => ({
     mutateRow(orgKey(orgId, key), updater),
 }));
 vi.mock("../../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
 }));
 

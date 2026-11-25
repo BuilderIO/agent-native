@@ -549,9 +549,12 @@ export function resolveRunSoftTimeoutMs(
 ): number {
   const hosted = isHostedRuntime();
   const background = options?.backgroundFunction === true;
+  const hostedForegroundCeilingMs =
+    getAppConfig().agent.hostedRunSoftTimeoutCeilingMs ??
+    HOSTED_SOFT_TIMEOUT_CEILING_MS;
   const ceiling = background
     ? BACKGROUND_SOFT_TIMEOUT_CEILING_MS
-    : HOSTED_SOFT_TIMEOUT_CEILING_MS;
+    : hostedForegroundCeilingMs;
   const clampHosted = (ms: number): number =>
     hosted && ms > ceiling ? ceiling : ms;
 
@@ -564,7 +567,7 @@ export function resolveRunSoftTimeoutMs(
     return hosted ? BACKGROUND_SOFT_TIMEOUT_CEILING_MS : 0;
   }
   return options?.useHostedDefault && hosted
-    ? DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS
+    ? Math.min(DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS, hostedForegroundCeilingMs)
     : 0;
 }
 

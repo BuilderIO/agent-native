@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { ActionContractError, fail } from "@agent-native/core/action";
 import { isUniqueViolation } from "@agent-native/core/db";
+import { nameTaken, nextFreeName } from "@agent-native/core/free-name/server";
 import { getRequestRunContext, recordChange } from "@agent-native/core/server";
 import {
   getOrgSetting,
@@ -1744,17 +1745,26 @@ export async function assertDashboardNameIsAvailable(
 ): Promise<void> {
   const normalized = normalizeDashboardName(name);
   if (!normalized) return;
-  const conflict = (
-    await listDashboardSummaries(ctx, { legacyScan: "strict" }, dbOverride)
-  ).find(
-    (dashboard) =>
-      dashboard.id !== excludeId &&
-      normalizeDashboardName(dashboard.name) === normalized,
+  const summaries = await listDashboardSummaries(
+    ctx,
+    { legacyScan: "strict" },
+    dbOverride,
   );
-  if (!conflict) return;
-  throw new Error(
-    `Dashboard name "${name.trim()}" is already used by visible dashboard "${conflict.name}". Choose a different name.`,
+  const taken = new Set(
+    summaries
+      .filter((dashboard) => dashboard.id !== excludeId)
+      .map((dashboard) => normalizeDashboardName(dashboard.name)),
   );
+  if (!taken.has(normalized)) return;
+  const preferred = name
+    .trim()
+    .slice(0, 200 - (1 + String(summaries.length + 2).length));
+  const suggestion = nextFreeName(preferred, (candidate) =>
+    taken.has(normalizeDashboardName(candidate)),
+  );
+  throw nameTaken("dashboard", name.trim(), suggestion, {
+    hint: "A dashboard owner can rename or hide the conflicting dashboard if needed. The suggestion is not a reservation.",
+  });
 }
 
 async function lockDashboardNames(db: any, names: string[]): Promise<void> {

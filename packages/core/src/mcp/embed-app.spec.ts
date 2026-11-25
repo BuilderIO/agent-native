@@ -441,6 +441,96 @@ describe("embedApp", () => {
     expect([...stored.entries()]).toEqual(storedBeforeUnresolvedTarget);
   });
 
+  it("resolves transplanted link and script URLs against the app origin when the sandbox blocks <base>", () => {
+    const resource = embedApp();
+    const html =
+      typeof resource.html === "function"
+        ? resource.html({ actionName: "open_app", appId: "demo" })
+        : resource.html;
+    const source = html.match(
+      /    function installBaseUrlFallback\(baseHref\) \{[\s\S]*?\n    \}\n/,
+    )?.[0];
+    expect(source).toBeTruthy();
+
+    class FakeElement {
+      attrs = new Map<string, string>();
+      setAttribute(name: string, value: string) {
+        this.attrs.set(name, value);
+      }
+    }
+    class FakeLink extends FakeElement {
+      private url = "";
+      get href() {
+        return this.url;
+      }
+      set href(value: string) {
+        this.url = value;
+      }
+    }
+    class FakeScript extends FakeElement {}
+    class FakeImage extends FakeElement {}
+    const baseHref = "https://app.example/crm/records/1";
+    const install = (baseURI: string) =>
+      new Function(
+        "document",
+        "Element",
+        "HTMLLinkElement",
+        "HTMLScriptElement",
+        "HTMLImageElement",
+        `${source}; return installBaseUrlFallback;`,
+      )({ baseURI }, FakeElement, FakeLink, FakeScript, FakeImage) as (
+        href: string,
+      ) => void;
+
+    const link = new FakeLink();
+    install("https://sandbox.claudemcpcontent.example/")(baseHref);
+    link.href = "/crm/assets/entry.client-abc.js";
+    expect(link.href).toBe(
+      "https://app.example/crm/assets/entry.client-abc.js",
+    );
+    link.href = "https://cdn.example/x.js";
+    expect(link.href).toBe("https://cdn.example/x.js");
+    const script = new FakeScript();
+    script.setAttribute("src", "/crm/assets/manifest-abc.js");
+    expect(script.attrs.get("src")).toBe(
+      "https://app.example/crm/assets/manifest-abc.js",
+    );
+    script.setAttribute("data-x", "/untouched");
+    expect(script.attrs.get("data-x")).toBe("/untouched");
+
+    class AppliedElement {
+      setAttribute() {}
+    }
+    class AppliedLink {
+      private url = "";
+      get href() {
+        return this.url;
+      }
+      set href(value: string) {
+        this.url = value;
+      }
+    }
+    const nativeSetAttribute = AppliedElement.prototype.setAttribute;
+    new Function(
+      "document",
+      "Element",
+      "HTMLLinkElement",
+      "HTMLScriptElement",
+      "HTMLImageElement",
+      `${source}; return installBaseUrlFallback;`,
+    )(
+      { baseURI: baseHref },
+      AppliedElement,
+      AppliedLink,
+      FakeScript,
+      FakeImage,
+    )(baseHref);
+    expect(AppliedElement.prototype.setAttribute).toBe(nativeSetAttribute);
+    const applied = new AppliedLink();
+    applied.href = "/crm/a.js";
+    expect(applied.href).toBe("/crm/a.js");
+  });
+
   it("forwards transplanted workspace credentials only within the target mount", async () => {
     const resource = embedApp();
     const html =
@@ -3317,3 +3407,23 @@ function renderMcpAppResourceHtml(
     ? resource.html(context)
     : resource.html;
 }
+
+describe("ChatGPT widget init window", () => {
+  it("signals the host it is ready without waiting for ui/initialize", async () => {
+    vi.useFakeTimers();
+    try {
+      const shell = await mountRestoredWidget(async () => ({}));
+      const readySignals = () =>
+        shell.hostMessages.mock.calls.filter(
+          (call: unknown[]) =>
+            (call[0] as { type?: string } | undefined)?.type ===
+            "agentNative.embeddedAppReady",
+        ).length;
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(readySignals()).toBeGreaterThan(0);
+      expect(shell.frame()).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
