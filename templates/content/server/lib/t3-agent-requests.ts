@@ -120,12 +120,12 @@ async function updateRequest(
 
 /** The request as it is now, or as it was if it has since been removed. */
 async function reload(row: T3AgentRequestRow): Promise<T3AgentRequestRow> {
-  const [fresh] = await getDb()
+  const rows = await getDb()
     .select()
     .from(schema.t3AgentRequests)
     .where(eq(schema.t3AgentRequests.id, row.id))
     .limit(1);
-  return fresh ?? row;
+  return rows.at(0) ?? row;
 }
 
 /** Claims a request to start, so two open tabs don't both start it. */
