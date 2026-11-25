@@ -313,6 +313,29 @@ async function importOptionalModule(specifier: string): Promise<any> {
   return import(/* @vite-ignore */ specifier);
 }
 
+/**
+ * Registers PGlite extensions (for example `pg_textsearch` from
+ * `@electric-sql/pglite-pg_textsearch`) that Core passes to `PGlite.create()`.
+ * PGlite only accepts extensions at client creation, so call this before the
+ * first database access, at module load of a file every entry point imports.
+ * Throws once any PGlite client has been created. `CREATE EXTENSION` stays in
+ * the app's migrations; remote PostgreSQL connections ignore this.
+ */
+export function configurePgliteExtensions(
+  extensions: Record<string, unknown>,
+): void {
+  if (pgliteProcess.__agentNativePgliteClientCreated) {
+    throw new Error(
+      "configurePgliteExtensions: a PGlite client already exists. Register " +
+        "extensions before the first database access.",
+    );
+  }
+  pgliteProcess.__agentNativePgliteExtensions = {
+    ...pgliteProcess.__agentNativePgliteExtensions,
+    ...extensions,
+  };
+}
+
 export async function loadPglitePackage(): Promise<{ PGlite: any }> {
   const packageName = "@electric-sql/pglite";
   return loadOptionalPeer(packageName, () => importOptionalModule(packageName));
@@ -354,6 +377,8 @@ const pgliteProcess = process as NodeJS.Process & {
   __agentNativePgliteProcessExitCleanupRegistered?: boolean;
   __agentNativePgliteClientShutdownRequested?: boolean;
   __agentNativePgliteClientGeneration?: number;
+  __agentNativePgliteExtensions?: Record<string, unknown>;
+  __agentNativePgliteClientCreated?: boolean;
   __agentNativePgliteClientReadyGenerations?: Map<string, number>;
   __agentNativeDbClientsClosingHooks?: DbClientsClosingHooks;
 };
@@ -720,7 +745,11 @@ export async function getPgliteClient(url: string): Promise<any> {
         assertPgliteClientGeneration(generation);
         const { PGlite } = await loadPglitePackage();
         assertPgliteClientGeneration(generation);
-        const client = await PGlite.create(clientKey);
+        const extensions = pgliteProcess.__agentNativePgliteExtensions;
+        pgliteProcess.__agentNativePgliteClientCreated = true;
+        const client = extensions
+          ? await PGlite.create(clientKey, { extensions })
+          : await PGlite.create(clientKey);
         try {
           assertPgliteClientGeneration(generation);
         } catch (error) {
