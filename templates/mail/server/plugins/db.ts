@@ -524,6 +524,14 @@ CREATE INDEX IF NOT EXISTS mail_gmail_token_accounts_expires_idx
       sql: `ALTER TABLE mail_sync_accounts
   ADD COLUMN IF NOT EXISTS inbox_capped INTEGER;`,
     },
+    {
+      version: 48,
+      name: "queued-draft-send-claimed-at-bigint",
+      sql: `-- guard:allow-destructive-ddl — widen the send-claim timestamp so Date.now() values fit without losing existing data.
+ALTER TABLE queued_email_drafts ADD COLUMN IF NOT EXISTS send_claimed_at BIGINT;
+ALTER TABLE queued_email_drafts
+  ALTER COLUMN send_claimed_at TYPE BIGINT USING send_claimed_at::BIGINT;`,
+    },
   ],
   { table: "mail_migrations" },
 );
