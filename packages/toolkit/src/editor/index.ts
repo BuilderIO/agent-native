@@ -63,6 +63,7 @@ export {
   type RichMarkdownEditorProps,
   type CreateRichMarkdownExtensionsOptions,
 } from "./RichMarkdownEditor.js";
+export { FocusWithoutScroll } from "./FocusWithoutScroll.js";
 export {
   normalizePastedTaskListHtml,
   TaskListPasteNormalization,

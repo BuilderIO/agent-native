@@ -47,6 +47,7 @@ import {
   repairCollabUndo,
   writeFollowUps,
 } from "./collabUndo.js";
+import { FocusWithoutScroll } from "./FocusWithoutScroll.js";
 import { createImageExtension, type ImageUploadFn } from "./ImageExtension.js";
 import { TaskListPasteNormalization } from "./TaskListPaste.js";
 
@@ -248,6 +249,7 @@ export function createSharedEditorExtensions({
       text: false,
     }),
     MarkdownText,
+    FocusWithoutScroll,
   ];
 
   if (feat.codeBlock) {
