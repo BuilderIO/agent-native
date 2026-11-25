@@ -98,8 +98,6 @@ describe("cli process launch options", () => {
     );
   });
 
-  // cmd.exe expands `%NAME%` even inside double quotes, so such an argument is
-  // handed over in a private environment variable, not in the command line.
   it("passes a Windows argument with %NAME% through an environment variable", () => {
     const dir = "C:\\Users\\%USERNAME%\\my app";
     expect(
@@ -137,7 +135,6 @@ describe("cli process launch options", () => {
         path.join(dir, "record-argv.cjs"),
         "require('fs').writeFileSync(process.env.SHIM_TEST_OUT, JSON.stringify(process.argv.slice(2)))",
       );
-      // Like npm's and pnpm's shims, this one finds its files through %~dp0.
       fs.writeFileSync(
         path.join(dir, `${manager}.cmd`),
         '@echo off\r\n"%SHIM_TEST_NODE%" "%~dp0record-argv.cjs" %*\r\n',

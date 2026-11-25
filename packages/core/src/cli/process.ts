@@ -83,7 +83,6 @@ export function shimSpawnTarget(
         `Cannot run ${command} on Windows: path contains '"': ${arg}`,
       );
     }
-    // The closing quote must not be escaped by a trailing backslash.
     const closed = arg.replace(/(\\*)$/, "$1$1");
     if (arg.includes("%")) {
       const name = `${SHIM_ARG_ENV_PREFIX}${index}`;
