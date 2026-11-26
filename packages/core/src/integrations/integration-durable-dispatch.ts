@@ -6,11 +6,7 @@ import {
   resolveDurableBackgroundDispatchPath,
 } from "../agent/durable-background.js";
 import { getAppConfig } from "../app-config/index.js";
-import {
-  canSendProcessorHandoff,
-  fireInternalDispatch,
-  UNSIGNED_HANDOFF_REFUSED,
-} from "../server/self-dispatch.js";
+import { fireInternalDispatch } from "../server/self-dispatch.js";
 import {
   INTEGRATION_DURABLE_DISPATCH_ENV,
   INTEGRATION_DURABLE_DISPATCH_SCOPES_ENV,
@@ -162,17 +158,6 @@ function logDispatch(
   });
 }
 
-function processorHandoffRefusal(input: {
-  event?: unknown;
-  baseUrl?: string;
-}): string | null {
-  try {
-    return canSendProcessorHandoff(input) ? null : UNSIGNED_HANDOFF_REFUSED;
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error);
-  }
-}
-
 export async function dispatchPendingIntegrationTask(input: {
   taskId: string;
   task: IntegrationDispatchTaskScope;
@@ -189,15 +174,6 @@ export async function dispatchPendingIntegrationTask(input: {
     !durable &&
     !input.allowPortableConfirmedReceiptReconciliation
   ) {
-    logDispatch(input.taskId, "failed", startedAt);
-    return "failed";
-  }
-  const refusal = processorHandoffRefusal(input);
-  if (refusal) {
-    console.error(`[integrations] Not dispatching ${input.taskId}: ${refusal}`);
-    if (!input.campaignContinuation) {
-      await recordDispatch(input.taskId, "failed");
-    }
     logDispatch(input.taskId, "failed", startedAt);
     return "failed";
   }

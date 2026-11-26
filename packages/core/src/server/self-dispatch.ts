@@ -1,8 +1,4 @@
-import {
-  acceptsUnsignedSelfDispatch,
-  hasConfiguredA2ASecret,
-  isA2AProductionRuntime,
-} from "../a2a/auth-policy.js";
+import { acceptsUnsignedSelfDispatch } from "../a2a/auth-policy.js";
 import { getAppConfig } from "../app-config/index.js";
 import { isLocalDatabase } from "../db/client.js";
 import { signInternalToken } from "../integrations/internal-token.js";
@@ -242,20 +238,16 @@ function rootBaseUrlForPath(baseUrl: string, path: string): string {
 export const UNSIGNED_HANDOFF_REFUSED =
   "A2A_SECRET is not set and the unsigned processor handoff would leave this machine. Set A2A_SECRET, or set AGENT_NATIVE_SELF_DISPATCH_URL to this server's loopback address.";
 
-/**
- * Whether a processor handoff can be sent and accepted: signed with
- * `A2A_SECRET`, or unsigned to a target this server's processors trust.
- * Throws when the self-dispatch URL cannot be resolved.
- */
-export function canSendProcessorHandoff(options: {
-  event?: unknown;
-  baseUrl?: string;
-}): boolean {
-  if (hasConfiguredA2ASecret()) return true;
-  if (isA2AProductionRuntime()) return false;
-  return acceptsUnsignedSelfDispatch(
-    options.baseUrl ?? resolveSelfDispatchBaseUrl(options.event),
-  );
+/** An unsigned handoff its processor would refuse, stopped before it is sent. */
+export class UnsignedHandoffRefusedError extends Error {
+  readonly target: string;
+  constructor(path: string, target: string) {
+    super(
+      `Self-dispatch to ${path} at ${target} refused: ${UNSIGNED_HANDOFF_REFUSED}`,
+    );
+    this.name = "UnsignedHandoffRefusedError";
+    this.target = target;
+  }
 }
 
 export async function fireInternalDispatch(
@@ -278,7 +270,12 @@ export async function fireInternalDispatch(
       isLocalDatabase() &&
       /A2A_SECRET/i.test(detail)
     ) {
-      // The processor applies the matching trusted-local policy.
+      if (!acceptsUnsignedSelfDispatch(url)) {
+        throw new UnsignedHandoffRefusedError(
+          options.path,
+          URL.canParse(url) ? new URL(url).origin : "an unparseable URL",
+        );
+      }
     } else {
       throw new Error(
         `[self-dispatch] Cannot sign processor handoff for ${options.taskId}: ${detail}`,

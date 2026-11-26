@@ -51,8 +51,8 @@ import {
   type RequestRunContext,
 } from "../server/request-context.js";
 import {
-  canSendProcessorHandoff,
   fireInternalDispatch,
+  UnsignedHandoffRefusedError,
 } from "../server/self-dispatch.js";
 import { agentChat } from "../shared/agent-chat.js";
 import {
@@ -1237,13 +1237,14 @@ async function handleSend(
   if (!asyncMode) idempotencyKey = undefined;
 
   if (asyncMode) {
+    // Refuse async mode entirely without the shared secret in production.
     // The async dispatch path self-fires the `_process-task` route, which is
     // authenticated with an internal HMAC signed by A2A_SECRET. A legacy
     // apiKeyEnv can authenticate the JSON-RPC request, but it cannot
     // authenticate that internal handoff. Accepting it here would create a
     // working task that can never start and leaves the caller polling until
     // its timeout.
-    if (!canSendProcessorHandoff({ event })) {
+    if (isA2AProductionRuntime() && !hasConfiguredA2ASecret()) {
       return {
         ...jsonRpcError(
           0,
@@ -1329,6 +1330,13 @@ async function handleSend(
     try {
       await fireProcessTaskDispatch(event, task.id, config);
     } catch (err) {
+      if (err instanceof UnsignedHandoffRefusedError) {
+        await updateTask(task.id, {
+          state: "failed",
+          message: taskFailureMessage(err, err.message),
+        });
+        return { ...jsonRpcError(0, -32001, err.message), _id: 0 };
+      }
       console.error("[a2a] Failed to dispatch process-task:", err);
     }
 

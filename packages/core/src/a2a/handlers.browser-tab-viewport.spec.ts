@@ -23,7 +23,7 @@ vi.mock("../mcp/chat-turn-store.js", () => ({
 
 vi.mock("../server/self-dispatch.js", () => ({
   fireInternalDispatch: vi.fn(async () => {}),
-  canSendProcessorHandoff: () => true,
+  UnsignedHandoffRefusedError: class extends Error {},
 }));
 
 function makeEvent(input: {

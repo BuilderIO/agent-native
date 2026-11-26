@@ -116,6 +116,10 @@ describe("integration webhook handler", () => {
 
   it("reports a failed handoff when an unsigned handoff would leave this machine", async () => {
     vi.stubEnv("A2A_SECRET", "");
+    const { signInternalToken } = await import("./internal-token.js");
+    vi.mocked(signInternalToken).mockImplementationOnce(() => {
+      throw new Error("A2A_SECRET is required");
+    });
     vi.stubEnv("FUSION_POD_UID", "");
     vi.stubEnv("FUSION_ENVIRONMENT", "");
     const sendResponse = vi.fn();
