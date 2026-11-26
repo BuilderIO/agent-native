@@ -12,6 +12,7 @@ import {
   BUILDER_CMS_BODY_BLOCK_COUNT_KEY,
   BUILDER_CMS_BODY_CONTENT_KEY,
 } from "./_builder-cms-source-adapter.js";
+import { withPublishedInteractiveHtmlLinks } from "./_interactive-html-blocks.js";
 
 const MODEL = "collection-local-edits";
 const OWNER = "owner@example.com";
@@ -26,6 +27,7 @@ const builder = vi.hoisted(() => ({
     string,
     { title: string; author: string; topic?: string; updatedAt: string }
   >(),
+  entriesPerRead: Number.POSITIVE_INFINITY,
   // Builder can leave out the time an entry last changed.
   bodyReadOmitsUpdateTime: false,
   // How Builder reports an emptied body: an empty block list, or an empty
@@ -34,6 +36,7 @@ const builder = vi.hoisted(() => ({
   // Runs once as the refresh reads the model's fields, after it read the
   // collection's field mappings.
   beforeModelFieldsRead: null as null | (() => Promise<void>),
+  beforeEntriesRead: null as null | (() => Promise<void>),
 }));
 
 vi.mock("./_builder-cms-read-client.js", async () => {
@@ -70,8 +73,18 @@ vi.mock("./_builder-cms-read-client.js", async () => {
       ];
     }),
     readBuilderCmsContentEntries: vi.fn(
-      async (args?: { includeBodies?: boolean }) => {
-        const entries = [...builder.entries].map(([id, entry]) => {
+      async (args?: { includeBodies?: boolean; offset?: number }) => {
+        const beforeRead = builder.beforeEntriesRead;
+        builder.beforeEntriesRead = null;
+        await beforeRead?.();
+        const startOffset = args?.offset ?? 0;
+        const nextOffset = Math.min(
+          startOffset + builder.entriesPerRead,
+          builder.entries.size,
+        );
+        const hasMore = nextOffset < builder.entries.size;
+        const page = [...builder.entries].slice(startOffset, nextOffset);
+        const entries = page.map(([id, entry]) => {
           if (!args?.includeBodies) return toEntry(id, entry);
           const { updatedAt, ...withoutUpdateTime } = toEntry(id, entry);
           const { lastUpdated, ...valuesWithoutUpdateTime } =
@@ -115,11 +128,11 @@ vi.mock("./_builder-cms-read-client.js", async () => {
           progress: {
             requestedLimit: 500,
             pageSize: 100,
-            startOffset: 0,
-            nextOffset: entries.length,
-            fetchedEntryCount: entries.length,
-            hasMore: false,
-            partial: false,
+            startOffset,
+            nextOffset,
+            fetchedEntryCount: nextOffset,
+            hasMore,
+            partial: hasMore,
             readMode: "builder-api",
           },
         };
@@ -170,7 +183,7 @@ type LockTx = Parameters<
 >[0];
 
 const membershipLock = vi.hoisted(() => ({
-  beforeNextLock: null as null | (() => Promise<void>),
+  beforeNextLock: null as null | ((itemIds: string[]) => Promise<void>),
   onLockExisting: null as null | ((tx: LockTx) => Promise<void>),
 }));
 
@@ -184,7 +197,7 @@ vi.mock("./_database-membership-lock.js", async (importOriginal) => {
     ) {
       const beforeLock = membershipLock.beforeNextLock;
       membershipLock.beforeNextLock = null;
-      await beforeLock?.();
+      await beforeLock?.(args[1]);
       return actual.lockDatabaseMemberships(...args);
     },
     async lockExistingDatabaseMemberships(
@@ -674,6 +687,40 @@ it("takes Builder's body for an unedited page and flags an edited one Builder ch
   await hydrateBody("entry-a", "Body A, theirs");
   expect(await pendingEdit("entry-a")).toBeNull();
   expect(await editConflicts("entry-a")).toBe("none");
+});
+
+it("keeps interactive blocks, which Builder holds only the links of", async () => {
+  const id = "entry-interactive";
+  builder.entries.set(id, { title: id, author: "Ida", updatedAt: tick() });
+  await refresh();
+  await hydrateBody(id, "Body");
+  const block = (count: number) =>
+    `\`\`\`html interactive\n<title>Tap counter</title>\n<button>${count}</button>\n\`\`\``;
+  const local = `Body\n${block(0)}\n${block(1)}`;
+  await editBody(id, local);
+  const linked = await withPublishedInteractiveHtmlLinks(
+    await documentIdFor(id),
+    local,
+  );
+  const [, firstLink = "", secondLink = ""] = linked.split("\n");
+
+  const sent = (await pendingEdit(id))?.bodyChange?.proposedBlocksJson;
+  for (const link of [firstLink, secondLink]) {
+    expect(link).toContain("[Open “Tap counter”](");
+    expect(sent).toContain(/block=([^&)]+)/.exec(link)?.[1]);
+  }
+  expect(sent).not.toContain("<button>");
+
+  await hydrateBody(id, linked);
+  expect(await localBody(id)).toBe(local);
+  expect(await pendingEdit(id)).toBeNull();
+
+  await hydrateBody(id, `Body, revised\n${firstLink}\n${secondLink}`);
+  expect(await localBody(id)).toBe(`Body, revised\n${block(0)}\n${block(1)}`);
+  expect(await pendingEdit(id)).toBeNull();
+
+  await hydrateBody(id, `Body, revised\n${secondLink}`);
+  expect(await localBody(id)).toBe(`Body, revised\n${block(1)}`);
 });
 
 it("moves an unedited property to the value a body read brings and flags an edited one", async () => {
@@ -1259,4 +1306,393 @@ it("tells every reader of the collection when a refresh rewrites its rows", asyn
   expect(
     refreshSource.changeResource?.({ databaseId: DATABASE_ID }, refreshed),
   ).toEqual({ resourceType: "document", resourceId: DATABASE_DOCUMENT_ID });
+});
+
+async function addPage(documentId: string, title: string, content = "") {
+  const now = tick();
+  await getDb().insert(schema.documents).values({
+    id: documentId,
+    ownerEmail: OWNER,
+    title,
+    content,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await getDb()
+    .insert(schema.contentDatabaseItems)
+    .values({
+      id: `item_${documentId}`,
+      ownerEmail: OWNER,
+      databaseId: DATABASE_ID,
+      documentId,
+      position: 99,
+      createdAt: now,
+      updatedAt: now,
+    });
+}
+
+async function saveNewArticle(documentId: string, entryId: string) {
+  const savedAt = tick();
+  await getDb()
+    .insert(schema.contentDatabaseSourceRows)
+    .values({
+      id: `row_${documentId}`,
+      ownerEmail: OWNER,
+      sourceId: SOURCE_ID,
+      databaseItemId: `item_${documentId}`,
+      documentId,
+      sourceRowId: entryId,
+      sourceQualifiedId: `builder-cms://${MODEL}/${entryId}`,
+      sourceDisplayKey: "Saved article",
+      provenance: "Builder CMS write adapter",
+      lastSyncedAt: savedAt,
+      createdAt: savedAt,
+      updatedAt: savedAt,
+    });
+}
+
+async function startSave(documentId: string, title: string) {
+  const startedAt = tick();
+  const changeSetId = `change_${documentId}`;
+  await getDb()
+    .insert(schema.contentDatabaseSourceChangeSets)
+    .values({
+      id: changeSetId,
+      ownerEmail: OWNER,
+      sourceId: SOURCE_ID,
+      databaseItemId: `item_${documentId}`,
+      documentId,
+      direction: "outbound",
+      state: "approved",
+      summary: "Create a draft",
+      fieldChangesJson: JSON.stringify([
+        {
+          propertyId: null,
+          propertyName: "Title",
+          localFieldKey: "title",
+          sourceFieldKey: "data.title",
+          currentValue: null,
+          proposedValue: title,
+        },
+      ]),
+      createdAt: startedAt,
+      updatedAt: startedAt,
+    });
+  await getDb()
+    .insert(schema.contentDatabaseSourceExecutions)
+    .values({
+      id: `execution_${documentId}`,
+      ownerEmail: OWNER,
+      sourceId: SOURCE_ID,
+      changeSetId,
+      adapter: "builder-cms",
+      pushMode: "draft",
+      state: "running",
+      idempotencyKey: `key_${documentId}`,
+      summary: "Create a draft",
+      createdAt: startedAt,
+      updatedAt: startedAt,
+    });
+}
+
+async function finishSave(documentId: string, entryId: string) {
+  await saveNewArticle(documentId, entryId);
+  await getDb()
+    .update(schema.contentDatabaseSourceExecutions)
+    .set({ state: "succeeded", updatedAt: tick() })
+    .where(
+      eq(schema.contentDatabaseSourceExecutions.id, `execution_${documentId}`),
+    );
+}
+
+function beforeLockingItem(itemId: string, run: () => Promise<void>) {
+  const beforeLock = async (itemIds: string[]) => {
+    if (itemIds.includes(itemId)) return run();
+    membershipLock.beforeNextLock = beforeLock;
+  };
+  membershipLock.beforeNextLock = beforeLock;
+}
+
+async function itemIdFor(entryId: string) {
+  const [row] = await getDb()
+    .select({ itemId: schema.contentDatabaseSourceRows.databaseItemId })
+    .from(schema.contentDatabaseSourceRows)
+    .where(
+      and(
+        eq(schema.contentDatabaseSourceRows.sourceId, SOURCE_ID),
+        eq(schema.contentDatabaseSourceRows.sourceRowId, entryId),
+      ),
+    );
+  return row.itemId as string;
+}
+
+async function documentIdsFor(entryId: string) {
+  const rows = await getDb()
+    .select({ documentId: schema.contentDatabaseSourceRows.documentId })
+    .from(schema.contentDatabaseSourceRows)
+    .where(
+      and(
+        eq(schema.contentDatabaseSourceRows.sourceId, SOURCE_ID),
+        eq(schema.contentDatabaseSourceRows.sourceRowId, entryId),
+      ),
+    );
+  return rows.map((row) => row.documentId);
+}
+
+async function readMetadata() {
+  const [source] = await getDb()
+    .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.id, SOURCE_ID));
+  return JSON.parse(source.metadataJson);
+}
+
+async function forgetReadStart() {
+  const { activeReadStartedAt, ...metadata } = await readMetadata();
+  expect(activeReadStartedAt).toBeTypeOf("string");
+  await getDb()
+    .update(schema.contentDatabaseSources)
+    .set({ metadataJson: JSON.stringify(metadata) })
+    .where(eq(schema.contentDatabaseSources.id, SOURCE_ID));
+  return activeReadStartedAt as string;
+}
+
+async function afterRefreshListsPages() {
+  await utils.sourceSetupPayload(DATABASE_ID);
+}
+
+async function pageState(documentId: string) {
+  const entries = await getDb()
+    .select({ entryId: schema.contentDatabaseSourceRows.sourceRowId })
+    .from(schema.contentDatabaseSourceRows)
+    .where(
+      and(
+        eq(schema.contentDatabaseSourceRows.sourceId, SOURCE_ID),
+        eq(schema.contentDatabaseSourceRows.documentId, documentId),
+      ),
+    );
+  const [item] = await getDb()
+    .select({ body: schema.contentDatabaseItems.bodyHydrationStatus })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.documentId, documentId));
+  return { entries: entries.map((row) => row.entryId), body: item.body };
+}
+
+it("leaves a page Builder doesn't have without a Builder row", async () => {
+  await addPage("doc_page_only_in_content", "Only in Content");
+  const before = await pageState("doc_page_only_in_content");
+  expect(before.entries).toEqual([]);
+
+  await refresh();
+  expect(await pageState("doc_page_only_in_content")).toEqual(before);
+});
+
+it("doesn't link a page to an entry another page holds", async () => {
+  const holder = await documentIdFor("entry-b");
+  await addPage("doc_page_same_title", builderEntry("entry-b").title);
+
+  await refresh();
+  expect(await pageState("doc_page_same_title")).toMatchObject({ entries: [] });
+  expect(await documentIdFor("entry-b")).toBe(holder);
+});
+
+it("gives an entry its own page when two new pages share its title", async () => {
+  const pages = ["doc_page_shared_title_1", "doc_page_shared_title_2"];
+  builder.entries.set("entry-shared-title", {
+    title: "Shared title",
+    author: "Ada",
+    updatedAt: tick(),
+  });
+  for (const documentId of pages) await addPage(documentId, "Shared title");
+  try {
+    await refresh();
+    for (const documentId of pages) {
+      expect((await pageState(documentId)).entries).toEqual([]);
+    }
+    const holders = await documentIdsFor("entry-shared-title");
+    expect(holders).toHaveLength(1);
+    expect(pages).not.toContain(holders[0]);
+  } finally {
+    builder.entries.delete("entry-shared-title");
+  }
+});
+
+it.each([
+  { neighbors: "no other page", hasNeighbor: false },
+  { neighbors: "another page that has its title", hasNeighbor: true },
+])(
+  "leaves an entry to the page still saving it, with $neighbors",
+  async ({ hasNeighbor }) => {
+    const suffix = hasNeighbor ? "neighbor" : "alone";
+    const documentId = `doc_page_still_saving_${suffix}`;
+    const entryId = `entry-still-saving-${suffix}`;
+    const title = `First title ${suffix}`;
+    if (hasNeighbor) await addPage("doc_page_saving_neighbor", title);
+    builder.beforeEntriesRead = async () => {
+      await afterRefreshListsPages();
+      await addPage(documentId, title);
+      await startSave(documentId, title);
+      builder.entries.set(entryId, {
+        title,
+        author: "Ada",
+        updatedAt: tick(),
+      });
+      await getDb()
+        .update(schema.documents)
+        .set({ title: `${title}, still typing`, updatedAt: tick() })
+        .where(eq(schema.documents.id, documentId));
+    };
+    try {
+      await refresh();
+      expect(await documentIdsFor(entryId)).toEqual([]);
+
+      await finishSave(documentId, entryId);
+      await refresh();
+      expect(await documentIdsFor(entryId)).toEqual([documentId]);
+    } finally {
+      builder.entries.delete(entryId);
+    }
+  },
+);
+
+it("keeps the entry a page saves while a refresh matches it to another", async () => {
+  const documentId = "doc_page_saved_while_matched";
+  builder.entries.set("entry-matched", {
+    title: "Matched title",
+    author: "Ada",
+    updatedAt: tick(),
+  });
+  await addPage(documentId, "Matched title");
+  const before = await pageState(documentId);
+  beforeLockingItem(`item_${documentId}`, () =>
+    saveNewArticle(documentId, "entry-saved-while-matched"),
+  );
+  try {
+    await refresh();
+    expect(await pageState(documentId)).toEqual({
+      ...before,
+      entries: ["entry-saved-while-matched"],
+    });
+    const bodyReads = await getDb()
+      .select({ entryId: schema.contentDatabaseBodyHydrationQueue.sourceRowId })
+      .from(schema.contentDatabaseBodyHydrationQueue)
+      .where(
+        eq(schema.contentDatabaseBodyHydrationQueue.documentId, documentId),
+      );
+    expect(bodyReads).not.toContainEqual({ entryId: "entry-matched" });
+
+    await refresh();
+    const holders = await documentIdsFor("entry-matched");
+    expect(holders).toHaveLength(1);
+    expect(holders).not.toContain(documentId);
+  } finally {
+    builder.entries.delete("entry-matched");
+    membershipLock.beforeNextLock = null;
+  }
+});
+
+it("keeps the row of an article saved while a refresh reads page by page, until a later refresh misses it too", async () => {
+  builder.entriesPerRead = Math.ceil(builder.entries.size / 2);
+  try {
+    await refresh();
+    const documentId = "doc_page_saved_midway";
+    await addPage(documentId, "Saved midway");
+    await saveNewArticle(documentId, "entry-saved-midway");
+
+    await refresh();
+    expect((await pageState(documentId)).entries).toEqual([
+      "entry-saved-midway",
+    ]);
+
+    await refresh();
+    await refresh();
+    expect((await pageState(documentId)).entries).toEqual([]);
+  } finally {
+    builder.entriesPerRead = Number.POSITIVE_INFINITY;
+  }
+});
+
+it("keeps a row a save updates while a page-by-page refresh waits to drop it", async () => {
+  builder.entriesPerRead = Math.ceil(builder.entries.size / 2);
+  const documentId = "doc_page_saved_at_cleanup";
+  await addPage(documentId, "Saved at cleanup", "Written in Content");
+  await saveNewArticle(documentId, "entry-before-cleanup");
+  let savedAgain = false;
+  beforeLockingItem(`item_${documentId}`, async () => {
+    savedAgain = true;
+    await getDb()
+      .update(schema.contentDatabaseSourceRows)
+      .set({ sourceRowId: "entry-at-cleanup", lastSyncedAt: tick() })
+      .where(eq(schema.contentDatabaseSourceRows.documentId, documentId));
+  });
+  try {
+    await refresh();
+    expect(savedAgain).toBe(false);
+    await refresh();
+    expect(savedAgain).toBe(true);
+    expect((await pageState(documentId)).entries).toEqual(["entry-at-cleanup"]);
+  } finally {
+    builder.entriesPerRead = Number.POSITIVE_INFINITY;
+    membershipLock.beforeNextLock = null;
+  }
+});
+
+it("drops no rows at the end of a read that recorded no start", async () => {
+  builder.entriesPerRead = Math.ceil(builder.entries.size / 2);
+  const documentId = "doc_page_unknown_start";
+  await addPage(documentId, "Unknown start");
+  await saveNewArticle(documentId, "entry-unknown-start");
+  try {
+    await refresh();
+    await forgetReadStart();
+
+    await refresh();
+    expect((await pageState(documentId)).entries).toEqual([
+      "entry-unknown-start",
+    ]);
+  } finally {
+    builder.entriesPerRead = Number.POSITIVE_INFINITY;
+  }
+});
+
+it("keeps a read's start when its record is reset while a later page loads", async () => {
+  builder.entriesPerRead = 1;
+  try {
+    await refresh();
+    let startedAt = "";
+    builder.beforeEntriesRead = async () => {
+      startedAt = await forgetReadStart();
+    };
+    await refresh();
+    expect((await readMetadata()).activeReadStartedAt).toBe(startedAt);
+  } finally {
+    builder.entriesPerRead = Number.POSITIVE_INFINITY;
+    await refresh();
+  }
+  expect((await readMetadata()).activeReadStartedAt).toBeUndefined();
+});
+
+it("keeps the row and save of a page made while a refresh reads the model", async () => {
+  const documentId = "doc_page_made_during_read";
+  builder.beforeEntriesRead = async () => {
+    await afterRefreshListsPages();
+    await addPage(documentId, "Made during the read");
+    await startSave(documentId, "Made during the read");
+  };
+  beforeLockingItem(await itemIdFor("entry-a"), () =>
+    saveNewArticle(documentId, "entry-made-during-read"),
+  );
+  try {
+    await refresh();
+    expect((await pageState(documentId)).entries).toEqual([
+      "entry-made-during-read",
+    ]);
+    const saves = await getDb()
+      .select({ id: schema.contentDatabaseSourceChangeSets.id })
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(eq(schema.contentDatabaseSourceChangeSets.documentId, documentId));
+    expect(saves).toHaveLength(1);
+  } finally {
+    membershipLock.beforeNextLock = null;
+  }
 });

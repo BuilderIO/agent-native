@@ -6,6 +6,7 @@ type ReadOnlyTarget = {
 };
 
 const authPaths = new Set([
+  "/_agent-native/auth/magic-link",
   "/_agent-native/auth/ba/sign-in/magic-link",
   "/_agent-native/auth/email-link/landing",
 ]);

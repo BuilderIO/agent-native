@@ -7,9 +7,21 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Long design titles stay clear of the sidebar controls, with the full title available on hover or keyboard focus.
+- Opening a localhost app in Design from an agent no longer fails with a view-move refusal.
+- The inspector stays readable when resized or reopened.
+- The "You don't have access to edit this design" banner no longer shows a zoom percentage.
 - The floating inspector panel fits narrow editor windows without clipping controls.
 
 ## 2026-11-23
+
+### Added
+
+- Number fields in the inspector (width, height, opacity, corner radius, font size, line height and letter spacing) can bind to the design's tokens from a list under the field
+
+### Improved
+
+- The inspector sits on a 16px grid: section titles are larger, field names move into tooltips, and rows no longer reserve an empty action column.
 
 ### Fixed
 

@@ -136,7 +136,7 @@ export function inboxTabsForItem(
   if (tabs.length === 1 && tabs[0].kind === "inbox") return [tabs[0].id];
 
   const allTab = tabs.find((tab) => tab.kind === "all");
-  const matched = tabs.find(
+  const matched = tabs.filter(
     (tab) =>
       (tab.kind === "label" || tab.kind === "filter") &&
       tab.query !== undefined &&
@@ -145,8 +145,9 @@ export function inboxTabsForItem(
 
   return [
     ...(allTab ? [allTab.id] : []),
-    matched?.id ??
-      (item.isAutomated === false ? IMPORTANT_TAB_ID : OTHER_TAB_ID),
+    ...(matched.length
+      ? matched.map((tab) => tab.id)
+      : [item.isAutomated === false ? IMPORTANT_TAB_ID : OTHER_TAB_ID]),
   ];
 }
 

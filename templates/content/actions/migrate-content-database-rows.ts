@@ -219,6 +219,7 @@ export async function runMigration(
         validatePlan(
           args.plan,
           await snapshotMigration(tx, args.plan.databaseId),
+          { ctx },
         );
         return null;
       });
@@ -408,12 +409,13 @@ export async function runMigration(
             validatePlan(
               args.plan,
               await snapshotMigration(tx, args.plan.databaseId),
+              { ctx },
             );
             await flushMigrationDocuments(args.plan.rows);
           }
         }
         const snapshot = await snapshotMigration(tx, args.plan.databaseId);
-        validatePlan(args.plan, snapshot);
+        validatePlan(args.plan, snapshot, { ctx });
         const preDigest = snapshotDigest(snapshot);
         const orderedIds = snapshot.rows.map((row: any) => ({
           itemId: row.item.id,

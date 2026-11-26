@@ -4,6 +4,13 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { DesignSystemContext } from "../../../design-system/context.js";
+import {
+  AGENT_NATIVE_PART_SET,
+  definePartSet,
+  useDesignSystemPart,
+  withDesignSystemParts,
+} from "../../../design-system/parts.js";
 import { settingsTags } from "./hooks.js";
 import { isSettingsRowVisible } from "./model.js";
 import { SettingsSectionsRendererProvider } from "./renderer.js";
@@ -242,5 +249,62 @@ describe("SettingsSections", () => {
       ),
     ).toThrow("Custom renderer failed");
     expect(container.querySelector('[data-skin="house"]')).toBeNull();
+  });
+
+  it("draws with the design system's settings whole part, behind an explicit renderer", () => {
+    const plain = definePartSet({
+      name: "plain",
+      parts: AGENT_NATIVE_PART_SET.parts,
+      whole: { settings: PlainSkin },
+    });
+    act(() =>
+      root.render(
+        <DesignSystemContext.Provider value={{ definition: { parts: plain } }}>
+          <Page writes={[]} />
+        </DesignSystemContext.Provider>,
+      ),
+    );
+    expect(container.querySelector('[data-skin="plain"]')).not.toBeNull();
+
+    function OtherSkin() {
+      return <div data-skin="other" />;
+    }
+    act(() =>
+      root.render(
+        <DesignSystemContext.Provider value={{ definition: { parts: plain } }}>
+          <SettingsSectionsRendererProvider value={OtherSkin}>
+            <Page writes={[]} />
+          </SettingsSectionsRendererProvider>
+        </DesignSystemContext.Provider>,
+      ),
+    );
+    expect(container.querySelector('[data-skin="other"]')).not.toBeNull();
+    expect(container.querySelector('[data-skin="plain"]')).toBeNull();
+  });
+
+  it("takes whole parts by their earlier names through withDesignSystemParts", () => {
+    const definition = withDesignSystemParts("plain", {
+      SettingsSections: PlainSkin,
+    });
+    expect(definition.parts?.whole).toEqual({ settings: PlainSkin });
+    expect(definition.parts?.parts).toBe(AGENT_NATIVE_PART_SET.parts);
+
+    let found: unknown;
+    function Probe() {
+      found = useDesignSystemPart("SettingsSections");
+      return <Page writes={[]} />;
+    }
+    act(() =>
+      root.render(
+        <DesignSystemContext.Provider value={{ definition }}>
+          <Probe />
+        </DesignSystemContext.Provider>,
+      ),
+    );
+    expect(found).toBe(PlainSkin);
+    expect(container.querySelector('[data-skin="plain"]')).not.toBeNull();
+    expect(() =>
+      withDesignSystemParts("plain", { SettingsPanel: PlainSkin }),
+    ).toThrow('"SettingsPanel" is not a whole part');
   });
 });

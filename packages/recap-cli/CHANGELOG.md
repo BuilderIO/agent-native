@@ -1,5 +1,11 @@
 # @agent-native/recap-cli
 
+## 0.5.109
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.5.108
 
 ### Patch Changes
@@ -631,11 +637,5 @@
   `parseCodexUsage` no longer strips OpenAI's cached tokens out of it (it did that
   to compensate for the old pricing formula, so keeping both would have swung the
   error the other way), and `parseOpenAiCompatibleUsage` was already correct.
-
-## 0.5.9
-
-### Patch Changes
-
-- Release all public npm packages with a patch version bump.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

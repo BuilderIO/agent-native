@@ -16,8 +16,8 @@ This index summarizes the atomic product contracts beneath the public roadmap. E
 | Verified         |     4 |
 | Failing          |     1 |
 | Stale            |     0 |
-| In Progress      |    22 |
-| Approved Shape   |    86 |
+| In Progress      |    23 |
+| Approved Shape   |    85 |
 | Exploring        |     9 |
 | Deferred         |     0 |
 | Superseded       |     5 |
@@ -450,7 +450,7 @@ graph LR
 
 | Capability                                                                        | State          | User promise                                                                                                                                              |
 | --------------------------------------------------------------------------------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [Artifact Blocks](capabilities/content.renderer.artifact-block.md)                | Approved Shape | Make a one-off interactive or visual artifact on one page, then promote it only if reuse becomes real.                                                    |
+| [Artifact Blocks](capabilities/content.renderer.artifact-block.md)                | In Progress    | Make a one-off interactive or visual artifact on one page, then promote it only if reuse becomes real.                                                    |
 | [Custom Blocks](capabilities/content.renderer.custom-block.md)                    | Approved Shape | Name, govern, and reuse a safe renderer without making it a hidden application.                                                                           |
 | [Collection graph renderers (superseded)](capabilities/content.renderer.graph.md) | Superseded     | Historical umbrella for graph and chart rendering, now split into distinct semantic Graph and analytical Chart capabilities                               |
 | [Typed renderers](capabilities/content.renderer.typed.md)                         | Approved Shape | Compatible renderers present typed Content values consistently across surfaces while preserving meaning, accessibility, inheritance, and export fallback. |

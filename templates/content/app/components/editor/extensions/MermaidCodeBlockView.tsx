@@ -3,10 +3,9 @@ import { useMermaidRender } from "@agent-native/toolkit/app/blocks";
 import {
   NodeViewContent,
   NodeViewWrapper,
-  useEditorState,
   type NodeViewProps,
 } from "@tiptap/react";
-import { useEffect, useId, useState } from "react";
+import { useId } from "react";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -16,17 +15,10 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
+import { useSettledValue, useSourceCursor } from "./source-block";
+
 /** How long typing pauses before the drawing catches up with the source. */
 const REDRAW_DELAY_MS = 200;
-
-function useSettledValue<T>(value: T, delayMs: number): T {
-  const [settled, setSettled] = useState(value);
-  useEffect(() => {
-    const timer = window.setTimeout(() => setSettled(value), delayMs);
-    return () => window.clearTimeout(timer);
-  }, [value, delayMs]);
-  return settled;
-}
 
 /**
  * A Mermaid code block drawn as its diagram. While the cursor is in the block
@@ -41,22 +33,7 @@ export function MermaidCodeBlockView({ editor, node, getPos }: NodeViewProps) {
     useSettledValue(source, REDRAW_DELAY_MS),
     idSeed,
   );
-  const { editable, editing } = useEditorState({
-    editor,
-    selector: ({ editor: current }) => {
-      const { $from, $to } = current.state.selection;
-      const pos = getPos();
-      const cursorInside =
-        typeof pos === "number" &&
-        $from.parent.isTextblock &&
-        $from.before() === pos &&
-        $to.parent === $from.parent;
-      return {
-        editable: current.isEditable,
-        editing: current.isEditable && current.isFocused && cursorInside,
-      };
-    },
-  });
+  const { editable, editing } = useSourceCursor(editor, getPos);
 
   const empty = source.trim() === "";
   const broken = Boolean(drawn.error) && !drawn.unavailable;

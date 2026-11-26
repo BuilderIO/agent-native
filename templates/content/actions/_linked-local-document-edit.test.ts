@@ -58,6 +58,32 @@ describe("editLinkedLocalDocumentThroughBrowser", () => {
     );
   });
 
+  it("accepts a file that spells the same result its own way", async () => {
+    mocks.listBrowserSessions.mockResolvedValue([
+      {
+        sessionId: "exact",
+        actions: [{ name: linkedLocalDocumentEditActionName("doc-1") }],
+      },
+    ]);
+    mocks.callBrowserSession.mockResolvedValue({
+      status: "persisted",
+      content: "# Updated\n\n* one\n* two\n",
+      title: "Updated",
+      path: "fixture.mdx",
+      runtime: "desktop",
+    });
+
+    await expect(
+      editLinkedLocalDocumentThroughBrowser({
+        ...args,
+        expectedResultContent: "# Updated\n- one\n- two",
+      }),
+    ).resolves.toMatchObject({
+      status: "persisted",
+      content: "# Updated\n\n* one\n* two\n",
+    });
+  });
+
   it("reports unavailable instead of falling back to an unrelated tab", async () => {
     mocks.listBrowserSessions.mockResolvedValue([
       {

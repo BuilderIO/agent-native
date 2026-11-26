@@ -18,8 +18,10 @@ import {
   type CallProvenance,
   isAgentTextLockRefusal,
 } from "../../actions/_document-agent-lock.js";
+import { interactiveHtmlUrls } from "../../actions/_interactive-html-blocks.js";
 import type { DocumentSyncStatus } from "../../shared/api.js";
 import { keepVideoBlockIds } from "../../shared/comment-block-anchor.js";
+import { interactiveHtmlForNotion } from "../../shared/interactive-html-fallback.js";
 import {
   canonicalizeNotionNfm,
   keepCodeBlockWrap,
@@ -70,6 +72,13 @@ function iconAfterNotionSync(
     (parsed?.kind === "image" && parsed.authority === "private-icon")
     ? localIcon
     : serializeIconValue(remoteIcon);
+}
+
+async function notionContent(documentId: string, content: string) {
+  return interactiveHtmlForNotion(
+    content,
+    await interactiveHtmlUrls(documentId, content),
+  );
 }
 
 function nanoid(size = 12): string {
@@ -1392,7 +1401,7 @@ async function pushDocumentToNotionInner(
     accessToken: connection.accessToken,
     pageId: link.remotePageId,
     title: document.title,
-    content: document.content,
+    content: await notionContent(documentId, document.content),
     icon: document.icon,
   });
 
@@ -1748,7 +1757,7 @@ export async function createAndLinkNotionPage(
     accessToken: connection.accessToken,
     parentPageId: parentId,
     title: document.title,
-    content: document.content,
+    content: await notionContent(documentId, document.content),
     icon: document.icon,
   });
 

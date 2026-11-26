@@ -3,6 +3,21 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-24
+
+### Added
+
+- Copy a link to an email from its toolbar or the command menu, to paste in a task or a message. The link opens the email in your own Mail, even after you archive it; it doesn't share the email with anyone.
+
+### Improved
+
+- When Google limits Mail's requests, the notice above the list now says when the list was last updated and that some mail may be missing.
+
+### Fixed
+
+- Keep inbox splits accurate and preserve saved conversations when Gmail is busy.
+- Pressing U, or clicking Mark unread, now changes the email's row in the list the first time. Before, the row could stay read for a few seconds or until the third press.
+
 ## 2026-11-23
 
 ### Improved
@@ -11,8 +26,13 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- The label menu's tag icons no longer touch the label names, and the sort menu's "Connect an AI provider" hint stays on one line beside Priority. Scheduled and Snoozed now show their name above the list, like Drafts and Trash, and the sidebar's Labels list shows only your labels and saved searches, not Inbox or its tabs.
 - Choosing "I have a Builder.io account" from the sort menu's "Connect an AI provider" keeps its window open, instead of closing it and the dialog at once.
 - The signature box and the AI triage instructions in Settings no longer use the name Steve in their examples.
+
+### Changed
+
+- Mail's header has one refresh button instead of a separate sync icon beside it: the button spins while Mail syncs and pauses while Gmail has Mail waiting. The dark mode switch moved from the bottom of the sidebar to the ⌘K menu, where other Agent-Native apps keep it.
 
 ## 2026-11-22
 

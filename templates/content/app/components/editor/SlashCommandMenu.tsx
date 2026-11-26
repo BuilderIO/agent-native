@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/client/labs";
 import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
 import type { CreateInlineDatabaseResponse } from "@shared/api";
+import { INTERACTIVE_HTML_LANGUAGE } from "@shared/interactive-html-language";
 import {
   CONTENT_SLASH_ADVANCED_CODE,
   CONTENT_SLASH_DEVELOPER_DOCS,
@@ -28,6 +29,7 @@ import {
   IconListNumbers,
   IconSquareCheck,
   IconChevronRight,
+  IconAppWindow,
   IconCode,
   IconMinus,
   IconTable as TableIcon,
@@ -707,10 +709,11 @@ export function insertColumnSet(
 export function setCodeBlockFromSlashCommand(
   editor: Editor,
   slashRange: { from: number; to: number } | null,
+  language?: string,
 ) {
   const chain = editor.chain().focus();
   if (slashRange) chain.deleteRange(slashRange);
-  return chain.setCodeBlock().run();
+  return chain.setCodeBlock(language ? { language } : undefined).run();
 }
 
 const commands: CommandTemplate[] = [
@@ -772,6 +775,19 @@ const commands: CommandTemplate[] = [
     preserveSlashRange: true,
     action: (editor, { slashRange }) =>
       setCodeBlockFromSlashCommand(editor, slashRange),
+  },
+  {
+    titleKey: "editor.slash.interactiveHtml",
+    descriptionKey: "editor.slash.interactiveHtmlDescription",
+    icon: IconAppWindow,
+    suggestionSafe: true,
+    preserveSlashRange: true,
+    action: (editor, { slashRange }) =>
+      setCodeBlockFromSlashCommand(
+        editor,
+        slashRange,
+        INTERACTIVE_HTML_LANGUAGE,
+      ),
   },
   {
     titleKey: "editor.slash.quote",
