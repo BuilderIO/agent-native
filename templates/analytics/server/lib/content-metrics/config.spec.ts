@@ -9,6 +9,7 @@ import {
   signupsSettingsUpdateSchema,
   stepEnabled,
   xAccountSchema,
+  xAccountsSchema,
   xLinkTargetSchema,
   youtubeChannelSchema,
 } from "./config";
@@ -270,5 +271,26 @@ describe("X", () => {
     for (const value of ["https://builder.io/blog", "builder", "builder.io/"]) {
       expect(xLinkTargetSchema.safeParse(value).success).toBe(false);
     }
+  });
+
+  it("rejects an account listed twice, even in another case", () => {
+    const parsed = xAccountsSchema.safeParse([
+      { handle: "@builderio", allPosts: true },
+      { handle: "@Steve8708" },
+      { handle: "@BuilderIO", allPosts: false },
+    ]);
+    expect(parsed.success).toBe(false);
+    expect(parsed.error?.issues).toEqual([
+      expect.objectContaining({
+        path: [2, "handle"],
+        message: "@BuilderIO is already listed; X handles ignore case.",
+      }),
+    ]);
+    expect(
+      xAccountsSchema.safeParse([
+        { handle: "@builderio" },
+        { handle: "@Steve8708" },
+      ]).success,
+    ).toBe(true);
   });
 });

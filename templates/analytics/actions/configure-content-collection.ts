@@ -15,7 +15,7 @@ import {
   searchConsoleSiteSchema,
   signupsSettingsUpdateSchema,
   storedSearchConsoleSiteSchema,
-  xAccountSchema,
+  xAccountsSchema,
   xLinkTargetSchema,
   xTermSchema,
   youtubeChannelSchema,
@@ -115,9 +115,7 @@ export default defineAction({
       .describe(
         "Collect posts from xAccounts through the official X API once a day: each new post when first seen, then its views, likes, reposts and replies again at 1, 3, 7 and 30 days old, for the posts that count. Needs an X API Bearer token under Data Sources. X bills every post it returns, so the step stops before $25 of reads in a UTC calendar month.",
       ),
-    xAccounts: z
-      .array(xAccountSchema)
-      .max(20)
+    xAccounts: xAccountsSchema
       .optional()
       .describe(
         'X accounts to collect, replacing the saved list. With allPosts every post counts; otherwise a post counts only when it links under xLinks or names one of xTerms. Reposts and replies are never read. E.g. [{"handle":"@builderio","allPosts":true},{"handle":"@Steve8708"}].',

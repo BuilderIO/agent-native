@@ -87,6 +87,24 @@ export const xAccountSchema = z.object({
 });
 export type XAccount = z.infer<typeof xAccountSchema>;
 
+export const xAccountsSchema = z
+  .array(xAccountSchema)
+  .max(20)
+  .superRefine((accounts, ctx) => {
+    const seen = new Set<string>();
+    accounts.forEach((account, index) => {
+      const handle = account.handle.toLowerCase();
+      if (seen.has(handle)) {
+        ctx.addIssue({
+          code: "custom",
+          path: [index, "handle"],
+          message: `${account.handle} is already listed; X handles ignore case.`,
+        });
+      }
+      seen.add(handle);
+    });
+  });
+
 export const xLinkTargetSchema = z
   .string()
   .trim()
@@ -205,7 +223,7 @@ export const contentCollectionConfigSchema = z.object({
     .default({ enabled: false, channels: [] }),
   x: stepToggleSchema
     .extend({
-      accounts: z.array(xAccountSchema).max(20).default([]),
+      accounts: xAccountsSchema.default([]),
       links: z.array(xLinkTargetSchema).max(20).default([]),
       terms: z.array(xTermSchema).max(20).default([]),
     })
