@@ -28,6 +28,7 @@ export type Leg = {
   direction: "forward" | "back";
   dx: number;
   dy: number;
+  travelPx: number;
   elapsedMs: number;
   frames: number[];
   longFrames: number[];
@@ -141,10 +142,11 @@ async function pan(
     direction,
     dx: after.x - before.x,
     dy: after.y - before.y,
+    travelPx: Math.hypot(after.x - before.x, after.y - before.y),
     elapsedMs,
     ...sampled,
   };
-  const travelPx = Math.hypot(leg.dx, leg.dy);
+  const travelPx = leg.travelPx;
   if (travelPx < MIN_CAMERA_TRAVEL_PX) {
     ctx.fail(
       `camera did not move on the ${direction} leg: ${JSON.stringify({ before, after })}`,
@@ -171,9 +173,16 @@ async function sustainedPan(
   await options.beforeLeg?.(ctx);
   await ctx.sampler.start();
   const startedAt = performance.now();
+  let travelPx = 0;
+  let at = before;
   for (let sweep = 0; sweep < sweeps; sweep += 1) {
-    await wheelLeg(ctx, ticksPerSweep, 1, options);
-    await wheelLeg(ctx, ticksPerSweep, -1, options);
+    for (const sign of [1, -1]) {
+      await wheelLeg(ctx, ticksPerSweep, sign, options);
+      const reached = await readCamera(page);
+      if (!reached) ctx.fail("canvas camera vanished during the sustained pan");
+      travelPx += Math.hypot(reached.x - at.x, reached.y - at.y);
+      at = reached;
+    }
   }
   const elapsedMs = performance.now() - startedAt;
   if (options.gestureEndTailMs) {
@@ -188,6 +197,7 @@ async function sustainedPan(
     direction: "back",
     dx: after.x - before.x,
     dy: after.y - before.y,
+    travelPx: travelPx + Math.hypot(after.x - at.x, after.y - at.y),
     elapsedMs,
     ...sampled,
   };
@@ -334,10 +344,7 @@ export async function runPan(
       longFrames: legs.flatMap((leg) => leg.longFrames),
       extra: {
         panMethod: PAN_METHOD,
-        cameraDistancePx: legs.reduce(
-          (sum, leg) => sum + Math.hypot(leg.dx, leg.dy),
-          0,
-        ),
+        cameraDistancePx: legs.reduce((sum, leg) => sum + leg.travelPx, 0),
         liveIframesAtEnd: await page
           .locator("iframe[data-design-preview-iframe]")
           .count(),
@@ -352,7 +359,12 @@ export async function runPan(
           pxPerTick,
           ticks,
         },
-        legs: legs.map(({ direction, dx, dy }) => ({ direction, dx, dy })),
+        legs: legs.map(({ direction, dx, dy, travelPx }) => ({
+          direction,
+          dx,
+          dy,
+          travelPx,
+        })),
         returnedErrorPx: returnErrorPx,
       },
     };

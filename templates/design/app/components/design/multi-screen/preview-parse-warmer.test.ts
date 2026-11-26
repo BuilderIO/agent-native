@@ -204,3 +204,23 @@ it("drops a requested parse once every requester cancels it", async () => {
     ),
   ).toBe(false);
 });
+
+it("forgets a request once its parse arrives, so a one-shot caller leaves no count behind", async () => {
+  const warmer = await loadWarmer();
+  const pool = FakeWorker.instances;
+  warmer.requestPreviewParses(["<p>one-shot</p>"]);
+  const [worker] = pool;
+  reply(worker, worker.posted[0]);
+  expect(warmer.isPreviewParsePending("<p>one-shot</p>")).toBe(false);
+
+  for (let index = 0; index < 200; index += 1) {
+    warmer.createSourceDocumentProvenance(`<p>filler ${index}</p>`);
+  }
+  const fillers = pool.map((_, index) => `<p>busy ${index}</p>`);
+  warmer.requestPreviewParses(fillers);
+  warmer.requestPreviewParses(["<p>one-shot</p>"]);
+  expect(warmer.isPreviewParsePending("<p>one-shot</p>")).toBe(true);
+
+  warmer.cancelPreviewParses(["<p>one-shot</p>"]);
+  expect(warmer.isPreviewParsePending("<p>one-shot</p>")).toBe(false);
+});

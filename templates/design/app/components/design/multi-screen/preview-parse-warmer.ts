@@ -98,6 +98,7 @@ function receive(worker: Worker, event: MessageEvent<PreviewParseResponse>) {
     if (content !== undefined) {
       createSourceDocumentProvenance.prime(content, response.provenance);
       runtimeSrcSpans.prime(content, response.runtimeSpans);
+      requestCounts.delete(content);
     }
   }
   dispatch();
@@ -139,8 +140,9 @@ function previewParseWorkers(): Worker[] | null {
 export function requestPreviewParses(contents: readonly string[]): void {
   if (!previewParseWorkers()) return;
   for (const content of contents) {
+    if (isParsed(content)) continue;
     requestCounts.set(content, (requestCounts.get(content) ?? 0) + 1);
-    if (isParsed(content) || isPreviewParsePending(content)) continue;
+    if (isPreviewParsePending(content)) continue;
     requestedPreviews.push(content);
   }
   dispatch();

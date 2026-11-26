@@ -70,7 +70,7 @@ Wheels vertically (120 delta, 16 ms between ticks) from the top of the board to 
 
 `frameP95Ms` and `frameWorstMs` cover every sampled frame. `extra` splits them: `steadyP50Ms`, `steadyP95Ms` and `steadyWorstMs` exclude the first and last 300 ms of each leg; `gestureEdgeWorstMs` and `gestureEdgeFrames` cover those edges; `framesOver100Ms` counts frames over 100 ms across everything (`jiraWorstFrameBarMs` is that bar).
 
-`extra`: `panMethod` (2; `compare` refuses results with different or missing values), `cameraDistancePx`, `liveIframesAtEnd`, `wheelElapsedMs`, `legFrameCounts`, `pan` (board and viewport size, travel, `pxPerTick`, `ticks`), `legs` (dx/dy per leg), and the steady and edge fields above.
+`extra`: `panMethod` (2; `compare` refuses results with different or missing values), `cameraDistancePx` (sum of every leg's `travelPx`), `liveIframesAtEnd`, `wheelElapsedMs`, `legFrameCounts`, `pan` (board and viewport size, travel, `pxPerTick`, `ticks`), `legs` (dx/dy per leg, and `travelPx`, the distance the camera moved including reversals inside the sustained leg), and the steady and edge fields above.
 
 Fails when: the board extends less than half a canvas area past the view, a leg needs more than 1500 ticks, calibration does not move and return the camera, a leg moves the camera under 100 px or under 80% of ticks x `pxPerTick`, the camera ends the back leg more than 10% of the forward leg from where it started (`returnedErrorPx`), or no frames were sampled.
 
