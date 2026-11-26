@@ -283,6 +283,7 @@ describe("MessagingSetupPanel", () => {
     expect(container.querySelectorAll("button").length).toBeGreaterThan(0);
     expect(container.textContent).not.toContain("Save credentials");
   });
+
   it("shows when Slack rejects the saved bot token", async () => {
     clientState.statuses = [
       {
@@ -319,7 +320,7 @@ describe("MessagingSetupPanel", () => {
     expect(container.textContent).not.toContain("Connected");
     for (const label of ["Slack", "Credentials", "Slack Bot Token (legacy)"]) {
       const trigger = [...container.querySelectorAll("button")].find((button) =>
-        button.textContent?.includes(label),
+        button.textContent.includes(label),
       );
       await act(async () => {
         trigger?.click();
