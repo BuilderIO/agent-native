@@ -16,11 +16,23 @@ const mocks = vi.hoisted(() => ({
     "mail.contactPanel.attachmentsLoadError": "Couldn't load files.",
     "mail.contactPanel.noAttachments": "No files yet",
     "mail.contactPanel.openInContent": "Open in Content",
+    "mail.contactPanel.meetings": "Meetings",
+    "mail.contactPanel.meetingsUpcoming": "Upcoming",
+    "mail.contactPanel.meetingsPast": "Past",
+    "mail.contactPanel.noMeetings": "No meetings",
+    "mail.contactPanel.meetingsLoadError": "Couldn't load meetings.",
+    "mail.contactPanel.meetingsCalendarUnreachable": "Couldn't reach Calendar.",
+    "mail.contactPanel.meetingsPartial": "Some calendars couldn't be read.",
+    "mail.contactPanel.noCalendar": "No calendar connected",
+    "mail.contactPanel.setUpCalendar": "Set up Calendar",
+    "mail.contactPanel.openInCalendar": "Open in Calendar",
+    "mail.contactPanel.untitledMeeting": "(No title)",
     "mail.error.tryAgain": "Try again",
     "mail.error.retrying": "Retrying...",
   } as Record<string, string>,
   navigate: vi.fn(),
   attachments: {} as Record<string, unknown>,
+  meetings: {} as Record<string, unknown>,
   note: {} as Record<string, unknown>,
   addNote: { mutate: vi.fn() },
   reportWriteFailure: vi.fn(),
@@ -59,11 +71,16 @@ vi.mock("@/components/ui/tooltip", () => ({
 
 vi.mock("@/hooks/use-contact-panel", () => ({
   useContactAttachments: () => mocks.attachments,
+  useContactMeetings: () => mocks.meetings,
   useContactNote: () => mocks.note,
   useAddContactNote: () => mocks.addNote,
 }));
 
-import { AttachmentsWidget, NotesWidget } from "./ContactPanelWidgets";
+import {
+  AttachmentsWidget,
+  MeetingsWidget,
+  NotesWidget,
+} from "./ContactPanelWidgets";
 
 function file(index: number) {
   return {
@@ -260,5 +277,146 @@ describe("NotesWidget", () => {
       "Couldn't load notes.",
     );
     expect(screen.queryByRole("textbox", { name: "Add a note" })).toBeNull();
+  });
+});
+
+const CALENDAR = "https://calendar.agent-native.com";
+
+function meetingsQuery(data: Record<string, unknown>) {
+  return {
+    data: {
+      source: "calendar",
+      calendar: "connected",
+      calendarUrl: CALENDAR,
+      upcoming: [],
+      recent: [],
+      failedAccounts: [],
+      ...data,
+    },
+    isPending: false,
+    isError: false,
+    isFetching: false,
+    refetch: vi.fn(),
+  };
+}
+
+describe("MeetingsWidget", () => {
+  it("lists upcoming and past meetings that open in Calendar", () => {
+    mocks.meetings = meetingsQuery({
+      upcoming: [
+        {
+          id: "next",
+          title: "Pricing review",
+          start: "2026-11-27T15:00:00Z",
+          end: "2026-11-27T15:30:00Z",
+          allDay: false,
+          url: `${CALENDAR}/_agent-native/open?app=calendar&eventId=next`,
+        },
+      ],
+      recent: [
+        {
+          id: "past",
+          title: "",
+          start: "2026-11-20",
+          end: "2026-11-21",
+          allDay: true,
+          url: `${CALENDAR}/_agent-native/open?app=calendar&eventId=past`,
+        },
+      ],
+    });
+
+    render(<MeetingsWidget email="priya@northwind.example" />);
+
+    expect(screen.getByText("Upcoming")).not.toBeNull();
+    expect(screen.getByText("Past")).not.toBeNull();
+    const next = screen.getByRole("link", { name: /Pricing review/ });
+    expect(next.getAttribute("href")).toContain("eventId=next");
+    expect(next.getAttribute("target")).toBe("_blank");
+    expect(screen.getByRole("link", { name: /\(No title\)/ })).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Open in Calendar" }),
+    ).not.toBeNull();
+    expect(screen.queryByText("Set up Calendar")).toBeNull();
+  });
+
+  it("suggests Calendar when Mail read the meetings itself", () => {
+    mocks.meetings = meetingsQuery({
+      source: "mail",
+      calendar: "not_connected",
+      upcoming: [
+        {
+          id: "next",
+          title: "Pricing review",
+          start: "2026-11-27T15:00:00Z",
+          end: "2026-11-27T15:30:00Z",
+          allDay: false,
+          url: "https://www.google.com/calendar/event?eid=next",
+        },
+      ],
+    });
+
+    render(<MeetingsWidget email="priya@northwind.example" />);
+
+    expect(
+      screen
+        .getByRole("link", { name: "Set up Calendar" })
+        .getAttribute("href"),
+    ).toBe(CALENDAR);
+    expect(
+      screen.queryByRole("button", { name: "Open in Calendar" }),
+    ).toBeNull();
+  });
+
+  it("doesn't suggest Calendar when it was only unreachable", () => {
+    mocks.meetings = meetingsQuery({ source: "mail", calendar: "unavailable" });
+
+    render(<MeetingsWidget email="priya@northwind.example" />);
+
+    expect(screen.getByText("No meetings")).not.toBeNull();
+    expect(screen.queryByText("Set up Calendar")).toBeNull();
+  });
+
+  it("tells no calendar, an unreachable one and unread accounts apart from no meetings", () => {
+    mocks.meetings = meetingsQuery({
+      source: "none",
+      calendar: "not_connected",
+    });
+    render(<MeetingsWidget email="priya@northwind.example" />);
+    expect(screen.getByText("No calendar connected")).not.toBeNull();
+    expect(screen.queryByText("No meetings")).toBeNull();
+    cleanup();
+
+    const query = meetingsQuery({ source: "none", calendar: "unavailable" });
+    mocks.meetings = query;
+    render(<MeetingsWidget email="priya@northwind.example" />);
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Couldn't reach Calendar.",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(query.refetch).toHaveBeenCalledOnce();
+    cleanup();
+
+    mocks.meetings = meetingsQuery({
+      failedAccounts: [{ accountEmail: "work@example.com", message: "denied" }],
+    });
+    render(<MeetingsWidget email="priya@northwind.example" />);
+    expect(screen.getByText("Some calendars couldn't be read.")).not.toBeNull();
+  });
+
+  it("says meetings couldn't load instead of showing none", () => {
+    mocks.meetings = {
+      data: undefined,
+      isPending: false,
+      isError: true,
+      isFetching: false,
+      refetch: vi.fn(),
+    };
+
+    render(<MeetingsWidget email="priya@northwind.example" />);
+
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Couldn't load meetings.",
+    );
+    expect(screen.queryByText("No meetings")).toBeNull();
   });
 });

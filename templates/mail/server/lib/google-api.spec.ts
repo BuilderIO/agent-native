@@ -139,6 +139,7 @@ describe("googleFetch quota handling", () => {
       "shared-owner-token",
       "watch-abort-token",
       "scheduled-send-cancel-token",
+      "quota-token-calendar",
     ]) {
       registerGmailAccountToken(
         token,
@@ -451,6 +452,30 @@ describe("googleFetch quota handling", () => {
       ),
     ).rejects.toThrow(/briefly busy/);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a Calendar rate limit from pausing the account's Gmail", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(429, { error: { message: "Rate Limit Exceeded" } }),
+      )
+      .mockResolvedValueOnce(jsonResponse(200, { messages: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      googleFetch(
+        "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+        "quota-token-calendar",
+      ),
+    ).rejects.toMatchObject({ status: 429 });
+    await expect(
+      googleFetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+        "quota-token-calendar",
+      ),
+    ).resolves.toEqual({ messages: [] });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("tells a write Mail refused before sending apart from one Gmail answered 429", async () => {

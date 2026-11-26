@@ -8,6 +8,7 @@ import {
 import type {
   AddContactNoteResult,
   ContactAttachmentList,
+  ContactMeetings,
   ContactNoteResult,
   UserSettings,
 } from "@shared/types";
@@ -80,6 +81,21 @@ export function useContactAttachments(email: string, enabled: boolean) {
         { email, limit: 10 },
         { method: "GET" },
       ) as Promise<ContactAttachmentList>,
+    enabled: enabled && Boolean(email),
+    staleTime: 60_000,
+    retry: false,
+  });
+}
+
+export function useContactMeetings(email: string, enabled: boolean) {
+  return useQuery<ContactMeetings>({
+    queryKey: ["contact-meetings", email],
+    queryFn: () =>
+      callAction(
+        "list-contact-meetings",
+        { email },
+        { method: "GET" },
+      ) as Promise<ContactMeetings>,
     enabled: enabled && Boolean(email),
     staleTime: 60_000,
     retry: false,

@@ -84,11 +84,11 @@ better than guessing an address pattern.
 The panel beside an open email shows the sender (or the address the user
 picked). Its "Add to this panel" menu holds three kinds of things:
 
-- **Built-in widgets:** `notes`, `attachments` and `recent`. Read which are on
-  with `get-mail-settings` (`contactPanelWidgets`) and switch them with
-  `update-mail-settings` with `contactPanelWidgets: { attachments: true }`. A switch
-  applies to every email, and widgets you leave out keep their state. Notes and
-  Recent start on, Attachments off.
+- **Built-in widgets:** `meetings`, `notes`, `attachments` and `recent`. Read
+  which are on with `get-mail-settings` (`contactPanelWidgets`) and switch them
+  with `update-mail-settings` with `contactPanelWidgets: { attachments: true }`.
+  A switch applies to every email, and widgets you leave out keep their state.
+  Meetings, Notes and Recent start on, Attachments off.
 - **Connections:** HubSpot, Apollo, Gong and Pylon, set up from the same menu
   as above.
 - **The user's own widgets:** extensions that declare the
@@ -102,6 +102,17 @@ picked). Its "Add to this panel" menu holds three kinds of things:
 sent, newest first, each with the `threadId`, subject and date of its email,
 so you can open or cite it. It searches Gmail when an account is connected and
 throws when Gmail fails; an empty list means the person really sent no files.
+
+`list-contact-meetings --email=<address>` returns the user's meetings with
+that person: `upcoming` (next 60 days, soonest first) and `recent` (last 90
+days, newest first), each with a `url` that opens the event. It asks Agent
+Native Calendar first (`source: "calendar"`) and falls back to the Google
+Calendar of each account connected to Mail (`source: "mail"`) when Calendar
+has no Google account (`calendar: "not_connected"`) or doesn't answer in a few
+seconds (`calendar: "unavailable"`). `source: "none"` means no calendar is
+connected at all, not that there are no meetings; `failedAccounts` names
+accounts that couldn't be read, so the lists may be short. It fails with
+`meetings_unavailable` when every account failed.
 
 Notes live in Content, not Mail: one private page per person in a "Mail
 notes" collection in the user's Personal space, keyed by email address.

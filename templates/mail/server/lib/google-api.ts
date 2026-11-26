@@ -340,7 +340,7 @@ export async function googleFetch(
       }
     }
 
-    if (!res.ok && isQuotaError(res.status, data)) {
+    if (!res.ok && gmailRequest && isQuotaError(res.status, data)) {
       const cooldownMs = parseRetryAfterMs(res.headers) ?? QUOTA_COOLDOWN_MS;
       let effectiveCooldownMs = cooldownMs;
       try {
@@ -995,6 +995,24 @@ export function peopleListOtherContacts(
   } = {},
 ) {
   return googleFetch(`${PEOPLE_BASE}/otherContacts${qs(params)}`, accessToken);
+}
+
+export function calendarListEvents(
+  accessToken: string,
+  calendarId: string,
+  params: {
+    q?: string;
+    timeMin?: string;
+    timeMax?: string;
+    singleEvents?: "true";
+    orderBy?: "startTime";
+    maxResults?: number;
+  },
+) {
+  return googleFetch(
+    `${CALENDAR_BASE}/calendars/${encodeURIComponent(calendarId)}/events${qs(params)}`,
+    accessToken,
+  );
 }
 
 export function calendarGetEvent(
