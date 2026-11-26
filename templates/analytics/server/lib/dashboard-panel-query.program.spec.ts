@@ -333,6 +333,7 @@ describe("dashboard-panel-query: program source", () => {
         message: "program_error: ReferenceError: foo is not defined",
         errorCode: "data_program_program_error",
         statusCode: 422,
+        details: { panelMessage: "ReferenceError: foo is not defined" },
       });
     });
 
@@ -354,6 +355,11 @@ describe("dashboard-panel-query: program source", () => {
       ).rejects.toThrow(
         /^sandbox_error: This data program couldn't run\. Try again\.$/,
       );
+      await expect(
+        runDashboardPanelQuery({ source: "program", query, ctx }),
+      ).rejects.toMatchObject({
+        details: { panelMessage: "This data program couldn't run. Try again." },
+      });
     });
 
     it("surfaces a friendly message for access_denied", async () => {
@@ -403,6 +409,14 @@ describe("dashboard-panel-query: program source", () => {
       ).rejects.toThrow(
         /background_pending: This data program is still computing — check back shortly/,
       );
+      await expect(
+        runDashboardPanelQuery({ source: "program", query, ctx }),
+      ).rejects.toMatchObject({
+        details: {
+          panelMessage:
+            "This data program is still computing — check back shortly",
+        },
+      });
     });
 
     it("throws a clear parse error for malformed JSON in the sql field", async () => {

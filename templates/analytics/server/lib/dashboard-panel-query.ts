@@ -445,14 +445,14 @@ async function runProgramPanel(
       "This data program is still computing — check back shortly",
     sandbox_error: "This data program couldn't run. Try again.",
   };
-  const friendly = friendlyMessages[result.error.code];
+  const panelMessage =
+    friendlyMessages[result.error.code] ?? result.error.message;
   // Typed, so the panel shows the message instead of a bare server error.
-  fail(
-    friendly
-      ? `${result.error.code}: ${friendly}`
-      : `${result.error.code}: ${result.error.message}`,
-    { errorCode: `data_program_${result.error.code}`, statusCode: 422 },
-  );
+  fail(`${result.error.code}: ${panelMessage}`, {
+    errorCode: `data_program_${result.error.code}`,
+    statusCode: 422,
+    details: { panelMessage },
+  });
 }
 
 export async function runDashboardPanelQuery(args: {
