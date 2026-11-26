@@ -2469,9 +2469,6 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   }, [selectedDraftIds]);
 
   useEffect(() => {
-    // A wheel gesture moves zoomRef ahead of the prop until its commit lands,
-    // so an effect run for any other dep would read the stale prop as a new
-    // external zoom and snap the camera back.
     if (
       appliedControlledZoomRevisionRef.current ===
       controlledZoomRevisionRef.current
