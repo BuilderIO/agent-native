@@ -438,6 +438,9 @@ ${TASKS}`,
     ]);
   });
 
+  const workerHeapTest =
+    "fails waiting tasks once, not by respawning, when the module outgrows its heap";
+
   async function runHeapTestInCleanProcess() {
     const vitest = new URL(
       "vitest.mjs",
@@ -450,7 +453,7 @@ ${TASKS}`,
         "run",
         fileURLToPath(import.meta.url),
         "-t",
-        "when the module outgrows its heap",
+        workerHeapTest,
         "--reporter=json",
         "--no-cache",
       ],
@@ -499,7 +502,7 @@ ${TASKS}`,
     return { code, started, workerError };
   }
 
-  it("fails waiting tasks once, not by respawning, when the module outgrows its heap", async () => {
+  it(workerHeapTest, async () => {
     const nodeOptions = [process.env.NODE_OPTIONS, ...process.execArgv].join(
       " ",
     );
@@ -508,14 +511,29 @@ ${TASKS}`,
     const report = inheritedHeapLimit
       ? await runHeapTestInCleanProcess()
       : await observeWorkerHeapFailure();
-    const expected = inheritedHeapLimit
+    const expectedOutcome = inheritedHeapLimit
       ? { numPassedTests: 1, numFailedTests: 0 }
+      : { code: "startup_failed" };
+    const childExecution = {
+      testResults: [
+        {
+          assertionResults: expect.arrayContaining([
+            expect.objectContaining({
+              title: workerHeapTest,
+              status: "passed",
+            }),
+          ]),
+        },
+      ],
+    };
+    const expectedExecution = inheritedHeapLimit
+      ? childExecution
       : {
-          code: "startup_failed",
           started: 1,
           workerError: { code: "ERR_WORKER_OUT_OF_MEMORY" },
         };
-    expect(report).toMatchObject(expected);
+    expect(report).toMatchObject(expectedOutcome);
+    expect(report).toMatchObject(expectedExecution);
   });
 
   it("fails with unavailable, never inline, where worker threads do not exist", async () => {
