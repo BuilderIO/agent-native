@@ -6,7 +6,6 @@ import { captureSessionStatusSchema } from "./lib/capture-schemas.js";
 
 export default defineAction({
   mcpTool: true,
-  // A stop before READY trashes only this take's unfinished recording, never a Clip.
   mcpAnnotations: {
     readOnlyHint: false,
     destructiveHint: false,
