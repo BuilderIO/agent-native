@@ -1515,31 +1515,44 @@ export function markdownSuggestionOperationsForEditorRevision(input: {
     if (!range) throw new SuggestionFormattingMappingError();
     return range;
   });
-  const operations = markdownSuggestionOperationsForReplacements({
-    before: editorBefore,
-    after: withPageListNumbers(editorBefore, input.after),
-    replacements,
-  }).map((operation) => listItemAfterLineEnd(editorBefore, operation));
-  return isolateSiblingAnchorContexts(
-    (alignment &&
-      alignedStoredOperations(
-        input.before,
-        input.after,
-        operations,
-        alignment,
-      )) ??
-      operations.map((operation, ordinal) => {
-        const range = resolveMarkdownSuggestionRange(input.before, operation);
-        if (!range) throw new SuggestionFormattingMappingError();
-        return operationForChange(
+  const operationsFor = (after: string) => {
+    const operations = markdownSuggestionOperationsForReplacements({
+      before: editorBefore,
+      after,
+      replacements,
+    }).map((operation) => listItemAfterLineEnd(editorBefore, operation));
+    return isolateSiblingAnchorContexts(
+      (alignment &&
+        alignedStoredOperations(
           input.before,
-          range.from,
-          range.to,
-          operation.after.changedText,
-          ordinal,
-        );
-      }),
-  );
+          input.after,
+          operations,
+          alignment,
+        )) ??
+        operations.map((operation, ordinal) => {
+          const range = resolveMarkdownSuggestionRange(input.before, operation);
+          if (!range) throw new SuggestionFormattingMappingError();
+          return operationForChange(
+            input.before,
+            range.from,
+            range.to,
+            operation.after.changedText,
+            ordinal,
+          );
+        }),
+    );
+  };
+  const numbered = withPageListNumbers(editorBefore, input.after);
+  if (numbered !== input.after) {
+    try {
+      const operations = operationsFor(numbered);
+      draftSuggestionAnchors(operations, input.after);
+      return operations;
+    } catch (error) {
+      if (!(error instanceof SuggestionFormattingMappingError)) throw error;
+    }
+  }
+  return operationsFor(input.after);
 }
 
 function alignedRange(

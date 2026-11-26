@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { canonicalizeNfm } from "./nfm.js";
 import {
+  draftSuggestionAnchors,
   markdownSuggestionOperations,
   markdownSuggestionOperationsForEditorRevision,
   markdownSuggestionOperationsForFindReplace,
@@ -990,6 +991,12 @@ describe("a numbered list the editor renumbers", () => {
         after: { changedText: expect.not.stringMatching(/\d/) },
       },
     ]);
+  });
+
+  it("still previews items that swap places", () => {
+    const after = "1. A\n2. C\n3. B\n4. D";
+    const operations = editorOperations(after, "1. A\n2. B\n3. C\n4. D");
+    expect(() => draftSuggestionAnchors(operations, after)).not.toThrow();
   });
 
   it("leaves numbers that change where the list starts", () => {

@@ -1,6 +1,7 @@
 import { canonicalizeNfm } from "@shared/nfm";
 import { applyMarkdownSuggestionWithSiblings } from "@shared/suggestion-apply";
 import {
+  markdownSuggestionOperationsForEditorRevision,
   markdownSuggestionOperationsForFindReplace,
   type MarkdownSuggestionOperation,
 } from "@shared/suggestion-diff";
@@ -9,6 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createCommittedSuggestionPresentationTransition,
+  createDraftSuggestionPresentationTransition,
   createObservedSuggestionPresentationTransition,
   drawnSuggestionPresentationOperations,
   hydrateSuggestionPresentationTransitions,
@@ -16,6 +18,7 @@ import {
   pruneSuggestionPresentationTransitions,
   retainCommittedSuggestionPresentationTransitions,
   resolveSuggestionPresentationRange,
+  resolveSuggestionPresentationRangeInDraft,
   suggestionPresentationTransitionKey,
   type SuggestionPresentationTransition,
 } from "./presentation-rebase";
@@ -1291,5 +1294,31 @@ describe("a member that joined its proposal after some of it was accepted", () =
     expect(
       shownAt(page.replace("circle", "glide"), [seaside, slowly, sunrise]),
     ).toBeNull();
+  });
+});
+
+describe("a draft that adds a list item under an edited one", () => {
+  it("keeps showing a saved edit further down the list", () => {
+    const page = "1. A\n2. B\n3. C\n4. D";
+    const draft = "1. Q\n2. X\n3. B\n4. C\n5. D";
+    const operations = markdownSuggestionOperationsForEditorRevision({
+      before: page,
+      after: draft,
+      replacements: [],
+    });
+    const transition = createDraftSuggestionPresentationTransition(
+      [{ operations }],
+      draft,
+    );
+    const [saved] = markdownSuggestionOperationsForFindReplace({
+      before: page,
+      find: "C",
+      replace: "Cats",
+      start: page.indexOf("C"),
+    });
+    const range =
+      transition &&
+      resolveSuggestionPresentationRangeInDraft(transition, saved);
+    expect(range && draft.slice(range.from, range.to)).toBe("C");
   });
 });

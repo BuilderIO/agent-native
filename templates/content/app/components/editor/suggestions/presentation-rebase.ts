@@ -326,12 +326,13 @@ function withListNumberChanges(
   changes: Change[],
   after: string,
 ): Change[] | null {
-  const proposed = reconstruct(before, changes);
+  const edits = joinedChanges(before, changes);
+  if (!edits) return null;
+  const proposed = reconstruct(before, edits);
   if (proposed === null) return null;
-  if (proposed === after) return changes;
+  if (proposed === after) return edits;
   const numbers = listNumberDifferences(proposed, after);
   if (!numbers) return null;
-  const edits = changes.map((change) => ({ ...change }));
   const numberChanges: Change[] = [];
   const numbersInsideEdits = new Map<
     Change,
@@ -370,13 +371,17 @@ function withListNumberChanges(
         edit.afterText.slice(0, number.from) +
         number.number +
         edit.afterText.slice(number.to);
+  return joinedChanges(before, [...edits, ...numberChanges]);
+}
+
+function joinedChanges(before: string, changes: Change[]): Change[] | null {
   const merged: Change[] = [];
-  for (const change of [...edits, ...numberChanges].sort(
+  for (const change of [...changes].sort(
     (left, right) => left.from - right.from || left.to - right.to,
   )) {
     const previous = merged.length > 0 ? merged[merged.length - 1] : null;
     if (!previous || !intersects(previous, change)) {
-      merged.push(change);
+      merged.push({ ...change });
       continue;
     }
     if (change.from < previous.to) return null;
