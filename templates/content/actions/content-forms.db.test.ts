@@ -2026,11 +2026,11 @@ describe("Content forms: the answer schema", () => {
       Record<string, unknown>
     >;
     expect(properties[ids.emailId]).not.toHaveProperty("minLength");
-    const emailPattern = new RegExp(String(properties[ids.emailId]?.pattern));
+    const emailPattern = new RegExp(String(properties[ids.emailId].pattern));
     expect(emailPattern.test("")).toBe(true);
     expect(emailPattern.test(" ada@example.com ")).toBe(true);
     expect(emailPattern.test("not-an-email")).toBe(false);
-    expect(new RegExp(String(properties.name?.pattern)).test(" ")).toBe(false);
+    expect(new RegExp(String(properties.name.pattern)).test(" ")).toBe(false);
 
     const sent = await send(link, [
       ...validAnswers(ids),
