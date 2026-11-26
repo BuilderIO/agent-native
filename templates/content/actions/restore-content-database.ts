@@ -49,7 +49,7 @@ async function shouldClearStaleInlineOwnership(args: {
 
 export default defineAction({
   description:
-    "Restore one exact ordinary collection from recoverable Trash using its configuration revision and idempotency key; preserve Page, property and view identities and return a receipt.",
+    "Restore one exact ordinary collection from Trash, before automatic deletion removes it (it becomes eligible after 30 days in Trash), using its configuration revision and idempotency key; preserve Page, property and view identities and return a receipt.",
   mcpTool: true,
   mcpApp: { structuredContent: true },
   mcpAnnotations: {
