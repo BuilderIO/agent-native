@@ -10,7 +10,7 @@ import { prosemirrorToYDoc, yUndoPluginKey } from "@tiptap/y-tiptap";
 import { act, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import * as Y from "yjs";
 
 const pages = vi.hoisted(() => ({
@@ -377,40 +377,37 @@ describe("/page", () => {
       documentId: "parent",
       onDraftPersisted,
     });
+    onTestFinished(mounted.unmount);
     typeAt(mounted.editor, mounted.editor.state.doc.content.size - 1, "/page");
     await act(async () => Promise.resolve());
     await pressEnter();
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    });
+    await act(async () =>
+      vi.waitFor(() => expect(onDraftPersisted).toHaveBeenCalledOnce()),
+    );
     const pageId = pages.create.mock.calls[0]?.[1];
     expect(pages.create).toHaveBeenCalledWith("parent", pageId);
     return { ...mounted, onDraftPersisted, pageId };
   }
 
   it("saves the link to the new page through the page's editor", async () => {
-    const { editor, onDraftPersisted, pageId, unmount } = await makePage(true);
-    try {
-      expect(onDraftPersisted).toHaveBeenCalledOnce();
-      expect(onDraftPersisted.mock.calls[0][0]).toContain(`id="${pageId}"`);
-      expect(pageReferences(editor)).toEqual([pageId]);
-      expect(pages.rollback).not.toHaveBeenCalled();
-    } finally {
-      await unmount();
-    }
+    const { editor, onDraftPersisted, pageId } = await makePage(true);
+    expect(onDraftPersisted).toHaveBeenCalledOnce();
+    expect(onDraftPersisted.mock.calls[0][0]).toContain(`id="${pageId}"`);
+    expect(pageReferences(editor)).toEqual([pageId]);
+    expect(pages.rollback).not.toHaveBeenCalled();
   });
 
   it("takes the new page back when the page's editor can't save the link", async () => {
-    const { editor, onDraftPersisted, pageId, unmount } = await makePage(false);
-    try {
-      expect(onDraftPersisted).toHaveBeenCalledOnce();
-      expect(pageReferences(editor)).toEqual([]);
-      expect(pages.rollback).toHaveBeenCalledWith({
-        id: pageId,
-        parentId: "parent",
-      });
-    } finally {
-      await unmount();
-    }
+    const { editor, onDraftPersisted, pageId } = await makePage(false);
+    expect(onDraftPersisted).toHaveBeenCalledOnce();
+    await act(async () =>
+      vi.waitFor(() =>
+        expect(pages.rollback).toHaveBeenCalledWith({
+          id: pageId,
+          parentId: "parent",
+        }),
+      ),
+    );
+    expect(pageReferences(editor)).toEqual([]);
   });
 });

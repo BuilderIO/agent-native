@@ -81,6 +81,7 @@ vi.mock("./AgentsShareTab", () => ({
 }));
 
 import { DocumentToolbar } from "./DocumentToolbar";
+import { present } from "./page-editor-test-utils";
 
 describe("DocumentToolbar clipboard behavior", () => {
   let container: HTMLDivElement;
@@ -364,9 +365,11 @@ describe("DocumentToolbar clipboard behavior", () => {
           ),
         );
       });
-      const trigger = container.querySelector<HTMLButtonElement>(
-        '[aria-label="editor.toolbar.morePageActions"]',
-      )!;
+      const trigger = present(
+        container.querySelector<HTMLButtonElement>(
+          '[aria-label="editor.toolbar.morePageActions"]',
+        ),
+      );
       trigger.focus();
       await act(async () => {
         trigger.dispatchEvent(
@@ -381,7 +384,7 @@ describe("DocumentToolbar clipboard behavior", () => {
         document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
       ).filter((item) =>
         /revealInFinder|copyRelativePath|copyAbsolutePath/.test(
-          item.textContent ?? "",
+          item.textContent,
         ),
       );
       expect(pathItems).toHaveLength(3);

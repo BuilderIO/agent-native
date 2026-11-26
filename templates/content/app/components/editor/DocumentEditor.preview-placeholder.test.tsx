@@ -54,6 +54,7 @@ vi.mock("./DocumentEditorSkeleton", () => ({
 }));
 
 import { PageEditorSurface } from "./DocumentEditor";
+import { present } from "./page-editor-test-utils";
 
 const previewRow = {
   item: { id: "row-1" },
@@ -190,7 +191,7 @@ describe("a page whose read fails", () => {
     const { refetch, answer } = await fail({ status: 500 });
     expect(retry()?.disabled).toBe(false);
 
-    await act(async () => retry()!.click());
+    await act(async () => present(retry()).click());
     expect(refetch).toHaveBeenCalledOnce();
     expect(retry()?.disabled).toBe(true);
 

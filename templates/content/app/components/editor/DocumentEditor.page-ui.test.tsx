@@ -4,11 +4,9 @@ import type { ResourceSuggestion } from "@agent-native/core/review";
 import type { Document } from "@shared/api";
 import { canonicalizeNfm } from "@shared/nfm";
 import { markdownSuggestionOperations } from "@shared/suggestion-diff";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { QueryClient } from "@tanstack/react-query";
 import { act, createElement, type ComponentProps, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CommentThread } from "@/hooks/use-comments";
@@ -232,11 +230,10 @@ vi.mock("./VisualEditor", async (original) => ({
   },
 }));
 
-import { TooltipProvider } from "@/components/ui/tooltip";
-
 import { PageEditorSurface } from "./DocumentEditor";
+import { createPageEditorMount, present } from "./page-editor-test-utils";
 
-let root: Root;
+let mount: ReturnType<typeof createPageEditorMount>;
 let container: HTMLDivElement;
 let queryClient: QueryClient;
 
@@ -282,18 +279,15 @@ beforeEach(() => {
   fixture.editors = [];
   fixture.mutation.mutateAsync.mockReset();
   page("page");
-  queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
+  mount = createPageEditorMount();
+  ({ container, queryClient } = mount);
 });
 
 afterEach(async () => {
-  await act(async () => root.unmount());
-  queryClient.clear();
+  await mount.unmount();
+  mount.discard();
   document.body.innerHTML = "";
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -303,19 +297,7 @@ function surface(documentId: string, host: "page" | "preview") {
 }
 
 async function render(...surfaces: ReturnType<typeof surface>[]) {
-  await act(async () => {
-    root.render(
-      createElement(
-        QueryClientProvider,
-        { client: queryClient },
-        createElement(
-          MemoryRouter,
-          null,
-          createElement(TooltipProvider, null, ...surfaces),
-        ),
-      ),
-    );
-  });
+  await act(async () => mount.render(surfaces));
 }
 
 function last<T>(items: T[], match: (item: T) => unknown = () => true) {
@@ -325,7 +307,9 @@ function last<T>(items: T[], match: (item: T) => unknown = () => true) {
 }
 
 function toolbar(documentId = "page") {
-  return last(fixture.toolbars, (props) => props.documentId === documentId)!;
+  return present(
+    last(fixture.toolbars, (props) => props.documentId === documentId),
+  );
 }
 
 function selectedThread(documentId = "page") {
@@ -336,9 +320,11 @@ function selectedThread(documentId = "page") {
 }
 
 function owner(documentId = "page") {
-  return Array.from(
-    container.querySelectorAll<HTMLElement>("[data-page-editor-owner]"),
-  ).find((element) => element.dataset.pageEditorOwner?.includes(documentId))!;
+  return present(
+    Array.from(
+      container.querySelectorAll<HTMLElement>("[data-page-editor-owner]"),
+    ).find((element) => element.dataset.pageEditorOwner?.includes(documentId)),
+  );
 }
 
 async function click(target: Element) {
@@ -348,7 +334,9 @@ async function click(target: Element) {
 }
 
 async function clickHighlight(documentId = "page") {
-  await click(owner(documentId).querySelector("[data-comment-thread]")!);
+  await click(
+    present(owner(documentId).querySelector("[data-comment-thread]")),
+  );
 }
 
 describe("comment focus on the page", () => {
@@ -357,10 +345,10 @@ describe("comment focus on the page", () => {
     await clickHighlight();
     expect(selectedThread()).toBe("t-text");
 
-    await click(document.querySelector("[data-comment-portal-menu]")!);
+    await click(present(document.querySelector("[data-comment-portal-menu]")));
     expect(selectedThread()).toBe("t-text");
 
-    await click(owner().querySelector("p")!);
+    await click(present(owner().querySelector("p")));
     expect(selectedThread()).toBeNull();
   });
 
@@ -368,14 +356,12 @@ describe("comment focus on the page", () => {
     await render(surface("page", "page"));
     await clickHighlight();
     await act(async () => {
-      owner()
-        .querySelector("p")!
-        .dispatchEvent(
-          new PointerEvent("pointerdown", {
-            bubbles: true,
-            pointerType: "touch",
-          }),
-        );
+      present(owner().querySelector("p")).dispatchEvent(
+        new PointerEvent("pointerdown", {
+          bubbles: true,
+          pointerType: "touch",
+        }),
+      );
     });
     expect(selectedThread()).toBe("t-text");
   });
@@ -386,11 +372,10 @@ describe("comment focus on the page", () => {
     expect(
       owner().querySelector('[data-sidebar-fixture="history"]'),
     ).toBeNull();
-    const inline = last(
-      fixture.sidebars,
-      (props) => props.presentation !== "history",
-    )!;
-    await act(async () => inline.onActivateThread!("t-page"));
+    const inline = present(
+      last(fixture.sidebars, (props) => props.presentation !== "history"),
+    );
+    await act(async () => present(inline.onActivateThread)("t-page"));
 
     expect(
       owner().querySelector<HTMLElement>('[data-sidebar-fixture="history"]')
@@ -409,11 +394,30 @@ describe("Escape across nested page editors", () => {
     expect(selectedThread("peek")).toBe("t-text");
 
     await act(async () => {
-      owner("peek")
-        .querySelector("[data-comment-thread]")!
-        .dispatchEvent(
-          new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
-        );
+      present(
+        owner("peek").querySelector("[data-comment-thread]"),
+      ).dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    expect(selectedThread("peek")).toBeNull();
+    expect(selectedThread("page")).toBe("t-text");
+  });
+
+  it("dismisses only the focused editor's comment for a key from outside both", async () => {
+    page("peek");
+    await render(surface("page", "page"), surface("peek", "preview"));
+    await clickHighlight("page");
+    await clickHighlight("peek");
+    act(() =>
+      present(owner("peek").querySelector<HTMLElement>(".ProseMirror")).focus(),
+    );
+    expect(owner("peek").contains(document.activeElement)).toBe(true);
+
+    await act(async () => {
+      document.body.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
     });
     expect(selectedThread("peek")).toBeNull();
     expect(selectedThread("page")).toBe("t-text");
@@ -483,13 +487,13 @@ describe("the title", () => {
       },
     );
     await render(surface("page", "page"));
-    const title = container.querySelector("textarea")!;
+    const title = present(container.querySelector("textarea"));
     const resized = observers.get(title);
     expect(resized).toBeDefined();
     Object.defineProperty(title, "scrollHeight", { value: 72 });
     const widthChange = (width: number) =>
       act(async () =>
-        resized!(
+        present(resized)(
           [
             {
               target: title,
@@ -512,21 +516,23 @@ describe("undo and redo", () => {
   it("shows the editor's history, and leaves Suggesting's to the editor", async () => {
     page("page", { canComment: true, canSuggest: true } as Partial<Document>);
     await render(surface("page", "page"));
-    const editor = () => last(fixture.editors)!;
+    const editor = () => present(last(fixture.editors));
     await act(async () =>
-      editor().onHistoryStateChange!({ canUndo: true, canRedo: false }),
+      present(editor().onHistoryStateChange)({ canUndo: true, canRedo: false }),
     );
     expect(toolbar().canUndo).toBe(true);
 
-    await act(async () => toolbar().onSuggestingChange!(true));
-    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
-    expect(editor().suggesting).toBe(true);
+    await act(async () => present(toolbar().onSuggestingChange)(true));
+    await vi.waitFor(() => expect(editor().suggesting).toBe(true));
     const renders = fixture.toolbars.length;
     await act(async () =>
-      editor().onHistoryStateChange!({ canUndo: false, canRedo: false }),
+      present(editor().onHistoryStateChange)({
+        canUndo: false,
+        canRedo: false,
+      }),
     );
     await act(async () =>
-      editor().onHistoryStateChange!({ canUndo: true, canRedo: false }),
+      present(editor().onHistoryStateChange)({ canUndo: true, canRedo: false }),
     );
     expect(fixture.toolbars.length).toBe(renders);
   });
@@ -535,12 +541,14 @@ describe("undo and redo", () => {
 describe("suggestion anchors", () => {
   it("renders the page again only when the placed suggestions change", async () => {
     await render(surface("page", "page"));
-    const editor = () => last(fixture.editors)!;
-    await act(async () => editor().onSuggestionAnchorsChange!(["s1"]));
+    const editor = () => present(last(fixture.editors));
+    await act(async () => present(editor().onSuggestionAnchorsChange)(["s1"]));
     const renders = fixture.editors.length;
-    await act(async () => editor().onSuggestionAnchorsChange!(["s1"]));
+    await act(async () => present(editor().onSuggestionAnchorsChange)(["s1"]));
     expect(fixture.editors.length).toBe(renders);
-    await act(async () => editor().onSuggestionAnchorsChange!(["s1", "s2"]));
+    await act(async () =>
+      present(editor().onSuggestionAnchorsChange)(["s1", "s2"]),
+    );
     expect(fixture.editors.length).toBeGreaterThan(renders);
   });
 });
@@ -548,11 +556,14 @@ describe("suggestion anchors", () => {
 describe("clicking the page's padding", () => {
   it("focuses the text where the page was scrolled, until the reader scrolls", async () => {
     await render(surface("page", "page"));
-    const scroller = container.querySelector<HTMLElement>(
-      "[data-document-print-scroll]",
-    )!;
-    const text = owner().querySelector<HTMLElement>(".ProseMirror")!;
-    const body = text.closest<HTMLElement>('[data-startup-anchor="body"]')!;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const scroller = present(
+      container.querySelector<HTMLElement>("[data-document-print-scroll]"),
+    );
+    const text = present(owner().querySelector<HTMLElement>(".ProseMirror"));
+    const body = present(
+      text.closest<HTMLElement>('[data-startup-anchor="body"]'),
+    );
     const focus = vi
       .spyOn(text, "focus")
       .mockImplementation(() => {
@@ -567,7 +578,7 @@ describe("clicking the page's padding", () => {
     await click(body);
     expect(focus).toHaveBeenCalledWith({ preventScroll: true });
     expect(scroller.scrollTop).toBe(120);
-    await act(() => new Promise((resolve) => setTimeout(resolve, 70)));
+    await act(async () => vi.advanceTimersByTimeAsync(70));
     expect(scroller.scrollTop).toBe(120);
 
     await click(body);
@@ -575,7 +586,7 @@ describe("clicking the page's padding", () => {
       scroller.dispatchEvent(new WheelEvent("wheel", { bubbles: true }));
       scroller.scrollTop = 300;
     });
-    await act(() => new Promise((resolve) => setTimeout(resolve, 70)));
+    await act(async () => vi.advanceTimersByTimeAsync(70));
     expect(scroller.scrollTop).toBe(300);
   });
 });
@@ -632,14 +643,14 @@ describe("suggestions in the editor", () => {
       },
     ];
     await render(surface("page", "page"));
-    const editor = () => last(fixture.editors)!;
+    const editor = () => present(last(fixture.editors));
     const drawn = () =>
       (editor().suggestions ?? []).map((suggestion) =>
         suggestion.id === "saved" ? "saved" : suggestion.presentation,
       );
     expect(drawn()).toEqual(["saved"]);
 
-    await act(async () => toolbar().onSuggestingChange!(true));
+    await act(async () => present(toolbar().onSuggestingChange)(true));
     await act(async () =>
       editor().onChange(canonicalizeNfm("Typed. Saved body")),
     );
@@ -677,9 +688,9 @@ describe("the comment margin", () => {
     );
     await render(surface("page", "page"));
 
-    const lane = container.querySelector<HTMLElement>(
-      "aside[data-comments-flow-lane]",
-    )!;
+    const lane = present(
+      container.querySelector<HTMLElement>("aside[data-comments-flow-lane]"),
+    );
     expect(lane.style.transform).toBe("");
     expect(lane.firstElementChild).toHaveProperty(
       "style.transform",
@@ -712,7 +723,9 @@ describe("a local file whose page history can't be updated", () => {
     await render(surface("page", "page"));
 
     await act(async () => {
-      await last(fixture.editors)!.onSaveContent!("Saved body, edited");
+      await present(present(last(fixture.editors)).onSaveContent)(
+        "Saved body, edited",
+      );
     });
     expect(queryClient.getQueryData(cached)).toMatchObject({
       content: "Saved body, edited",
@@ -735,20 +748,27 @@ describe("a new comment's quoted text", () => {
     page("page", { canComment: true } as Partial<Document>);
     await render(surface("page", "page"));
     const pending = () =>
-      last(fixture.sidebars, (props) => props.pendingComment)!;
+      present(last(fixture.sidebars, (props) => props.pendingComment));
 
-    await act(async () => last(fixture.editors)!.onComment!("Gone", 0));
+    await act(async () =>
+      present(present(last(fixture.editors)).onComment)("Gone", 0),
+    );
     expect(pending().pendingTargetValid).toBe(false);
     await frame();
     expect(pending().pendingTargetValid).toBe(false);
 
-    await act(async () => last(fixture.editors)!.onComment!("Saved", 0));
+    await act(async () =>
+      present(present(last(fixture.editors)).onComment)("Saved", 0),
+    );
     await frame();
     expect(pending().pendingTargetValid).toBe(true);
     await act(async () =>
-      pending().onPendingChange!(pending().pendingComment!.id, () => ({
-        text: "Hi",
-      })),
+      present(pending().onPendingChange)(
+        present(pending().pendingComment).id,
+        () => ({
+          text: "Hi",
+        }),
+      ),
     );
     expect(pending().pendingComment?.text).toBe("Hi");
     expect(pending().pendingTargetValid).toBe(true);

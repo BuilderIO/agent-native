@@ -6,8 +6,8 @@ import type {
   ContentDatabaseNavigationPageResponse,
 } from "@shared/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act } from "react";
-import { createRoot } from "react-dom/client";
+import { act, type ReactNode } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { filesNavigationPageParams } from "@/lib/files-navigation";
@@ -16,6 +16,18 @@ import {
   ToolbarBreadcrumb,
   type ToolbarBreadcrumbItem,
 } from "./DocumentToolbar";
+import { present } from "./page-editor-test-utils";
+
+const roots: Root[] = [];
+
+function mount(ui: ReactNode) {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  roots.push(root);
+  act(() => root.render(ui));
+  return container;
+}
 
 function peer(id: string, sourceKind: string | null = null) {
   return {
@@ -70,35 +82,30 @@ function renderBreadcrumb(
       siblings: { filesDatabaseId: "files", parentId: "parent" },
     },
   ];
-  const container = document.createElement("div");
-  document.body.append(container);
-  const root = createRoot(container);
-  act(() =>
-    root.render(
-      <QueryClientProvider client={queryClient}>
-        <AgentNativeI18nProvider
-          initialLocale="en-US"
-          persistPreference={false}
-          catalog={{
-            sourceLocale: "en-US",
-            messages: {
-              sidebar: { showMore: "Show more", loadingFiles: "Loading" },
-              database: { retry: "Retry" },
-            },
-          }}
-        >
-          <ToolbarBreadcrumb
-            items={items}
-            currentDocumentId="current"
-            ariaLabel="Page breadcrumb"
-            untitledLabel="Untitled"
-            onOpen={onOpen}
-          />
-        </AgentNativeI18nProvider>
-      </QueryClientProvider>,
-    ),
+  const container = mount(
+    <QueryClientProvider client={queryClient}>
+      <AgentNativeI18nProvider
+        initialLocale="en-US"
+        persistPreference={false}
+        catalog={{
+          sourceLocale: "en-US",
+          messages: {
+            sidebar: { showMore: "Show more", loadingFiles: "Loading" },
+            database: { retry: "Retry" },
+          },
+        }}
+      >
+        <ToolbarBreadcrumb
+          items={items}
+          currentDocumentId="current"
+          ariaLabel="Page breadcrumb"
+          untitledLabel="Untitled"
+          onOpen={onOpen}
+        />
+      </AgentNativeI18nProvider>
+    </QueryClientProvider>,
   );
-  return { container, root, onOpen };
+  return { container, onOpen };
 }
 
 async function openMenu(container: HTMLElement) {
@@ -120,6 +127,7 @@ function menuLabels() {
 }
 
 afterEach(() => {
+  for (const root of roots.splice(0)) act(() => root.unmount());
   vi.restoreAllMocks();
   document.body.innerHTML = "";
 });
@@ -130,23 +138,18 @@ describe("narrow breadcrumbs", () => {
       DOMRect.fromRect({ width: 120, height: 32 }),
     );
     const onOpen = vi.fn();
-    const container = document.createElement("div");
-    document.body.append(container);
-    const root = createRoot(container);
-    act(() =>
-      root.render(
-        <ToolbarBreadcrumb
-          items={[
-            { id: "files", title: "Personal" },
-            { id: "parent", title: "Parent" },
-            { id: "current", title: "Current" },
-          ]}
-          currentDocumentId="current"
-          ariaLabel="Page breadcrumb"
-          untitledLabel="Untitled"
-          onOpen={onOpen}
-        />,
-      ),
+    const container = mount(
+      <ToolbarBreadcrumb
+        items={[
+          { id: "files", title: "Personal" },
+          { id: "parent", title: "Parent" },
+          { id: "current", title: "Current" },
+        ]}
+        currentDocumentId="current"
+        ariaLabel="Page breadcrumb"
+        untitledLabel="Untitled"
+        onOpen={onOpen}
+      />,
     );
 
     const nav = container.querySelector("nav")!;
@@ -165,46 +168,44 @@ describe("narrow breadcrumbs", () => {
     ).find((item) => item.textContent?.includes("Parent"));
     await act(async () => parent!.click());
     expect(onOpen).toHaveBeenCalledWith("parent", undefined);
-
-    act(() => root.unmount());
   });
 });
 
 describe("breadcrumb folders and hover menus", () => {
   it("marks folders and leaves the page usable while a hover menu is open", async () => {
-    const container = document.createElement("div");
-    document.body.append(container);
-    const root = createRoot(container);
-    act(() =>
-      root.render(
-        <ToolbarBreadcrumb
-          items={[
-            { id: "projects", title: "Projects", iconKind: "folder" },
-            {
-              id: "current",
-              title: "Current",
-              menuItems: [
-                { id: "current", title: "Current" },
-                { id: "archive", title: "Archive", iconKind: "folder" },
-                { id: "notes", title: "Notes" },
-              ],
-            },
-          ]}
-          currentDocumentId="current"
-          ariaLabel="Page breadcrumb"
-          untitledLabel="Untitled"
-          onOpen={vi.fn()}
-        />,
-      ),
+    const container = mount(
+      <ToolbarBreadcrumb
+        items={[
+          { id: "projects", title: "Projects", iconKind: "folder" },
+          {
+            id: "current",
+            title: "Current",
+            menuItems: [
+              { id: "current", title: "Current" },
+              { id: "archive", title: "Archive", iconKind: "folder" },
+              { id: "notes", title: "Notes" },
+            ],
+          },
+        ]}
+        currentDocumentId="current"
+        ariaLabel="Page breadcrumb"
+        untitledLabel="Untitled"
+        onOpen={vi.fn()}
+      />,
     );
     const projects = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "Projects",
     );
-    expect(projects?.querySelector("svg.tabler-icon-folder")).not.toBeNull();
+    expect(projects).toBeDefined();
+    expect(
+      present(projects).querySelector("svg.tabler-icon-folder"),
+    ).not.toBeNull();
 
-    const trigger = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Current"]',
-    )!;
+    const trigger = present(
+      container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Current"]',
+      ),
+    );
     await act(async () => {
       trigger.dispatchEvent(
         new PointerEvent("pointerover", {
@@ -215,22 +216,24 @@ describe("breadcrumb folders and hover menus", () => {
     });
     const item = (label: string) =>
       Array.from(document.querySelectorAll('[role="menuitem"]')).find(
-        (entry) => entry.textContent?.trim() === label,
+        (entry) => entry.textContent.trim() === label,
       );
-    expect(item("Archive")?.querySelector("svg.tabler-icon-folder")).not.toBe(
-      null,
-    );
-    expect(item("Notes")?.querySelector("svg.tabler-icon-folder")).toBeNull();
+    expect(item("Archive")).toBeDefined();
+    expect(item("Notes")).toBeDefined();
+    expect(
+      present(item("Archive")).querySelector("svg.tabler-icon-folder"),
+    ).not.toBe(null);
+    expect(
+      present(item("Notes")).querySelector("svg.tabler-icon-folder"),
+    ).toBeNull();
     expect(document.body.style.pointerEvents).not.toBe("none");
     expect(container.closest("[aria-hidden]")).toBeNull();
-
-    act(() => root.unmount());
   });
 });
 
 describe("breadcrumb peer menus", () => {
   it("lists the sidebar's cached page of peers, without folders, and opens one", async () => {
-    const { container, root, onOpen } = renderBreadcrumb([
+    const { container, onOpen } = renderBreadcrumb([
       {
         page: {
           items: [peer("current"), peer("folder", "folder"), peer("next")],
@@ -247,12 +250,10 @@ describe("breadcrumb peer menus", () => {
     ).find((item) => item.textContent?.includes("Page next"));
     await act(async () => next!.click());
     expect(onOpen).toHaveBeenCalledWith("next", "files");
-
-    act(() => root.unmount());
   });
 
   it("drops the menu once the cached page shows no peers", () => {
-    const { container, root } = renderBreadcrumb([
+    const { container } = renderBreadcrumb([
       {
         page: {
           items: [peer("current")],
@@ -263,12 +264,10 @@ describe("breadcrumb peer menus", () => {
 
     expect(container.querySelector('button[aria-label="Current"]')).toBeNull();
     expect(container.textContent).toContain("Current");
-
-    act(() => root.unmount());
   });
 
   it("bounds a large branch to one page and loads more on request", async () => {
-    const { container, root } = renderBreadcrumb([
+    const { container } = renderBreadcrumb([
       {
         page: {
           items: Array.from({ length: 20 }, (_, index) => peer(`p${index}`)),
@@ -294,7 +293,5 @@ describe("breadcrumb peer menus", () => {
     await act(async () => showMore!.click());
     expect(menuLabels()).toHaveLength(21);
     expect(menuLabels().slice(-1)[0]).toBe("Page p20");
-
-    act(() => root.unmount());
   });
 });
