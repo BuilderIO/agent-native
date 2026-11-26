@@ -274,7 +274,7 @@
     "@changesets/cli": "2.31.0",
     "@cloudflare/vite-plugin": "^1.31.0",
     "@playwright/test": "catalog:",
-    "@shadcn/lint": "0.1.0",
+    "@shadcn/lint": "0.2.5",
     "@typescript/native-preview": "7.0.0-dev.20260707.2",
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1",
