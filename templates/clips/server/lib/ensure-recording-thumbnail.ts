@@ -28,6 +28,7 @@ import {
 } from "./recording-leases.js";
 import { deleteStoredMediaUrl } from "./recording-media-cleanup.js";
 import { ownerEmailMatches } from "./recordings.js";
+import { isUploadPrivateToCaller } from "./s3-upload-provider-ids.js";
 import { uploadRecordingMedia } from "./upload-recording-media.js";
 import { extractJpegFrame, VideoFrameExtractionError } from "./video-frame.js";
 
@@ -101,6 +102,11 @@ type GeneratedThumbnailAsset = {
   provider: string;
   id?: string;
 };
+
+export type SeenThumbnailState = Pick<
+  PublicAgentRecording,
+  "thumbnailStatus" | "thumbnailFailureReason"
+>;
 
 function recordingThumbnailLeaseKey(recordingId: string): string {
   return `${RECORDING_THUMBNAIL_LEASE_PREFIX}${recordingId}`;
@@ -280,6 +286,18 @@ async function hasAnotherRecordingReference(
   return Boolean(reference);
 }
 
+function deleteGeneratedThumbnail(
+  asset: GeneratedThumbnailAsset,
+  recordingId: string,
+): Promise<boolean> {
+  return asset.provider === "clips-hosted"
+    ? deleteStoredMediaUrl(asset.url, { storageMode: "hosted", recordingId })
+    : deleteUploadedFile(asset.provider, {
+        url: asset.url,
+        ...(asset.id ? { id: asset.id } : {}),
+      });
+}
+
 async function cleanupReplacedGeneratedThumbnail(
   recordingId: string,
   ownerEmail: string,
@@ -292,6 +310,7 @@ async function cleanupReplacedGeneratedThumbnail(
 
   const previousAsset = await loadGeneratedThumbnailAsset(recordingId);
   if (!previousAsset || previousAsset.url !== previousThumbnailUrl) return;
+  if (!isUploadPrivateToCaller(previousAsset)) return;
 
   try {
     if (
@@ -303,16 +322,7 @@ async function cleanupReplacedGeneratedThumbnail(
     ) {
       return;
     }
-    const deleted =
-      previousAsset.provider === "clips-hosted"
-        ? await deleteStoredMediaUrl(previousAsset.url, {
-            storageMode: "hosted",
-            recordingId,
-          })
-        : await deleteUploadedFile(previousAsset.provider, {
-            url: previousAsset.url,
-            ...(previousAsset.id ? { id: previousAsset.id } : {}),
-          });
+    const deleted = await deleteGeneratedThumbnail(previousAsset, recordingId);
     if (!deleted) {
       console.warn("[clips] replaced recording thumbnail cleanup unavailable", {
         recordingId,
@@ -348,18 +358,16 @@ async function cleanupUnreferencedThumbnail(
   if (current === undefined || current?.thumbnailUrl === uploaded.url) {
     return current;
   }
+  if (!isUploadPrivateToCaller(uploaded)) {
+    console.warn(
+      "[clips] generated recording thumbnail left in storage, since its URL can be shared",
+      { recordingId, provider: uploaded.provider },
+    );
+    return current;
+  }
 
   try {
-    const deleted =
-      uploaded.provider === "clips-hosted"
-        ? await deleteStoredMediaUrl(uploaded.url, {
-            storageMode: "hosted",
-            recordingId,
-          })
-        : await deleteUploadedFile(uploaded.provider, {
-            url: uploaded.url,
-            ...(uploaded.id ? { id: uploaded.id } : {}),
-          });
+    const deleted = await deleteGeneratedThumbnail(uploaded, recordingId);
     if (!deleted) {
       console.warn(
         "[clips] generated recording thumbnail cleanup unavailable",
@@ -410,6 +418,7 @@ async function setThumbnailStatus(
 export async function markThumbnailFailed(
   recordingId: string,
   reason: string,
+  seen: SeenThumbnailState,
 ): Promise<void> {
   let lease: RecordingThumbnailLease | null;
   try {
@@ -428,7 +437,18 @@ export async function markThumbnailFailed(
       "failed",
       reason,
       lease,
-      isNull(schema.recordings.thumbnailUrl),
+      and(
+        isNull(schema.recordings.thumbnailUrl),
+        seen.thumbnailStatus === null
+          ? isNull(schema.recordings.thumbnailStatus)
+          : eq(schema.recordings.thumbnailStatus, seen.thumbnailStatus),
+        seen.thumbnailFailureReason === null
+          ? isNull(schema.recordings.thumbnailFailureReason)
+          : eq(
+              schema.recordings.thumbnailFailureReason,
+              seen.thumbnailFailureReason,
+            ),
+      ),
     );
   } catch (error) {
     if (!isLeaseLost(error)) throw error;
@@ -550,6 +570,9 @@ async function ensureRecordingThumbnailOnce(
       : "image/jpeg";
     const thumbnailExtension =
       thumbnailMimeType === "image/png" ? "png" : "jpg";
+    if (!(await renewLease(lease, RECORDING_THUMBNAIL_LEASE_MS))) {
+      throw new LeaseLostError(lease);
+    }
     let uploaded: FileUploadResult | null = null;
     let uploadError: unknown;
     try {
@@ -647,9 +670,6 @@ async function ensureRecordingThumbnailOnce(
 
     if (uploaded) {
       try {
-        if (!(await renewLease(lease, RECORDING_THUMBNAIL_LEASE_MS))) {
-          throw new LeaseLostError(lease);
-        }
         await cleanupReplacedGeneratedThumbnail(
           recordingId,
           ownerEmail,
@@ -658,10 +678,12 @@ async function ensureRecordingThumbnailOnce(
         );
         await rememberGeneratedThumbnailAsset(recordingId, uploaded, lease);
       } catch (error) {
-        if (!isLeaseLost(error)) throw error;
         console.warn(
-          "[clips] recording thumbnail lease ran out after the thumbnail was saved; its file is not tracked for replacement",
-          { recordingId },
+          "[clips] recording thumbnail was saved, but its file is not tracked for replacement",
+          {
+            recordingId,
+            error: error instanceof Error ? error.message : String(error),
+          },
         );
       }
     }

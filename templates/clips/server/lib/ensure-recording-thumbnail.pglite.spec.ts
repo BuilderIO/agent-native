@@ -20,6 +20,8 @@ const mocks = vi.hoisted(() => ({
   uploadRecordingMedia: vi.fn(),
   deleteUploadedFile: vi.fn(),
   recordingEmbedProvider: vi.fn(),
+  extractJpegFrame: vi.fn(),
+  renewLease: vi.fn(),
 }));
 
 vi.mock("../db/index.js", async () => {
@@ -50,14 +52,25 @@ vi.mock("./recording-media-cleanup.js", () => ({
   deleteStoredMediaUrl: async () => true,
 }));
 vi.mock("./video-frame.js", () => ({
-  extractJpegFrame: async () => new Uint8Array([1, 2, 3]),
+  extractJpegFrame: (...args: unknown[]) => mocks.extractJpegFrame(...args),
   VideoFrameExtractionError: class VideoFrameExtractionError extends Error {},
 }));
+vi.mock("./recording-leases.js", async (original) => {
+  const leases = await original<typeof import("./recording-leases.js")>();
+  return {
+    ...leases,
+    renewLease: (...args: Parameters<typeof leases.renewLease>) =>
+      mocks.renewLease(...args),
+  };
+});
 
 const { getDb } = await import("../db/index.js");
 const { ensureRecordingThumbnail, markThumbnailFailed } =
   await import("./ensure-recording-thumbnail.js");
 const { claimLease, writeUnderLease } = await import("./recording-leases.js");
+const { renewLease } = await vi.importActual<
+  typeof import("./recording-leases.js")
+>("./recording-leases.js");
 const { compareAndSetAppState, readAppState } =
   await import("@agent-native/core/application-state");
 
@@ -141,6 +154,8 @@ beforeEach(async () => {
   });
   mocks.deleteUploadedFile.mockResolvedValue(true);
   mocks.recordingEmbedProvider.mockReturnValue(null);
+  mocks.extractJpegFrame.mockResolvedValue(new Uint8Array([1, 2, 3]));
+  mocks.renewLease.mockReset().mockImplementation(renewLease);
 });
 
 afterEach(() => {
@@ -172,10 +187,10 @@ describe("a thumbnail worker whose lease expired (SC-05)", () => {
     });
   });
 
-  it("can't save its thumbnail after its successor took the recording, and deletes its upload", async () => {
+  it("can't save its thumbnail after its successor took the recording, and deletes its private upload", async () => {
     mocks.uploadRecordingMedia.mockImplementation(async () => {
       await takeOver(false);
-      return { url: STALE_URL, provider: "builder" };
+      return { url: STALE_URL, provider: "s3", id: "uploads/stale" };
     });
 
     const result = await ensureRecordingThumbnail({
@@ -191,9 +206,44 @@ describe("a thumbnail worker whose lease expired (SC-05)", () => {
       status: null,
       reason: null,
     });
-    expect(mocks.deleteUploadedFile).toHaveBeenCalledWith("builder", {
+    expect(mocks.deleteUploadedFile).toHaveBeenCalledWith("s3", {
       url: STALE_URL,
+      id: "uploads/stale",
     });
+  });
+
+  it("leaves its upload at a URL storage can hand out again to the successor that took the recording", async () => {
+    mocks.uploadRecordingMedia.mockImplementation(async () => {
+      await takeOver(false);
+      return { url: TAKER_URL, provider: "builder" };
+    });
+
+    const result = await ensureRecordingThumbnail({
+      recordingId: "rec-1",
+      ownerEmail: OWNER,
+      mediaBytes: new Uint8Array([9, 9, 9]),
+      mimeType: "video/webm",
+    });
+
+    expect(result).toMatchObject({ status: "skipped-lease", changed: false });
+    expect(mocks.deleteUploadedFile).not.toHaveBeenCalled();
+  });
+
+  it("doesn't upload once its lease lapsed while it extracted the frame", async () => {
+    mocks.extractJpegFrame.mockImplementationOnce(async () => {
+      await takeOver(false);
+      return new Uint8Array([1, 2, 3]);
+    });
+
+    const result = await ensureRecordingThumbnail({
+      recordingId: "rec-1",
+      ownerEmail: OWNER,
+      mediaBytes: new Uint8Array([9, 9, 9]),
+      mimeType: "video/webm",
+    });
+
+    expect(result).toMatchObject({ status: "skipped-lease", changed: false });
+    expect(mocks.uploadRecordingMedia).not.toHaveBeenCalled();
   });
 
   it("still saves the thumbnail while its lease is live", async () => {
@@ -244,12 +294,67 @@ describe("a thumbnail worker whose lease expired (SC-05)", () => {
     });
   });
 
+  it("stays a success when it can't track its saved thumbnail's file", async () => {
+    mocks.uploadRecordingMedia.mockResolvedValue({
+      url: STALE_URL,
+      provider: "s3",
+    });
+    mocks.renewLease.mockImplementation(
+      async (...args: Parameters<typeof renewLease>) => {
+        const saved = await getDbExec().execute(
+          "SELECT 1 FROM recordings WHERE id = 'rec-1' AND thumbnail_url IS NOT NULL",
+        );
+        if (saved.rows.length) throw new Error("database unavailable");
+        return renewLease(...args);
+      },
+    );
+
+    const result = await ensureRecordingThumbnail({
+      recordingId: "rec-1",
+      ownerEmail: OWNER,
+      mediaBytes: new Uint8Array([9, 9, 9]),
+      mimeType: "video/webm",
+    });
+
+    expect(result).toMatchObject({ status: "generated", changed: true });
+    expect(await thumbnail()).toMatchObject({ url: STALE_URL });
+  });
+
+  it("leaves a replaced thumbnail at a URL storage can hand out again", async () => {
+    await getDb()
+      .update(schema.recordings)
+      .set({ thumbnailUrl: OLD_URL, thumbnailStatus: "generated" })
+      .where(eq(schema.recordings.id, "rec-1"));
+    await compareAndSetAppState(ASSET_KEY, null, {
+      url: OLD_URL,
+      provider: "builder",
+    });
+    mocks.uploadRecordingMedia.mockResolvedValue({
+      url: STALE_URL,
+      provider: "builder",
+    });
+
+    const result = await ensureRecordingThumbnail({
+      recordingId: "rec-1",
+      ownerEmail: OWNER,
+      thumbnailBytes: new Uint8Array([1, 2, 3]),
+      replaceNonEditorThumbnail: true,
+    });
+
+    expect(result).toMatchObject({ status: "generated" });
+    expect(mocks.deleteUploadedFile).not.toHaveBeenCalled();
+    expect(await readAppState(ASSET_KEY)).toEqual({
+      url: STALE_URL,
+      provider: "builder",
+    });
+  });
+
   it("can't overwrite its successor's asset record once its saved thumbnail was replaced", async () => {
     await getDb()
       .update(schema.recordings)
       .set({ thumbnailUrl: OLD_URL, thumbnailStatus: "generated" })
       .where(eq(schema.recordings.id, "rec-1"));
-    const oldAsset = { url: OLD_URL, provider: "builder" };
+    const oldAsset = { url: OLD_URL, provider: "s3" };
     await compareAndSetAppState(ASSET_KEY, null, oldAsset);
     mocks.uploadRecordingMedia.mockResolvedValue({
       url: STALE_URL,
@@ -287,9 +392,10 @@ describe("a thumbnail worker whose lease expired (SC-05)", () => {
     });
     expect(result).toMatchObject({ status: "skipped-lease" });
 
-    await markThumbnailFailed("rec-1", result.status);
+    const seen = { thumbnailStatus: null, thumbnailFailureReason: null };
+    await markThumbnailFailed("rec-1", result.status, seen);
     vi.setSystemTime(Date.now() + LEASE_MS + 1_000);
-    await markThumbnailFailed("rec-1", result.status);
+    await markThumbnailFailed("rec-1", result.status, seen);
 
     expect(await thumbnail()).toEqual({
       url: TAKER_URL,
@@ -298,8 +404,57 @@ describe("a thumbnail worker whose lease expired (SC-05)", () => {
     });
   });
 
+  it("doesn't mark a thumbnail failed while another run holds the recording", async () => {
+    await claimLease(LEASE_KEY, LEASE_MS);
+
+    await markThumbnailFailed("rec-1", "skipped-frame-extraction", {
+      thumbnailStatus: null,
+      thumbnailFailureReason: null,
+    });
+
+    expect(await thumbnail()).toEqual({
+      url: null,
+      status: null,
+      reason: null,
+    });
+  });
+
+  it("can't mark the thumbnail failed over the outcome its successor saved without a thumbnail", async () => {
+    mocks.extractJpegFrame.mockImplementationOnce(async () => {
+      vi.setSystemTime(Date.now() + LEASE_MS + 1_000);
+      throw new Error("decoder crashed");
+    });
+    const failed = await ensureRecordingThumbnail({
+      recordingId: "rec-1",
+      ownerEmail: OWNER,
+      mediaBytes: new Uint8Array([9, 9, 9]),
+      mimeType: "video/webm",
+    });
+    expect(failed).toMatchObject({ status: "skipped-frame-extraction" });
+    mocks.recordingEmbedProvider.mockReturnValueOnce("loom");
+    const successor = await ensureRecordingThumbnail({
+      recordingId: "rec-1",
+      ownerEmail: OWNER,
+    });
+    expect(successor).toMatchObject({ status: "skipped-loom-embed" });
+
+    await markThumbnailFailed("rec-1", failed.status, {
+      thumbnailStatus: null,
+      thumbnailFailureReason: null,
+    });
+
+    expect(await thumbnail()).toEqual({
+      url: null,
+      status: "none",
+      reason: "skipped-loom-embed",
+    });
+  });
+
   it("marks a thumbnail nobody produced as failed", async () => {
-    await markThumbnailFailed("rec-1", "skipped-frame-extraction");
+    await markThumbnailFailed("rec-1", "skipped-frame-extraction", {
+      thumbnailStatus: null,
+      thumbnailFailureReason: null,
+    });
 
     expect(await thumbnail()).toEqual({
       url: null,

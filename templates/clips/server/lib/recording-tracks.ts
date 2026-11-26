@@ -90,11 +90,9 @@ export async function deleteTrackSessionIf(
   expected: StoredResumableSession,
   lease?: RecordingLease,
 ): Promise<boolean> {
-  const current = await getTrackSession(recordingId, track);
-  if (!current || current.sessionId !== expected.sessionId) return false;
   return compareAndSetAppState(
     trackSessionKey(recordingId, track),
-    current as unknown as Record<string, unknown>,
+    expected as unknown as Record<string, unknown>,
     null,
     lease ? { lease } : undefined,
   );
@@ -249,6 +247,37 @@ export async function discardTrackUpload(input: {
   }).catch((err: unknown) => err === discarded);
 }
 
+export async function retireTrackUpload(input: {
+  recordingId: string;
+  ownerEmail: string;
+  storageMode: "own" | "hosted" | null;
+  track: RichTrackId;
+  session: StoredResumableSession;
+  lease?: RecordingLease;
+  asSessionOwner?: <T>(run: () => Promise<T>) => Promise<T>;
+}): Promise<boolean> {
+  const { recordingId, track, lease } = input;
+  const asSessionOwner =
+    input.asSessionOwner ?? (<T>(run: () => Promise<T>) => run());
+  let session = input.session;
+  if (!session.discarding) {
+    const marked: StoredResumableSession = { ...session, discarding: true };
+    if (
+      !(await asSessionOwner(() =>
+        compareAndSetTrackSession(recordingId, track, session, marked, lease),
+      ))
+    ) {
+      return false;
+    }
+    session = marked;
+  }
+  if (!(await discardTrackUpload({ ...input, session }))) return false;
+  await asSessionOwner(() =>
+    deleteTrackSessionIf(recordingId, track, session, lease),
+  );
+  return true;
+}
+
 /**
  * Discards every track upload the recording still holds. A session whose file
  * a stored track already points to only loses its session; the file goes with
@@ -262,7 +291,7 @@ export async function discardTrackUploads(recording: {
 }): Promise<string[]> {
   // The owner's track uploads keep their sessions in the owner's app state,
   // and an editor can run a burn.
-  const asOwner = <T>(run: () => Promise<T>) =>
+  const asOwner = async <T>(run: () => Promise<T>): Promise<T> =>
     runWithRequestContext(
       { userEmail: recording.ownerEmail.trim().toLowerCase() },
       run,
@@ -278,17 +307,21 @@ export async function discardTrackUploads(recording: {
   );
   for (const { track, session } of sessions) {
     const completedUrl = session.meta.completedUrl;
-    const discarded =
-      (typeof completedUrl === "string" && stored.has(completedUrl)) ||
-      (await discardTrackUpload({
-        recordingId: recording.id,
-        ownerEmail: recording.ownerEmail,
-        storageMode: recording.storageMode,
-        session,
-      }));
-    if (discarded)
+    if (typeof completedUrl === "string" && stored.has(completedUrl)) {
       await asOwner(() => deleteTrackSessionIf(recording.id, track, session));
-    else left.push(`unfinished ${track} track upload of ${recording.id}`);
+      continue;
+    }
+    const discarded = await retireTrackUpload({
+      recordingId: recording.id,
+      ownerEmail: recording.ownerEmail,
+      storageMode: recording.storageMode,
+      track,
+      session,
+      asSessionOwner: asOwner,
+    });
+    if (!discarded) {
+      left.push(`unfinished ${track} track upload of ${recording.id}`);
+    }
   }
   return left;
 }

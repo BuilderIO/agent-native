@@ -52,17 +52,19 @@ async function backendPid(sql: postgres.Sql): Promise<number> {
   return Number(pid);
 }
 
-async function waitingOnLock(
+async function blockedBy(
   observer: postgres.Sql,
   pid: number,
+  holderPid: number,
 ): Promise<boolean> {
   const rows =
-    await observer`SELECT 1 FROM pg_stat_activity WHERE pid = ${pid} AND wait_event_type = 'Lock'`;
+    await observer`SELECT 1 WHERE ${holderPid}::int = ANY(pg_blocking_pids(${pid}::int))`;
   return rows.length > 0;
 }
 
 async function claimDuringHoldersWrite(
   observer: postgres.Sql,
+  holderPid: number,
   table: string,
   key: string,
 ) {
@@ -76,13 +78,35 @@ async function claimDuringHoldersWrite(
   });
   let waited = false;
   while (!claiming.settled && !waited) {
-    waited = await waitingOnLock(observer, pid);
+    waited = await blockedBy(observer, pid, holderPid);
   }
   return {
     waited,
     claim,
     close: () => claimerSql.end(),
   };
+}
+
+function pausedHolder<T>(run: (written: () => Promise<void>) => Promise<T>) {
+  let commit!: () => void;
+  const committed = new Promise<void>((resolve) => {
+    commit = resolve;
+  });
+  let written!: () => void;
+  const signalled = new Promise<void>((resolve) => {
+    written = resolve;
+  });
+  const done = run(async () => {
+    written();
+    await committed;
+  });
+  const wrote = Promise.race([
+    signalled,
+    done.then(() => {
+      throw new Error("The holder finished before it wrote.");
+    }),
+  ]);
+  return { done, wrote, commit };
 }
 
 // oracle-change: runs where a PostgreSQL URL is set, as in the core integration job
@@ -126,37 +150,40 @@ describe.skipIf(!databaseUrl)("leases on PostgreSQL", () => {
 
   it("makes a takeover wait for a write made under the lease, so it can't slip in under it (SC-05)", async () => {
     const lease = await claimed();
-    let commit!: () => void;
-    const committed = new Promise<void>((resolve) => {
-      commit = resolve;
-    });
-    let written!: () => void;
-    const wrote = new Promise<void>((resolve) => {
-      written = resolve;
-    });
-
-    const holder = drizzle(holderSql).transaction(async (tx) => {
-      const rows = await tx.execute(
-        drizzleSql`UPDATE ${drizzleSql.identifier(work)} SET done_by = 'a'
-          WHERE id = 'job' AND ${leaseHeld(lease)} RETURNING id`,
-      );
-      written();
-      await committed;
-      return rows.length;
-    });
-    await wrote;
-    vi.setSystemTime(START + 2_000);
-
-    const takeover = await claimDuringHoldersWrite(observer, leases, "job");
+    const holderPid = await backendPid(holderSql);
+    const holder = pausedHolder((written) =>
+      drizzle(holderSql).transaction(async (tx) => {
+        const rows = await tx.execute(
+          drizzleSql`UPDATE ${drizzleSql.identifier(work)} SET done_by = 'a'
+            WHERE id = 'job' AND ${leaseHeld(lease)} RETURNING id`,
+        );
+        await written();
+        return rows.length;
+      }),
+    );
     try {
-      expect(takeover.waited).toBe(true);
-      commit();
-      expect(await holder).toBe(1);
-      expect(await takeover.claim).not.toBeNull();
+      await holder.wrote;
+      vi.setSystemTime(START + 2_000);
+
+      const takeover = await claimDuringHoldersWrite(
+        observer,
+        holderPid,
+        leases,
+        "job",
+      );
+      try {
+        expect(takeover.waited).toBe(true);
+        holder.commit();
+        expect(await holder.done).toBe(1);
+        expect(await takeover.claim).not.toBeNull();
+      } finally {
+        holder.commit();
+        await takeover.claim.catch(() => null);
+        await takeover.close();
+      }
     } finally {
-      commit();
-      await takeover.claim.catch(() => null);
-      await takeover.close();
+      holder.commit();
+      await holder.done.catch(() => null);
     }
     expect(
       await observer.unsafe(`SELECT done_by FROM ${work} WHERE id = 'job'`),
@@ -169,47 +196,50 @@ describe.skipIf(!databaseUrl)("leases on PostgreSQL", () => {
     );
     const session = `lease-fence-${randomUUID()}`;
     const lease = await claimed();
-    let commit!: () => void;
-    const committed = new Promise<void>((resolve) => {
-      commit = resolve;
-    });
-    let written!: () => void;
-    const wrote = new Promise<void>((resolve) => {
-      written = resolve;
-    });
-
-    const holder = holderSql.begin((tx) =>
-      withDbExec(executor(tx as unknown as postgres.Sql), async () => {
-        const changed = await appStateCompareAndSet(
-          session,
-          "checkpoint",
-          null,
-          { by: "a" },
-          { lease },
-        );
-        written();
-        await committed;
-        return changed;
-      }),
+    const holderPid = await backendPid(holderSql);
+    const holder = pausedHolder((written) =>
+      holderSql.begin((tx) =>
+        withDbExec(executor(tx as unknown as postgres.Sql), async () => {
+          const changed = await appStateCompareAndSet(
+            session,
+            "checkpoint",
+            null,
+            { by: "a" },
+            { lease },
+          );
+          await written();
+          return changed;
+        }),
+      ),
     );
-    await wrote;
-    vi.setSystemTime(START + 2_000);
-
-    const takeover = await claimDuringHoldersWrite(observer, leases, "job");
     try {
-      expect(takeover.waited).toBe(true);
-      commit();
-      expect(await holder).toBe(true);
-      expect(await takeover.claim).not.toBeNull();
-      expect(
-        await withDbExec(executor(observer), () =>
-          appStateGet(session, "checkpoint"),
-        ),
-      ).toEqual({ by: "a" });
+      await holder.wrote;
+      vi.setSystemTime(START + 2_000);
+
+      const takeover = await claimDuringHoldersWrite(
+        observer,
+        holderPid,
+        leases,
+        "job",
+      );
+      try {
+        expect(takeover.waited).toBe(true);
+        holder.commit();
+        expect(await holder.done).toBe(true);
+        expect(await takeover.claim).not.toBeNull();
+        expect(
+          await withDbExec(executor(observer), () =>
+            appStateGet(session, "checkpoint"),
+          ),
+        ).toEqual({ by: "a" });
+      } finally {
+        holder.commit();
+        await takeover.claim.catch(() => null);
+        await takeover.close();
+      }
     } finally {
-      commit();
-      await takeover.claim.catch(() => null);
-      await takeover.close();
+      holder.commit();
+      await holder.done.catch(() => null);
       await observer`DELETE FROM application_state WHERE session_id = ${session}`;
     }
   });

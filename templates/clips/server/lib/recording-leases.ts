@@ -6,7 +6,6 @@ import {
 } from "@agent-native/core/db";
 
 export {
-  holdsLease,
   isLeaseLost,
   leaseHeld,
   LeaseLostError,
