@@ -26,7 +26,7 @@ if [ -L node_modules ]; then
   echo "worktree-setup: node_modules is a symlink, leaving it alone (it resolves workspace code from the checkout it points to)"
   exit 0
 fi
-if [ -e node_modules ] && [ -z "$state" ]; then exit 0; fi # installed some other way
+if [ -e node_modules ] && [ ! -s "$state_file" ]; then exit 0; fi # installed some other way; a setup run writes its state first
 for tool in node pnpm; do
   command -v "$tool" >/dev/null || fail "$tool isn't on PATH; install dependencies yourself, or rerun bash $0 from a shell that has it"
 done
@@ -50,7 +50,7 @@ until err=$(ln -s "$$" "$lock" 2>&1); do
     sleep 1
   fi
 done
-trap 'rm -f "$lock"' EXIT
+trap 'if [ "$(lock_owner)" = "$$" ]; then rm -f "$lock"; fi' EXIT
 state=$(cat "$state_file" 2>/dev/null || true)
 [ "$state" = "done" ] && exit 0
 
