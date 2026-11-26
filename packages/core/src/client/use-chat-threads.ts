@@ -1353,7 +1353,7 @@ export function useChatThreads(
               if (local.preview) next.preview = local.preview;
               if (local.title) next.title = local.title;
             }
-            if (local.scope && !server.scope) {
+            if (local.scope && newlyCreatedRef.current.has(server.id)) {
               next.scope = local.scope;
             }
             return next;
