@@ -42,41 +42,56 @@ function pageEditor() {
   );
 }
 
-function useFocusAfterDecision(unitSelector: string) {
-  const decided = useRef<{ unit: HTMLElement; around: HTMLElement[] } | null>(
-    null,
-  );
+function useFocusAfterDecision(unitAttribute: string) {
+  const decided = useRef<{
+    scope: Element | null;
+    unit: HTMLElement;
+    around: string[];
+  } | null>(null);
   useEffect(
     () => () => {
       const focus = decided.current;
       const active = document.activeElement;
       if (!focus || (active && active !== document.body)) return;
-      const own = !focus.unit.isConnected
-        ? null
-        : focus.unit.matches("[data-thread-card]")
-          ? focus.unit
-          : focus.unit.querySelector<HTMLElement>(
-              "[data-thread-card], button:not(:disabled)",
-            );
-      for (const target of [own, ...focus.around]) {
-        if (!target?.isConnected) continue;
+      const scope = focus.scope?.isConnected ? focus.scope : null;
+      const unitId = focus.unit.getAttribute(unitAttribute);
+      const unit = focus.unit.isConnected
+        ? focus.unit
+        : [
+            ...(scope?.querySelectorAll<HTMLElement>(`[${unitAttribute}]`) ??
+              []),
+          ].find((element) => element.getAttribute(unitAttribute) === unitId);
+      const own = unit?.matches("[data-thread-card]")
+        ? unit
+        : unit?.querySelector<HTMLElement>(
+            "[data-thread-card], button:not(:disabled)",
+          );
+      const cards = [
+        ...(scope?.querySelectorAll<HTMLElement>("[data-thread-card]") ?? []),
+      ];
+      for (const target of [
+        own,
+        ...focus.around.map((id) =>
+          cards.find((card) => card.dataset.threadCard === id),
+        ),
+      ]) {
+        if (!target) continue;
         target.focus();
         if (document.activeElement === target) return;
       }
       pageEditor()?.focus({ preventScroll: true });
     },
-    [],
+    [unitAttribute],
   );
   return (event: MouseEvent<HTMLElement>) => {
-    const unit = event.currentTarget.closest<HTMLElement>(unitSelector);
+    const unit = event.currentTarget.closest<HTMLElement>(`[${unitAttribute}]`);
     if (event.detail !== 0 || !unit) {
       decided.current = null;
       return;
     }
+    const scope = unit.closest("[data-comments-sidebar]");
     const cards = [
-      ...(unit
-        .closest("[data-comments-sidebar]")
-        ?.querySelectorAll<HTMLElement>("[data-thread-card]") ?? []),
+      ...(scope?.querySelectorAll<HTMLElement>("[data-thread-card]") ?? []),
     ].filter(
       (card) =>
         !unit.contains(card) &&
@@ -86,11 +101,12 @@ function useFocusAfterDecision(unitSelector: string) {
     const follows = (card: HTMLElement) =>
       !!(unit.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING);
     decided.current = {
+      scope,
       unit,
       around: [
         ...cards.filter(follows),
         ...cards.filter((card) => !follows(card)).reverse(),
-      ],
+      ].flatMap((card) => card.dataset.threadCard ?? []),
     };
   };
 }
@@ -115,7 +131,7 @@ export function SuggestionDecisionButtons({
   onDecide: (decision: SuggestionDecision) => void;
 }) {
   const t = useT();
-  const rememberFocus = useFocusAfterDecision("[data-suggestion-id]");
+  const rememberFocus = useFocusAfterDecision("data-suggestion-id");
   return (
     <>
       {(["accepted", "rejected"] as const).map((decision) => (
@@ -297,7 +313,6 @@ export function ProposalGroup({
   const t = useT();
   const groupRef = useRef<HTMLDivElement>(null);
   const detailsId = useId();
-  const rememberFocus = useFocusAfterDecision("[data-suggestion-proposal]");
   useLayoutEffect(() => {
     if (active) onExpandedChange(true);
   }, [active]);
@@ -359,33 +374,56 @@ export function ProposalGroup({
         </div>
       ) : null}
       {canDecide && pending.length > 0 ? (
-        <div className="flex flex-wrap justify-end gap-1 border-t border-border/60 px-2 py-1.5">
-          <button
-            type="button"
-            disabled={deciding || acceptDisabled}
-            onClick={(event) => {
-              rememberFocus(event);
-              onDecide("accepted");
-            }}
-            className="rounded-md px-2 py-1 text-xs text-foreground hover:bg-accent disabled:opacity-40"
-            data-suggestion-proposal-decision="accepted"
-          >
-            {t(undecided ? "comments.acceptAll" : "comments.acceptRemaining")}
-          </button>
-          <button
-            type="button"
-            disabled={deciding}
-            onClick={(event) => {
-              rememberFocus(event);
-              onDecide("rejected");
-            }}
-            className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
-            data-suggestion-proposal-decision="rejected"
-          >
-            {t(undecided ? "comments.rejectAll" : "comments.rejectRemaining")}
-          </button>
-        </div>
+        <ProposalGroupDecision
+          undecided={undecided}
+          deciding={deciding}
+          acceptDisabled={acceptDisabled}
+          onDecide={onDecide}
+        />
       ) : null}
+    </div>
+  );
+}
+
+function ProposalGroupDecision({
+  undecided,
+  deciding,
+  acceptDisabled,
+  onDecide,
+}: {
+  undecided: boolean;
+  deciding: boolean;
+  acceptDisabled: boolean;
+  onDecide: (decision: SuggestionDecision) => void;
+}) {
+  const t = useT();
+  const rememberFocus = useFocusAfterDecision("data-suggestion-proposal");
+  return (
+    <div className="flex flex-wrap justify-end gap-1 border-t border-border/60 px-2 py-1.5">
+      <button
+        type="button"
+        disabled={deciding || acceptDisabled}
+        onClick={(event) => {
+          rememberFocus(event);
+          onDecide("accepted");
+        }}
+        className="rounded-md px-2 py-1 text-xs text-foreground hover:bg-accent disabled:opacity-40"
+        data-suggestion-proposal-decision="accepted"
+      >
+        {t(undecided ? "comments.acceptAll" : "comments.acceptRemaining")}
+      </button>
+      <button
+        type="button"
+        disabled={deciding}
+        onClick={(event) => {
+          rememberFocus(event);
+          onDecide("rejected");
+        }}
+        className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+        data-suggestion-proposal-decision="rejected"
+      >
+        {t(undecided ? "comments.rejectAll" : "comments.rejectRemaining")}
+      </button>
     </div>
   );
 }
