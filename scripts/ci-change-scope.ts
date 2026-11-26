@@ -2950,7 +2950,6 @@ function readChangelogOnly(baseSha: string, headSha: string): boolean {
   ).trimEnd();
   if (!COMMIT_OID.test(mergeBase)) return false;
 
-  // With rename detection disabled, a move also reveals its deleted source.
   const fields = execFileSync(
     "git",
     [

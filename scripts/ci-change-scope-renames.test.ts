@@ -532,3 +532,60 @@ test("proves changelog-only Typecheck scope using both sides of the complete Git
     rmSync(repoPath, { recursive: true, force: true });
   }
 });
+
+test("Build requires Typecheck success for proven changelog-only scope", () => {
+  const workflow = readFileSync(
+    new URL("../.github/workflows/ci.yml", import.meta.url),
+    "utf8",
+  );
+  const gate = /^  build-gate:\n([\s\S]*?)(?=^  [a-z0-9-]+:\n)/m.exec(workflow);
+  assert.ok(gate);
+  const run = /^        run: \|\n((?:^ {10}[^\n]*\n|^\n)+)/m.exec(gate[1]);
+  assert.ok(run);
+  const script = run[1].replace(/^ {10}/gm, "");
+  const skipped = {
+    CHANGE_SCOPE_RESULT: "success",
+    DOCS_ONLY: "false",
+    BUILD_REQUIRED: "false",
+    BUILD_RESULT: "skipped",
+    TYPECHECK_REQUIRED: "false",
+    CHANGELOG_ONLY: "false",
+    TYPECHECK_RESULT: "skipped",
+    GUARDS_REQUIRED: "false",
+    GUARDS_RESULT: "skipped",
+  };
+  const runGate = (overrides: Record<string, string>, expected: number) => {
+    const result = spawnSync("bash", ["-c", script], {
+      encoding: "utf8",
+      env: { ...process.env, ...skipped, ...overrides },
+    });
+    assert.equal(result.status, expected, result.stderr + result.stdout);
+  };
+
+  runGate({ CHANGELOG_ONLY: "true", TYPECHECK_RESULT: "success" }, 0);
+  runGate({ CHANGELOG_ONLY: "true", TYPECHECK_RESULT: "skipped" }, 1);
+  runGate({ CHANGELOG_ONLY: "true", TYPECHECK_RESULT: "failure" }, 1);
+  runGate({ CHANGELOG_ONLY: "true", TYPECHECK_RESULT: "cancelled" }, 1);
+  runGate({ CHANGELOG_ONLY: "" }, 1);
+  runGate({ CHANGELOG_ONLY: "malformed", TYPECHECK_RESULT: "skipped" }, 1);
+  runGate({}, 0);
+  runGate({ TYPECHECK_RESULT: "success" }, 1);
+  runGate({ TYPECHECK_REQUIRED: "true", TYPECHECK_RESULT: "success" }, 0);
+  runGate({ TYPECHECK_REQUIRED: "true", TYPECHECK_RESULT: "skipped" }, 1);
+  runGate({ DOCS_ONLY: "true", BUILD_RESULT: "success" }, 0);
+  runGate({ DOCS_ONLY: "true", BUILD_RESULT: "failure" }, 1);
+  runGate(
+    {
+      CHANGELOG_ONLY: "true",
+      TYPECHECK_RESULT: "success",
+      GUARDS_REQUIRED: "true",
+      GUARDS_RESULT: "failure",
+    },
+    1,
+  );
+  runGate({ CHANGE_SCOPE_RESULT: "failure" }, 1);
+  assert.match(
+    gate[1],
+    /CHANGELOG_ONLY: \$\{\{ needs\.change-scope\.outputs\.changelog_only \}\}/,
+  );
+});
