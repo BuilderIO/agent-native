@@ -170,6 +170,66 @@ describe("narrow breadcrumbs", () => {
   });
 });
 
+describe("breadcrumb folders and hover menus", () => {
+  it("marks folders and leaves the page usable while a hover menu is open", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    act(() =>
+      root.render(
+        <ToolbarBreadcrumb
+          items={[
+            { id: "projects", title: "Projects", iconKind: "folder" },
+            {
+              id: "current",
+              title: "Current",
+              menuItems: [
+                { id: "current", title: "Current" },
+                { id: "archive", title: "Archive", iconKind: "folder" },
+                { id: "notes", title: "Notes" },
+              ],
+            },
+          ]}
+          currentDocumentId="current"
+          ariaLabel="Page breadcrumb"
+          untitledLabel="Untitled"
+          onOpen={vi.fn()}
+        />,
+      ),
+    );
+    const projects = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Projects",
+    );
+    expect(projects?.querySelector("svg.tabler-icon-folder")).not.toBeNull();
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Current"]',
+    )!;
+    await act(async () => {
+      trigger.dispatchEvent(
+        new PointerEvent("pointerover", {
+          bubbles: true,
+          pointerType: "mouse",
+        }),
+      );
+    });
+    const item = (label: string) =>
+      Array.from(document.querySelectorAll('[role="menuitem"]')).find(
+        (entry) => entry.textContent?.trim() === label,
+      );
+    expect(item("Archive")?.querySelector("svg.tabler-icon-folder")).not.toBe(
+      null,
+    );
+    expect(item("Notes")?.querySelector("svg.tabler-icon-folder")).toBeNull();
+    // A modal menu would block the page's pointer events and hide it from
+    // assistive tech until the menu closed.
+    expect(document.body.style.pointerEvents).not.toBe("none");
+    expect(container.closest("[aria-hidden]")).toBeNull();
+
+    act(() => root.unmount());
+  });
+});
+
 describe("breadcrumb peer menus", () => {
   it("lists the sidebar's cached page of peers, without folders, and opens one", async () => {
     const { container, root, onOpen } = renderBreadcrumb([

@@ -11,6 +11,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { CommentThread } from "@/hooks/use-comments";
 
+const captured = vi.hoisted(() => ({ editor: null as Editor | null }));
+vi.mock("@tiptap/react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tiptap/react")>();
+  return {
+    ...actual,
+    useEditor: (...args: Parameters<typeof actual.useEditor>) => {
+      const editor = actual.useEditor(...args);
+      captured.editor = editor;
+      return editor;
+    },
+  };
+});
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string) => key,
@@ -22,7 +34,7 @@ import {
 } from "@shared/comment-block-anchor";
 
 import { commentHighlightKey } from "./extensions/CommentHighlight";
-import { VisualEditor } from "./VisualEditor";
+import { VisualEditor, type VisualEditorSuggestion } from "./VisualEditor";
 
 function found<T>(value: T | null | undefined): T {
   if (value == null) throw new Error("Expected the fixture to have it");
@@ -239,6 +251,60 @@ describe("VisualEditor comment highlights", () => {
     await act(async () => render(BEFORE, [thread("t1")], "seed", true));
     await settle();
     expect(highlighted("t1")).toBe("ships every Friday afternoon");
+  });
+
+  describe("suggestions", () => {
+    const suggestion: VisualEditorSuggestion = {
+      id: "s1",
+      kind: "replace_text",
+      beforeText: "afternoon",
+      afterText: "at 2 pm",
+      anchor: { from: 0, prefix: "every Friday ", suffix: ", so" },
+      presentation: "canonical",
+    };
+    const suggested = () =>
+      [...container.querySelectorAll("[data-suggestion-id=s1]")]
+        .map((element) => element.textContent)
+        .join(" → ");
+
+    it("hides a suggestion with comment indicators and still reports it placed", async () => {
+      const onSuggestionAnchorsChange = vi.fn();
+      const props = { suggestions: [suggestion], onSuggestionAnchorsChange };
+      await act(async () => render(BEFORE, [], "seed", false, props));
+      await settle();
+      expect(suggested()).toBe("");
+      expect(onSuggestionAnchorsChange).toHaveBeenLastCalledWith(["s1"]);
+
+      await act(async () => render(BEFORE, [], "seed", true, props));
+      await settle();
+      expect(suggested()).toBe("afternoon → at 2 pm");
+      expect(onSuggestionAnchorsChange).toHaveBeenLastCalledWith(["s1"]);
+    });
+
+    it.each([
+      [false, 1],
+      [true, 0],
+    ])(
+      "reports placed suggestions after typing only outside Suggesting (suggesting: %s)",
+      async (suggesting, reports) => {
+        const onSuggestionAnchorsChange = vi.fn();
+        await act(async () =>
+          render(BEFORE, [], "seed", true, {
+            suggestions: [suggestion],
+            onSuggestionAnchorsChange,
+            suggesting,
+          }),
+        );
+        await settle();
+        onSuggestionAnchorsChange.mockClear();
+        const editor = found(captured.editor);
+        act(() => {
+          editor.view.dispatch(editor.state.tr.insertText("Typed ", 1));
+        });
+        await settle();
+        expect(onSuggestionAnchorsChange).toHaveBeenCalledTimes(reports);
+      },
+    );
   });
 
   it("keeps a highlight on its copy when edits make its context match another", async () => {

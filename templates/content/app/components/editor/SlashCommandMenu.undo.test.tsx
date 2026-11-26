@@ -7,11 +7,23 @@ import { Editor } from "@tiptap/core";
 import { TextSelection } from "@tiptap/pm/state";
 import { EditorContent } from "@tiptap/react";
 import { prosemirrorToYDoc, yUndoPluginKey } from "@tiptap/y-tiptap";
-import { act } from "react";
+import { act, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
+
+const pages = vi.hoisted(() => ({
+  create: vi.fn(async (_parentId: string, _id: string) => {}),
+  rollback: vi.fn(async (_input: { id: string; parentId: string }) => ({})),
+}));
+vi.mock("@/hooks/use-create-page", () => ({
+  useCreatePage: () => pages.create,
+}));
+vi.mock("@/hooks/use-documents", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/hooks/use-documents")>()),
+  useRollbackCreatedSlashDocument: () => ({ mutateAsync: pages.rollback }),
+}));
 
 import { runPersistableHistoryCommand } from "./editor-transaction-meta";
 import { SlashCommandMenu } from "./SlashCommandMenu";
@@ -59,7 +71,10 @@ function headingBlock(editor: Editor) {
 }
 
 /** Renders the slash menu beside a collaborative editor. */
-async function mountSlashMenu(markdown?: string) {
+async function mountSlashMenu(
+  markdown?: string,
+  props: Partial<ComponentProps<typeof SlashCommandMenu>> = {},
+) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -81,7 +96,7 @@ async function mountSlashMenu(markdown?: string) {
           >
             <div className="visual-editor-wrapper">
               <EditorContent editor={editor} />
-              <SlashCommandMenu editor={editor} />
+              <SlashCommandMenu editor={editor} {...props} />
             </div>
           </AgentNativeI18nProvider>
         </QueryClientProvider>
@@ -338,6 +353,62 @@ describe("slash menu in a Toggle's title", () => {
       expect(toggle?.firstChild?.textContent).toBe("Plan");
       expect(toggle?.lastChild?.textContent).toBe("Body");
       expect(editor.state.doc.child(1).textContent).toBe("");
+    } finally {
+      await unmount();
+    }
+  });
+});
+
+describe("/page", () => {
+  function pageReferences(editor: Editor) {
+    const ids: string[] = [];
+    editor.state.doc.descendants((node) => {
+      if (node.attrs.tagName === "page")
+        ids.push(JSON.parse(node.attrs.attrsJson).id);
+    });
+    return ids;
+  }
+
+  async function makePage(persisted: boolean) {
+    pages.create.mockClear();
+    pages.rollback.mockClear();
+    const onDraftPersisted = vi.fn(async (_markdown: string) => persisted);
+    const mounted = await mountSlashMenu(undefined, {
+      documentId: "parent",
+      onDraftPersisted,
+    });
+    typeAt(mounted.editor, mounted.editor.state.doc.content.size - 1, "/page");
+    await act(async () => Promise.resolve());
+    await pressEnter();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    const pageId = pages.create.mock.calls[0]?.[1];
+    expect(pages.create).toHaveBeenCalledWith("parent", pageId);
+    return { ...mounted, onDraftPersisted, pageId };
+  }
+
+  it("saves the link to the new page through the page's editor", async () => {
+    const { editor, onDraftPersisted, pageId, unmount } = await makePage(true);
+    try {
+      expect(onDraftPersisted).toHaveBeenCalledOnce();
+      expect(onDraftPersisted.mock.calls[0][0]).toContain(`id="${pageId}"`);
+      expect(pageReferences(editor)).toEqual([pageId]);
+      expect(pages.rollback).not.toHaveBeenCalled();
+    } finally {
+      await unmount();
+    }
+  });
+
+  it("takes the new page back when the page's editor can't save the link", async () => {
+    const { editor, onDraftPersisted, pageId, unmount } = await makePage(false);
+    try {
+      expect(onDraftPersisted).toHaveBeenCalledOnce();
+      expect(pageReferences(editor)).toEqual([]);
+      expect(pages.rollback).toHaveBeenCalledWith({
+        id: pageId,
+        parentId: "parent",
+      });
     } finally {
       await unmount();
     }

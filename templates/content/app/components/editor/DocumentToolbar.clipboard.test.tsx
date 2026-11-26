@@ -327,6 +327,72 @@ describe("DocumentToolbar clipboard behavior", () => {
       container.querySelector('[aria-label="editor.toolbar.copyLink"]'),
     ).toBeNull();
   });
+
+  it.each([
+    [false, ["editor.toolbar.copyRelativePath"]],
+    [
+      true,
+      [
+        "editor.toolbar.revealInFinder",
+        "editor.toolbar.copyRelativePath",
+        "editor.toolbar.copyAbsolutePath",
+      ],
+    ],
+  ])(
+    "offers only the relative path of a local file this tab can't edit (canEdit: %s)",
+    async (canEdit, enabled) => {
+      await act(async () => {
+        root.render(
+          createElement(
+            MemoryRouter,
+            null,
+            createElement(
+              TooltipProvider,
+              null,
+              createElement(
+                QueryClientProvider,
+                { client: queryClient },
+                createElement(DocumentToolbar, {
+                  documentId: "clipboard-fixture",
+                  source: { mode: "local-files", path: "notes/example.md" },
+                  canEdit,
+                  utilityPanel: null,
+                  onUtilityPanelChange: () => {},
+                }),
+              ),
+            ),
+          ),
+        );
+      });
+      const trigger = container.querySelector<HTMLButtonElement>(
+        '[aria-label="editor.toolbar.morePageActions"]',
+      )!;
+      trigger.focus();
+      await act(async () => {
+        trigger.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            bubbles: true,
+            cancelable: true,
+            key: "ArrowDown",
+          }),
+        );
+      });
+      const pathItems = Array.from(
+        document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ).filter((item) =>
+        /revealInFinder|copyRelativePath|copyAbsolutePath/.test(
+          item.textContent ?? "",
+        ),
+      );
+      expect(pathItems).toHaveLength(3);
+      expect(
+        pathItems
+          .filter((item) => item.getAttribute("aria-disabled") !== "true")
+          .map((item) => item.textContent),
+      ).toEqual(enabled);
+    },
+  );
+
   it("clears superseded Suggest edits focus timers before unmounting", async () => {
     const editor = document.createElement("div");
     editor.tabIndex = 0;

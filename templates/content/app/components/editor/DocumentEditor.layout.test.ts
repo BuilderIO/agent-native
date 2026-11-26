@@ -189,16 +189,9 @@ describe("document editor layout", () => {
     }
   });
 
-  it("keeps an open comment when its portalled menus are clicked", () => {
-    const source = readFileSync("app/components/editor/DocumentEditor.tsx", {
-      encoding: "utf8",
-    });
-    // The @ menu, emoji picker, and model menu render in portals; React still
-    // bubbles their clicks through the page's dismissal handler.
-    expect(source).toContain(
-      "if (target && !event.currentTarget.contains(target)) return;",
-    );
-  });
+  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "keeps an open
+  // comment while its portalled menus are used", which clicks a portalled menu
+  // of an open comment.
 
   it("attests an identified revert even when its snapshot matches the saved page", () => {
     const base = {
@@ -592,40 +585,14 @@ describe("document editor layout", () => {
     expect(unmapped()).toBe(unmapped());
   });
 
-  it("does not feed suggestion anchor decoration transactions back into the parent", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    const handler = source.slice(
-      source.indexOf("const handleSuggestionAnchorsChange"),
-      source.indexOf("const [selectedSuggestionId"),
-    );
-    const visualEditor = readFileSync(
-      new URL("./VisualEditor.tsx", import.meta.url),
-      "utf8",
-    );
+  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "renders the
+  // page again only when the placed suggestions change" and
+  // VisualEditor.comment-highlights.test.tsx "reports placed suggestions after
+  // typing only outside Suggesting", which run the anchor reports.
 
-    expect(handler).toContain("sameSuggestionAnchorIds(current, next)");
-    expect(visualEditor).toContain(
-      "applySuggestionsRef.current?.(!suggestingRef.current, transaction)",
-    );
-  });
-
-  it("keeps suggestion history notifications out of the parent render loop", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    const handler = source.slice(
-      source.indexOf("const editorHistoryStateRef"),
-      source.indexOf("const handleHistoryControllerChange"),
-    );
-
-    expect(handler).toContain("editorHistoryStateRef.current = next");
-    expect(handler).toContain("if (isSuggesting) return");
-    expect(handler).toContain("setEditorHistoryState(next)");
-  });
+  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "shows the
+  // editor's history, and leaves Suggesting's to the editor", which counts the
+  // page's renders.
   it("blocks a changed pending selection without dropping its recovery position", () => {
     expect(
       pendingCommentTargetMatches(
@@ -653,19 +620,9 @@ describe("document editor layout", () => {
       placement: "below",
     });
   });
-  it("re-validates the pending comment target on selection changes only", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    ).replace(/\r\n/g, "\n");
-    expect(
-      source.match(/setPendingCommentTargetValid\(false\);\n    update\(\);/g),
-    ).toHaveLength(1);
-    expect(source).toContain(
-      "}, [pendingCommentTargetId, pendingCommentQuotedText]);",
-    );
-    expect(source).not.toContain("  }, [pendingComment]);");
-  });
+  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "checks the page
+  // still marks it whenever the comment moves, not as it's written", which
+  // starts and types a comment.
   it("keeps an unchanged anchored comment position out of state", () => {
     const position = {
       left: 16,
@@ -690,27 +647,9 @@ describe("document editor layout", () => {
       }),
     ).toBe(false);
   });
-  it("hides suggestion decorations with comments without losing resolved anchor metadata", () => {
-    const source = readFileSync(
-      new URL("./VisualEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    const start = source.indexOf("const specs = suggestions");
-    const effect = source.slice(
-      start,
-      source.indexOf("const position = resolveAnchorPoint", start),
-    );
-    expect(effect).toMatch(
-      /new Set\(\s+specs\s+\.filter\(\(spec\) => !isProvisionalDraftSpec\(spec\)\)\s+\.map\(\(spec\) => spec\.suggestionId\)/,
-    );
-    expect(effect).toMatch(
-      /const visibleSpecs = showCommentIndicators\s+\? specs\s+: specs\.filter\(\(spec\) => spec\.settling \|\| spec\.frozen\)/,
-    );
-    expect(effect).toContain("specs: visibleSpecs");
-    expect(effect).toMatch(
-      /suggestionsSignature,\r?\n\s+showCommentIndicators,/,
-    );
-  });
+  // oracle-change: replaced by VisualEditor.comment-highlights.test.tsx "hides
+  // a suggestion with comment indicators and still reports it placed", which
+  // renders the real editor.
   // oracle-change: the source half is now "locks the title, icon and embedded
   //   blocks while Suggesting" in DocumentEditor.recovery-save-state.test.tsx.
   //   The title paste check repeats handleTitleChange's own guard, so removing
@@ -1141,22 +1080,9 @@ describe("document editor layout", () => {
   });
   // oracle-change: the page's Escape moved into usePagePanelEscape; that a
   // menu's Escape leaves comment focus alone is pressed in CommentsSidebar.escape.
-  it("measures an untransformed comment lane without an offset feedback loop", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    expect(source).not.toContain("[commentLaneOffset, showInlineComments]");
-    expect(source).toContain(
-      "observeCommentLane(container, lane, setCommentLaneOffset)",
-    );
-    expect(source).toContain("[documentId, showInlineComments]");
-    const lane = source.slice(source.indexOf("ref={commentLaneRef}"));
-    expect(lane.slice(0, lane.indexOf(">"))).not.toContain("transform");
-    expect(lane.slice(lane.indexOf(">"))).toContain(
-      "translateX(${commentLaneOffset}px)",
-    );
-  });
+  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "moves its
+  // comments beside the text without measuring itself moved", which lays out
+  // the margin.
   it("opens an accept that can't be placed instead of treating it as accepted", () => {
     expect(
       isSuggestionStaleActionError(
@@ -1557,36 +1483,13 @@ describe("document editor layout", () => {
     expect(key(0)).not.toBe(key(1));
   });
 
-  it("makes an externally deleted local source explicit and read-only", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    expect(source).toContain("data-local-source-missing");
-    expect(source).toContain("!localSourceMissing");
-    expect(source).toContain('result.error.includes("was not found")');
-  });
+  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "says when the
+  // file was deleted and stops editing", which reads a deleted file.
 
-  it("keeps a cached local source read-only when this client lacks its bridge", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    const toolbar = readFileSync(
-      new URL("./DocumentToolbar.tsx", import.meta.url),
-      "utf8",
-    );
-    expect(source).toContain('localSourceAccess === "available"');
-    expect(source).toContain("data-local-source-read-only");
-    expect(source).toContain('device: "Agent-Native Desktop"');
-    expect(source).toContain("canEdit={editorCanEdit}");
-    expect(toolbar).toContain(
-      "disabled={!canEdit || revealLocalSource.isPending}",
-    );
-    expect(toolbar).toMatch(
-      /disabled={!canEdit}\r?\n\s+onSelect=\{\(\) => void handleCopyLocalAbsolutePath\(\)\}/,
-    );
-  });
+  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "stays
+  // read-only, without saying it's deleted, when this client can't reach the
+  // file" and DocumentToolbar.clipboard.test.tsx "offers only the relative path
+  // of a local file this tab can't edit", which render both.
 
   // oracle-change: replaced by "tells other tabs about typing in the keystroke
   // that made it" in DocumentEditor.recovery-save-state.test.tsx.
@@ -2382,14 +2285,8 @@ describe("document editor layout", () => {
     expect(isDocumentLoadUnavailableError({ status: 401 })).toBe(false);
     expect(isDocumentLoadUnavailableError({ status: 403 })).toBe(true);
     expect(isDocumentLoadUnavailableError({ status: 404 })).toBe(true);
-
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    expect(source).toContain("queryKey: documentQueryKey(documentId, {");
-    expect(source).toContain("await documentQuery.refetch()");
-    expect(source).toContain("retrying={isManualRetrying}");
+    // oracle-change: replaced by DocumentEditor.preview-placeholder.test.tsx "a
+    // page whose read fails", which clicks Retry and reads a 403.
   });
 
   it("resizes the title to its content and reacts only to width changes", () => {
@@ -2405,13 +2302,9 @@ describe("document editor layout", () => {
     expect(documentTitleWidthChanged(640, 639.75)).toBe(false);
     expect(documentTitleWidthChanged(640, 420)).toBe(true);
     expect(documentTitleWidthChanged(420, 640)).toBe(true);
-
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    expect(source).toContain("new ResizeObserver((entries) =>");
-    expect(source).toContain("observer?.observe(textarea)");
+    // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "grows to fit
+    // its text when its width changes, and only then", which resizes the
+    // mounted title.
   });
 
   it("serializes overlapping document saves without dropping the fuller snapshot", async () => {
@@ -3037,23 +2930,9 @@ describe("document editor layout", () => {
     expect(documentEditorDatabaseRegionClassName()).toContain("min-w-0");
   });
 
-  it("focuses the editor padding without moving the document scroll position", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toMatch(
-      /visibleBlockFieldEditor\(e\.currentTarget\)\?\.focus\(\{\s*preventScroll: true,/,
-    );
-    expect(source).toContain("scrollContainer.scrollTop = scrollTop;");
-    expect(source).toContain("window.setTimeout(restoreScroll, 50);");
-    expect(source).toContain(
-      "onPointerDownCapture={cancelPaddingScrollRestore}",
-    );
-    expect(source).toContain("onWheelCapture={cancelPaddingScrollRestore}");
-    expect(source).toContain("onKeyDownCapture={cancelPaddingScrollRestore}");
-  });
+  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "focuses the
+  // text where the page was scrolled, until the reader scrolls", which clicks
+  // the padding.
 
   it("keeps metadata in Info while reusing canonical properties inline in previews", () => {
     const source = readFileSync(
@@ -3075,7 +2954,6 @@ describe("document editor layout", () => {
       source.indexOf("const primaryEditor ="),
     );
     expect(infoPanel).toContain("<DescriptionField");
-    expect(infoPanel).toContain("<DocumentProperties");
     expect(properties).toMatch(
       /<PropertyValuePopover[\s\S]*?container=\{popoverContainer\}/,
     );
@@ -3087,18 +2965,14 @@ describe("document editor layout", () => {
     expect(properties).toMatch(
       /<AddProperty[\s\S]*?popoverContainer=\{popoverContainer\}/,
     );
-    expect(infoPanel).toContain(
-      "databaseId={databaseId ?? document.databaseMembership.databaseId}",
-    );
-    expect(infoPanel).toMatch(
-      /databaseDocumentId=\{[\s\S]*?databaseDocumentId \?\?[\s\S]*?document\.databaseMembership\.databaseDocumentId[\s\S]*?\}/,
-    );
+    // oracle-change: Info's Properties and a preview's inline Properties are
+    // replaced by DocumentInfoPanel.ui.test.tsx "reads a row's Properties from
+    // the Collection it belongs to" and DocumentEditor.page-ui.test.tsx "shows
+    // the row's Properties inline", which render them.
     expect(source).toMatch(
       /<DocumentBlockFields[\s\S]*?databaseId=\{[\s\S]*?databaseId \?\?[\s\S]*?document\.databaseMembership\.databaseId[\s\S]*?databaseDocumentId=\{[\s\S]*?databaseDocumentId \?\?[\s\S]*?document\.databaseMembership\.databaseDocumentId[\s\S]*?\}/,
     );
     expect(source).not.toContain("<DescriptionField");
-    expect(source).toContain("<DocumentProperties");
-    expect(source).toContain('host === "preview" &&');
   });
 
   it("keys editor sessions by page and explicit membership context", () => {
@@ -3161,22 +3035,9 @@ describe("document editor layout", () => {
   // "requires fresh confirmation before flushing a reverted failed field under
   // suggestion lock" in DocumentEditor.recovery-save-state.test.tsx.
 
-  it("routes global Escape handling to the nearest nested page editor", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("const pathOwner = event\n    .composedPath()");
-    expect(source).toContain(
-      'activeElement.closest<HTMLElement>("[data-page-editor-owner]")',
-    );
-    // oracle-change: the owner check is shared by the page's keys and Escape.
-    expect(source).toContain(
-      'return owner ? owner === pageEditorOwner : host === "page";',
-    );
-    expect(source).not.toContain("path.includes(editorRoot)");
-  });
+  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "dismisses only
+  // the comment in the editor the key came from", which presses Escape in a
+  // nested editor.
 
   it("renders viewers from SQL while retaining scoped presence", () => {
     const documentEditorSource = readFileSync(
@@ -3291,64 +3152,18 @@ describe("document editor layout", () => {
     );
   });
 
-  it("keeps database-local context when local-file history recovery updates caches", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    const fallbackStart = source.indexOf(
-      'toast.warning(t("editor.localFileSavedHistoryNotUpdated")',
-    );
-    const fallbackEnd = source.indexOf(
-      "return fileFirstDocument;",
-      fallbackStart,
-    );
-    const fallback = source.slice(fallbackStart, fallbackEnd);
+  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "keeps the
+  // Collection the cached page belongs to", which fails a local file's history
+  // save.
 
-    expect(fallbackStart).toBeGreaterThan(-1);
-    expect(fallback).toContain(
-      "mergeDocumentIntoDocumentCache(old, fileFirstDocument)",
-    );
-    expect(fallback).not.toContain(
-      "documentQueryFilter(documentId),\n          fileFirstDocument",
-    );
-  });
+  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "opens a comment
+  // on the whole page in the Discussion panel, selected", which opens one from
+  // the margin. A pick in the open panel keeps the panel open with or without
+  // its `presentation === "history"` argument, so that argument isn't pinned.
 
-  it("opens comments and selects a highlighted thread atomically", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    const activationStart = source.indexOf("const activateCommentThread");
-    const activationEnd = source.indexOf(
-      "const handleUtilityPanelChange",
-      activationStart,
-    );
-    const activation = source.slice(activationStart, activationEnd);
-
-    expect(activationStart).toBeGreaterThan(-1);
-    expect(activation).toContain("setSelectedThreadId(threadId)");
-    // A comment on the whole page opens in the Discussion panel.
-    expect(activation).toMatch(
-      /setCommentsBrowseOpen\(\s+preserveBrowseContext \|\| !!pageThread \|\| pagePanelOpenRef\.current,\s+\)/,
-    );
-    expect(activation).toContain("isPageCommentThread(thread)");
-    expect(activation).toContain('setUtilityPanel("comments")');
-    expect(source).toContain(
-      'activateCommentThread(threadId, presentation === "history")',
-    );
-    expect(source).not.toContain("? setSelectedThreadId\n");
-  });
-
-  it("does not clear comment focus at the start of a touch or scroll gesture", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).not.toContain("onPointerDownCapture={(event) => {");
-    expect(source).toContain("onClickCapture={(event) => {");
-  });
+  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "keeps the
+  // comment through the start of a touch or scroll gesture", which presses on
+  // the page.
 
   it("keeps title and content save watermarks independent after partial saves", () => {
     const source = readFileSync(
@@ -3451,51 +3266,16 @@ describe("document editor layout", () => {
   // highlight on text replaced before its new quote arrives" in
   // VisualEditor.comment-highlights.test.tsx.
 
-  it("composes saved and draft suggestion anchors in the active editor", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("suggestionSessionVisuals(");
-    expect(source).toContain("byId.set(suggestion.id");
-    expect(source).toContain("suggestions={visualSuggestions}");
-  });
+  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "draws saved
+  // suggestions and the one being typed together", which types a suggestion
+  // beside a saved one.
 
   // oracle-change: replaced by "opens Discussion on the suggestion a link names"
   // and "opens Discussion on a saved edit/proposal whose accept can't be placed
   // instead of treating it as accepted" in DocumentEditor.recovery-save-state.test.tsx.
 
-  it("lets slash-created page references use the editor save pipeline", () => {
-    const documentEditorSource = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-    const visualEditorSource = readFileSync(
-      new URL("./VisualEditor.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-    const slashMenuSource = readFileSync(
-      new URL("./SlashCommandMenu.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-
-    expect(documentEditorSource).toContain("const handleContentSaveNow");
-    expect(documentEditorSource).toContain("contentPersisted");
-    expect(visualEditorSource).toContain("onDraftPersisted");
-    expect(slashMenuSource).toContain(
-      "const persisted = await onDraftPersisted(content)",
-    );
-    expect(slashMenuSource).toContain("if (!persisted) throw new Error");
-    expect(slashMenuSource).not.toContain("useUpdateDocument");
-    expect(slashMenuSource).not.toContain("updateDocument.mutateAsync");
-  });
+  // oracle-change: replaced by SlashCommandMenu.undo.test.tsx "/page", which
+  // makes a page and saves or takes back its link.
 
   it("routes Content text-copy controls through the shared clipboard boundary", () => {
     const sources = [
@@ -4021,16 +3801,9 @@ describe("document editor layout", () => {
     expect(items.map((item) => item.iconKind)).toEqual(["folder", "folder"]);
   });
 
-  it("keeps hover-open breadcrumb menus non-modal and uses folder icons", () => {
-    const source = readFileSync(
-      new URL("./DocumentToolbar.tsx", import.meta.url),
-      { encoding: "utf8" },
-    );
-
-    expect(source).toMatch(/<DropdownMenu\s+modal=\{false\}/);
-    expect(source).toContain('item.iconKind === "folder"');
-    expect(source).toContain('menuItem.iconKind === "folder"');
-  });
+  // oracle-change: replaced by DocumentToolbar.breadcrumb.test.tsx "marks
+  // folders and leaves the page usable while a hover menu is open", which
+  // hovers the menu.
 
   // oracle-change: replaced by "keeps the Page's own save time when an agent
   // writes its linked file" in DocumentEditor.recovery-save-state.test.tsx.
