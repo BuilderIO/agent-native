@@ -5,7 +5,7 @@ import { test } from "node:test";
 
 import { readQaBuildEvidence } from "./qa-build-evidence.ts";
 
-test("binds build proof to the checked browser origin, account and rendered bundle", async (t) => {
+void test("binds build proof to the checked browser origin, account and rendered bundle", async (t) => {
   const email = "qa-fleet-4@fixture.mailosaur.net";
   const sha = "1".repeat(40);
   const appBuildId = "content-" + "2".repeat(32);

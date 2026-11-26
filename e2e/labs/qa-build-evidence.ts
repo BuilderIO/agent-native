@@ -47,6 +47,7 @@ export async function readQaBuildEvidence(
       { base: appBase, email: expectedEmail },
     );
   } catch {
+    console.warn("Signed QA build witness could not be read");
     return null;
   }
 }
