@@ -207,6 +207,10 @@ _(バージョンは異なる場合があります。現在の `protocolVersion`
   {
     "status": "503",
     "description": "Hosted production runtime with no A2A_SECRET configured — fails closed instead of running unauthenticated."
+  },
+  {
+    "status": "401",
+    "description": "Missing or invalid credentials, or an unauthenticated call from another host on a development server with no A2A_SECRET."
   }
 ]}>
 
@@ -603,7 +607,7 @@ mountA2A(app, {
 const client = new A2AClient(url, process.env.A2A_API_KEY);
 ```
 
-エージェント カードのエンドポイントは常にパブリック (認証なし) であるため、他のエージェントが機能を検出できます。 `/_agent-native/a2a` JSON-RPC エンドポイントは、`A2A_SECRET` によって署名された JWT ベアラー トークンを受け入れ、構成されている場合は従来の `apiKeyEnv` トークンも受け入れます。ローカル開発では、認証を省略できます。ホストされた実稼働ランタイムでは、A2A 認証が欠落していると、認証されずに実行される代わりに 503 が返されます。
+エージェント カードのエンドポイントは常にパブリック (認証なし) であるため、他のエージェントが機能を検出できます。 `/_agent-native/a2a` JSON-RPC エンドポイントは、`A2A_SECRET` によって署名された JWT ベアラー トークンを受け入れ、構成されている場合は従来の `apiKeyEnv` トークンも受け入れます。`A2A_SECRET` も `apiKeyEnv` もない場合、開発サーバーは同じマシンからの認証されていない呼び出しのみを受け付け、それ以外のホストには 401 を返します。公開プレビュー URL で公開された開発サーバーも同様です。ホストされた実稼働ランタイムでは、A2A 認証が欠落していると、認証されずに実行される代わりに 503 が返されます。
 
 ### 認証ポリシーの境界 {#auth-policy}
 
@@ -613,7 +617,7 @@ const client = new A2AClient(url, process.env.A2A_API_KEY);
 - `A2A_SECRET` が設定されている場合、`hasConfiguredA2ASecret()` は `true` を返します。
 - `shouldAdvertiseJwtA2AAuth()` は、エージェント カードが `jwtBearer` セキュリティ スキームを公開するかどうかを決定するために使用するものです。
 
-本番ポリシーは厳格です。どの本番ランタイムでも、`A2A_SECRET` が設定されていない限り、非同期 `_process-task` ルートはディスパッチを拒否し (503 を返します)、JSON-RPC エンドポイントは認証されていない呼び出しを拒否します。開発フォールバック (一度警告、許可) は、運用フラグが設定されていない場合にのみ起動されます。
+本番ポリシーは厳格です。どの本番ランタイムでも、`A2A_SECRET` が設定されていない限り、非同期 `_process-task` ルートはディスパッチを拒否し (503 を返します)、JSON-RPC エンドポイントは認証されていない呼び出しを拒否します。本番以外では、認証されていない呼び出しは同じマシンから来た場合にのみ (一度だけ警告を出して) 許可されます。ピアアドレス、`Host`、およびすべての転送ヘッダーがループバックである必要があり、Builder のクラウド開発コンテナーはローカルとして扱われません。署名のない `_process-task` ディスパッチを含め、それ以外の認証されていない呼び出しには 401 が返されます。受け付けるにはアプリに `A2A_SECRET` を設定してください。
 
 エージェント ループはリモート呼び出し元からの自由形式の入力を受け入れるため、この境界は重要です。ループ内にベアラー チェックを入れるか、それを強制するツールに依存すると、プロンプト インジェクションやバグのあるハンドラーが認証をバイパスする可能性があります。 HTTP 境界に維持するということは、LLM 呼び出しの前にトークン障害がショートすることを意味します。
 

@@ -141,26 +141,34 @@ export const parityMatrix: ParityRow[] = [
     id: "trash.search-preview-and-purge",
     surface: "sidebar",
     label:
-      "Search root and nested Trash, preview Page bodies, restore or delete loaded items, and empty an explicit space scope with durable progress",
+      "Search and filter Trash, preview Pages, restore or delete one or many, and empty Trash in every workspace with durable progress",
     uiEntrypoints: [
       "app/routes/_app.trash.tsx",
       "app/components/trash/TrashBrowser.tsx",
+      "app/components/trash/TrashFilters.tsx",
+      "app/components/trash/TrashRow.tsx",
+      "app/components/trash/TrashRecoveryActions.tsx",
       "app/components/trash/EmptyTrashDialog.tsx",
+      "app/components/trash/TrashRetentionNotice.tsx",
       "app/hooks/use-content-trash.ts",
     ],
     durableEffect:
-      "Authorized Trash metadata and Page bodies are read; reviewed purge plans, operations, and item outcomes are persisted before bounded permanent deletion runs.",
+      "Authorized Trash metadata and Page bodies are read; reviewed purge plans, operations, and item outcomes are persisted before bounded permanent deletion runs. Trash roots become eligible for automatic deletion after 30 days in Trash, counted from when automatic deletion started for older roots; a daily system run deletes eligible roots through the same plans and operations, so deletion can come a little later.",
     uiImplementation:
-      "The dedicated Trash route calls the same list, preview, restore, permanent-delete, purge-plan, purge-plan-detail, purge-execute, and operation-progress actions available to agents. Selection supports loaded rows or a server-backed matching scope; Empty Trash uses scope mode and intentionally ignores text, kind, actor, and location filters while preserving an explicit space filter.",
+      "The dedicated Trash route calls the same list, preview, restore, permanent-delete, purge-plan, purge-plan-detail, purge-execute, and operation-progress actions available to agents, plus two read-only page helpers kept off MCP: list-content-trash-purge-spaces says which workspaces the caller may purge, and list-content-trash-filter-options fills the people and location pickers from the whole Trash. Filter chips become list-content-trash's `where` filter. A row restores from its arrow or menu, and ticked rows restore one at a time: Pages through guarded restore-document with their trashedAt and a new idempotency key, Collections and legacy Collection rows through restore-content-database. Selection supports loaded rows or a server-backed matching scope; deleting a selection plans once per purgeable workspace it spans. Empty Trash plans scope mode once per purgeable workspace, lists the others as not purgeable, and ignores search and filters. Each workspace's plan id, idempotency key, and start status are saved to application state before its purge starts, so a lost response or a reload retries with the original key. The retention notice reads get-content-trash-retention.",
     status: "action-backed",
     actions: [
       "execute-content-trash-purge",
       "get-content-trash-purge-plan",
       "get-content-trash-operation",
+      "get-content-trash-retention",
       "get-trashed-document",
       "list-content-trash",
+      "list-content-trash-filter-options",
+      "list-content-trash-purge-spaces",
       "permanently-delete-document",
       "plan-content-trash-purge",
+      "restore-content-database",
       "restore-document",
     ],
     exception:
@@ -172,9 +180,17 @@ export const parityMatrix: ParityRow[] = [
     coverageRefs: [
       "actions/list-content-trash.db.test.ts",
       "actions/content-trash-purge.db.test.ts",
+      "actions/content-trash-retention.db.test.ts",
       "actions/document-trash-mcp.db.test.ts",
+      "app/components/trash/TrashRetentionNotice.test.tsx",
       "app/components/editor/trash-preview-content.test.ts",
       "app/hooks/content-action-refresh.trash.test.ts",
+      "app/hooks/use-content-trash.test.ts",
+      "app/components/trash/EmptyTrashDialog.test.ts",
+      "app/components/trash/TrashBrowser.selection.test.tsx",
+      "app/components/trash/TrashPurgeDialog.focus.test.tsx",
+      "app/components/trash/TrashRow.actions.test.tsx",
+      "app/components/trash/trash-filter-model.test.ts",
     ],
   },
   {
@@ -812,6 +828,25 @@ export const parityMatrix: ParityRow[] = [
     testCoverage: "covered",
     followUpPR: null,
     coverageRefs: ["actions/read-link-summary.db.test.ts"],
+  },
+  {
+    id: "sharing.mail-notes",
+    surface: "sharing",
+    label: "Keep notes about people from Mail",
+    uiEntrypoints: ["app/routes/_app.page.$id.tsx"],
+    durableEffect:
+      "Each note is a dated line on that person's page in a private Mail notes collection in the user's Personal space, one row per email address. Mail stores no copy.",
+    uiImplementation:
+      "Mail's Notes widget reads a person's page with get-mail-note and adds a line with add-mail-note, over A2A as the signed-in user. The collection and its pages open and edit here like any other.",
+    status: "action-backed",
+    actions: ["add-mail-note", "get-mail-note"],
+    exception:
+      "get-mail-note and add-mail-note are for Mail only (agentTool: false, mcpTool: true), under the caller's own access. add-mail-note opts in to direct A2A writes (publicAgent.directWrite), the one Content write Mail can make; it only creates the caller's own Mail notes collection, a row in it and a line at the end of that row's page. Content's own agent and UI use the ordinary collection and page actions on the same pages.",
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/_mail-notes.db.test.ts"],
   },
   {
     id: "sharing.agent-text-lock",

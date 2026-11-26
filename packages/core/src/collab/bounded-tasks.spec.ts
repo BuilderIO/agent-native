@@ -1,3 +1,7 @@
+import { execFile } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -434,13 +438,46 @@ ${TASKS}`,
     ]);
   });
 
-  it("fails waiting tasks once, not by respawning, when the module outgrows its heap", async () => {
+  const workerHeapTest =
+    "fails waiting tasks once, not by respawning, when the module outgrows its heap";
+
+  async function runHeapTestInCleanProcess() {
+    const vitest = new URL(
+      "vitest.mjs",
+      import.meta.resolve("vitest/package.json"),
+    );
+    const { stdout } = await promisify(execFile)(
+      process.execPath,
+      [
+        fileURLToPath(vitest),
+        "run",
+        fileURLToPath(import.meta.url),
+        "-t",
+        workerHeapTest,
+        "--reporter=json",
+        "--no-cache",
+      ],
+      {
+        cwd: fileURLToPath(new URL("../../", import.meta.url)),
+        env: { ...process.env, NODE_OPTIONS: "" },
+        timeout: 25_000,
+      },
+    );
+    const report: unknown = JSON.parse(stdout);
+    return report;
+  }
+
+  async function observeWorkerHeapFailure() {
     const real = await import("node:worker_threads");
     let started = 0;
+    let workerError: unknown;
     class CountingWorker extends real.Worker {
       constructor(...args: ConstructorParameters<typeof real.Worker>) {
         super(...args);
         started += 1;
+        this.once("error", (error) => {
+          workerError = error;
+        });
       }
     }
     vi.resetModules();
@@ -462,8 +499,41 @@ ${TASKS}`,
       () => "ok",
       (error: InstanceType<typeof isolated.BoundedTaskError>) => error.code,
     );
-    expect(code).toBe("startup_failed");
-    expect(started).toBe(1);
+    return { code, started, workerError };
+  }
+
+  it(workerHeapTest, async () => {
+    const nodeOptions = [process.env.NODE_OPTIONS, ...process.execArgv].join(
+      " ",
+    );
+    const inheritedHeapLimit =
+      /(?:^|\s)--max[-_]old[-_]space[-_]size(?:[=\s]|$)/.test(nodeOptions);
+    const report = inheritedHeapLimit
+      ? await runHeapTestInCleanProcess()
+      : await observeWorkerHeapFailure();
+    const expectedOutcome = inheritedHeapLimit
+      ? { numPassedTests: 1, numFailedTests: 0 }
+      : { code: "startup_failed" };
+    const childExecution = {
+      testResults: [
+        {
+          assertionResults: expect.arrayContaining([
+            expect.objectContaining({
+              title: workerHeapTest,
+              status: "passed",
+            }),
+          ]),
+        },
+      ],
+    };
+    const expectedExecution = inheritedHeapLimit
+      ? childExecution
+      : {
+          started: 1,
+          workerError: { code: "ERR_WORKER_OUT_OF_MEMORY" },
+        };
+    expect(report).toMatchObject(expectedOutcome);
+    expect(report).toMatchObject(expectedExecution);
   });
 
   it("fails with unavailable, never inline, where worker threads do not exist", async () => {

@@ -36,6 +36,7 @@ import {
 } from "../server/lib/library-filter.js";
 import { loadMeetingRecordingContent } from "../server/lib/meeting-recording-access.js";
 import { listingThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
+import { listRecordingComments } from "../server/lib/recording-comments.js";
 import { recordingExpiryQuery } from "../server/lib/recording-expiry-query.js";
 import {
   isRecordingExpiredForViewer,
@@ -160,12 +161,7 @@ async function fetchTranscript(recordingId: string) {
 
 async function fetchComments(recordingId: string) {
   await assertCommentAccess(recordingId, "read");
-  const db = getDb();
-  const rows = await db
-    .select()
-    .from(schema.recordingComments)
-    .where(eq(schema.recordingComments.recordingId, recordingId))
-    .orderBy(asc(schema.recordingComments.videoTimestampMs));
+  const rows = await listRecordingComments(recordingId);
   return hydrateCommentAuthorNames(
     rows.map((c) => ({
       id: c.id,
@@ -175,7 +171,7 @@ async function fetchComments(recordingId: string) {
       authorName: c.authorName,
       content: c.content,
       videoTimestampMs: c.videoTimestampMs,
-      resolved: Boolean(c.resolved),
+      resolved: c.resolved,
       createdAt: c.createdAt,
     })),
   );

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -14,6 +14,8 @@ import { templateHasPins } from "./_template-input.js";
 export default defineAction({
   description: "Move an asset template between global scope and one Brand Kit.",
   schema: z.object({ id: z.string(), libraryId: z.string().nullable() }),
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async ({ id, libraryId }) => {
     const template = (await resolveTemplateAccess(id, "editor")).resource;
     await assertTemplateTargetLibraryAccess(libraryId);

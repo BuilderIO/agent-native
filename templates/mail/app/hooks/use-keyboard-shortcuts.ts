@@ -18,7 +18,30 @@ const INTERACTIVE_TARGET_SELECTOR = [
   '[role="tab"]',
 ].join(",");
 
-export function isKeyboardShortcutTarget(target: EventTarget | null): boolean {
+const CHARACTER_TARGET_SELECTOR = [
+  "input",
+  "textarea",
+  "select",
+  '[contenteditable="true"]',
+  '[role="combobox"]',
+  '[role="textbox"]',
+  '[role="searchbox"]',
+  '[role="menu"]',
+  '[role="menubar"]',
+  '[role="listbox"]',
+  '[role="dialog"]',
+  '[role="alertdialog"]',
+  "[data-radix-popper-content-wrapper]",
+].join(",");
+
+function isKeyButtonsIgnore(key: string): boolean {
+  return (key.length === 1 && key !== " ") || key === "Escape";
+}
+
+export function isKeyboardShortcutTarget(
+  target: EventTarget | null,
+  key?: string,
+): boolean {
   const element =
     target instanceof Element
       ? target
@@ -26,10 +49,12 @@ export function isKeyboardShortcutTarget(target: EventTarget | null): boolean {
         ? target.parentElement
         : null;
   if (!element) return false;
-  return (
-    (element instanceof HTMLElement && element.isContentEditable) ||
-    element.closest(INTERACTIVE_TARGET_SELECTOR) !== null
-  );
+  if (element instanceof HTMLElement && element.isContentEditable) return true;
+  const selector =
+    key !== undefined && isKeyButtonsIgnore(key)
+      ? CHARACTER_TARGET_SELECTOR
+      : INTERACTIVE_TARGET_SELECTOR;
+  return element.closest(selector) !== null;
 }
 
 export function shouldCycleMailTab(target: EventTarget | null): boolean {
@@ -85,7 +110,7 @@ export function useKeyboardShortcuts(shortcuts: Shortcut[], enabled = true) {
 
       for (const shortcut of shortcutsRef.current) {
         if (shortcut.skipInInput !== false) {
-          if (isKeyboardShortcutTarget(e.target)) continue;
+          if (isKeyboardShortcutTarget(e.target, e.key)) continue;
         }
 
         const keyMatch = e.key.toLowerCase() === shortcut.key.toLowerCase();
@@ -125,7 +150,9 @@ export function useSequenceShortcuts(
     if (!enabled) return;
 
     const handleKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || isKeyboardShortcutTarget(e.target)) return;
+      if (e.defaultPrevented || isKeyboardShortcutTarget(e.target, e.key)) {
+        return;
+      }
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
       clearTimeout(timerRef.current);

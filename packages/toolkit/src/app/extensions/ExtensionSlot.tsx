@@ -1,11 +1,6 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
-import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useAfterPaint } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  reportWriteFailure,
-  writeFailureFromResponse,
-} from "@agent-native/core/client/write-failure";
 import {
   Popover,
   PopoverContent,
@@ -18,30 +13,15 @@ import {
   TooltipTrigger,
 } from "@agent-native/toolkit/ui/tooltip";
 import { IconPlus } from "@tabler/icons-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
 import { EmbeddedExtension } from "./EmbeddedExtension.js";
 import { ExtensionQueryErrorState } from "./ExtensionQueryErrorState.js";
-
-interface SlotInstall {
-  installId: string;
-  extensionId: string;
-  name: string;
-  description: string;
-  icon: string | null;
-  updatedAt: string;
-  position: number;
-  config: string | null;
-}
-
-interface AvailableTool {
-  extensionId: string;
-  name: string;
-  description: string;
-  icon: string | null;
-  config: string | null;
-}
+import {
+  useSlotExtensions,
+  useSlotInstallActions,
+  useSlotInstalls,
+} from "./slot-installs.js";
 
 export interface ExtensionSlotProps {
   id: string;
@@ -64,20 +44,7 @@ export function ExtensionSlot({
   const readyInstallIds = useRef(new Set<string>());
   const readyNotified = useRef(false);
   const afterPaint = useAfterPaint();
-  const installsQuery = useQuery<SlotInstall[]>({
-    queryKey: ["slot-installs", id],
-    enabled: afterPaint,
-    queryFn: async () => {
-      const res = await fetch(
-        agentNativePath(
-          `/_agent-native/slots/${encodeURIComponent(id)}/installs`,
-        ),
-      );
-      if (!res.ok)
-        throw new Error(`Failed to load slot installs (${res.status})`);
-      return res.json();
-    },
-  });
+  const installsQuery = useSlotInstalls(id, { enabled: afterPaint });
   const installs = installsQuery.data ?? [];
   const installsSettled = afterPaint && !installsQuery.isPending;
 
@@ -155,67 +122,14 @@ export function ExtensionSlot({
 function SlotEmptyAffordance({ slotId }: { slotId: string }) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const availableQuery = useQuery<AvailableTool[]>({
-    queryKey: ["slot-available", slotId],
-    queryFn: async () => {
-      const res = await fetch(
-        agentNativePath(
-          `/_agent-native/slots/${encodeURIComponent(slotId)}/available`,
-        ),
-      );
-      if (!res.ok) {
-        throw new Error(`Failed to load available extensions (${res.status})`);
-      }
-      return res.json();
-    },
-    enabled: open,
-  });
+  const availableQuery = useSlotExtensions(slotId, { enabled: open });
   const available = availableQuery.data ?? [];
-  const queryClient = useQueryClient();
+  const slotActions = useSlotInstallActions(slotId);
 
-  const install = async (extensionId: string) => {
-    queryClient.setQueryData<SlotInstall[]>(
-      ["slot-installs", slotId],
-      (old) => {
-        const extension = available.find((t) => t.extensionId === extensionId);
-        if (!extension || !old) return old;
-        return [
-          ...old,
-          {
-            installId: `optimistic-${extensionId}`,
-            extensionId,
-            name: extension.name,
-            description: extension.description,
-            icon: extension.icon,
-            updatedAt: new Date().toISOString(),
-            position: old.length,
-            config: extension.config,
-          },
-        ];
-      },
-    );
+  const install = (extensionId: string) => {
+    const extension = available.find((t) => t.extensionId === extensionId);
     setOpen(false);
-    try {
-      const res = await fetch(
-        agentNativePath(
-          `/_agent-native/slots/${encodeURIComponent(slotId)}/install`,
-        ),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ extensionId }),
-        },
-      );
-      if (!res.ok) {
-        reportWriteFailure(writeFailureFromResponse(res));
-      }
-    } catch (error) {
-      reportWriteFailure(error);
-    } finally {
-      void queryClient.invalidateQueries({
-        queryKey: ["slot-installs", slotId],
-      });
-    }
+    if (extension) void slotActions.install(extension);
   };
 
   const requestNew = () => {

@@ -5,23 +5,22 @@ import { ForbiddenError } from "@agent-native/core/sharing";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAssertAccess = vi.hoisted(() => vi.fn());
-const mockSelect = vi.hoisted(() => vi.fn());
+const mockList = vi.hoisted(() => vi.fn());
 const comment = vi.hoisted(() => ({
   id: "comment-1",
   recordingId: "recording-1",
   authorEmail: "author@example.com",
   authorName: "Author",
   content: "A saved comment",
-  mentionsJson: null,
+  mentions: [],
 }));
 
 vi.mock("@agent-native/core/sharing", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/sharing")>()),
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
 }));
-vi.mock("../server/db/index.js", () => ({
-  getDb: () => ({ select: mockSelect }),
-  schema: { recordingComments: {} },
+vi.mock("../server/lib/recording-comments.js", () => ({
+  listRecordingComments: (...args: unknown[]) => mockList(...args),
 }));
 vi.mock("../server/lib/user-identities.js", () => ({
   hydrateCommentAuthorNames: async (rows: unknown[]) => rows,
@@ -36,11 +35,7 @@ beforeEach(() => {
     role: "viewer",
     resource: { enableComments: true, trashedAt: null, expiresAt: null },
   });
-  mockSelect.mockReturnValue({
-    from: () => ({
-      where: () => ({ orderBy: async () => [comment] }),
-    }),
-  });
+  mockList.mockResolvedValue([comment]);
 });
 
 describe("list-comments recording policy", () => {
@@ -73,7 +68,7 @@ describe("list-comments recording policy", () => {
       await expect(
         listComments.run({ recordingId: "recording-1" }),
       ).rejects.toBeInstanceOf(ForbiddenError);
-      expect(mockSelect).not.toHaveBeenCalled();
+      expect(mockList).not.toHaveBeenCalled();
     },
   );
 
@@ -116,7 +111,7 @@ describe("list-comments recording expiration", () => {
     await expect(
       listComments.run({ recordingId: "recording-1" }),
     ).rejects.toThrow(ForbiddenError);
-    expect(mockSelect).not.toHaveBeenCalled();
+    expect(mockList).not.toHaveBeenCalled();
   });
 
   it.each([

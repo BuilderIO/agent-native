@@ -14,7 +14,7 @@ import "../db/index.js";
 import * as schema from "../db/schema.js";
 import { orderMigrationsByVersion } from "../lib/migration-order.js";
 import {
-  copyRecordingCommentsToReviewKit,
+  addMissingRecordingCommentsToReviewKit,
   type RecordingCommentCopyReport,
 } from "../lib/recording-comment-mirror.js";
 import { recordingMediaCleanupMigration } from "../lib/recording-media-cleanup-schema.js";
@@ -1467,22 +1467,28 @@ export const migrations = runMigrations(
       version: 106,
       name: "recording-comments-copy-to-review-kit",
       sql: {},
-      run: copyRecordingCommentsOnce,
+      run: async () => {},
     },
     {
       version: 107,
       name: "recording-comments-copy-to-review-kit-again",
       sql: {},
-      run: copyRecordingCommentsOnce,
+      run: async () => {},
+    },
+    {
+      version: 109,
+      name: "recording-comments-add-missing-to-review-kit",
+      sql: {},
+      run: addMissingRecordingComments,
     },
   ]),
   { table: "clips_migrations" },
 );
 
-async function copyRecordingCommentsOnce(): Promise<MigrationRunResult> {
+async function addMissingRecordingComments(): Promise<MigrationRunResult> {
   let report: RecordingCommentCopyReport;
   try {
-    report = await copyRecordingCommentsToReviewKit();
+    report = await addMissingRecordingCommentsToReviewKit();
   } catch (error) {
     console.error(
       "[db] Couldn't copy recording comments to the review kit; it runs again on the next start:",
@@ -1490,28 +1496,10 @@ async function copyRecordingCommentsOnce(): Promise<MigrationRunResult> {
     );
     return deferMigration();
   }
-  const summary = `[db] Copied ${report.comments} comment(s) on ${report.recordings} recording(s) to the review kit: ${report.replies} replies, ${report.repliesWithoutParent} replies without a parent, ${report.resolved} resolved, ${report.reactions} reactions`;
-  if (report.kitWrittenComments.length > 0) {
-    console.warn(
-      `[db] Kept ${report.kitWrittenComments.length} recording comment(s) that were written through the review kit's own actions and aren't in Clips:`,
-      report.kitWrittenComments.slice(0, 20),
-    );
-  }
-  if (report.orphanedReplies.length > 0) {
-    console.warn(
-      `[db] Deleted ${report.orphanedReplies.length} recording comment(s) written through the review kit's own actions in a thread Clips deleted:`,
-      report.orphanedReplies.slice(0, 20),
-    );
-  }
-  if (report.differences.length > 0 || report.failedRecordings.length > 0) {
-    console.warn(
-      `${summary}; ${report.failedRecordings.length} recording(s) failed and ${report.differences.length} comment(s) still differ:`,
-      report.failedRecordings.slice(0, 20),
-      report.differences.slice(0, 20),
-    );
-    return deferMigration();
-  }
-  console.log(summary);
+  console.log(
+    `[db] Checked ${report.comments} comment(s) on ${report.recordings} recording(s); added ${report.added} the review kit lacked and linked ${report.linked} reply(ies) to their thread`,
+  );
+  if (report.failedRecordings.length > 0) return deferMigration();
 }
 
 async function syncWorkspacesToOrganizations(): Promise<MigrationRunResult> {

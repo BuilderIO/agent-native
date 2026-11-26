@@ -16,6 +16,7 @@ export default defineAction({
     title: z.string().min(1),
     description: z.string().nullable().optional(),
   }),
+  mcpTool: "search",
   run: async ({ libraryId, parentId, title, description }) => {
     await assertCanApprove(libraryId, "Creating a folder");
     if (parentId) {

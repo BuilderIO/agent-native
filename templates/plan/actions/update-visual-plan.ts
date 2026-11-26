@@ -13,7 +13,7 @@ import {
   roleSatisfies,
 } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -26,7 +26,13 @@ import {
   resolvePlanOwnerEmailForWrite,
 } from "../server/lib/local-identity.js";
 import { writePlanLocalFiles } from "../server/lib/local-plan-files.js";
-import { mirrorPlanComments } from "../server/lib/plan-comment-mirror.js";
+import {
+  completePlanCommentRow,
+  listPlanCommentRows,
+  type PlanCommentPatch,
+  type PlanCommentRow,
+  writePlanCommentRows,
+} from "../server/lib/plan-comments.js";
 import { createPlanVersionSnapshot } from "../server/lib/plan-versions.js";
 import {
   normalizePlanContent,
@@ -897,44 +903,23 @@ export default defineAction({
     };
 
     type CommentInput = (typeof args.comments)[number];
-    type ExistingCommentSnapshot = Pick<
-      typeof schema.planComments.$inferSelect,
-      | "id"
-      | "sectionId"
-      | "kind"
-      | "anchor"
-      | "message"
-      | "createdBy"
-      | "authorEmail"
-      | "resolutionTarget"
-      | "mentionsJson"
-    >;
     const existingCommentUpdates: Array<
-      CommentInput & { id: string; existing: ExistingCommentSnapshot }
+      CommentInput & { id: string; existing: PlanCommentRow }
     > = [];
     const pendingCommentInserts: typeof args.comments = [];
+    const liveCommentsById = new Map<string, PlanCommentRow>();
+    if (
+      args.consumedCommentIds.length > 0 ||
+      args.comments.some((comment) => comment.id)
+    ) {
+      await ensureReviewTables();
+      for (const row of await listPlanCommentRows(args.planId)) {
+        liveCommentsById.set(row.id, row);
+      }
+    }
     for (const comment of args.comments) {
       if (comment.id) {
-        const [existing] = await db
-          .select({
-            id: schema.planComments.id,
-            sectionId: schema.planComments.sectionId,
-            kind: schema.planComments.kind,
-            anchor: schema.planComments.anchor,
-            message: schema.planComments.message,
-            createdBy: schema.planComments.createdBy,
-            authorEmail: schema.planComments.authorEmail,
-            resolutionTarget: schema.planComments.resolutionTarget,
-            mentionsJson: schema.planComments.mentionsJson,
-          })
-          .from(schema.planComments)
-          .where(
-            and(
-              eq(schema.planComments.id, comment.id),
-              eq(schema.planComments.planId, args.planId),
-              isNull(schema.planComments.deletedAt),
-            ),
-          );
+        const existing = liveCommentsById.get(comment.id);
         if (existing) {
           existingCommentUpdates.push({
             ...comment,
@@ -968,10 +953,6 @@ export default defineAction({
       }
     }
 
-    // plan_comments.section_id references plan_sections, so an unknown id
-    // would fail the comment writes below as a bare 500. Reject it the way new
-    // comments are rejected. Sections this request saves exist by the time
-    // the comments are written.
     const requestSectionIds = new Set(
       args.sections.flatMap((section) => (section.id ? [section.id] : [])),
     );
@@ -1042,7 +1023,10 @@ export default defineAction({
       requestName: requesterName,
       now,
     });
-    const commentRows = await withFreshIdsForKitHeldComments(builtCommentRows);
+    const commentRows = await withFreshIdsForKitHeldComments(
+      args.planId,
+      builtCommentRows,
+    );
     const reviewEventPayload = {
       titleChanged: args.title !== undefined,
       briefChanged: args.brief !== undefined,
@@ -1195,6 +1179,7 @@ export default defineAction({
         });
       }
 
+      const commentPatches = new Map<string, PlanCommentPatch>();
       for (const comment of existingCommentUpdates) {
         const metadata = onlyUpdatesCommentStatuses
           ? null
@@ -1210,73 +1195,55 @@ export default defineAction({
           requestEmail: commentRequestEmail,
           now,
         });
-        await tx
-          .update(schema.planComments)
-          .set(
-            onlyUpdatesCommentStatuses
-              ? {
-                  sectionId: comment.existing.sectionId,
-                  kind: comment.existing.kind,
-                  status: comment.status,
-                  anchor: comment.existing.anchor,
-                  message: comment.existing.message,
-                  resolutionTarget: comment.existing.resolutionTarget,
-                  mentionsJson: comment.existing.mentionsJson,
-                  resolvedBy: resolution.resolvedBy,
-                  resolvedAt: resolution.resolvedAt,
-                  updatedAt: now,
-                }
-              : {
-                  sectionId: comment.sectionId ?? null,
-                  kind: comment.kind,
-                  status: comment.status,
-                  anchor:
-                    comment.anchor !== undefined
-                      ? (metadata?.anchor ?? null)
-                      : comment.existing.anchor,
-                  message: comment.message,
-                  resolutionTarget:
-                    comment.resolutionTarget !== undefined
-                      ? (metadata?.resolutionTarget ?? null)
-                      : comment.existing.resolutionTarget,
-                  mentionsJson:
-                    comment.mentions !== undefined ||
-                    comment.anchor !== undefined
-                      ? (metadata?.mentionsJson ?? null)
-                      : comment.existing.mentionsJson,
-                  resolvedBy: comment.resolvedBy ?? resolution.resolvedBy,
-                  resolvedAt: comment.resolvedAt ?? resolution.resolvedAt,
-                  updatedAt: now,
-                },
-          )
-          .where(
-            and(
-              eq(schema.planComments.id, comment.id),
-              eq(schema.planComments.planId, args.planId),
-              isNull(schema.planComments.deletedAt),
-            ),
-          );
+        commentPatches.set(comment.id, {
+          id: comment.id,
+          ...(onlyUpdatesCommentStatuses
+            ? {
+                status: comment.status,
+                resolvedBy: resolution.resolvedBy,
+                resolvedAt: resolution.resolvedAt,
+              }
+            : {
+                sectionId: comment.sectionId ?? null,
+                kind: comment.kind,
+                status: comment.status,
+                ...(comment.anchor !== undefined
+                  ? { anchor: metadata?.anchor ?? null }
+                  : {}),
+                message: comment.message,
+                ...(comment.resolutionTarget !== undefined
+                  ? { resolutionTarget: metadata?.resolutionTarget ?? null }
+                  : {}),
+                ...(comment.mentions !== undefined ||
+                comment.anchor !== undefined
+                  ? { mentionsJson: metadata?.mentionsJson ?? null }
+                  : {}),
+                resolvedBy: comment.resolvedBy ?? resolution.resolvedBy,
+                resolvedAt: comment.resolvedAt ?? resolution.resolvedAt,
+              }),
+          updatedAt: now,
+        });
       }
 
-      for (const row of commentRows) {
-        await tx.insert(schema.planComments).values(row);
-        insertedCommentIds.push(row.id);
+      const consumedIds = new Set(args.consumedCommentIds);
+      const insertedRows = commentRows.map((row) => ({
+        ...completePlanCommentRow(row),
+        ...(consumedIds.has(row.id) ? { consumedAt: now } : {}),
+      }));
+      insertedCommentIds.push(...commentRows.map((row) => row.id));
+      for (const id of consumedIds) {
+        if (!liveCommentsById.has(id)) continue;
+        commentPatches.set(id, {
+          ...commentPatches.get(id),
+          id,
+          consumedAt: now,
+          updatedAt: now,
+        });
       }
 
-      if (args.consumedCommentIds.length > 0) {
-        await tx
-          .update(schema.planComments)
-          .set({ consumedAt: now, updatedAt: now })
-          .where(
-            and(
-              eq(schema.planComments.planId, args.planId),
-              inArray(schema.planComments.id, args.consumedCommentIds),
-              isNull(schema.planComments.deletedAt),
-            ),
-          );
-      }
-
-      await mirrorPlanComments(tx, args.planId, changedCommentIds);
+      await writePlanCommentRows(tx, args.planId, insertedRows, [
+        ...commentPatches.values(),
+      ]);
 
       if (hasPersistedPlanChanges) {
         await tx.insert(schema.planEvents).values({

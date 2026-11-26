@@ -23,7 +23,7 @@ function SlackDraftRequests() {
         description={t("settings.slackDraftQueueDescription")}
         control={
           <Button asChild variant="outline" size="sm" className="text-xs">
-            <Link to="/draft-queue">{t("settings.openDraftQueue")}</Link>
+            <Link to="/drafts">{t("settings.openDraftQueue")}</Link>
           </Button>
         }
       />

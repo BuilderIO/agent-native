@@ -8,7 +8,6 @@ import {
   getMethod,
   getHeader,
   getRequestURL,
-  getRequestIP,
   readRawBody,
   getCookie,
   setCookie,
@@ -235,6 +234,7 @@ import {
   getBuilderBrowserOriginForEvent,
   getBuilderBrowserStatusForEvent,
   BuilderAccountProvisioningError,
+  classifyBuilderProvisioningFailure,
   isBuilderAccountAlreadyExistsError,
   isBuilderAccountProvisioningEnabled,
   isBuilderConnectCallbackUrlAllowed,
@@ -2700,11 +2700,12 @@ export async function activateBuilderAccount(
         "account_exists",
       );
     }
+    const failure = classifyBuilderProvisioningFailure(provisioningError);
     return fail(
       BUILDER_UPSTREAM_FAILURE_STATUS,
-      "Couldn't create your Builder.io account. Try again or sign in with an existing account.",
-      "provision_failed",
-      "provision_failed",
+      failure.message,
+      failure.code,
+      failure.code,
       {
         upstream_response_received: provisioningError?.upstreamStatus != null,
         upstream_status: provisioningError?.upstreamStatus ?? null,
@@ -4304,11 +4305,8 @@ export function createCoreRoutesPlugin(
             return { error: "executionId required" };
           }
 
-          const {
-            hasConfiguredA2ASecret,
-            isLoopbackAddress,
-            isTrustedLocalRuntime,
-          } = await import("../a2a/auth-policy.js");
+          const { hasConfiguredA2ASecret, isTrustedLocalRequest } =
+            await import("../a2a/auth-policy.js");
           if (hasConfiguredA2ASecret()) {
             const { verifyInternalToken, extractBearerToken } =
               await import("../integrations/internal-token.js");
@@ -4317,17 +4315,12 @@ export function createCoreRoutesPlugin(
               setResponseStatus(event, 401);
               return { error: "Invalid or expired processor token" };
             }
-          } else {
-            const loopback = isLoopbackAddress(
-              getRequestIP(event, { xForwardedFor: false }),
-            );
-            if (!isTrustedLocalRuntime({ loopback })) {
-              setResponseStatus(event, 503);
-              return {
-                error:
-                  "Sandbox execution processor not configured — set A2A_SECRET on this deployment (or A2A_ALLOW_UNSIGNED_INTERNAL=1 for trusted local dev).",
-              };
-            }
+          } else if (!isTrustedLocalRequest(event)) {
+            setResponseStatus(event, 503);
+            return {
+              error:
+                "Sandbox execution processor not configured — set A2A_SECRET on this deployment (or A2A_ALLOW_UNSIGNED_INTERNAL=1 for trusted local dev).",
+            };
           }
 
           try {

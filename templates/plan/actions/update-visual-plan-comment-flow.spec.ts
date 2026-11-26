@@ -16,18 +16,70 @@ const createPlanVersionSnapshotMock = vi.hoisted(() => vi.fn());
 const originalAuthMode = process.env.AUTH_MODE;
 const originalPlanLocalMode = process.env.PLAN_LOCAL_MODE;
 
-const mirrorMock = vi.hoisted(() => ({
-  comments: vi.fn(async (..._args: unknown[]) => undefined),
-  deleted: vi.fn(async (..._args: unknown[]) => undefined),
+const kit = vi.hoisted(() => ({
+  existing: [] as Array<Record<string, unknown>>,
+  rows: [] as Array<Record<string, unknown>>,
+  updates: [] as Array<Record<string, unknown>>,
 }));
+
+const UPDATED_FIELDS = [
+  "sectionId",
+  "kind",
+  "status",
+  "anchor",
+  "message",
+  "resolutionTarget",
+  "mentionsJson",
+  "resolvedBy",
+  "resolvedAt",
+  "updatedAt",
+];
 
 vi.mock("@agent-native/core/review", () => ({
   ensureReviewTables: vi.fn(async () => undefined),
 }));
 
-vi.mock("../server/lib/plan-comment-mirror.js", () => ({
-  mirrorPlanComments: mirrorMock.comments,
-  deleteMirroredPlanComments: mirrorMock.deleted,
+vi.mock("../server/lib/plan-comments.js", async () => ({
+  completePlanCommentRow: (
+    await vi.importActual<typeof import("../server/lib/plan-comments.js")>(
+      "../server/lib/plan-comments.js",
+    )
+  ).completePlanCommentRow,
+  listPlanCommentRows: vi.fn(async (planId: string) =>
+    kit.existing.map((row) => ({
+      planId,
+      parentCommentId: null,
+      status: "open",
+      authorName: null,
+      resolvedBy: null,
+      resolvedAt: null,
+      consumedAt: null,
+      deletedAt: null,
+      deletedBy: null,
+      createdAt: "2026-06-01T00:00:00.000Z",
+      updatedAt: "2026-06-01T00:00:00.000Z",
+      ...row,
+    })),
+  ),
+  writePlanCommentRows: vi.fn(
+    async (
+      _db: unknown,
+      _planId: string,
+      rows: Array<Record<string, unknown>>,
+      patches: Array<Record<string, unknown>> = [],
+    ) => {
+      const existing = new Map(kit.existing.map((row) => [row.id, row]));
+      kit.rows.push(...rows.filter((row) => !existing.has(row.id)));
+      for (const patch of patches) {
+        const row = existing.get(patch.id);
+        if (!row) continue;
+        const merged = { ...row, ...patch };
+        kit.updates.push(
+          Object.fromEntries(UPDATED_FIELDS.map((key) => [key, merged[key]])),
+        );
+      }
+    },
+  ),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -134,7 +186,8 @@ vi.mock("../server/plans.js", async () => {
     loadPlanBundle: (...args: unknown[]) => loadPlanBundleMock(...args),
     newId: vi.fn((prefix: string) => `${prefix}_test`),
     nowIso: vi.fn(() => "2026-06-05T00:00:00.000Z"),
-    withFreshIdsForKitHeldComments: (rows: unknown) => Promise.resolve(rows),
+    withFreshIdsForKitHeldComments: (_planId: string, rows: unknown) =>
+      Promise.resolve(rows),
   };
 });
 
@@ -206,6 +259,9 @@ function buildTransactionDb(
   sections: Array<{ id: string; planId?: string }> = [],
   savedSections: Array<{ planId: string }> = [],
 ) {
+  kit.existing = existingComments;
+  kit.rows = capturedRows;
+  kit.updates = capturedUpdates;
   const txInsert = vi.fn((table: unknown) => ({
     values: vi.fn(async (row: CapturedRow) => {
       if (row && Object.prototype.hasOwnProperty.call(row, "authorEmail")) {
@@ -257,6 +313,9 @@ function buildTransactionDb(
 beforeEach(() => {
   request.email = undefined;
   request.name = undefined;
+  kit.existing = [];
+  kit.rows = [];
+  kit.updates = [];
   assertPlanEditorMock.mockReset();
   assertPlanEditorMock.mockResolvedValue(undefined);
   exportPlanContentToMdxFolderMock.mockReset();
@@ -1084,6 +1143,7 @@ describe("update-visual-plan comment path (integration)", () => {
         })),
       });
 
+      kit.rows = capturedRows;
       const planUpdatedAt = "2026-05-01T00:00:00.000Z";
       loadPlanBundleMock.mockResolvedValue({
         ...baseBundle,
