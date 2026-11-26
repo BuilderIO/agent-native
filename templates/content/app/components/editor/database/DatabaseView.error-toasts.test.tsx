@@ -794,7 +794,8 @@ describe("DatabaseView UI regressions", () => {
     expect(updateViewMutation.mutateAsync).not.toHaveBeenCalled();
   });
 
-  it("opens the toolbar's Sort menu with a pointer and its Filter panel with a click", async () => {
+  // oracle-change(templates/content/app/components/editor/database/DatabaseView.error-toasts.test.tsx): the Sort button opened a menu of fields; it now opens a panel like Filter's, holding the sorts and their field picker
+  it("opens the toolbar's Sort and Filter panels with a click", async () => {
     await renderDatabaseView();
 
     const sortButton = container.querySelector<HTMLButtonElement>(
@@ -805,23 +806,17 @@ describe("DatabaseView UI regressions", () => {
     );
     expect(sortButton).toBeTruthy();
     expect(filterButton).toBeTruthy();
-    expect(sortButton?.getAttribute("aria-haspopup")).toBe("menu");
+    expect(sortButton?.getAttribute("aria-haspopup")).toBe("dialog");
     expect(filterButton?.getAttribute("aria-haspopup")).toBe("dialog");
 
     await act(async () => {
       sortButton?.focus();
-      sortButton?.dispatchEvent(
-        new PointerEvent("pointerdown", {
-          bubbles: true,
-          button: 0,
-          pointerType: "mouse",
-        }),
-      );
+      sortButton?.click();
       await Promise.resolve();
     });
 
     expect(sortButton?.getAttribute("aria-expanded")).toBe("true");
-    expect(document.querySelector("[role=menu]")).toBeTruthy();
+    expect(document.querySelector("[role=dialog]")).toBeTruthy();
 
     await act(async () => {
       document.activeElement?.dispatchEvent(
@@ -1856,11 +1851,13 @@ describe("DatabaseView UI regressions", () => {
     };
     databaseQueryState.tableQueryAnswered = true;
     await renderDatabaseView();
-    const chip = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent.trim() === "agentChat.filters.fieldValue",
+    const filterButton = container.querySelector<HTMLElement>(
+      'button[aria-label="1 active filters"]',
     );
-    if (!chip) throw new Error("The Status filter chip did not render.");
-    return { chip, row, first, third };
+    if (!filterButton) {
+      throw new Error("The toolbar's Filter button doesn't count the filter.");
+    }
+    return { filterButton, row, first, third };
   }
 
   async function press(target: HTMLElement) {
@@ -1892,28 +1889,29 @@ describe("DatabaseView UI regressions", () => {
     });
   }
 
-  it("redraws only the rows whose data changed when a chip opens, the table is sorted, a row changes, or a row goes", async () => {
-    const { chip, row, first, third } = await renderStatusFilteredTable();
+  // oracle-change(templates/content/app/components/editor/database/DatabaseView.error-toasts.test.tsx): the filter chips are gone, so the Filter menu opens instead, and the Sort panel offers fields as options rather than menu items
+  it("redraws only the rows whose data changed when the Filter menu opens, the table is sorted, a row changes, or a row goes", async () => {
+    const { filterButton, row, first, third } =
+      await renderStatusFilteredTable();
     expect(cellRendersByItemId.get("item-a")).toBeGreaterThan(0);
 
     cellRendersByItemId.clear();
-    await press(chip);
-    expect(chip.getAttribute("aria-expanded")).toBe("true");
+    await press(filterButton);
+    expect(filterButton.getAttribute("aria-expanded")).toBe("true");
     expect([...cellRendersByItemId.keys()]).toEqual([]);
     await pressEscape();
 
     // Sorting rebuilds the view but leaves every row's data as it was.
-    const sortButton = container.querySelector('button[aria-label="Sort"]');
-    if (!sortButton) throw new Error("The toolbar has no Sort button.");
-    await mousePointerDown(sortButton);
-    const statusItem = [...document.querySelectorAll("[role=menuitem]")].find(
-      (item) => item.textContent.trim() === "Status",
+    const sortButton = container.querySelector<HTMLElement>(
+      'button[aria-label="Sort"]',
     );
-    if (!statusItem) throw new Error("The Sort menu doesn't offer Status.");
-    await act(async () => {
-      statusItem.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await Promise.resolve();
-    });
+    if (!sortButton) throw new Error("The toolbar has no Sort button.");
+    await press(sortButton);
+    const statusOption = [
+      ...document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ].find((option) => option.textContent.trim() === "Status");
+    if (!statusOption) throw new Error("The Sort panel doesn't offer Status.");
+    await press(statusOption);
     expect(sortButton.getAttribute("aria-label")).toBe("1 active sorts");
     expect(
       container.querySelectorAll("[data-database-row-id]").length,
@@ -1934,44 +1932,45 @@ describe("DatabaseView UI regressions", () => {
     expect([...cellRendersByItemId.keys()]).toEqual([]);
   });
 
-  // oracle-change: the click-shield tests went with Content's own chip menus; the kit's modal popovers keep clicks off the table instead, as this test checks
-  it("keeps clicks off the table while a filter chip is open, and gives them back when it closes", async () => {
-    const { chip } = await renderStatusFilteredTable();
-    await press(chip);
-    expect(chip.getAttribute("aria-expanded")).toBe("true");
+  // oracle-change(templates/content/app/components/editor/database/DatabaseView.error-toasts.test.tsx): the filter chips are gone; the toolbar's Filter menu is the modal popover that keeps clicks off the table now
+  it("keeps clicks off the table while the Filter menu is open, and gives them back when it closes", async () => {
+    const { filterButton } = await renderStatusFilteredTable();
+    await press(filterButton);
+    expect(filterButton.getAttribute("aria-expanded")).toBe("true");
     expect(document.body.style.pointerEvents).toBe("none");
     await pressEscape();
-    expect(chip.getAttribute("aria-expanded")).toBe("false");
+    expect(filterButton.getAttribute("aria-expanded")).toBe("false");
     expect(document.body.style.pointerEvents).toBe("");
   });
 
-  it("opens the editor of a filter added from the bar's Filter button", async () => {
-    await renderStatusFilteredTable();
-    const addButton = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent.trim() === "agentChat.filters.filter",
-    );
-    if (!addButton) throw new Error("The bar's Filter button did not render.");
+  // oracle-change(templates/content/app/components/editor/database/DatabaseView.error-toasts.test.tsx): filters are added from the Filter menu's Add filter button now, not a Filter chip on a bar under the toolbar
+  it("opens the editor of a filter added from the Filter menu", async () => {
+    const { filterButton } = await renderStatusFilteredTable();
+    await press(filterButton);
+    const addButton = document.querySelector<HTMLElement>("[data-filter-add]");
+    if (!addButton) throw new Error("The Filter menu has no Add filter.");
     await press(addButton);
     const nameOption = [
       ...document.querySelectorAll<HTMLElement>('[role="option"]'),
     ].find((option) => option.textContent.trim() === "Name");
     if (!nameOption) throw new Error("The Filter menu doesn't offer Name.");
     await press(nameOption);
-    expect(addButton.getAttribute("aria-expanded")).toBe("true");
+    expect(filterButton.getAttribute("aria-expanded")).toBe("true");
     expect(
       document.querySelector('[role="dialog"] input[aria-label="Name"]'),
     ).not.toBeNull();
   });
 
-  it("opens and closes a filter chip without re-rendering the table", async () => {
-    const { chip } = await renderStatusFilteredTable();
+  // oracle-change(templates/content/app/components/editor/database/DatabaseView.error-toasts.test.tsx): the filter chips are gone, so the toolbar's Filter menu is what opens and closes
+  it("opens and closes the Filter menu without re-rendering the table", async () => {
+    const { filterButton } = await renderStatusFilteredTable();
     expect(tableGridRenders.count).toBeGreaterThan(0);
 
     tableGridRenders.count = 0;
-    await press(chip);
-    expect(chip.getAttribute("aria-expanded")).toBe("true");
+    await press(filterButton);
+    expect(filterButton.getAttribute("aria-expanded")).toBe("true");
     await pressEscape();
-    expect(chip.getAttribute("aria-expanded")).toBe("false");
+    expect(filterButton.getAttribute("aria-expanded")).toBe("false");
     expect(tableGridRenders.count).toBe(0);
   });
 

@@ -288,13 +288,13 @@ export const ContentTableToolbarButton = forwardRef<
     props["aria-label"] ?? (count ? `${count} ${label}` : label);
   return (
     <Button
+      title={label}
       {...props}
       ref={ref}
       type="button"
       variant="ghost"
       size="sm"
       aria-label={ariaLabel}
-      title={label}
       className={cn(
         "relative h-7 w-7 p-0 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-45",
         active && "bg-muted text-foreground",
