@@ -5,7 +5,6 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import {
   LOAD_TIMEOUT_MS,
-  catalogContractAppIdsFromEnv,
   defaultProductionTools,
   loadAppCatalogs,
   repoRoot,
@@ -259,6 +258,16 @@ function rulesFor(app: AppCatalog): ReferenceRules {
   };
 }
 
+function catalogContractAppIdsFromEnv(): string[] | undefined {
+  const raw = process.env.CATALOG_CONTRACT_APPS?.trim();
+  if (!raw) return undefined;
+  const ids = raw
+    .split(",")
+    .map((slug) => slug.trim())
+    .filter(Boolean);
+  return ids.length > 0 ? ids : undefined;
+}
+
 describe("tool reference detection", () => {
   const rules: ReferenceRules = {
     advertised: new Set(["list-documents", "get-document", "tool-search"]),
@@ -361,7 +370,9 @@ describe("static MCP instructions name only advertised tools", () => {
   let apps: AppCatalog[] = [];
 
   beforeAll(async () => {
-    apps = (await loadAppCatalogs()).filter((app) => app.instructions);
+    apps = (await loadAppCatalogs(catalogContractAppIdsFromEnv())).filter(
+      (app) => app.instructions,
+    );
   }, LOAD_TIMEOUT_MS);
 
   it("covers every app that sets instructions", () => {

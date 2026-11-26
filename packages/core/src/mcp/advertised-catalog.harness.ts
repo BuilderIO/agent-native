@@ -455,16 +455,6 @@ function devDiscoveredTools(
   return discovered;
 }
 
-export function catalogContractAppIdsFromEnv(): string[] | undefined {
-  const raw = process.env.CATALOG_CONTRACT_APPS?.trim(); // config-ok: CI test harness filter, not application runtime config
-  if (!raw) return undefined;
-  const ids = raw
-    .split(",")
-    .map((slug) => slug.trim())
-    .filter(Boolean);
-  return ids.length > 0 ? ids : undefined;
-}
-
 /**
  * Builds every template's MCP catalog the way a deployed app does: through its
  * real agent-chat plugin, then `createMCPServerForRequest`, in the default and
@@ -473,7 +463,6 @@ export function catalogContractAppIdsFromEnv(): string[] | undefined {
 export async function loadAppCatalogs(
   only?: readonly string[],
 ): Promise<AppCatalog[]> {
-  const effectiveOnly = only ?? catalogContractAppIdsFromEnv();
   await assertCoreActionLoadersAreValid();
   stubPluginSideEffects();
   // Each mount's default-plugin bootstrap runs unawaited, so they overlap, and
@@ -492,7 +481,7 @@ export async function loadAppCatalogs(
   await import("../mcp/server.js");
   await import("@agent-native/core/server");
   const appIds = templateIdsWithAgentChat().filter(
-    (appId) => !effectiveOnly || effectiveOnly.includes(appId),
+    (appId) => !only || only.includes(appId),
   );
   for (const appId of appIds) {
     generateActionRegistryForProject(path.join(repoRoot, "templates", appId));

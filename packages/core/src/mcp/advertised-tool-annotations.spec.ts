@@ -14,7 +14,6 @@ import {
   LOAD_TIMEOUT_MS,
   SURFACES,
   baselineSection,
-  catalogContractAppIdsFromEnv,
   loadAppCatalogs,
   withCatalogClient,
   type AppCatalog,
@@ -183,6 +182,16 @@ function catalogModes(surface: SurfaceCatalog) {
   }>;
 }
 
+function catalogContractAppIdsFromEnv(): string[] | undefined {
+  const raw = process.env.CATALOG_CONTRACT_APPS?.trim();
+  if (!raw) return undefined;
+  const ids = raw
+    .split(",")
+    .map((slug) => slug.trim())
+    .filter(Boolean);
+  return ids.length > 0 ? ids : undefined;
+}
+
 describe("MCP framework runtime boundary", () => {
   it(
     "does not advertise or execute excluded tools in any catalog mode",
@@ -336,7 +345,7 @@ describe("MCP framework runtime boundary", () => {
 });
 
 beforeAll(async () => {
-  apps = await loadAppCatalogs();
+  apps = await loadAppCatalogs(catalogContractAppIdsFromEnv());
 }, LOAD_TIMEOUT_MS);
 
 type Hint = "readOnlyHint" | "destructiveHint" | "openWorldHint";
