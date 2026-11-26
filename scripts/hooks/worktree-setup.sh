@@ -69,7 +69,7 @@ workspace_dirs() {
 # Ignored env files the main checkout has and a fresh worktree lacks.
 while read -r d; do
   for f in "$d/.env" "$d/.env.local"; do
-    if [ -f "$src/$f" ] && [ ! -e "$wt/$f" ]; then cp -p "$src/$f" "$wt/$f"; fi
+    if [ -f "$src/$f" ] && [ ! -e "$wt/$f" ] && git check-ignore -q "$f"; then cp -p "$src/$f" "$wt/$f"; fi
   done
 done < <(workspace_dirs)
 
