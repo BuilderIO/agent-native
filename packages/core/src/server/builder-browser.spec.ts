@@ -72,6 +72,7 @@ import {
   getBuilderBrowserStatusForEvent,
   withBuilderConnectTrackingParams,
   BuilderAccountProvisioningError,
+  classifyBuilderProvisioningFailure,
   isBuilderAccountAlreadyExistsError,
   isBuilderAccountProvisioningEnabled,
   isBuilderBranchingEnabled,
@@ -394,6 +395,219 @@ describe("Builder account provisioning", () => {
     expect(diagnostic).toContain("[redacted-token]");
     expect(diagnostic).not.toContain(githubToken);
     expect(diagnostic).not.toContain(jwt);
+  });
+
+  it("sends the signed JSON request with every account header", async () => {
+    vi.stubEnv(
+      BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV,
+      "test-builder-sso-secret-with-at-least-32-chars",
+    );
+    const fetchSpy = vi.fn(
+      async (_url: URL, _init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            credentials: { privateKey: "bpk-test", publicKey: "space-test" },
+          }),
+          { headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+    await provisionBuilderAccount({ email: "owner@example.com" });
+    const init = fetchSpy.mock.calls[0]?.[1];
+    expect(init?.method).toBe("POST");
+    expect(Object.keys(init?.headers as Record<string, string>).sort()).toEqual(
+      [
+        "Content-Type",
+        "x-agent-native-account-request-id",
+        "x-agent-native-account-signature",
+        "x-agent-native-account-timestamp",
+        "x-agent-native-account-version",
+      ],
+    );
+    expect((init?.headers as Record<string, string>)["Content-Type"]).toBe(
+      "application/json",
+    );
+  });
+
+  describe("transport failures", () => {
+    beforeEach(() => {
+      vi.stubEnv(
+        BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV,
+        "test-builder-sso-secret-with-at-least-32-chars",
+      );
+    });
+
+    async function failure(): Promise<BuilderAccountProvisioningError> {
+      try {
+        await provisionBuilderAccount({ email: "owner@example.com" });
+      } catch (error) {
+        expect(error).toBeInstanceOf(BuilderAccountProvisioningError);
+        return error as BuilderAccountProvisioningError;
+      }
+      throw new Error("provisionBuilderAccount did not throw");
+    }
+
+    it("marks a timed-out request as a timeout", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          throw Object.assign(new Error("aborted"), { name: "TimeoutError" });
+        }),
+      );
+      const error = await failure();
+      expect(error.transport).toBe("timeout");
+      expect(error.upstreamStatus).toBeNull();
+      expect(error.message).toBe(
+        "Builder account provisioning timed out after 30000ms",
+      );
+    });
+
+    it("marks an unreachable host as unreachable, keeping the cause message", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          throw new TypeError("fetch failed");
+        }),
+      );
+      const error = await failure();
+      expect(error.transport).toBe("unreachable");
+      expect(error.message).toBe("fetch failed");
+    });
+
+    it("marks a non-Error rejection as unreachable with a fixed message", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          throw "socket closed";
+        }),
+      );
+      const error = await failure();
+      expect(error.transport).toBe("unreachable");
+      expect(error.message).toBe("Builder account provisioning failed");
+    });
+
+    it("marks a non-JSON success as an invalid response", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response("<html></html>", { status: 200 })),
+      );
+      const error = await failure();
+      expect(error.transport).toBe("invalid_response");
+      expect(error.upstreamStatus).toBe(200);
+    });
+
+    it("marks incomplete credentials as an invalid response", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response(JSON.stringify({ credentials: { privateKey: "k" } }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }),
+        ),
+      );
+      const error = await failure();
+      expect(error.transport).toBe("invalid_response");
+      expect(error.message).toBe(
+        "Builder account provisioning returned incomplete credentials.",
+      );
+    });
+
+    it("leaves an upstream error status without a transport failure", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () => new Response("<html>bad gateway</html>", { status: 502 }),
+        ),
+      );
+      const error = await failure();
+      expect(error.transport).toBeNull();
+      expect(error.upstreamStatus).toBe(502);
+    });
+  });
+
+  describe("classifyBuilderProvisioningFailure", () => {
+    const upstream = (status: number) =>
+      new BuilderAccountProvisioningError("x", undefined, status);
+    const transport = (
+      kind: "timeout" | "unreachable" | "invalid_response",
+      status: number | null = null,
+    ) =>
+      new BuilderAccountProvisioningError(
+        "x",
+        undefined,
+        status,
+        null,
+        null,
+        kind,
+      );
+
+    it("names each failure mode with its own message", () => {
+      expect(classifyBuilderProvisioningFailure(transport("timeout"))).toEqual({
+        code: "provision_timeout",
+        message: "Builder.io took too long to respond. Try again in a moment.",
+      });
+      expect(
+        classifyBuilderProvisioningFailure(transport("unreachable")),
+      ).toEqual({
+        code: "provision_unreachable",
+        message:
+          "Couldn't reach Builder.io from this app. Check the connection and try again.",
+      });
+      expect(
+        classifyBuilderProvisioningFailure(transport("invalid_response", 200)),
+      ).toEqual({
+        code: "provision_invalid_response",
+        message:
+          "Builder.io answered with an unexpected response while creating your account. Try again or sign in with an existing account.",
+      });
+      for (const status of [401, 403]) {
+        expect(classifyBuilderProvisioningFailure(upstream(status))).toEqual({
+          code: "provision_rejected",
+          message:
+            "Builder.io rejected account creation from this app. Sign in with an existing Builder.io account instead.",
+        });
+      }
+      expect(classifyBuilderProvisioningFailure(upstream(429))).toEqual({
+        code: "provision_rate_limited",
+        message:
+          "Builder.io is limiting account creation right now. Wait a minute and try again.",
+      });
+      for (const status of [400, 422]) {
+        expect(classifyBuilderProvisioningFailure(upstream(status))).toEqual({
+          code: "provision_invalid_request",
+          message:
+            "Builder.io couldn't accept the account details for this email. Sign in with an existing Builder.io account instead.",
+        });
+      }
+      for (const status of [500, 502, 599]) {
+        expect(classifyBuilderProvisioningFailure(upstream(status))).toEqual({
+          code: "provision_upstream_error",
+          message: "Builder.io is having trouble right now. Try again shortly.",
+        });
+      }
+    });
+
+    it("keeps the generic code only for what has no reading", () => {
+      const generic = {
+        code: "provision_failed",
+        message:
+          "Couldn't create your Builder.io account. Try again or sign in with an existing account.",
+      };
+      expect(classifyBuilderProvisioningFailure(null)).toEqual(generic);
+      expect(classifyBuilderProvisioningFailure(upstream(404))).toEqual(
+        generic,
+      );
+      expect(classifyBuilderProvisioningFailure(upstream(499))).toEqual(
+        generic,
+      );
+      expect(
+        classifyBuilderProvisioningFailure(
+          new BuilderAccountProvisioningError("x"),
+        ),
+      ).toEqual(generic);
+    });
   });
 
   it("classifies existing-account errors across runtime boundaries", () => {

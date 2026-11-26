@@ -2539,12 +2539,7 @@ async function fetchBuilderApi(
   }
 }
 
-class BuilderApiTimeoutError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
-    super(message, options);
-    this.name = "BuilderApiTimeoutError";
-  }
-}
+class BuilderApiTimeoutError extends Error {}
 
 async function readBuilderApiObject(
   response: Response,
