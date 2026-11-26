@@ -1,4 +1,11 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -1931,6 +1938,154 @@ describe("local-folder Content source", () => {
       } else {
         process.env.AGENT_NATIVE_MANIFEST_PATH = previousManifest;
       }
+      rmSync(workspace, { recursive: true, force: true });
+    }
+  });
+
+  // oracle-change(templates/content/actions/split-mode-retirement.test.ts): its checks that canonical document actions and the local-file cache never name the process mode were source-text absence greps; this test runs those actions with the process in local-file mode and sees them read and write SQL, not the folder. Whether the explicit local-file cache serves reads is decided by core (it lists nothing in database mode today), so the cache file not naming the mode guarded nothing observable
+  it("keeps document actions on SQL while the process asks for local-file mode", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "content-local-mode-"));
+    const manifestPath = join(workspace, "agent-native.json");
+    mkdirSync(join(workspace, "docs"));
+    writeFileSync(
+      join(workspace, "docs", "on-disk.md"),
+      "# On disk\n\nFrom disk.",
+    );
+    const manifest = JSON.stringify({
+      version: 1,
+      mode: "local-files",
+      apps: {
+        content: {
+          mode: "local-files",
+          roots: [{ name: "Docs", path: "docs", extensions: [".md", ".mdx"] }],
+        },
+      },
+    });
+    writeFileSync(manifestPath, manifest);
+    const modeEnv = [
+      "AGENT_NATIVE_MANIFEST_PATH",
+      "AGENT_NATIVE_MODE",
+      "AGENT_NATIVE_DATA_MODE",
+    ] as const;
+    const previousEnv = modeEnv.map((key) => process.env[key]);
+    process.env.AGENT_NATIVE_MANIFEST_PATH = manifestPath;
+    process.env.AGENT_NATIVE_MODE = "local-files";
+    process.env.AGENT_NATIVE_DATA_MODE = "local-files";
+    const asOwner = <T>(run: () => Promise<T>) =>
+      runWithRequestContext({ userEmail: OWNER }, run);
+    const pageRow = async (id: string) => {
+      const [page] = await getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, id));
+      return page;
+    };
+    try {
+      const localFiles = await import("./_local-file-documents.js");
+      const createDocument = (await import("./create-document.js")).default;
+      const updateDocument = (await import("./update-document.js")).default;
+      const getDocument = (await import("./get-document.js")).default;
+      const listDocuments = (await import("./list-documents.js")).default;
+      const searchDocuments = (await import("./search-documents.js")).default;
+      const pullDocument = (await import("./pull-document.js")).default;
+      const moveDocument = (await import("./move-document.js")).default;
+      const deleteDocument = (await import("./delete-document.js")).default;
+      const viewScreen = (await import("./view-screen.js")).default;
+      const revealLocalSourceFile = (
+        await import("./reveal-local-source-file.js")
+      ).default;
+      const removeLocalFileSource = (
+        await import("./remove-local-file-source.js")
+      ).default;
+
+      localFiles.invalidateLocalFileDocumentsCache();
+      const diskDocuments = await localFiles.listLocalFileDocuments();
+      expect(JSON.stringify(diskDocuments)).toContain("on-disk.md");
+      const diskIds = diskDocuments
+        .map((document) => document.id)
+        .filter((documentId) => localFiles.isLocalFileDocumentId(documentId));
+      expect(diskIds).toHaveLength(1);
+
+      const { id } = (await asOwner(() =>
+        createDocument.run({ title: "Mode probe", content: "SQL body." }),
+      )) as { id: string };
+      const { id: homeId } = (await asOwner(() =>
+        createDocument.run({ title: "Mode probe home", content: "Home." }),
+      )) as { id: string };
+      await asOwner(() =>
+        updateDocument.run({ id, title: "Mode probe renamed" }),
+      );
+
+      expect(await pageRow(id)).toEqual(
+        expect.objectContaining({
+          title: "Mode probe renamed",
+          content: "SQL body.",
+        }),
+      );
+      await expect(asOwner(() => getDocument.run({ id }))).resolves.toEqual(
+        expect.objectContaining({ id, title: "Mode probe renamed" }),
+      );
+      const listed = (await asOwner(() =>
+        listDocuments.run({ exactTitle: "Mode probe renamed" }),
+      )) as { documents: Array<{ id: string }> };
+      expect(listed.documents.map((document) => document.id)).toEqual([id]);
+      const searched = (await asOwner(() =>
+        searchDocuments.run({ query: "Mode probe", mode: "words" }),
+      )) as { documents: Array<{ id: string }> };
+      expect(searched.documents.map((document) => document.id).sort()).toEqual(
+        [id, homeId].sort(),
+      );
+
+      await asOwner(() =>
+        editDocument.run(
+          {
+            id,
+            find: "SQL body.",
+            replace: "SQL body, edited.",
+            reuseLabels: [],
+          },
+          { caller: "frontend", userEmail: OWNER },
+        ),
+      );
+      expect((await pageRow(id)).content).toBe("SQL body, edited.");
+      await expect(asOwner(() => pullDocument.run({ id }))).resolves.toEqual(
+        expect.objectContaining({ content: "SQL body, edited." }),
+      );
+      for (const diskId of diskIds) {
+        await expect(
+          asOwner(() => getDocument.run({ id: diskId })),
+        ).rejects.toThrow(`Document "${diskId}" not found`);
+        await expect(
+          asOwner(() => pullDocument.run({ id: diskId })),
+        ).rejects.toThrow(`Document "${diskId}" not found`);
+      }
+
+      await asOwner(() => moveDocument.run({ id, parentId: homeId }));
+      expect((await pageRow(id)).parentId).toBe(homeId);
+
+      const screen = await asOwner(() => viewScreen.run({}));
+      expect(JSON.stringify(screen)).not.toContain("on-disk");
+      await expect(
+        asOwner(() => revealLocalSourceFile.run({ id })),
+      ).rejects.toThrow("does not expose an absolute path");
+      await expect(
+        asOwner(() => removeLocalFileSource.run({ sourceRootPath: "docs" })),
+      ).rejects.toThrow("No matching local file source was found.");
+
+      await asOwner(() => deleteDocument.run({ id }));
+      expect((await pageRow(id)).trashedAt).toEqual(expect.any(String));
+
+      expect(readdirSync(join(workspace, "docs"))).toEqual(["on-disk.md"]);
+      expect(readFileSync(join(workspace, "docs", "on-disk.md"), "utf8")).toBe(
+        "# On disk\n\nFrom disk.",
+      );
+      expect(readFileSync(manifestPath, "utf8")).toBe(manifest);
+    } finally {
+      modeEnv.forEach((key, index) => {
+        const value = previousEnv[index];
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      });
       rmSync(workspace, { recursive: true, force: true });
     }
   });

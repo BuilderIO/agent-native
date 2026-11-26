@@ -11,6 +11,9 @@ import type { DatabaseItemPreviewRow } from "./DatabaseItemPreviewPlaceholder";
 const embedHost = vi.hoisted(() => ({
   isEmbedMcpChatBridgeActive: vi.fn(() => false),
 }));
+const read = vi.hoisted(() => ({
+  failure: null as null | { error: unknown; refetch: () => Promise<unknown> },
+}));
 
 vi.mock("@agent-native/core/client/host", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/host")>()),
@@ -20,12 +23,21 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string) => key,
 }));
-// The page's read never answers, so the surface stays on its loading view.
 vi.mock("@/hooks/use-documents", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/hooks/use-documents")>()),
   usePageOpenDocument: () => ({
-    query: { isFetching: true, isError: false, dataUpdatedAt: 0 },
-    fetchedForThisOpen: false,
+    query: read.failure
+      ? {
+          isFetching: false,
+          isError: true,
+          error: read.failure.error,
+          errorUpdateCount: 1,
+          errorUpdatedAt: 1,
+          dataUpdatedAt: 0,
+          refetch: read.failure.refetch,
+        }
+      : { isFetching: true, isError: false, dataUpdatedAt: 0 },
+    fetchedForThisOpen: !!read.failure,
     readsStartedEarly: true,
   }),
 }));
@@ -42,6 +54,7 @@ vi.mock("./DocumentEditorSkeleton", () => ({
 }));
 
 import { PageEditorSurface } from "./DocumentEditor";
+import { present } from "./page-editor-test-utils";
 
 const previewRow = {
   item: { id: "row-1" },
@@ -60,6 +73,7 @@ describe("a row's panel while its page is read", () => {
       vi.fn(async () => new Response("{}")),
     );
     embedHost.isEmbedMcpChatBridgeActive.mockReturnValue(false);
+    read.failure = null;
     queryClient = new QueryClient();
     container = document.createElement("div");
     document.body.append(container);
@@ -73,7 +87,7 @@ describe("a row's panel while its page is read", () => {
     vi.unstubAllGlobals();
   });
 
-  async function render() {
+  async function render(row: DatabaseItemPreviewRow | undefined = previewRow) {
     await act(async () => {
       root.render(
         createElement(
@@ -85,7 +99,7 @@ describe("a row's panel while its page is read", () => {
             createElement(PageEditorSurface, {
               documentId: "row-1",
               host: "preview",
-              previewRow,
+              previewRow: row,
             }),
           ),
         ),
@@ -115,5 +129,79 @@ describe("a row's panel while its page is read", () => {
         .querySelector('[data-testid="page-skeleton"]')
         ?.getAttribute("data-stall-message"),
     ).toBe("yes");
+  });
+});
+
+describe("a page whose read fails", () => {
+  let root: Root;
+  let container: HTMLDivElement;
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("{}")),
+    );
+    queryClient = new QueryClient();
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    read.failure = null;
+    queryClient.clear();
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  async function fail(error: unknown) {
+    let answer!: () => void;
+    const refetch = vi.fn(
+      () => new Promise<void>((resolve) => (answer = resolve)),
+    );
+    read.failure = { error, refetch };
+    await act(async () => {
+      root.render(
+        createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          createElement(
+            MemoryRouter,
+            null,
+            createElement(PageEditorSurface, {
+              documentId: "row-1",
+              host: "preview",
+            }),
+          ),
+        ),
+      );
+    });
+    return { refetch, answer: () => act(async () => answer()) };
+  }
+
+  const retry = () =>
+    Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "database.retry",
+    );
+
+  it("reads the page again on Retry, holding the button until the read answers", async () => {
+    const { refetch, answer } = await fail({ status: 500 });
+    expect(retry()?.disabled).toBe(false);
+
+    await act(async () => present(retry()).click());
+    expect(refetch).toHaveBeenCalledOnce();
+    expect(retry()?.disabled).toBe(true);
+
+    await answer();
+    expect(retry()?.disabled).toBe(false);
+  });
+
+  it("offers no retry for a page this reader can't open", async () => {
+    await fail({ status: 403 });
+    expect(retry()).toBeUndefined();
+    expect(container.textContent).not.toBe("");
   });
 });

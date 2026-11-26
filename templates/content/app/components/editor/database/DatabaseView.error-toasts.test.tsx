@@ -67,6 +67,20 @@ const benignMutation = vi.hoisted(() => ({
   isPending: false,
 }));
 
+const rowMutations = vi.hoisted(() => {
+  const mutation = () => ({
+    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
+    isPending: false,
+  });
+  return {
+    removeItems: mutation(),
+    duplicateItems: mutation(),
+    duplicateItem: mutation(),
+    deleteDocument: mutation(),
+  };
+});
+
 const addItemMutation = vi.hoisted(() => ({
   mutate: vi.fn(),
   mutateAsync: vi.fn(),
@@ -256,9 +270,9 @@ vi.mock("@/hooks/use-content-database", async (importOriginal) => ({
   ],
   refreshAfterPersonalViewSave: vi.fn(),
   useUpdateContentDatabaseView: () => updateViewMutation,
-  useRemoveDatabaseItems: () => benignMutation,
-  useDuplicateDatabaseItem: () => benignMutation,
-  useDuplicateDatabaseItems: () => benignMutation,
+  useRemoveDatabaseItems: () => rowMutations.removeItems,
+  useDuplicateDatabaseItem: () => rowMutations.duplicateItem,
+  useDuplicateDatabaseItems: () => rowMutations.duplicateItems,
   useMoveDatabaseItem: () => benignMutation,
   useBuilderCmsModels: () => builderCmsModelsQuery,
   useMaterializeBuilderRequiredFields: () => benignMutation,
@@ -304,7 +318,7 @@ vi.mock("@/hooks/use-documents", async (importOriginal) => ({
   seedDatabaseItemDocumentCaches: vi.fn(),
   startDatabaseItemPreviewReads: vi.fn(),
   useCreateDocument: () => createDocumentMutation,
-  useDeleteDocument: () => benignMutation,
+  useDeleteDocument: () => rowMutations.deleteDocument,
   useUpdateDocument: () => benignMutation,
 }));
 
@@ -321,6 +335,23 @@ vi.mock("./database-cell-comments", async (importOriginal) => ({
     return null;
   },
 }));
+
+const pageSurfaces = vi.hoisted(() => ({
+  props: [] as object[],
+}));
+vi.mock("../DocumentEditor", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../DocumentEditor")>();
+  const { createElement } = await import("react");
+  return {
+    ...actual,
+    PageEditorSurface: (
+      props: Parameters<typeof actual.PageEditorSurface>[0],
+    ) => {
+      pageSurfaces.props.push(props);
+      return createElement(actual.PageEditorSurface, props);
+    },
+  };
+});
 
 // The header and every row lay out their cells through one, so its render
 // count shows whether an update reached the table at all.
@@ -499,6 +530,37 @@ function findButtonByText(container: HTMLElement, text: string) {
   );
 }
 
+function selectableRow(id: string, title: string): ContentDatabaseItem {
+  return {
+    id: `item-${id}`,
+    databaseId: "database-1",
+    document: {
+      id: `document-${id}`,
+      parentId: "document-1",
+      title,
+      content: "",
+      icon: null,
+      position: 0,
+      isFavorite: false,
+      hideFromSearch: false,
+      accessRole: "viewer",
+      canView: true,
+      canEdit: false,
+      canManage: false,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    },
+    position: 0,
+    properties: [],
+    bodyHydration: {
+      status: "hydrated",
+      attemptedAt: null,
+      error: null,
+      version: null,
+    },
+  };
+}
+
 describe("DatabaseView UI regressions", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -528,6 +590,14 @@ describe("DatabaseView UI regressions", () => {
       .mockResolvedValue(databaseResponse);
     processBuilderBodiesMutation.mutate.mockReset();
     benignMutation.mutateAsync.mockReset().mockResolvedValue(undefined);
+    for (const mutation of Object.values(rowMutations)) {
+      mutation.mutate.mockReset();
+      mutation.mutateAsync
+        .mockReset()
+        .mockImplementation((input: unknown) =>
+          benignMutation.mutateAsync(input),
+        );
+    }
     updateViewMutation.mutate.mockReset();
     updateViewMutation.mutateAsync
       .mockReset()
@@ -1642,35 +1712,10 @@ describe("DatabaseView UI regressions", () => {
   });
 
   it("removes the confirmed selection snapshot without clearing newer selections", async () => {
-    const row = (id: string, title: string): ContentDatabaseItem => ({
-      id: `item-${id}`,
-      databaseId: "database-1",
-      document: {
-        id: `document-${id}`,
-        parentId: "document-1",
-        title,
-        content: "",
-        icon: null,
-        position: 0,
-        isFavorite: false,
-        hideFromSearch: false,
-        accessRole: "viewer",
-        canView: true,
-        canEdit: false,
-        canManage: false,
-        createdAt: "2026-01-01T00:00:00.000Z",
-        updatedAt: "2026-01-01T00:00:00.000Z",
-      },
-      position: 0,
-      properties: [],
-      bodyHydration: {
-        status: "hydrated",
-        attemptedAt: null,
-        error: null,
-        version: null,
-      },
-    });
-    databaseResponse.items = [row("a", "Alpha"), row("b", "Beta")];
+    databaseResponse.items = [
+      selectableRow("a", "Alpha"),
+      selectableRow("b", "Beta"),
+    ];
     await renderDatabaseView();
 
     await act(async () => {
@@ -1701,16 +1746,57 @@ describe("DatabaseView UI regressions", () => {
       await Promise.resolve();
     });
 
-    expect(benignMutation.mutateAsync).toHaveBeenCalledWith({
-      documentId: "document-1",
-      itemIds: ["item-a"],
-    });
+    expect(rowMutations.removeItems.mutateAsync.mock.calls).toEqual([
+      [{ documentId: "document-1", itemIds: ["item-a"] }],
+    ]);
+    expect(rowMutations.deleteDocument.mutateAsync).not.toHaveBeenCalled();
+    expect(rowMutations.duplicateItems.mutateAsync).not.toHaveBeenCalled();
+    expect(rowMutations.duplicateItem.mutateAsync).not.toHaveBeenCalled();
+    expect(rowMutations.removeItems.mutate).not.toHaveBeenCalled();
+    expect(rowMutations.deleteDocument.mutate).not.toHaveBeenCalled();
+    expect(rowMutations.duplicateItems.mutate).not.toHaveBeenCalled();
+    expect(rowMutations.duplicateItem.mutate).not.toHaveBeenCalled();
     expect(container.textContent).toContain("1 selected");
     expect(
       container.querySelector<HTMLButtonElement>(
         '[aria-label="Deselect Beta"]',
       ),
     ).toBeTruthy();
+  });
+
+  it("duplicates every selected row in one batch call", async () => {
+    databaseResponse.items = [
+      selectableRow("a", "Alpha"),
+      selectableRow("b", "Beta"),
+    ];
+    await renderDatabaseView();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Select Alpha"]')
+        ?.click();
+    });
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Select Beta"]')
+        ?.click();
+    });
+    await act(async () => {
+      findButtonByText(container, "Duplicate")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(rowMutations.duplicateItems.mutateAsync.mock.calls).toEqual([
+      [{ documentId: "document-1", itemIds: ["item-a", "item-b"] }],
+    ]);
+    expect(rowMutations.duplicateItem.mutateAsync).not.toHaveBeenCalled();
+    expect(rowMutations.removeItems.mutateAsync).not.toHaveBeenCalled();
+    expect(rowMutations.deleteDocument.mutateAsync).not.toHaveBeenCalled();
+    expect(rowMutations.duplicateItems.mutate).not.toHaveBeenCalled();
+    expect(rowMutations.duplicateItem.mutate).not.toHaveBeenCalled();
+    expect(rowMutations.removeItems.mutate).not.toHaveBeenCalled();
+    expect(rowMutations.deleteDocument.mutate).not.toHaveBeenCalled();
   });
 
   // Three rows filtered on a Status property, with that filter's chip.
@@ -2204,9 +2290,11 @@ describe("DatabaseView UI regressions", () => {
     ).toBeNull();
   });
 
-  it("keeps the preview a row's menu opened for a comment", async () => {
+  // oracle-change: DatabaseView.test.ts's PageEditorSurface source grep became this opened preview
+  it("keeps open the preview of the row's own page, in its collection, that a row's menu opened for a comment", async () => {
     databaseResponse.items = [commentableRow("a", "Alpha", true)];
     await renderDatabaseView();
+    pageSurfaces.props.length = 0;
     const trigger = container.querySelector(
       '[aria-label="Row actions for Alpha"]',
     );
@@ -2215,6 +2303,7 @@ describe("DatabaseView UI regressions", () => {
     await mousePointerDown(trigger);
     await selectMenuItem("editor.comment");
     await act(async () => {
+      // fixed-sleep-ok: lets the closing menu's deferred focus return run, so the check below sees where focus settles
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     // The preview closes when focus leaves it, so the menu must not hand focus
@@ -2223,6 +2312,12 @@ describe("DatabaseView UI regressions", () => {
     expect(
       document.body.querySelector('[aria-label^="Preview actions for"]'),
     ).toBeTruthy();
+    expect(pageSurfaces.props[pageSurfaces.props.length - 1]).toMatchObject({
+      documentId: "document-a",
+      databaseId: "database-1",
+      databaseDocumentId: "document-1",
+      host: "preview",
+    });
   });
 
   it("offers a comment from a board card's menu", async () => {
