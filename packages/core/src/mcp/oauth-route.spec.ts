@@ -64,6 +64,8 @@ const isLoopbackRequestMock = vi.fn((event: HostEvent) =>
 vi.mock("../server/auth.js", () => ({
   getSession: (...a: any[]) => getSessionMock(...a),
   getConfiguredLoginHtml: (...a: any[]) => getConfiguredLoginHtmlMock(...a),
+}));
+vi.mock("../server/loopback.js", () => ({
   isLoopbackRequest: (event: HostEvent) => isLoopbackRequestMock(event),
 }));
 vi.mock("../server/better-auth-instance.js", () => ({
@@ -533,10 +535,7 @@ describe("MCP OAuth route", () => {
     }
 
     beforeEach(() => {
-      getSessionMock.mockResolvedValue({
-        email: "dev@local.test",
-        authDisabled: true,
-      });
+      getSessionMock.mockResolvedValue({ email: "dev@local.test" });
     });
 
     it("refuses consent and approval off loopback", async () => {

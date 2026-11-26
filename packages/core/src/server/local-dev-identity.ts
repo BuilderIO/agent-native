@@ -1,12 +1,19 @@
+import type { H3Event } from "h3";
+
+import { isLoopbackRequest } from "./loopback.js";
+
 /**
  * The identity every request gets under `AUTH_DISABLED`, which is also the
  * local auto dev account. It belongs to whoever reaches the server, so it is
- * the developer only when the request comes from the developer's own machine
- * (`isLoopbackRequest`).
+ * the developer only when the request comes from the developer's own machine.
  */
 export const LOCAL_DEV_IDENTITY_EMAIL = "dev@local.test";
 
-const LEGACY_LOCAL_DEV_IDENTITY_EMAIL = "dev@local";
+/**
+ * Pre-`dev@local.test` local dev databases may still hold this account. It is
+ * the dev account too, so it never counts as a real signup.
+ */
+export const LEGACY_LOCAL_DEV_IDENTITY_EMAIL = "dev@local";
 
 export function isLocalDevIdentityEmail(email: string | undefined): boolean {
   const normalized = email?.trim().toLowerCase();
@@ -17,16 +24,16 @@ export function isLocalDevIdentityEmail(email: string | undefined): boolean {
 }
 
 /**
- * Whether a session is the `AUTH_DISABLED` identity or the local dev account.
- * Such a session may be issued MCP or connect credentials only on a loopback
- * request.
+ * Whether an MCP or connect credential for `email` must be refused, whether
+ * being issued or presented: the local dev identity holds one only on a
+ * loopback request, and with no request to check it holds none.
  */
-export function isLocalDevSession(session: {
-  email: string;
-  authDisabled?: true;
-}): boolean {
+export function refusesLocalDevCredential(
+  email: string | undefined,
+  event: H3Event | undefined,
+): boolean {
   return (
-    session.authDisabled === true || isLocalDevIdentityEmail(session.email)
+    isLocalDevIdentityEmail(email) && (!event || !isLoopbackRequest(event))
   );
 }
 

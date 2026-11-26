@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { getDbExec } from "../db/client.js";
 import { isProductionServerBuild } from "../db/server-runtime.js";
 import { isProductionLikeRuntime } from "../server/credential-provider.js";
+import { LOCAL_DEV_IDENTITY_EMAIL } from "../server/local-dev-identity.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 
 /**
@@ -12,7 +13,6 @@ import { invalidateMemberOrgCaches } from "./request-org-cache.js";
  * preview launcher sets `WORKSPACE_PREVIEW_JOIN_ORG=1`, make the dev account a
  * member of the workspace's single org in the current database.
  */
-export const PREVIEW_DEV_ACCOUNT_EMAIL = "dev@local.test";
 
 function truthy(value: string | undefined): boolean {
   const v = value?.trim().toLowerCase();
@@ -66,14 +66,14 @@ export async function ensurePreviewDevOrgMembership(
   const orgId = String((orgs.rows[0] as { id: unknown }).id);
   const existing = await exec.execute({
     sql: `SELECT 1 FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
-    args: [orgId, PREVIEW_DEV_ACCOUNT_EMAIL],
+    args: [orgId, LOCAL_DEV_IDENTITY_EMAIL],
   });
   if (existing.rows.length > 0) return { status: "already-member", orgId };
   await exec.execute({
     sql: `INSERT INTO org_members (id, org_id, email, role, joined_at)
           VALUES (?, ?, ?, 'member', ?)
           ON CONFLICT (org_id, LOWER(email)) DO NOTHING`,
-    args: [randomUUID(), orgId, PREVIEW_DEV_ACCOUNT_EMAIL, Date.now()],
+    args: [randomUUID(), orgId, LOCAL_DEV_IDENTITY_EMAIL, Date.now()],
   });
   invalidateMemberOrgCaches();
   return { status: "joined", orgId };

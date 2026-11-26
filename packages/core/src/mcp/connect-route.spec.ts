@@ -45,6 +45,10 @@ vi.mock("../server/auth.js", () => ({
   getConfiguredLoginHtml: (...a: any[]) => getConfiguredLoginHtmlMock(...a),
   isLoopbackRequest: (...a: any[]) => isLoopbackRequestMock(...a),
 }));
+vi.mock("../server/loopback.js", () => ({
+  isLoopbackRequest: (event: { headers?: Record<string, string> }) =>
+    isLoopbackRequestMock(event),
+}));
 
 const listOrgMembershipsForEventMock = vi.fn(
   async (): Promise<unknown[] | null> => null,
@@ -1048,10 +1052,7 @@ describe("handleMcpConnect", () => {
   });
 
   describe("AUTH_DISABLED identity", () => {
-    const authDisabledSession = {
-      email: "dev@local.test",
-      authDisabled: true as const,
-    };
+    const authDisabledSession = { email: "dev@local.test" };
 
     it("refuses to mint a connect token off loopback", async () => {
       getSessionMock.mockResolvedValue(authDisabledSession);
@@ -1060,13 +1061,6 @@ describe("handleMcpConnect", () => {
       expect((await res.json()).error).toMatch(/local development identity/);
       expect(tokenRows).toHaveLength(0);
       expect(withMcpCredentialIssuanceMock).not.toHaveBeenCalled();
-    });
-
-    it("refuses an untagged dev@local.test session off loopback", async () => {
-      getSessionMock.mockResolvedValue({ email: "dev@local.test" });
-      const res = await handleMcpConnect(ev({ method: "POST" }), "/token");
-      expect(res.status).toBe(403);
-      expect(tokenRows).toHaveLength(0);
     });
 
     it("refuses to approve a device code off loopback", async () => {

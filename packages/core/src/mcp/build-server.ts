@@ -70,6 +70,7 @@ import {
   getEmbedSessionOrigin,
   validateEmbedRequestOrigin,
 } from "../server/embed-request-origin.js";
+import { refusesLocalDevCredential } from "../server/local-dev-identity.js";
 import {
   getRequestContext,
   getRequestOrgId,
@@ -5869,18 +5870,6 @@ async function verifyIssuedMcpCredential(
   };
 }
 
-async function refusesLocalDevCredential(
-  ownerEmail: string,
-  event: import("h3").H3Event | undefined,
-): Promise<boolean> {
-  const { isLocalDevIdentityEmail } =
-    await import("../server/local-dev-identity.js");
-  if (!isLocalDevIdentityEmail(ownerEmail)) return false;
-  if (!event) return true;
-  const { isLoopbackRequest } = await import("../server/loopback.js");
-  return !isLoopbackRequest(event);
-}
-
 /**
  * The one admission path for MCP credentials this app issued. A connect token
  * is admitted only while its stored row exists, is unrevoked, and names the
@@ -6151,7 +6140,7 @@ export async function verifyAuth(
         );
       }
       if (issued) {
-        if (await refusesLocalDevCredential(issued.userEmail, options.event)) {
+        if (refusesLocalDevCredential(issued.userEmail, options.event)) {
           return { authed: false, refusal: "local-dev-identity" };
         }
         return admitIssuedMcpCredential(issued, options.requestOrigin);
