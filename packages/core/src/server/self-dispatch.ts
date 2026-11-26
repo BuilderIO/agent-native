@@ -1,3 +1,8 @@
+import {
+  acceptsUnsignedSelfDispatch,
+  hasConfiguredA2ASecret,
+  isA2AProductionRuntime,
+} from "../a2a/auth-policy.js";
 import { getAppConfig } from "../app-config/index.js";
 import { isLocalDatabase } from "../db/client.js";
 import { signInternalToken } from "../integrations/internal-token.js";
@@ -232,6 +237,25 @@ function rootBaseUrlForPath(baseUrl: string, path: string): string {
     return trimmed.slice(0, trimmed.length - basePath.length);
   }
   return trimmed;
+}
+
+export const UNSIGNED_HANDOFF_REFUSED =
+  "A2A_SECRET is not set and the unsigned processor handoff would leave this machine. Set A2A_SECRET, or set AGENT_NATIVE_SELF_DISPATCH_URL to this server's loopback address.";
+
+/**
+ * Whether a processor handoff can be sent and accepted: signed with
+ * `A2A_SECRET`, or unsigned to a target this server's processors trust.
+ * Throws when the self-dispatch URL cannot be resolved.
+ */
+export function canSendProcessorHandoff(options: {
+  event?: unknown;
+  baseUrl?: string;
+}): boolean {
+  if (hasConfiguredA2ASecret()) return true;
+  if (isA2AProductionRuntime()) return false;
+  return acceptsUnsignedSelfDispatch(
+    options.baseUrl ?? resolveSelfDispatchBaseUrl(options.event),
+  );
 }
 
 export async function fireInternalDispatch(

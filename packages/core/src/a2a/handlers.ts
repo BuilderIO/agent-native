@@ -51,8 +51,8 @@ import {
   type RequestRunContext,
 } from "../server/request-context.js";
 import {
+  canSendProcessorHandoff,
   fireInternalDispatch,
-  resolveSelfDispatchBaseUrl,
 } from "../server/self-dispatch.js";
 import { agentChat } from "../shared/agent-chat.js";
 import {
@@ -61,7 +61,6 @@ import {
 } from "../shared/viewport-mode.js";
 import { track } from "../tracking/registry.js";
 import {
-  acceptsUnsignedSelfDispatch,
   hasConfiguredA2ASecret,
   isA2AProductionRuntime,
 } from "./auth-policy.js";
@@ -366,11 +365,6 @@ export function getA2ATaskRecoveryLimits() {
     processingStuckAfterMs: A2A_PROCESSING_STUCK_AFTER_MS,
     processingLifetimeMaxMs: a2aProcessingLifetimeMaxMs(),
   };
-}
-
-function unsignedProcessorHandoffAccepted(event: H3Event | undefined): boolean {
-  if (isA2AProductionRuntime()) return false;
-  return acceptsUnsignedSelfDispatch(resolveSelfDispatchBaseUrl(event));
 }
 
 async function fireProcessTaskDispatch(
@@ -1249,7 +1243,7 @@ async function handleSend(
     // authenticate that internal handoff. Accepting it here would create a
     // working task that can never start and leaves the caller polling until
     // its timeout.
-    if (!hasConfiguredA2ASecret() && !unsignedProcessorHandoffAccepted(event)) {
+    if (!canSendProcessorHandoff({ event })) {
       return {
         ...jsonRpcError(
           0,

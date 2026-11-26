@@ -114,7 +114,7 @@ describe("integration webhook handler", () => {
     vi.unstubAllGlobals();
   });
 
-  it("refuses before enqueueing when an unsigned handoff would leave this machine", async () => {
+  it("reports a failed handoff when an unsigned handoff would leave this machine", async () => {
     vi.stubEnv("A2A_SECRET", "");
     vi.stubEnv("FUSION_POD_UID", "");
     vi.stubEnv("FUSION_ENVIRONMENT", "");
@@ -132,11 +132,11 @@ describe("integration webhook handler", () => {
     });
 
     expect(result).toEqual({ status: 200, body: "ok" });
-    expect(insertPendingTaskMock).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledOnce();
     expect(sendResponse).toHaveBeenCalledWith(
       {
-        text: "I can't work on that yet — this app needs A2A_SECRET set before it can process messages that reach it from another host.",
+        text: "I couldn't start working on that — the request was accepted but never handed off. Please try again.",
         platformContext: incoming.platformContext,
       },
       incoming,

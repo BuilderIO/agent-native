@@ -50,8 +50,7 @@ export function isTrustedLocalRequest(event: H3Event | undefined): boolean {
 
 /**
  * Whether this server's processor routes will accept an unsigned handoff
- * sent to `baseUrl`, so a caller can refuse up front instead of queueing work
- * that can never start.
+ * sent to `baseUrl`. `canSendProcessorHandoff` is the check a dispatcher runs.
  */
 export function acceptsUnsignedSelfDispatch(baseUrl: string): boolean {
   if (isA2AProductionRuntime()) return false;

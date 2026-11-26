@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const fireInternalDispatchMock = vi.hoisted(() => vi.fn());
 const recordDispatchAttemptMock = vi.hoisted(() => vi.fn());
 
-vi.mock("../server/self-dispatch.js", () => ({
+vi.mock("../server/self-dispatch.js", async (importActual) => ({
+  ...(await importActual<typeof import("../server/self-dispatch.js")>()),
   fireInternalDispatch: fireInternalDispatchMock,
 }));
 
@@ -19,6 +20,50 @@ describe("durable integration dispatch", () => {
     recordDispatchAttemptMock.mockResolvedValue(undefined);
     vi.stubEnv("NETLIFY", "true");
     vi.stubEnv("A2A_SECRET", "test-secret");
+  });
+
+  describe("without A2A_SECRET in development", () => {
+    beforeEach(() => {
+      vi.stubEnv("NETLIFY", "");
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("A2A_SECRET", "");
+      vi.stubEnv("FUSION_POD_UID", "");
+      vi.stubEnv("FUSION_ENVIRONMENT", "");
+    });
+
+    it("fails without sending an unsigned handoff that would leave this machine", async () => {
+      const { dispatchPendingIntegrationTask } =
+        await import("./integration-durable-dispatch.js");
+
+      await expect(
+        dispatchPendingIntegrationTask({
+          taskId: "task-remote",
+          task: { platform: "slack", externalThreadId: "slack:team:C123:1" },
+          baseUrl: "https://abc.tunnel.example",
+        }),
+      ).resolves.toBe("failed");
+
+      expect(fireInternalDispatchMock).not.toHaveBeenCalled();
+      expect(recordDispatchAttemptMock).toHaveBeenCalledWith(
+        "task-remote",
+        "failed",
+      );
+    });
+
+    it("sends an unsigned handoff to a loopback target", async () => {
+      const { dispatchPendingIntegrationTask } =
+        await import("./integration-durable-dispatch.js");
+
+      await expect(
+        dispatchPendingIntegrationTask({
+          taskId: "task-local",
+          task: { platform: "slack", externalThreadId: "slack:team:C123:1" },
+          baseUrl: "http://localhost:8080",
+        }),
+      ).resolves.toBe("portable-unconfirmed");
+
+      expect(fireInternalDispatchMock).toHaveBeenCalledOnce();
+    });
   });
 
   it("keeps the portable path as the default", async () => {
