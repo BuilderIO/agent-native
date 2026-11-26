@@ -17,6 +17,11 @@ export default defineAction({
     deleted: z.literal(true),
   }),
   mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   changeResource: (input) => documentChangeResource(input.documentId),
   run: async (args) => deletePageCheck(args),
 });

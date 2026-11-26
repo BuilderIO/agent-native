@@ -21,6 +21,11 @@ export default defineAction({
   }),
   outputSchema: pageChecksOutput,
   mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   retrySafe: true,
   changeResource: (input) => documentChangeResource(input.documentId),
   run: async (args) => updatePageCheck(args),

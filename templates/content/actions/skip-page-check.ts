@@ -29,6 +29,11 @@ export default defineAction({
     skipped: z.boolean(),
   }),
   mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   retrySafe: true,
   changeResource: (input) => documentChangeResource(input.documentId),
   run: async (args) => skipPageCheckPlace(args),

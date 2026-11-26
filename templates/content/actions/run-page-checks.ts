@@ -9,7 +9,7 @@ import {
 } from "./_page-check-schemas.js";
 
 export default defineAction({
-  description: `Run a page's checks: saves an open editor's changes, checks each place whose text or check changed since it was last checked, and lists every check's answers. Never changes the page. Use it after drafting to see what's left to fix. ${PAGE_CHECK_ANSWERS_HELP} Requires edit access.`,
+  description: `Run a page's checks: saves an open editor's changes, checks each place whose text or check changed since it was last checked, and lists every check's answers. Never changes the page. Use it after drafting to see what still doesn't pass. ${PAGE_CHECK_ANSWERS_HELP} Requires edit access.`,
   schema: z.object({
     documentId: z.string().min(1).describe("Page document ID"),
     checkIds: z
@@ -26,6 +26,11 @@ export default defineAction({
   }),
   outputSchema: pageChecksOutput,
   mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   retrySafe: true,
   emptyListsEraseNothing: true,
   automatic: (input) => input.editorSaved === true,

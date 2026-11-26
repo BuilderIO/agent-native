@@ -8,7 +8,7 @@ export const pageCheckSentenceSchema = z
   .min(1)
   .max(PAGE_CHECK_SENTENCE_MAX_LENGTH)
   .describe(
-    'The check as one sentence of up to three parts, like "Under 120 words" or "At least 3 paragraphs. At most 12 sentences." Counts of words, sentences and paragraphs read now.',
+    'The check as one sentence of up to three parts, like "At most 120 words" or "At least 3 paragraphs. At most 12 sentences." For now, only counts can be read.',
   );
 
 export const pageCheckScopeSchema = z
@@ -31,7 +31,7 @@ export const pageCheckScopeSchema = z
     z.object({ kind: z.literal("each_paragraph") }),
   ])
   .describe(
-    "Where the check looks: the whole page, the intro (the text before the first heading), one section (a heading and everything under it), or each paragraph",
+    "Where the check looks: the whole page, the intro (the text before the first heading), one section (a heading and everything below it), or every block of body text on its own",
   );
 
 const unitSchema = z.enum(["words", "sentences", "paragraphs"]);
