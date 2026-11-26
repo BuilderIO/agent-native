@@ -3134,7 +3134,7 @@ describe("agentNative Vite plugin preset", () => {
     });
   });
 
-  it("binds the dev server where AGENT_NATIVE_DEV_HOST says, over the app's own host", async () => {
+  it("binds the dev server to loopback while AUTH_DISABLED is on", async () => {
     const plugins = flatPlugins(agentNative());
     const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
     const serverHost = async (host?: string) => {
@@ -3151,13 +3151,16 @@ describe("agentNative Vite plugin preset", () => {
       }
     };
 
-    vi.stubEnv("AGENT_NATIVE_DEV_HOST", "");
+    vi.stubEnv("AUTH_DISABLED", "");
+    vi.stubEnv("FUSION_ENVIRONMENT", "");
+    vi.stubEnv("FUSION_POD_UID", "");
     try {
       expect(await serverHost()).toBe("::");
-      expect(await serverHost("0.0.0.0")).toBe("0.0.0.0");
-      vi.stubEnv("AGENT_NATIVE_DEV_HOST", "127.0.0.1");
+      vi.stubEnv("AUTH_DISABLED", "true");
       expect(await serverHost()).toBe("127.0.0.1");
-      expect(await serverHost("0.0.0.0")).toBe("127.0.0.1");
+      expect(await serverHost("0.0.0.0")).toBe("0.0.0.0");
+      vi.stubEnv("FUSION_POD_UID", "pod-1");
+      expect(await serverHost()).toBe("::");
     } finally {
       vi.unstubAllEnvs();
     }

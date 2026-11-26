@@ -9,12 +9,18 @@ describe("AUTH_DISABLED exposure", () => {
   beforeEach(() => {
     vi.stubEnv("AUTH_DISABLED", "true");
     vi.stubEnv("NODE_ENV", "development");
-    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "");
-    vi.stubEnv("CONTEXT", "");
-    vi.stubEnv("NETLIFY_CONTEXT", "");
-    vi.stubEnv("AGENT_NATIVE_BUILD_DEPLOY_CONTEXT", "");
-    vi.stubEnv("BRANCH", "");
-    vi.stubEnv("VERCEL_ENV", "");
+    for (const key of [
+      "NETLIFY",
+      "VERCEL",
+      "CF_PAGES",
+      "AWS_LAMBDA_FUNCTION_NAME",
+      "AWS_EXECUTION_ENV",
+      "FUNCTIONS_WORKER_RUNTIME",
+      "K_SERVICE",
+      "RENDER",
+    ]) {
+      vi.stubEnv(key, "");
+    }
     vi.stubEnv("FUSION_ENVIRONMENT", "");
     vi.stubEnv("FUSION_POD_UID", "");
   });
@@ -41,15 +47,17 @@ describe("AUTH_DISABLED exposure", () => {
 
   it.each([
     ["NODE_ENV", "production"],
-    ["AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "production"],
-    ["CONTEXT", "production"],
-  ])("reports a production server (%s=%s)", (key, value) => {
+    ["NETLIFY", "true"],
+    ["AWS_LAMBDA_FUNCTION_NAME", "handler"],
+  ])("reports a production or hosted server (%s=%s)", (key, value) => {
     vi.stubEnv(key, value);
     const log = vi.fn();
     reportAuthDisabledExposure(log);
-    expect(getAuthDisabledExposure()).toBe("production");
+    expect(getAuthDisabledExposure()).toBe("hosted");
     expect(log).toHaveBeenCalledWith(
-      expect.stringContaining("AUTH_DISABLED is set on a production server"),
+      expect.stringContaining(
+        "AUTH_DISABLED is set on a production or hosted server",
+      ),
     );
   });
 

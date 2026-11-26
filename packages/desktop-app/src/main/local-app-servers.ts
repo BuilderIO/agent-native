@@ -60,7 +60,6 @@ export function localAppServerEnv(
     ...baseEnv,
     BROWSER: "none",
     AUTH_DISABLED: "true",
-    AGENT_NATIVE_DEV_HOST: "127.0.0.1",
     NODE_ENV: "development",
   };
 }

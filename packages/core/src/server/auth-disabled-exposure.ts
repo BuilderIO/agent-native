@@ -1,7 +1,8 @@
-import { resolveDeployEnvironment } from "./deploy-environment.js";
+import { isAuthDisabled } from "../shared/auth-disabled.js";
+import { isProductionLikeRuntime } from "./credential-provider.js";
 import { isPublicDevContainer } from "./loopback.js";
 
-export type AuthDisabledExposure = "production" | "public-dev-container";
+export type AuthDisabledExposure = "hosted" | "public-dev-container";
 
 /**
  * Where an `AUTH_DISABLED` server can be reached by people other than its
@@ -9,19 +10,13 @@ export type AuthDisabledExposure = "production" | "public-dev-container";
  * is only safe on a loopback development server.
  */
 export function getAuthDisabledExposure(): AuthDisabledExposure | null {
-  const value = process.env.AUTH_DISABLED?.trim().toLowerCase();
-  if (value !== "1" && value !== "true") return null;
-  if (
-    process.env.NODE_ENV === "production" ||
-    resolveDeployEnvironment() === "production"
-  ) {
-    return "production";
-  }
+  if (!isAuthDisabled()) return null;
+  if (isProductionLikeRuntime()) return "hosted";
   return isPublicDevContainer() ? "public-dev-container" : null;
 }
 
 const EXPOSURE_LABELS: Record<AuthDisabledExposure, string> = {
-  production: "a production server",
+  hosted: "a production or hosted server",
   "public-dev-container": "a dev server published on a public preview URL",
 };
 
