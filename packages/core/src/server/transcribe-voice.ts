@@ -886,7 +886,12 @@ async function cleanupWithChatProvider({
           { role: "system", content: buildCleanupSystemPrompt(instructions) },
           { role: "user", content: buildCleanupUserPrompt(text) },
         ],
-        temperature: 0,
+        // The OpenAI cleanup model is a reasoning model: it refuses
+        // temperature 0 with a 400, and with reasoning off it answers in
+        // about a second. Groq's model keeps temperature 0.
+        ...(provider === "openai"
+          ? { reasoning_effort: "none" }
+          : { temperature: 0 }),
       }),
       signal: withClientAbort(controller.signal, clientAbortSignal),
     });
