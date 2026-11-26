@@ -149,6 +149,7 @@ jobs:
           CI_FULL: ${{ needs.change-scope.outputs.full }}
           TARGETED_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.test_workspace_filters }}
           LANES: 12
+          CI_MIN_PACKAGE_SHARDS: '{"@agent-native/toolkit":2}'
         run: |
           set -euo pipefail
           if [ "$CI_FULL" = "true" ]; then
