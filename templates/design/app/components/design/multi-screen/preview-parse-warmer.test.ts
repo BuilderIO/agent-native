@@ -20,6 +20,11 @@ class FakeWorker {
   }
 }
 
+function present<T>(value: T | undefined): T {
+  if (value === undefined) throw new Error("expected a value");
+  return value;
+}
+
 async function loadWarmer() {
   vi.resetModules();
   const warmer = await import("./preview-parse-warmer");
@@ -175,8 +180,8 @@ it("drops a requested parse once every requester cancels it", async () => {
   const contents = Array.from({ length: 8 }, (_, index) => `<p>${index}</p>`);
   warmer.requestPreviewParses(contents);
   const pool = FakeWorker.instances;
-  const [cancelled, ...others] = contents.slice(pool.length);
-  expect(cancelled).toBeDefined();
+  const [queuedFirst, ...others] = contents.slice(pool.length);
+  const cancelled = present(queuedFirst);
   expect(others.every(warmer.isPreviewParsePending)).toBe(true);
 
   warmer.requestPreviewParses([cancelled]);
@@ -209,8 +214,8 @@ it("forgets a request once its parse arrives, so a one-shot caller leaves no cou
   const warmer = await loadWarmer();
   const pool = FakeWorker.instances;
   warmer.requestPreviewParses(["<p>one-shot</p>"]);
-  const [worker] = pool;
-  reply(worker, worker.posted[0]);
+  const worker = present(pool[0]);
+  reply(worker, present(worker.posted[0]));
   expect(warmer.isPreviewParsePending("<p>one-shot</p>")).toBe(false);
 
   for (let index = 0; index < 200; index += 1) {

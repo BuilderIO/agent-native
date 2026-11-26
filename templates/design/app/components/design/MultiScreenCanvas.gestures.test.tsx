@@ -3652,8 +3652,19 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
       '[data-frame-id="hidden-screen"]',
     );
     expect(restored).not.toBeNull();
-    expect(restored!.style.left).toContain("720px");
-    expect(restored!.style.top).toContain("302px");
+    const visible = container.querySelector<HTMLElement>(
+      '[data-frame-id="visible-screen"]',
+    );
+    expect(visible).not.toBeNull();
+    if (!visible) throw new Error("visible-screen not rendered");
+    // Offsets from the visible screen, not absolute px: the first-layout fit
+    // zoom shifts both frames' origin and the prop stays at 100 here.
+    expect(
+      parseFloat(restored!.style.left) - parseFloat(visible.style.left),
+    ).toBeCloseTo(480, 6);
+    expect(
+      parseFloat(restored!.style.top) - parseFloat(visible.style.top),
+    ).toBeCloseTo(90, 6);
     expect(restored!.style.width).toBe("360px");
   });
 

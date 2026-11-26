@@ -953,6 +953,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     previousControlledZoomRef.current = zoom;
     controlledZoomRevisionRef.current += 1;
   }
+  const appliedControlledZoomRevisionRef = useRef(0);
   const lastReportedZoomRef = useRef(zoom);
   const onZoomChangeRef = useRef(onZoomChange);
   onZoomChangeRef.current = onZoomChange;
@@ -2468,6 +2469,17 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
   }, [selectedDraftIds]);
 
   useEffect(() => {
+    // A wheel gesture moves zoomRef ahead of the prop until its commit lands,
+    // so an effect run for any other dep would read the stale prop as a new
+    // external zoom and snap the camera back.
+    if (
+      appliedControlledZoomRevisionRef.current ===
+      controlledZoomRevisionRef.current
+    ) {
+      return;
+    }
+    appliedControlledZoomRevisionRef.current =
+      controlledZoomRevisionRef.current;
     const previousZoom = zoomRef.current;
     const pendingCameraZoom = lastCameraCommandZoomRef.current;
     const pendingCameraControlledZoom =
@@ -10315,11 +10327,9 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
         (FRAME_LABEL_HEIGHT + SCREEN_CHROME_INSET) *
           chromeScaleFromZoom(zoomRef.current),
       ),
-      {
-        deferHide: isWheelCameraGestureActive()
-          ? (screenId) => culledPaintScreenIds.has(screenId)
-          : undefined,
-      },
+      isWheelCameraGestureActive()
+        ? { deferHide: (screenId) => culledPaintScreenIds.has(screenId) }
+        : undefined,
     );
   }, []);
 

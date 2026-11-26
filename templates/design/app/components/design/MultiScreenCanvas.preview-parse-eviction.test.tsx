@@ -32,6 +32,11 @@ class FakeWorker {
   terminate() {}
 }
 
+function present<T>(value: T | undefined): T {
+  if (value === undefined) throw new Error("expected a value");
+  return value;
+}
+
 let container: HTMLDivElement;
 let root: Root;
 
@@ -125,25 +130,21 @@ it("keeps a mounted static preview when its parse is evicted from the cache", as
     });
 
   await nextFrames();
-  const [firstWorker, secondWorker] = FakeWorker.instances;
-  expect(FakeWorker.instances.length).toBeGreaterThan(1);
-  const first = firstWorker.posted[0];
-  expect(first).toBeDefined();
-  const parsedScreen = screens.find(
-    (screen) => screen.content === first.content,
+  const firstWorker = present(FakeWorker.instances[0]);
+  const secondWorker = present(FakeWorker.instances[1]);
+  const first = present(firstWorker.posted[0]);
+  const parsedScreen = present(
+    screens.find((screen) => screen.content === first.content),
   );
-  expect(parsedScreen).toBeDefined();
   await answer(firstWorker, first);
   await nextFrames();
-  expect(previewIds()).toContain(parsedScreen?.id);
+  expect(previewIds()).toContain(parsedScreen.id);
 
   for (let index = 0; index < 200; index += 1) {
     createSourceDocumentProvenance(`<p>filler ${index}</p>`);
   }
-  const second = secondWorker.posted[0];
-  expect(second).toBeDefined();
-  await answer(secondWorker, second);
+  await answer(secondWorker, present(secondWorker.posted[0]));
   await nextFrames();
 
-  expect(previewIds()).toContain(parsedScreen?.id);
+  expect(previewIds()).toContain(parsedScreen.id);
 });

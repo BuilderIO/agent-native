@@ -157,12 +157,10 @@ describe("overview paint suppression", () => {
   });
 
   it("keeps a shell painting while its label or selection chrome is still on screen", () => {
-    const candidates: ScreenPaintCandidate[] = [
-      { id: "label-showing", geometry: frame(0), tier: "culled" },
-    ];
-    const below = {
-      ...candidates[0],
+    const below: ScreenPaintCandidate = {
+      id: "label-showing",
       geometry: { x: 0, y: 1_010, width: 100, height: 100 },
+      tier: "culled",
     };
 
     expect([
