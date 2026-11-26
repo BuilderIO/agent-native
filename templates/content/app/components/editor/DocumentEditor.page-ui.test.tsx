@@ -311,10 +311,21 @@ function toolbar(documentId = "page") {
 }
 
 function selectedThread(documentId = "page") {
-  const selected = Array.from(
-    owner(documentId).querySelectorAll<HTMLElement>("[data-sidebar-fixture]"),
-  ).find((sidebar) => sidebar.dataset.selected);
+  const selected = own(documentId, "[data-sidebar-fixture]").find(
+    (sidebar) => sidebar.dataset.selected,
+  );
   return selected?.dataset.selected ?? null;
+}
+
+function own(documentId: string, selector: string) {
+  const home = owner(documentId).dataset.pageEditorOwner;
+  return Array.from(
+    owner(documentId).querySelectorAll<HTMLElement>(selector),
+  ).filter(
+    (element) =>
+      element.closest<HTMLElement>("[data-page-editor-owner]")?.dataset
+        .pageEditorOwner === home,
+  );
 }
 
 function owner(documentId = "page") {
@@ -332,9 +343,7 @@ async function click(target: Element) {
 }
 
 async function clickHighlight(documentId = "page") {
-  await click(
-    present(owner(documentId).querySelector("[data-comment-thread]")),
-  );
+  await click(present(own(documentId, "[data-comment-thread]")[0]));
 }
 
 describe("comment focus on the page", () => {
@@ -383,9 +392,18 @@ describe("comment focus on the page", () => {
 });
 
 describe("Escape across nested page editors", () => {
-  it("dismisses only the comment in the editor the key came from", async () => {
+  it("dismisses only the comment in the editor the key came from, with the preview inside the page", async () => {
     page("peek");
-    await render(surface("page", "page"), surface("peek", "preview"));
+    await render(surface("page", "page"));
+    const nest = document.createElement("div");
+    owner("page").append(nest);
+    await act(async () =>
+      mount.render([
+        surface("page", "page"),
+        createPortal(surface("peek", "preview"), nest),
+      ]),
+    );
+    expect(owner("page").contains(owner("peek"))).toBe(true);
     await clickHighlight("page");
     await clickHighlight("peek");
     expect(selectedThread("page")).toBe("t-text");

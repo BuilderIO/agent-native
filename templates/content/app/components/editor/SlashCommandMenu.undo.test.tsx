@@ -7,9 +7,9 @@ import { Editor } from "@tiptap/core";
 import { TextSelection } from "@tiptap/pm/state";
 import { EditorContent } from "@tiptap/react";
 import { prosemirrorToYDoc, yUndoPluginKey } from "@tiptap/y-tiptap";
-import { act, type ComponentProps } from "react";
+import { act, useEffect, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 import * as Y from "yjs";
 
@@ -82,9 +82,18 @@ async function mountSlashMenu(
     defaultOptions: { queries: { retry: false } },
   });
   const editor = collabEditor(markdown);
+  let path = "";
+  function LocationProbe() {
+    const location = useLocation();
+    useEffect(() => {
+      path = location.pathname;
+    });
+    return null;
+  }
   await act(async () => {
     root.render(
       <MemoryRouter>
+        <LocationProbe />
         <QueryClientProvider client={queryClient}>
           <AgentNativeI18nProvider
             initialLocale="en-US"
@@ -107,6 +116,7 @@ async function mountSlashMenu(
   return {
     container,
     editor,
+    location: () => path,
     unmount: async () => {
       await act(async () => root.unmount());
       editor.destroy();
@@ -390,7 +400,10 @@ describe("/page", () => {
   }
 
   it("saves the link to the new page through the page's editor", async () => {
-    const { editor, onDraftPersisted, pageId } = await makePage(true);
+    const { editor, location, onDraftPersisted, pageId } = await makePage(true);
+    await act(async () =>
+      vi.waitFor(() => expect(location()).toBe(`/page/${pageId}`)),
+    );
     expect(onDraftPersisted).toHaveBeenCalledOnce();
     expect(onDraftPersisted.mock.calls[0]?.[0]).toContain(`id="${pageId}"`);
     expect(pageReferences(editor)).toEqual([pageId]);

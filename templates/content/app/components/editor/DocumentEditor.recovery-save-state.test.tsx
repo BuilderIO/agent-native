@@ -1596,6 +1596,30 @@ it("flushes un-emitted visual input, changes the first prepare, then prepares an
   expect(flushLatest).toHaveBeenCalledTimes(2);
 });
 
+it("answers the page's immediate body save with whether the server kept it", async () => {
+  acknowledgeCurrentSaves();
+  await act(async () => renderEditor());
+  let kept: unknown;
+  await act(async () => {
+    kept = await mounted(mounted(fixture.editor).onSaveContent)(
+      "Body the server keeps",
+    );
+  });
+  expect(kept).toBe("persisted");
+
+  fixture.save.mockRejectedValue(new Error("Save refused."));
+  let refused: unknown;
+  await act(async () => {
+    refused = await mounted(mounted(fixture.editor).onSaveContent)(
+      "Body the server refuses",
+    );
+  });
+  expect(fixture.save.mock.lastCall?.[0]).toMatchObject({
+    content: "Body the server refuses",
+  });
+  expect(refused).toBe("failed");
+});
+
 it("publishes a fresh per-client prepare and verify for an unchanged mounted editor", async () => {
   await act(async () => renderEditor());
   const request = flushRequest("prepare");
@@ -3934,6 +3958,7 @@ describe("a Suggesting draft typed while another tab saves the Page", () => {
   );
 
   it("stays out of Suggesting when the words typed before it can't be saved", async () => {
+    hashOnTestThread();
     await act(async () => renderEditor({ host: "page" }));
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
     act(() => fixture.editor?.onChange(typed));
@@ -3943,12 +3968,7 @@ describe("a Suggesting draft typed while another tab saves the Page", () => {
       }),
     );
     await act(async () => fixture.toolbar?.onSuggestingChange?.(true));
-    for (
-      let waited = 0;
-      waited < 5_000 && !toastError.mock.calls.length;
-      waited += 100
-    )
-      await advance(100);
+    while (!toastError.mock.calls.length) await advance(100);
     expect(fixture.save).toHaveBeenCalled();
     expect(toastError).toHaveBeenCalledWith(
       "editor.suggestionCreateFailed",

@@ -62,6 +62,14 @@ function resetMaintenanceMemo() {
   ).__contentStartupMaintenance = undefined;
 }
 
+function held() {
+  let release: () => void = () => {};
+  const promise = new Promise<void>((resolve) => {
+    release = () => resolve();
+  });
+  return { promise, resolve: () => release() };
+}
+
 const OWNER = "owner@example.com";
 
 async function insertDatabaseRow(args: {
@@ -262,8 +270,8 @@ describe("scheduleStartupMaintenance — lazy post-boot maintenance", () => {
     additiveColumns.mockClear();
     blocksRepair.mockClear();
     filesRepair.mockClear();
-    const retry = Promise.withResolvers<void>();
-    const blocks = Promise.withResolvers<void>();
+    const retry = held();
+    const blocks = held();
     additiveColumns
       .mockRejectedValueOnce(new Error("lock timeout"))
       .mockImplementationOnce(async () => {

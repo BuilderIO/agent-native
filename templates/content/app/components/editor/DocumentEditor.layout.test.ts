@@ -3128,7 +3128,7 @@ describe("document editor layout", () => {
 
   // oracle-change: replaced by "sends the unload-safe copy the base its words were typed on" in DocumentEditor.recovery-save-state.test.tsx.
 
-  // oracle-change: replaced by "goes out as an unload-safe copy and an ordinary save when the tab hides" in DocumentEditor.recovery-save-state.test.tsx.
+  // oracle-change: replaced by "goes out as an unload-safe copy, then an ordinary save, when the tab hides" and "renames a page another writer rewrote with blank lines without sending its body" in DocumentEditor.recovery-save-state.test.tsx.
 
   it("derives the hidden-tab keepalive copy's load watermark like the ordinary flush", () => {
     // oracle-change: the source checks became "gives the unload-safe copy the load watermark of the ordinary save" in DocumentEditor.recovery-save-state.test.tsx.
@@ -3180,7 +3180,7 @@ describe("document editor layout", () => {
 
   // oracle-change: covered by "moves the typing onto the newer Page and saves it there, with no alert" and four sibling tests in DocumentEditor.recovery-save-state.test.tsx, which fail when a proposal takes the live body or revision.
 
-  // oracle-change: replaced by "starts Suggesting only from a Page that holds the words typed before it" and "stays out of Suggesting when the words typed before it can't be saved" in DocumentEditor.recovery-save-state.test.tsx.
+  // oracle-change: replaced by "starts Suggesting from %s only on a Page that holds what was typed (reread with %s)" and "stays out of Suggesting when the words typed before it can't be saved" in DocumentEditor.recovery-save-state.test.tsx.
 
   // oracle-change: suggestion activation scrolling without taking Reply focus is now checked by behavior in suggestion-page-view.test.ts
   // oracle-change: replaced by "holds the draft still while leaving Suggesting saves it" in DocumentEditor.recovery-save-state.test.tsx. The second-exit guard has no way in while the editor is frozen; removing it broke no test.
@@ -3193,7 +3193,7 @@ describe("document editor layout", () => {
 
   // oracle-change: replaced by "opens Discussion on the suggestion a link names" and "opens Discussion on a saved edit/proposal whose accept can't be placed instead of treating it as accepted" in DocumentEditor.recovery-save-state.test.tsx.
 
-  // oracle-change: replaced by SlashCommandMenu.undo.test.tsx "/page", which makes a page and saves or takes back its link.
+  // oracle-change: replaced by the "/page" tests in SlashCommandMenu.undo.test.tsx and VisualEditor.comment-highlights.test.tsx, which make a page and save or take back its link, and "answers the page's immediate body save with whether the server kept it" in DocumentEditor.recovery-save-state.test.tsx.
 
   it("routes Content text-copy controls through the shared clipboard boundary", () => {
     const sources = [

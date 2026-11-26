@@ -3,9 +3,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Editor } from "@tiptap/core";
 import { ySyncPluginKey } from "@tiptap/y-tiptap";
-import { act, createElement } from "react";
+import { act, createElement, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -105,6 +105,15 @@ describe("VisualEditor comment highlights", () => {
     vi.unstubAllGlobals();
   });
 
+  let currentPath = "";
+  function LocationProbe() {
+    const location = useLocation();
+    useEffect(() => {
+      currentPath = location.pathname;
+    });
+    return null;
+  }
+
   function render(
     content: string,
     threads: CommentThread[],
@@ -116,6 +125,7 @@ describe("VisualEditor comment highlights", () => {
       createElement(
         MemoryRouter,
         null,
+        createElement(LocationProbe),
         createElement(
           TooltipProvider,
           null,
@@ -359,12 +369,12 @@ describe("VisualEditor comment highlights", () => {
       await act(async () =>
         render(BEFORE, [], "seed", true, {
           ...props,
-          suggestions: [suggestion, unplaced],
+          suggestions: [{ ...suggestion, id: "s2" }, unplaced],
         }),
       );
       await settle();
       expect(container.textContent).toContain("Typed ");
-      expect(onSuggestionAnchorsChange).toHaveBeenLastCalledWith(["s1"]);
+      expect(onSuggestionAnchorsChange).toHaveBeenLastCalledWith(["s2"]);
     });
   });
 
@@ -408,7 +418,10 @@ describe("VisualEditor comment highlights", () => {
     }
 
     it("saves the new page's link through the page's save", async () => {
-      const { linked } = await makePage(true);
+      const { linked, pageId } = await makePage(true);
+      await act(async () =>
+        vi.waitFor(() => expect(currentPath).toBe(`/page/${pageId}`)),
+      );
       expect(linked()).toBe(true);
       expect(pages.rollback).not.toHaveBeenCalled();
     });
