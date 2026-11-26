@@ -290,8 +290,13 @@ describe("resource skill reference selection and bounded refill", () => {
             ? " - …. Use"
             : " - (no des…. Use",
       );
-      if (maxDescriptionChars === 500)
-        expect(prompt).toContain(" - Read this carefully! Use");
+      expect(prompt).toContain(
+        maxDescriptionChars === 500
+          ? " - Read this carefully! Use"
+          : maxDescriptionChars === 1
+            ? " - …. Use"
+            : " - Read th…. Use",
+      );
       expect(skillNames(prompt)).toEqual(entries.map((entry) => entry.id));
     },
   );
