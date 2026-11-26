@@ -203,6 +203,19 @@ export function excludeCommandsWithDuplicateTitles<T extends { title: string }>(
   );
 }
 
+export function slashCommandStartIndex(
+  commands: readonly { title: string }[],
+  query: string,
+): number {
+  const normalizedQuery = query.toLowerCase();
+  return Math.max(
+    0,
+    commands.findIndex((command) =>
+      command.title.toLowerCase().includes(normalizedQuery),
+    ),
+  );
+}
+
 export function slashCommandsForMode<T extends { suggestionSafe?: boolean }>(
   commands: readonly T[],
   suggesting: boolean,
@@ -936,7 +949,7 @@ export function SlashCommandMenu({
   const [isOpen, setIsOpen] = useState(false);
   const [isTurnInto, setIsTurnInto] = useState(false);
   const [query, setQuery] = useState("");
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [position, setPosition] = useState<EditorMenuPosition | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const selectedItemRef = useRef<HTMLButtonElement>(null);
@@ -1521,6 +1534,8 @@ export function SlashCommandMenu({
     ...filteredPageCommands,
     ...filteredCheckCommands,
   ];
+  const activeIndex =
+    selectedIndex ?? slashCommandStartIndex(filteredCommands, query);
 
   const renderCommand = (cmd: CommandItem) => {
     const globalIndex = filteredCommands.indexOf(cmd);
@@ -1528,8 +1543,8 @@ export function SlashCommandMenu({
       <CommandButton
         key={globalIndex}
         cmd={cmd}
-        isSelected={globalIndex === selectedIndex}
-        buttonRef={globalIndex === selectedIndex ? selectedItemRef : undefined}
+        isSelected={globalIndex === activeIndex}
+        buttonRef={globalIndex === activeIndex ? selectedItemRef : undefined}
         onExecute={() => executeCommand(cmd)}
         onHover={() => setSelectedIndex(globalIndex)}
       />
@@ -1634,20 +1649,19 @@ export function SlashCommandMenu({
         e.preventDefault();
         e.stopPropagation();
         if (filteredCommands.length === 0) return;
-        setSelectedIndex((i) => (i + 1) % filteredCommands.length);
+        setSelectedIndex((activeIndex + 1) % filteredCommands.length);
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
         e.stopPropagation();
         if (filteredCommands.length === 0) return;
         setSelectedIndex(
-          (i) => (i - 1 + filteredCommands.length) % filteredCommands.length,
+          (activeIndex - 1 + filteredCommands.length) % filteredCommands.length,
         );
       } else if (e.key === "Enter") {
         e.preventDefault();
         e.stopPropagation();
-        if (filteredCommands[selectedIndex]) {
-          void executeCommand(filteredCommands[selectedIndex]);
-        }
+        const command = filteredCommands.at(activeIndex);
+        if (command) void executeCommand(command);
       } else if (e.key === "Escape") {
         e.stopPropagation();
         setIsOpen(false);
@@ -1662,7 +1676,7 @@ export function SlashCommandMenu({
     return () => document.removeEventListener("keydown", handleKeyDown, true);
   }, [
     isOpen,
-    selectedIndex,
+    activeIndex,
     filteredCommands,
     executeCommand,
     editor,
@@ -1690,7 +1704,7 @@ export function SlashCommandMenu({
     } else if (itemBottom > visibleBottom) {
       menu.scrollTop = itemBottom - menu.clientHeight;
     }
-  }, [filteredCommands.length, isOpen, selectedIndex]);
+  }, [filteredCommands.length, isOpen, activeIndex]);
 
   useEffect(() => {
     if (!editor) return;
@@ -1718,7 +1732,7 @@ export function SlashCommandMenu({
         const slashStart = blockStart + slashIndex;
         slashPosRef.current = slashStart;
         setQuery(slashQuery);
-        setSelectedIndex(0);
+        setSelectedIndex(null);
 
         const resolved = state.doc.resolve(slashStart);
         const parentNode = resolved.parent;
