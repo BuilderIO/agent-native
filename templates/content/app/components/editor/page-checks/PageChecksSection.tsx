@@ -166,7 +166,7 @@ function PageCheckRow({
           data-shape={pageCheckMarkShape(shown[0].answer)}
         />
       ) : (
-        <span aria-hidden="true" className="w-[9px] shrink-0" />
+        <span aria-hidden="true" className="w-2.25 shrink-0" />
       )}
       <span className="grid min-w-0 gap-0.5 text-start">
         <span className="break-words text-sm text-foreground">

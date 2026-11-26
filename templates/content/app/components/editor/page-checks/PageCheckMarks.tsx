@@ -4,6 +4,7 @@ import type { Transaction } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
 import {
   memo,
+  type CSSProperties,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -312,7 +313,12 @@ export const PageCheckMarks = memo(function PageCheckMarks({
               <button
                 type="button"
                 className="page-check-mark"
-                style={{ top, insetInlineStart: layout.inset }}
+                style={
+                  {
+                    "--page-check-top": `${top}px`,
+                    "--page-check-inset": `${layout.inset}px`,
+                  } as CSSProperties
+                }
                 aria-label={labels.join("; ")}
                 data-page-check-mark={group.key}
               >

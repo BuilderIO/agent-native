@@ -143,7 +143,7 @@ function PageCheckForm({
       : scope.kind;
 
   return (
-    <DialogContent className="max-w-md gap-4" data-page-check-dialog>
+    <DialogContent className="max-w-md" data-page-check-dialog>
       <DialogHeader className="text-start">
         <DialogTitle>
           {editing ? t("pageChecks.editCheck") : t("pageChecks.addCheck")}

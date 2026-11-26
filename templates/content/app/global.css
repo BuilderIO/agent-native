@@ -417,6 +417,8 @@
 
 .page-check-mark {
   position: absolute;
+  top: var(--page-check-top);
+  inset-inline-start: var(--page-check-inset);
   display: flex;
   align-items: center;
   justify-content: center;
