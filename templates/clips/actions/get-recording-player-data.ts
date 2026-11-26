@@ -62,6 +62,7 @@ import {
 } from "../server/lib/pending-redactions.js";
 import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
+import { listRecordingComments } from "../server/lib/recording-comments.js";
 import {
   canOpenDirectRecordingPage,
   isRecordingExpiredForViewer,
@@ -260,14 +261,7 @@ export default defineAction({
 
     const comments =
       rec.enableComments || access.role === "owner"
-        ? await db
-            .select()
-            .from(schema.recordingComments)
-            .where(eq(schema.recordingComments.recordingId, args.recordingId))
-            .orderBy(
-              asc(schema.recordingComments.videoTimestampMs),
-              asc(schema.recordingComments.createdAt),
-            )
+        ? await listRecordingComments(args.recordingId)
         : [];
     const hydratedComments = await hydrateCommentAuthorNames(comments);
 
@@ -557,7 +551,7 @@ export default defineAction({
         authorEmail: c.authorEmail,
         authorName: c.authorName,
         content: c.content,
-        mentions: displayCommentMentions(c.mentionsJson),
+        mentions: displayCommentMentions(c.mentions),
         videoTimestampMs: c.videoTimestampMs,
         ...(isAgentCall
           ? {
@@ -568,7 +562,7 @@ export default defineAction({
             }
           : {}),
         emojiReactionsJson: c.emojiReactionsJson,
-        resolved: Boolean(c.resolved),
+        resolved: c.resolved,
         createdAt: c.createdAt,
         updatedAt: c.updatedAt,
       })),

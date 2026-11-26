@@ -65,6 +65,14 @@ vi.mock("../server/lib/plan-comment-mirror.js", () => ({
   deleteMirroredPlanComments: mirrorMock.deleted,
 }));
 
+const countPlanComments = vi.hoisted(() =>
+  vi.fn(
+    async (planIds: readonly string[]) =>
+      new Map(planIds.map((id) => [id, { comments: 2, open: 1 }])),
+  ),
+);
+vi.mock("../server/lib/plan-comments.js", () => ({ countPlanComments }));
+
 vi.mock("@agent-native/core/collab", () => ({
   deleteCollabState: async (docId: string) => {
     await client?.query(
@@ -393,7 +401,7 @@ describe("delete-visual-plan", () => {
       mode: "hard",
       hardDeleted: true,
       deletedCounts: {
-        comments: 1,
+        comments: 2,
         editionStories: 1,
         sections: 1,
         reports: 1,
@@ -404,6 +412,7 @@ describe("delete-visual-plan", () => {
       },
     });
     expect(await countRows("plans", "id")).toBe(0);
+    expect(countPlanComments).toHaveBeenCalledWith([PLAN_ID]);
     expect(await countRows("plan_comments")).toBe(0);
     expect(mirrorMock.deleted).toHaveBeenCalledWith(PLAN_ID, "all", OWNER);
     expect(await countRows("plan_sections")).toBe(0);
