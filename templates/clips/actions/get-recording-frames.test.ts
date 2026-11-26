@@ -10,6 +10,8 @@ const mockLoadAgentFrame = vi.hoisted(() => vi.fn());
 const mockLoadScreenshotJpeg = vi.hoisted(() => vi.fn());
 const mockRecommended = vi.hoisted(() => vi.fn());
 const mockMediaCleanup = vi.hoisted(() => vi.fn(async () => {}));
+const mockInspectSourceFrames = vi.hoisted(() => vi.fn());
+const mockFindMarker = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/action", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/action")>()),
@@ -92,6 +94,20 @@ vi.mock("../server/lib/agent-frame-store.js", () => ({
   recommendedAgentFrames: (...args: unknown[]) => mockRecommended(...args),
 }));
 
+vi.mock("../server/lib/builder-media-compression.js", () => ({
+  preCompressionSourceMedia: async () => null,
+}));
+vi.mock("../server/lib/source-frame-evidence.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/lib/source-frame-evidence.js")
+  >()),
+  inspectSourceFrames: (...args: unknown[]) => mockInspectSourceFrames(...args),
+}));
+vi.mock("../server/lib/motion-capture.js", () => ({
+  findRecordingCaptureMarker: (...args: unknown[]) => mockFindMarker(...args),
+}));
+
+import { SourceFrameEvidenceError } from "../server/lib/source-frame-evidence.js";
 import action from "./get-recording-frames.js";
 
 type FramesOutput = {
@@ -112,6 +128,12 @@ type FramesOutput = {
     nextStep: string;
   }>;
   _agentImages: Array<{ data: string; mediaType: string; label: string }>;
+  sourceEvidence?: {
+    timeline: string;
+    sampling: string;
+    marker: { id: string; mediaTimeMs: number } | null;
+    pagination: { nextCursor: string | null };
+  };
 };
 
 type FramesFailure = {
@@ -613,5 +635,309 @@ describe("frames", () => {
     expect(await failureOf(run({ recordingId: "rec-1" }))).toMatchObject({
       errorCode: "media_unavailable",
     });
+  });
+});
+
+const MARKER_ID = "a".repeat(64);
+
+function sourcePage(ptsMs: number[]) {
+  return {
+    evidence: {
+      requestedRange: { startMs: 0, endMs: 100 },
+      sourceDimensions: { width: 1920, height: 1080 },
+      crop: null,
+      returnedRange: null,
+      frames: ptsMs.map((pts, index) => ({
+        id: `rec-1:${pts * 1000}:1`,
+        ptsMs: pts,
+        gapFromPreviousMs: null,
+        imageAttached: index < 2,
+      })),
+      gapMeasurements: {
+        basis: "actual presentation timestamps within this returned page",
+        includesPreviousPageBoundary: false,
+        count: 0,
+        medianMs: null,
+        maxMs: null,
+      },
+      coverage: {
+        allDecodedFramesEnumerated: true,
+        enumerationStartedAtRequestedRange: true,
+        enumerationExhausted: true,
+        frameObservation: {
+          returnedFrameCount: ptsMs.length,
+          leadingUnobservedMs: 0,
+          trailingUnobservedMs: 0,
+        },
+        sparse: false,
+        interpolationUsed: false,
+        captureContinuity: "unavailable",
+        limitations: [],
+      },
+      pagination: { truncated: false, nextCursor: null },
+    },
+    images: ptsMs
+      .slice(0, 2)
+      .map((pts) => ({ ptsMs: pts, jpegBytes: frameBytes(pts) })),
+  };
+}
+
+const CUT_EDITS = JSON.stringify({
+  trims: [{ startMs: 10_000, endMs: 20_000, excluded: true }],
+});
+
+describe("source timeline", () => {
+  beforeEach(() => {
+    mockInspectSourceFrames.mockResolvedValue(sourcePage([16.7, 33.4, 50.1]));
+    mockFindMarker.mockResolvedValue(undefined);
+  });
+
+  it("leaves the default call and its output shape unchanged", async () => {
+    const result = await run({ recordingId: "rec-1" });
+    expect(result).not.toHaveProperty("sourceEvidence");
+    expect(result.frames).toHaveLength(4);
+    expect(mockInspectSourceFrames).not.toHaveBeenCalled();
+  });
+
+  it("refuses source inputs without timeline source, and atMs with it", async () => {
+    const withoutTimeline = await failureOf(
+      run({ recordingId: "rec-1", startMs: 0, endMs: 100 }),
+    );
+    expect(withoutTimeline.errorCode).toBe("invalid_input");
+    expect(withoutTimeline.message).toContain("startMs, endMs");
+    const withAtMs = await failureOf(
+      run({ recordingId: "rec-1", timeline: "source", atMs: [10] }),
+    );
+    expect(withAtMs.errorCode).toBe("invalid_input");
+    expect(mockInspectSourceFrames).not.toHaveBeenCalled();
+  });
+
+  it("returns original frames with their evidence and a typed entry for each image left out", async () => {
+    const result = await run({
+      recordingId: "rec-1",
+      timeline: "source",
+      startMs: 0,
+      endMs: 100,
+    });
+    expect(mockInspectSourceFrames).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordingId: "rec-1",
+        mode: "consecutive",
+        startMs: 0,
+        endMs: 100,
+        maxFrames: 4,
+        sampleCount: undefined,
+      }),
+      { maxImageBase64Chars: 2_000_000 },
+    );
+    expect(result.frames.map((f) => f.atMs)).toEqual([17, 33]);
+    expect(result._agentImages).toHaveLength(2);
+    expect(result._agentImages.map((image) => image.label)).toEqual(
+      result.frames.map((f) => f.label),
+    );
+    expect(result.failures).toEqual([
+      expect.objectContaining({ atMs: 50, failureKind: "unsupported" }),
+    ]);
+    expect(result.recommendedFrames).toEqual([]);
+    expect(result.sourceEvidence).toEqual(
+      expect.objectContaining({
+        timeline: "source",
+        sampling: "consecutive",
+        marker: null,
+      }),
+    );
+  });
+
+  it("refuses sampleCount without filmstrip sampling", async () => {
+    const refused = await failureOf(
+      run({
+        recordingId: "rec-1",
+        timeline: "source",
+        startMs: 0,
+        endMs: 100,
+        sampleCount: 6,
+      }),
+    );
+    expect(refused.errorCode).toBe("invalid_input");
+    expect(refused.message).toContain("sampleCount");
+    expect(mockInspectSourceFrames).not.toHaveBeenCalled();
+  });
+
+  it("keeps the unedited source of a cut clip from anyone but its owner", async () => {
+    mockRecordings.rows = [makeRecording({ editsJson: CUT_EDITS })];
+    const refused = await failureOf(
+      run({ recordingId: "rec-1", timeline: "source", startMs: 0, endMs: 100 }),
+    );
+    expect(refused.errorCode).toBe("source_timeline_unavailable");
+    expect(refused.statusCode).toBe(403);
+    expect(mockInspectSourceFrames).not.toHaveBeenCalled();
+
+    mockUserEmail.value = OWNER;
+    const owned = await run({
+      recordingId: "rec-1",
+      timeline: "source",
+      startMs: 0,
+      endMs: 100,
+    });
+    expect(owned.sourceEvidence?.timeline).toBe("source");
+  });
+
+  it("reads around a capture marker, widened by its uncertainty", async () => {
+    mockUserEmail.value = OWNER;
+    mockFindMarker.mockResolvedValue({
+      id: MARKER_ID,
+      label: "click save",
+      kind: "intent",
+      mediaTimeMs: 2_000,
+      uncertaintyMs: 20,
+    });
+    const result = await run({
+      recordingId: "rec-1",
+      timeline: "source",
+      markerId: MARKER_ID,
+      beforeMs: 100,
+      afterMs: 300,
+      sampling: "filmstrip",
+    });
+    expect(mockFindMarker).toHaveBeenCalledWith("rec-1", OWNER, MARKER_ID);
+    expect(mockInspectSourceFrames).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mode: "filmstrip",
+        startMs: 1_880,
+        endMs: 2_320,
+      }),
+      expect.anything(),
+    );
+    expect(result.sourceEvidence?.marker).toEqual(
+      expect.objectContaining({ id: MARKER_ID, mediaTimeMs: 2_000 }),
+    );
+  });
+
+  it("shifts a marker's window by Rewind pre-roll added after capture", async () => {
+    mockUserEmail.value = OWNER;
+    mockRecordings.rows = [
+      makeRecording({
+        editsJson: JSON.stringify({ rewindOriginalStartMs: 5_000 }),
+      }),
+    ];
+    mockFindMarker.mockResolvedValue({
+      id: MARKER_ID,
+      label: "click save",
+      kind: "intent",
+      mediaTimeMs: 2_000,
+      uncertaintyMs: 20,
+    });
+    const result = await run({
+      recordingId: "rec-1",
+      timeline: "source",
+      markerId: MARKER_ID,
+      beforeMs: 100,
+      afterMs: 300,
+    });
+    expect(mockInspectSourceFrames).toHaveBeenCalledWith(
+      expect.objectContaining({ startMs: 6_880, endMs: 7_320 }),
+      expect.anything(),
+    );
+    expect(result.sourceEvidence?.marker).toEqual(
+      expect.objectContaining({ mediaTimeMs: 2_000, sourceTimeMs: 7_000 }),
+    );
+    expect(result.sourceEvidence).toEqual(
+      expect.objectContaining({
+        sourceDerivation: ["rewind_extended"],
+        rewindPreRollMs: 5_000,
+      }),
+    );
+    expect(result.sourceEvidence?.coverage.limitations).toEqual([
+      expect.stringContaining("Rewind pre-roll"),
+    ]);
+  });
+
+  it("says the source is derived after redactions were burned in", async () => {
+    mockRecordings.rows = [
+      makeRecording({
+        editsJson: JSON.stringify({
+          burnedRedactions: [{ id: "r1", startMs: 0, endMs: 500 }],
+        }),
+      }),
+    ];
+    const result = await run({
+      recordingId: "rec-1",
+      timeline: "source",
+      startMs: 0,
+      endMs: 100,
+    });
+    expect(result.sourceEvidence?.sourceDerivation).toEqual(["redacted"]);
+    expect(result.sourceEvidence).not.toHaveProperty("rewindPreRollMs");
+    expect(result.sourceEvidence?.coverage.limitations).toEqual([
+      expect.stringContaining("Redactions were burned into this media"),
+    ]);
+
+    mockRecordings.rows = [makeRecording()];
+    const original = await run({
+      recordingId: "rec-1",
+      timeline: "source",
+      startMs: 0,
+      endMs: 100,
+    });
+    expect(original.sourceEvidence?.sourceDerivation).toEqual([]);
+    expect(original.sourceEvidence?.coverage.limitations).toEqual([]);
+  });
+
+  it("never looks up a marker for anyone but the clip's owner", async () => {
+    mockUserEmail.value = "shared@example.com";
+    mockFindMarker.mockResolvedValue({
+      id: MARKER_ID,
+      label: "click save",
+      kind: "intent",
+      mediaTimeMs: 2_000,
+      uncertaintyMs: 20,
+    });
+    const refused = await failureOf(
+      run({ recordingId: "rec-1", timeline: "source", markerId: MARKER_ID }),
+    );
+    expect(refused.errorCode).toBe("marker_not_found");
+    expect(mockFindMarker).not.toHaveBeenCalled();
+    expect(mockInspectSourceFrames).not.toHaveBeenCalled();
+  });
+
+  it("refuses an unknown marker and one the recorder never acknowledged", async () => {
+    mockUserEmail.value = OWNER;
+    const unknown = await failureOf(
+      run({ recordingId: "rec-1", timeline: "source", markerId: MARKER_ID }),
+    );
+    expect(unknown.errorCode).toBe("marker_not_found");
+    mockFindMarker.mockResolvedValue({
+      id: MARKER_ID,
+      label: "click save",
+      kind: "intent",
+      mediaTimeMs: null,
+      uncertaintyMs: null,
+    });
+    const unaligned = await failureOf(
+      run({ recordingId: "rec-1", timeline: "source", markerId: MARKER_ID }),
+    );
+    expect(unaligned.errorCode).toBe("marker_unaligned");
+    expect(mockInspectSourceFrames).not.toHaveBeenCalled();
+  });
+
+  it("passes a typed evidence failure through with its status", async () => {
+    mockInspectSourceFrames.mockRejectedValue(
+      new SourceFrameEvidenceError(
+        "source_media_changed",
+        "The stored recording media changed.",
+        409,
+      ),
+    );
+    const failure = await failureOf(
+      run({
+        recordingId: "rec-1",
+        timeline: "source",
+        startMs: 0,
+        endMs: 100,
+        cursor: "abc",
+      }),
+    );
+    expect(failure.errorCode).toBe("source_media_changed");
+    expect(failure.statusCode).toBe(409);
   });
 });

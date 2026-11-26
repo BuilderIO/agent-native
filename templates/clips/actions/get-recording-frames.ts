@@ -5,6 +5,8 @@ import { formatAgentTimestamp } from "@shared/agent-context";
 import { isImageRecording } from "@shared/recording-kind";
 import { z } from "zod";
 
+import { parseEdits } from "../app/lib/timestamp-mapping.js";
+import { MAX_BURN_FPS } from "../app/lib/video-redactions.js";
 import { buildAgentEditedTimeline } from "../server/lib/agent-edited-timeline.js";
 import {
   createAgentFrameMediaSource,
@@ -20,6 +22,12 @@ import {
   clampAgentFrameAtMs,
   recommendedAgentFrames,
 } from "../server/lib/agent-frame-store.js";
+import { findRecordingCaptureMarker } from "../server/lib/motion-capture.js";
+import {
+  DEFAULT_FILMSTRIP_SAMPLES,
+  MAX_FILMSTRIP_SAMPLES,
+  MAX_MOTION_EVIDENCE_IMAGES,
+} from "../server/lib/motion-evidence.js";
 import {
   describeAgentAccessFailure,
   resolvePublicAgentAccess,
@@ -30,6 +38,11 @@ import {
   isRecordingExpiredForViewer,
   recordingUsesSharePassword,
 } from "../server/lib/recording-page-access.js";
+import {
+  inspectSourceFrames,
+  SourceFrameEvidenceError,
+  sourceIntervalLimitMs,
+} from "../server/lib/source-frame-evidence.js";
 import { numberListParam } from "./lib/cli-params.js";
 
 const MAX_FRAMES_PER_CALL = 4;
@@ -48,7 +61,101 @@ const errors = defineActionErrors(
   "frames_unsupported",
   "media_unavailable",
   "frame_extraction_failed",
+  "source_timeline_unavailable",
+  "marker_not_found",
+  "marker_unaligned",
+  "invalid_cursor",
+  "source_media_changed",
+  "crop_out_of_bounds",
 );
+
+const DEFAULT_MARKER_BEFORE_MS = 500;
+const DEFAULT_MARKER_AFTER_MS = 1_500;
+
+const SOURCE_ONLY_INPUTS = [
+  "startMs",
+  "endMs",
+  "markerId",
+  "beforeMs",
+  "afterMs",
+  "sampling",
+  "maxFrames",
+  "sampleCount",
+  "cursor",
+  "crop",
+] as const;
+
+const cropSchema = z.object({
+  x: z.coerce.number().int().min(0).max(32768),
+  y: z.coerce.number().int().min(0).max(32768),
+  width: z.coerce.number().int().min(1).max(32768),
+  height: z.coerce.number().int().min(1).max(32768),
+});
+
+const imageSchema = z.object({
+  data: z.string(),
+  mediaType: z.literal("image/jpeg"),
+  label: z.string(),
+});
+
+const sourceEvidenceSchema = z.object({
+  timeline: z.literal("source"),
+  sampling: z.enum(["consecutive", "filmstrip"]),
+  marker: z
+    .object({
+      id: z.string(),
+      label: z.string(),
+      kind: z.string(),
+      mediaTimeMs: z.number(),
+      uncertaintyMs: z.number(),
+    })
+    .nullable(),
+  requestedRange: z.object({ startMs: z.number(), endMs: z.number() }),
+  sourceDimensions: z.object({ width: z.number(), height: z.number() }),
+  crop: z
+    .object({
+      sourcePixels: cropSchema,
+      representation: z.literal("cropped supplement"),
+    })
+    .nullable(),
+  returnedRange: z
+    .object({ startPtsMs: z.number(), endPtsMs: z.number() })
+    .nullable(),
+  frames: z.array(
+    z.object({
+      id: z.string(),
+      ptsMs: z.number(),
+      targetMs: z.number().optional(),
+      gapFromPreviousMs: z.number().nullable(),
+      imageAttached: z.boolean(),
+    }),
+  ),
+  gapMeasurements: z.object({
+    basis: z.string(),
+    includesPreviousPageBoundary: z.boolean(),
+    count: z.number(),
+    medianMs: z.number().nullable(),
+    maxMs: z.number().nullable(),
+  }),
+  coverage: z.object({
+    allDecodedFramesEnumerated: z.boolean(),
+    enumerationStartedAtRequestedRange: z.boolean(),
+    enumerationExhausted: z.boolean(),
+    frameObservation: z.object({
+      returnedFrameCount: z.number(),
+      leadingUnobservedMs: z.number().nullable(),
+      trailingUnobservedMs: z.number().nullable(),
+    }),
+    sparse: z.boolean(),
+    interpolationUsed: z.literal(false),
+    captureContinuity: z.literal("unavailable"),
+    limitations: z.array(z.string()),
+  }),
+  pagination: z.object({
+    truncated: z.boolean(),
+    nextCursor: z.string().nullable(),
+  }),
+});
 
 type FrameFailure = {
   atMs: number;
@@ -222,9 +329,230 @@ function failAllFrames(failures: FrameFailure[]): never {
   );
 }
 
+type SourceTimelineArgs = {
+  startMs?: number | undefined;
+  endMs?: number | undefined;
+  markerId?: string | undefined;
+  beforeMs?: number | undefined;
+  afterMs?: number | undefined;
+  sampling?: "consecutive" | "filmstrip" | undefined;
+  maxFrames?: number | undefined;
+  sampleCount?: number | undefined;
+  cursor?: string | undefined;
+  crop?: z.infer<typeof cropSchema> | undefined;
+};
+
+async function sourceWindow(
+  recordingId: string,
+  viewerIsOwner: boolean,
+  args: SourceTimelineArgs,
+  rewindPreRollMs: number,
+) {
+  if (args.markerId === undefined) {
+    if (args.startMs === undefined || args.endMs === undefined) {
+      return failWithNextStep(
+        "invalid_input",
+        400,
+        "The source timeline needs an interval.",
+        "Pass startMs and endMs, or a capture markerId.",
+        "request",
+      );
+    }
+    if (args.beforeMs !== undefined || args.afterMs !== undefined) {
+      return failWithNextStep(
+        "invalid_input",
+        400,
+        "beforeMs and afterMs apply only with a markerId.",
+        "Leave them out, or pass a markerId instead of startMs and endMs.",
+        "request",
+      );
+    }
+    return { startMs: args.startMs, endMs: args.endMs, marker: null };
+  }
+  if (args.startMs !== undefined || args.endMs !== undefined) {
+    return failWithNextStep(
+      "invalid_input",
+      400,
+      "Pass either a markerId or startMs and endMs, not both.",
+      "Drop startMs and endMs to read around the marker.",
+      "request",
+    );
+  }
+  const callerEmail = getRequestUserEmail()?.trim().toLowerCase();
+  const found =
+    viewerIsOwner && callerEmail
+      ? await findRecordingCaptureMarker(
+          recordingId,
+          callerEmail,
+          args.markerId,
+        )
+      : undefined;
+  if (!found) {
+    return failWithNextStep(
+      "marker_not_found",
+      404,
+      "No capture marker with that id belongs to this clip.",
+      "Read the clip's markers with get-capture-session, then call again.",
+      "request",
+    );
+  }
+  if (found.mediaTimeMs === null) {
+    return failWithNextStep(
+      "marker_unaligned",
+      409,
+      "The recorder never acknowledged this marker, so it has no media time.",
+      "Pass startMs and endMs on the source timeline instead.",
+      "request",
+    );
+  }
+  const uncertaintyMs = found.uncertaintyMs ?? 0;
+  const marker = {
+    id: found.id,
+    label: found.label,
+    kind: found.kind,
+    mediaTimeMs: found.mediaTimeMs,
+    sourceTimeMs: found.mediaTimeMs + rewindPreRollMs,
+    uncertaintyMs,
+  };
+  return {
+    startMs: Math.max(
+      0,
+      marker.sourceTimeMs -
+        uncertaintyMs -
+        (args.beforeMs ?? DEFAULT_MARKER_BEFORE_MS),
+    ),
+    endMs:
+      marker.sourceTimeMs +
+      uncertaintyMs +
+      (args.afterMs ?? DEFAULT_MARKER_AFTER_MS),
+    marker,
+  };
+}
+
+function sourceDerivationOf(editsJson: string | null | undefined) {
+  const edits = parseEdits(editsJson);
+  const rewindPreRollMs = edits.rewindOriginalStartMs ?? 0;
+  const redacted = (edits.burnedRedactions?.length ?? 0) > 0;
+  return {
+    rewindPreRollMs,
+    sourceDerivation: [
+      ...(redacted ? ["redacted" as const] : []),
+      ...(rewindPreRollMs > 0 ? ["rewind_extended" as const] : []),
+    ],
+    limitations: [
+      ...(redacted
+        ? [
+            `Redactions were burned into this media: it is a re-encode at up to ${MAX_BURN_FPS} fps, so redacted areas stay hidden and frame timing and pixels come from that re-encode, not the original capture.`,
+          ]
+        : []),
+      ...(rewindPreRollMs > 0
+        ? [
+            `The first ${rewindPreRollMs} ms of this media are Rewind pre-roll added after capture; startMs and endMs are on this media, and a marker's window is shifted by the pre-roll (its sourceTimeMs).`,
+          ]
+        : []),
+    ],
+  };
+}
+
+async function sourceTimelineFrames(
+  recording: PublicAgentRecording,
+  viewerIsOwner: boolean,
+  args: SourceTimelineArgs,
+) {
+  const sampling = args.sampling ?? "consecutive";
+  if (sampling !== "filmstrip" && args.sampleCount !== undefined) {
+    return failWithNextStep(
+      "invalid_input",
+      400,
+      "sampleCount applies only to filmstrip sampling.",
+      'Pass sampling "filmstrip" with it, or leave it out.',
+      "request",
+    );
+  }
+  const derivation = sourceDerivationOf(recording.editsJson);
+  const { startMs, endMs, marker } = await sourceWindow(
+    recording.id,
+    viewerIsOwner,
+    args,
+    derivation.rewindPreRollMs,
+  );
+  let page;
+  try {
+    page = await inspectSourceFrames(
+      {
+        recording,
+        recordingId: recording.id,
+        mode: sampling,
+        startMs,
+        endMs,
+        crop: args.crop,
+        maxFrames: args.maxFrames ?? MAX_MOTION_EVIDENCE_IMAGES,
+        sampleCount: args.sampleCount,
+        cursor: args.cursor,
+      },
+      { maxImageBase64Chars: MAX_IMAGE_BASE64_CHARS },
+    );
+  } catch (error) {
+    if (error instanceof SourceFrameEvidenceError) {
+      return errors.fail(error.message, error.code, {
+        statusCode: error.statusCode,
+        details: { failureKind: "source", error: error.message },
+      });
+    }
+    throw error;
+  }
+  const shown = page.images.map(({ ptsMs, jpegBytes }) => {
+    const timestamp = formatAgentTimestamp(ptsMs);
+    const label = `Source frame at ${timestamp} (${ptsMs} ms)`;
+    return {
+      frame: { atMs: Math.round(ptsMs), timestamp, label },
+      image: {
+        data: Buffer.from(jpegBytes).toString("base64"),
+        mediaType: "image/jpeg" as const,
+        label,
+      },
+    };
+  });
+  return {
+    frames: shown.map(({ frame }) => frame),
+    recommendedFrames: [],
+    failures: page.evidence.frames.flatMap((frame) =>
+      frame.imageAttached
+        ? []
+        : [
+            {
+              atMs: Math.round(frame.ptsMs),
+              failureKind: "unsupported",
+              error: "The frame is too large to return as an image.",
+              nextStep:
+                "Its timestamp stays in sourceEvidence. Ask for a crop to see that area.",
+            },
+          ],
+    ),
+    _agentImages: shown.map(({ image }) => image),
+    sourceEvidence: {
+      timeline: "source" as const,
+      sampling,
+      marker,
+      sourceDerivation: derivation.sourceDerivation,
+      ...(derivation.rewindPreRollMs > 0
+        ? { rewindPreRollMs: derivation.rewindPreRollMs }
+        : {}),
+      ...page.evidence,
+      coverage: {
+        ...page.evidence.coverage,
+        limitations: [
+          ...page.evidence.coverage.limitations,
+          ...derivation.limitations,
+        ],
+      },
+    },
+  };
+}
+
 export default defineAction({
   description:
-    "Return a Clips recording (clip)'s video frames as images you can see, so you can look at what is on screen. Pass the recordingId: the <id> in a Clips link (/r/<id>, /share/<id>) or the id query parameter of a frame or context URL. Pass atMs (up to 4 timestamps in milliseconds of the clip as it plays, with the owner's cuts removed, the same times the agent context and transcript use) for specific moments; at most 4 frames come back per call, so call again for more. Without atMs you get the first 4 recommended frames, and the result lists every recommended moment (atMs, timestamp, reason) to ask for next. A screenshot recording returns its picture. A frame that cannot be produced is listed in failures with a nextStep; if none can, the call fails.",
+    "Return a Clips recording (clip)'s video frames as images you can see, so you can look at what is on screen. Pass the recordingId: the <id> in a Clips link (/r/<id>, /share/<id>) or the id query parameter of a frame or context URL. Pass atMs (up to 4 timestamps in milliseconds of the clip as it plays, with the owner's cuts removed, the same times the agent context and transcript use) for specific moments; at most 4 frames come back per call, so call again for more. Without atMs you get the first 4 recommended frames, and the result lists every recommended moment (atMs, timestamp, reason) to ask for next. A screenshot recording returns its picture. A frame that cannot be produced is listed in failures with a nextStep; if none can, the call fails. For motion QA, pass timeline \"source\" with startMs and endMs on the unedited source recording, or a capture markerId, to get original decoded frames with their presentation timestamps, coverage limits, an optional crop and a nextCursor that pages through every frame; sourceEvidence holds that detail.",
   schema: z.object({
     recordingId: z.string().trim().min(1).describe("Recording ID."),
     atMs: numberListParam(
@@ -233,6 +561,87 @@ export default defineAction({
       .optional()
       .describe(
         '1 to 4 timestamps in milliseconds of the clip as it plays: an array, one number, or a comma-separated string like "350,6789". Without it, the first 4 recommended frames.',
+      ),
+    timeline: z
+      .enum(["edited", "source"])
+      .optional()
+      .describe(
+        'Defaults to "edited", the clip as it plays. "source" reads original decoded frames of the unedited recording for motion QA; only the owner can use it on a clip with cuts. The inputs below apply only to "source".',
+      ),
+    startMs: z.coerce
+      .number()
+      .finite()
+      .min(0)
+      .optional()
+      .describe("Source timeline: inclusive interval start in milliseconds."),
+    endMs: z.coerce
+      .number()
+      .finite()
+      .positive()
+      .optional()
+      .describe(
+        "Source timeline: inclusive interval end in milliseconds. Up to 30 s for consecutive, 120 s for filmstrip.",
+      ),
+    markerId: z
+      .string()
+      .trim()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional()
+      .describe(
+        "Source timeline: a capture marker id from get-capture-session, instead of startMs and endMs. The window spans the marker's media time, widened by its uncertainty, beforeMs and afterMs.",
+      ),
+    beforeMs: z.coerce
+      .number()
+      .finite()
+      .min(0)
+      .max(sourceIntervalLimitMs("filmstrip"))
+      .optional()
+      .describe(
+        `Source timeline with markerId: milliseconds before the marker; defaults to ${DEFAULT_MARKER_BEFORE_MS}.`,
+      ),
+    afterMs: z.coerce
+      .number()
+      .finite()
+      .min(0)
+      .max(sourceIntervalLimitMs("filmstrip"))
+      .optional()
+      .describe(
+        `Source timeline with markerId: milliseconds after the marker; defaults to ${DEFAULT_MARKER_AFTER_MS}.`,
+      ),
+    sampling: z
+      .enum(["consecutive", "filmstrip"])
+      .optional()
+      .describe(
+        'Source timeline: "consecutive" (default) pages through every stored frame in the interval; "filmstrip" returns sparse evenly spaced samples for orientation.',
+      ),
+    maxFrames: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_MOTION_EVIDENCE_IMAGES)
+      .optional()
+      .describe("Source timeline: frames in this page, 1 to 4; defaults to 4."),
+    sampleCount: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_FILMSTRIP_SAMPLES)
+      .optional()
+      .describe(
+        `Source timeline filmstrip: total samples across the interval, 1 to ${MAX_FILMSTRIP_SAMPLES}; defaults to ${DEFAULT_FILMSTRIP_SAMPLES}.`,
+      ),
+    cursor: z
+      .string()
+      .min(1)
+      .max(1024)
+      .optional()
+      .describe(
+        "Source timeline: sourceEvidence.pagination.nextCursor from the previous page, with the same interval, sampling and crop.",
+      ),
+    crop: cropSchema
+      .optional()
+      .describe(
+        "Source timeline: a source-pixel crop {x,y,width,height}, checked against the decoded video size. It supplements full-frame evidence.",
       ),
   }),
   outputSchema: z.object({
@@ -262,13 +671,8 @@ export default defineAction({
         nextStep: z.string(),
       }),
     ),
-    _agentImages: z.array(
-      z.object({
-        data: z.string(),
-        mediaType: z.literal("image/jpeg"),
-        label: z.string(),
-      }),
-    ),
+    _agentImages: z.array(imageSchema),
+    sourceEvidence: sourceEvidenceSchema.optional(),
   }),
   errors,
   http: { method: "GET" },
@@ -280,6 +684,27 @@ export default defineAction({
     openWorldHint: false,
   },
   run: async (args) => {
+    const sourceInputs = SOURCE_ONLY_INPUTS.filter(
+      (key) => args[key] !== undefined,
+    );
+    if (args.timeline !== "source" && sourceInputs.length > 0) {
+      return failWithNextStep(
+        "invalid_input",
+        400,
+        `${sourceInputs.join(", ")} apply only to the source timeline.`,
+        'Pass timeline "source" with them, or leave them out.',
+        "request",
+      );
+    }
+    if (args.timeline === "source" && args.atMs !== undefined) {
+      return failWithNextStep(
+        "invalid_input",
+        400,
+        "atMs is a time on the edited timeline.",
+        'With timeline "source", pass startMs and endMs or a markerId instead.',
+        "request",
+      );
+    }
     const access = await resolveFramesAccess(args.recordingId);
     const refusal = checkAgentFrameClip(access);
     if (refusal) {
@@ -312,6 +737,31 @@ export default defineAction({
       durationMs:
         typeof recording.durationMs === "number" ? timeline.durationMs : null,
     };
+
+    if (args.timeline === "source") {
+      if (isImageRecording(recording)) {
+        return failWithNextStep(
+          "frames_unsupported",
+          422,
+          "A screenshot has no source timeline.",
+          "Call without timeline to get the picture.",
+          "unsupported",
+        );
+      }
+      if (timeline.hasCuts && !access.viewerIsOwner) {
+        return failWithNextStep(
+          "source_timeline_unavailable",
+          403,
+          "This clip has cuts, and only its owner can read the unedited source.",
+          "Call without timeline to see the clip as it plays.",
+          "access",
+        );
+      }
+      return {
+        ...summary,
+        ...(await sourceTimelineFrames(recording, access.viewerIsOwner, args)),
+      };
+    }
 
     // A still image has one frame, the picture itself.
     if (isImageRecording(recording)) {
