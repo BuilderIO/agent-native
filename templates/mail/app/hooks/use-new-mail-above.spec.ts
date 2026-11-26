@@ -7,15 +7,21 @@ import {
   trackNewMailAbove,
 } from "./use-new-mail-above";
 
-function thread(id: string, hasUnread = true): ThreadSummary {
+function thread(
+  id: string,
+  read = false,
+  date = "2026-01-02T00:00:00.000Z",
+): ThreadSummary {
   return {
     latestMessage: {
       id,
       threadId: `thread-${id}`,
+      isRead: read,
+      date,
     } as ThreadSummary["latestMessage"],
     participants: [],
     messageCount: 1,
-    hasUnread,
+    hasUnread: !read,
     hasStarred: false,
     labelIds: [],
   };
@@ -66,7 +72,7 @@ describe("trackNewMailAbove", () => {
     const read = trackNewMailAbove(
       baseline([a, b, c], 2),
       "inbox",
-      [thread("n", false), a, b, c],
+      [thread("n", true), a, b, c],
       2,
     );
     expect(read.arrived.size).toBe(0);
@@ -82,7 +88,7 @@ describe("trackNewMailAbove", () => {
     const n = thread("n");
 
     expect(
-      trackNewMailAbove(counted, "inbox", [thread("n", false), a, b, c], 2)
+      trackNewMailAbove(counted, "inbox", [thread("n", true), a, b, c], 2)
         .arrived.size,
     ).toBe(0);
     expect(
@@ -120,6 +126,57 @@ describe("trackNewMailAbove", () => {
     );
     expect(other.listKey).toBe("starred");
     expect(other.arrived.size).toBe(0);
+  });
+
+  it("leaves out mail older than everything the list had", () => {
+    const older = thread("old", false, "2025-12-01T00:00:00.000Z");
+    const paged = trackNewMailAbove(
+      baseline([a, b, c], 2),
+      "inbox",
+      [older, a, b, c],
+      2,
+    );
+    expect(paged.arrived.size).toBe(0);
+
+    const counted = trackNewMailAbove(
+      paged,
+      "inbox",
+      [thread("n"), older, a, b, c],
+      3,
+    );
+    expect([...counted.arrived]).toEqual(["n"]);
+  });
+
+  it("counts by the newest message, not the thread", () => {
+    const replied = { ...thread("n", true), hasUnread: true };
+    const state = trackNewMailAbove(
+      baseline([a, b, c], 2),
+      "inbox",
+      [replied, a, b, c],
+      2,
+    );
+    expect(state.arrived.size).toBe(0);
+  });
+
+  it("waits while the list still shows the last one's results", () => {
+    const counted = trackNewMailAbove(
+      baseline([a, b, c], 2),
+      "inbox",
+      [thread("n"), a, b, c],
+      2,
+    );
+    const pending = trackNewMailAbove(counted, null, [thread("n"), a, b, c], 2);
+    expect(pending).toBe(INITIAL_NEW_MAIL_ABOVE);
+    expect(trackNewMailAbove(pending, null, [a, b, c], 2)).toBe(pending);
+
+    const resolved = trackNewMailAbove(
+      pending,
+      "starred",
+      [thread("m"), thread("n"), a],
+      2,
+    );
+    expect(resolved.known).toEqual(new Set(["m", "n", "a"]));
+    expect(resolved.arrived.size).toBe(0);
   });
 
   it("keeps the same state when nothing changed", () => {

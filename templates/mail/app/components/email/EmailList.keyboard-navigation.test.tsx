@@ -83,7 +83,9 @@ vi.mock("@tanstack/react-virtual", () => ({
       });
     },
     getTotalSize: () => count * 48,
-    scrollOffset: Math.min(mocks.virtualStart, count) * 48,
+    get scrollOffset() {
+      return Math.min(mocks.virtualStart, count) * 48;
+    },
     scrollRect: mocks.scrollRect,
     getVirtualItemForOffset: (offset: number) =>
       count === 0
@@ -295,11 +297,13 @@ function Harness({
   emailsError,
   isLoading,
   isFetching,
+  isPlaceholderData,
   refetchEmails,
   hasNextPage,
   reachedCap,
   isFetchingNextPage,
   showPrioritySort,
+  initialFocusedId = "first",
   jevConfigured = showPrioritySort,
   jevAvailabilityError,
   priorityProviderIdentity,
@@ -317,11 +321,13 @@ function Harness({
   emailsError?: React.ComponentProps<typeof EmailList>["emailsError"];
   isLoading?: boolean;
   isFetching?: boolean;
+  isPlaceholderData?: boolean;
   refetchEmails?: React.ComponentProps<typeof EmailList>["refetchEmails"];
   hasNextPage?: boolean;
   reachedCap?: boolean;
   isFetchingNextPage?: boolean;
   showPrioritySort?: boolean;
+  initialFocusedId?: string | null;
   jevConfigured?: boolean;
   jevAvailabilityError?: boolean;
   priorityProviderIdentity?: string;
@@ -332,7 +338,7 @@ function Harness({
   keyboardEnabled?: boolean;
   onThreadOrderChange?: (threadIds: string[]) => void;
 }) {
-  const [focusedId, setFocusedId] = useState<string | null>("first");
+  const [focusedId, setFocusedId] = useState<string | null>(initialFocusedId);
   const [selectedIds, setSelectedIds] = useState(new Set<string>());
   return (
     <>
@@ -342,6 +348,7 @@ function Harness({
         emails={emails}
         isLoading={isLoading ?? false}
         isFetching={isFetching}
+        isPlaceholderData={isPlaceholderData}
         emailsError={emailsError}
         focusedId={focusedId}
         setFocusedId={setFocusedId}
@@ -1943,8 +1950,20 @@ describe("EmailList keyboard navigation interactions", () => {
       expect(anchorTo()).toBe("start");
 
       mocks.virtualStart = 2;
-      rerender(<Harness />);
-      rerender(<Harness emails={[arrival, ...messages]} />);
+      rerender(
+        <Harness
+          emails={[
+            {
+              ...arrival,
+              id: "newer",
+              threadId: "thread-newer",
+              date: new Date(Date.UTC(2026, 0, 5)).toISOString(),
+            },
+            arrival,
+            ...messages,
+          ]}
+        />,
+      );
       expect(anchorTo()).toBe("end");
     });
 
@@ -1964,6 +1983,150 @@ describe("EmailList keyboard navigation interactions", () => {
       const { rerender } = render(<Harness />);
       mocks.searchQuery = "synthetic";
       rerender(<Harness emails={[arrival, ...messages]} />);
+      expect(newMailButton()).toBeNull();
+    });
+
+    it("waits for a list's own results before counting", () => {
+      mocks.virtualStart = 2;
+      const { rerender } = render(<Harness isPlaceholderData />);
+      rerender(<Harness emails={[arrival, ...messages]} />);
+      expect(newMailButton()).toBeNull();
+    });
+
+    describe("on a cold Priority load", () => {
+      const inboxEmails = messages.map((email) => ({
+        ...email,
+        labelIds: ["inbox"],
+      }));
+      beforeEach(() => {
+        mocks.view = "inbox";
+        mocks.priorityRequest.mockImplementation(
+          async ({
+            emails,
+          }: {
+            emails: Array<{ id: string; accountEmail: string }>;
+          }) => ({
+            scores: emails.map(({ id, accountEmail }) => ({
+              emailId: id,
+              accountEmail,
+              score: id === "last" ? 0.9 : 0.1,
+            })),
+            failures: [],
+          }),
+        );
+      });
+
+      it("marks the top row once the list is ranked", async () => {
+        render(
+          <Harness
+            emails={inboxEmails}
+            showPrioritySort
+            sortMode="priority"
+            initialFocusedId={null}
+          />,
+        );
+        await waitFor(() =>
+          expect(rows()[0]?.textContent).toContain("Subject last"),
+        );
+        expect(screen.getByLabelText("Focused id").textContent).toBe("last");
+      });
+
+      it("scrolls to a mark the ranking moved", async () => {
+        render(
+          <Harness emails={inboxEmails} showPrioritySort sortMode="priority" />,
+        );
+        await waitFor(() =>
+          expect(rows()[0]?.textContent).toContain("Subject last"),
+        );
+        expect(mocks.scrollToIndex).toHaveBeenLastCalledWith(1, {
+          align: "auto",
+        });
+      });
+    });
+
+    it("does not scroll to the mark while a list still shows the last one's results", () => {
+      const { rerender } = render(<Harness />);
+      press("j");
+      mocks.scrollToIndex.mockClear();
+
+      rerender(<Harness isPlaceholderData />);
+      expect(mocks.scrollToIndex).not.toHaveBeenCalled();
+
+      mocks.searchQuery = "synthetic";
+      rerender(<Harness />);
+      expect(mocks.scrollToIndex).toHaveBeenCalledTimes(1);
+      expect(mocks.scrollToIndex).toHaveBeenCalledWith(1, { align: "auto" });
+    });
+
+    it("goes to the first new email from the button and the top row on Home", () => {
+      const between = {
+        ...arrival,
+        id: "between",
+        threadId: "thread-between",
+        date: new Date(Date.UTC(2026, 0, 2, 12)).toISOString(),
+      };
+      mocks.virtualStart = 2;
+      const { rerender } = render(<Harness />);
+      rerender(<Harness emails={[between, ...messages]} />);
+
+      clickNewMailButton();
+      expect(screen.getByLabelText("Focused id").textContent).toBe("between");
+      expect(mocks.scrollToIndex).toHaveBeenLastCalledWith(1, {
+        align: "start",
+      });
+
+      press("Home");
+      expect(screen.getByLabelText("Focused id").textContent).toBe("first");
+      expect(mocks.scrollToIndex).toHaveBeenLastCalledWith(0, {
+        align: "start",
+      });
+    });
+
+    it("keeps the mark on its thread when a reply arrives, without scrolling", () => {
+      const { rerender } = render(<Harness />);
+      press("j");
+      mocks.scrollToIndex.mockClear();
+
+      rerender(
+        <Harness
+          emails={[
+            ...messages,
+            {
+              ...arrival,
+              id: "middle-reply",
+              threadId: "thread-middle",
+              date: new Date(Date.UTC(2026, 0, 2, 12)).toISOString(),
+              isRead: true,
+            },
+          ]}
+        />,
+      );
+
+      expect(screen.getByLabelText("Focused id").textContent).toBe(
+        "middle-reply",
+      );
+      expect(mocks.scrollToIndex).not.toHaveBeenCalled();
+    });
+
+    it("does not count a reply you sent to a thread that is still unread", () => {
+      mocks.virtualStart = 2;
+      const unread = messages.map((message) =>
+        message.id === "last" ? { ...message, isRead: false } : message,
+      );
+      const { rerender } = render(<Harness emails={unread} />);
+      rerender(
+        <Harness
+          emails={[
+            {
+              ...arrival,
+              id: "last-reply",
+              threadId: "thread-last",
+              isRead: true,
+            },
+            ...unread,
+          ]}
+        />,
+      );
       expect(newMailButton()).toBeNull();
     });
   });

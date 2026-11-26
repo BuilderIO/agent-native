@@ -822,6 +822,7 @@ export function InboxPage() {
     data: fetchedEmails,
     isLoading: emailsIsLoading,
     isFetching: emailsIsFetching,
+    isPlaceholderData: emailsIsPlaceholderData,
     isError: emailsIsError,
     error: emailsFetchError,
     refetch: refetchFetchedEmails,
@@ -1169,6 +1170,7 @@ export function InboxPage() {
   const openMarkedEmail = useCallback(
     (email: EmailMessage) => {
       const target = email.threadId || email.id;
+      setSelectedIds(new Set());
       void ensureThread(target, email.accountEmail).catch(() => {});
       handleOptimisticThreadNavigation(target, email.accountEmail);
       void navigate(
@@ -1287,6 +1289,11 @@ export function InboxPage() {
           onNavigateThread={handleOptimisticThreadNavigation}
           isLoading={emailListLoading}
           isFetching={isFetching}
+          isPlaceholderData={
+            isInboxView
+              ? inboxThreads.isPlaceholderData
+              : emailsIsPlaceholderData
+          }
           emailsError={emailsError}
           accountErrors={accountErrors}
           read={listRead}
