@@ -2554,7 +2554,7 @@ function readOnlyResourceEntry(
         ? await readScopedSkillForMcp({
             identity,
             scope: args.scope,
-            path: name,
+            path: args.path,
             ...(signal === undefined ? {} : { signal }),
           })
         : await readScopedResourceForMcp({

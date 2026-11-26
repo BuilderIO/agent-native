@@ -72,6 +72,7 @@ vi.mock("./store.js", () => ({
     mockResourceMoveIfCurrent(...args),
   resourceStoredPathsTaken: (...args: unknown[]) =>
     mockResourceStoredPathsTaken(...args),
+  resourceStoredSpellings: async () => [],
   resourceEffectiveContext: (...args: any[]) =>
     mockResourceEffectiveContext(...args),
   ensurePersonalDefaults: (...args: any[]) =>

@@ -497,6 +497,44 @@ describe("read-only MCP resources", () => {
       await client.close();
     }
   });
+  it("refuses a skill path spelled with a leading slash instead of reading the plain one", async () => {
+    const skillPath = "skills/reports/SKILL.md";
+    mocks.sql.mockImplementation(
+      async ({ args }: { sql: string; args: unknown[] }) => ({
+        rows:
+          args[0] === "alice@example.test"
+            ? [
+                {
+                  id: "s",
+                  owner: args[0],
+                  path: skillPath,
+                  content:
+                    "---\nname: reports\ndescription: prepare report\n---\n# Report guide",
+                  content_complete: 1,
+                  visibility: "workspace",
+                  metadata: null,
+                },
+              ]
+            : [],
+      }),
+    );
+    const client = await clientFor(config());
+    try {
+      const plain = await client.callTool({
+        name: "resources",
+        arguments: { action: "read", scope: "personal", path: skillPath },
+      });
+      const slashed = await client.callTool({
+        name: "resources",
+        arguments: { action: "read", scope: "personal", path: `/${skillPath}` },
+      });
+      expect(plain.isError).toBeFalsy();
+      expect(slashed.isError).toBe(true);
+      expect(text(slashed)).not.toContain("Report guide");
+    } finally {
+      await client.close();
+    }
+  });
   it("requires opt-in, verified identity and read OAuth scope, and respects explicit denial", async () => {
     const cases: Array<[MCPConfig, MCPCallerIdentity | undefined]> = [
       [{ ...config(), readOnlyResources: false }, identity],

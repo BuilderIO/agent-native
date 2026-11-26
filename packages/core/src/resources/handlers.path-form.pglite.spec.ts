@@ -164,6 +164,10 @@ async function uploadAt(path: string, content: string) {
 
 const owner = "erin@example.test";
 
+function skill(name: string) {
+  return `---\nname: ${name}\ndescription: ${name} skill\n---\nbody`;
+}
+
 describe("making a name from the Resources panel", () => {
   it("numbers an upload whose name a created file already has", async () => {
     await create({ path: "notes.md", content: "", shared: false });
@@ -259,6 +263,32 @@ describe("making a name from the Resources panel", () => {
     expect(await stored(owner)).toEqual([["notes.md", "same"]]);
   });
 
+  it("returns an upload resent onto a file stored before as '/notes.md' with the same content", async () => {
+    await seed("old", owner, "/notes.md", "same");
+    await seed("other", owner, "/todo.md", "other");
+    await seed("numbered", owner, "/todo-2.md", "todo");
+
+    const again = await upload("notes.md", "same");
+    const numbered = await upload("todo.md", "todo");
+
+    expect(again).toMatchObject({ status: 200, body: { id: "old" } });
+    expect(numbered).toMatchObject({ status: 200, body: { id: "numbered" } });
+    expect(await stored(owner)).toEqual([
+      ["/notes.md", "same"],
+      ["/todo-2.md", "todo"],
+      ["/todo.md", "other"],
+    ]);
+  });
+
+  it("keeps a create without uniquePath writing a path that is only a slash, as before", async () => {
+    const created = await create({ path: "/", content: "root" });
+    const unique = await create({ path: "/", content: "", uniquePath: true });
+
+    expect(created.status).toBe(201);
+    expect(unique.status).toBe(400);
+    expect(await stored(owner)).toEqual([["/", "root"]]);
+  });
+
   it("keeps a create without uniquePath replacing the file there, as before", async () => {
     const existing = await create({ path: "notes.md", content: "existing" });
     const replaced = await create({ path: "notes.md", content: "" });
@@ -324,6 +354,81 @@ describe("making a name from the Resources panel", () => {
 
     expect(uploaded.body.path).toBe("team-2.md");
     expect(await stored("__shared__")).toEqual([["/team.md", "pre-org"]]);
+  });
+
+  it("returns a slashed shared file from before organizations to an ifNotExists create", async () => {
+    session.orgId = "org-1";
+    await seed("legacy", "__shared__", "/team.md", "pre-org");
+
+    const created = await create({
+      path: "team.md",
+      content: "new",
+      shared: true,
+      ifNotExists: true,
+    });
+
+    expect(created).toMatchObject({ status: 200, body: { id: "legacy" } });
+    expect(await stored("__organization__:org-1")).toEqual([]);
+  });
+
+  it("refuses renaming an organization file onto a slashed shared file from before organizations", async () => {
+    session.orgId = "org-1";
+    await seed("legacy", "__shared__", "/team.md", "pre-org");
+    await seed("plan", "__organization__:org-1", "plan.md", "plan");
+
+    const renamed = await rename("plan", "team.md");
+
+    expect(renamed).toMatchObject({
+      status: 409,
+      body: { errorCode: "name_taken", details: { suggestion: "team-2.md" } },
+    });
+    expect(await stored("__organization__:org-1")).toEqual([
+      ["plan.md", "plan"],
+    ]);
+  });
+
+  it("moves a shared skill past a slashed one from before organizations", async () => {
+    session.orgId = "org-1";
+    await seed(
+      "legacy",
+      "__shared__",
+      "/skills/review/SKILL.md",
+      skill("review"),
+    );
+
+    const created = await create({
+      path: "skills/review/SKILL.md",
+      content: skill("review"),
+      shared: true,
+      uniqueSkillPath: true,
+    });
+
+    expect(created).toMatchObject({
+      status: 201,
+      body: { path: "skills/review-2/SKILL.md" },
+    });
+    expect(await stored("__organization__:org-1")).toEqual([
+      ["skills/review-2/SKILL.md", skill("review")],
+    ]);
+  });
+
+  it("moves a skill past a slashed one of the same owner to the next free name", async () => {
+    await seed("old", owner, "/skills/review/SKILL.md", skill("other"));
+
+    const created = await create({
+      path: "skills/review/SKILL.md",
+      content: skill("review"),
+      uniqueSkillPath: true,
+    });
+
+    expect(created).toMatchObject({
+      status: 201,
+      body: { path: "skills/review-2/SKILL.md" },
+    });
+    expect(await stored(owner)).toEqual([
+      ["/skills/review/SKILL.md", skill("other")],
+      ["skills/review-2/SKILL.md", skill("review")],
+    ]);
   });
 
   it("refuses renaming a shared file from before organizations onto another one's name", async () => {
@@ -532,5 +637,52 @@ describe("reads, writes and deletes by path", () => {
       pairSlashed: "pair-slashed",
       missing: undefined,
     });
+  });
+});
+
+describe("reading a skill over MCP", () => {
+  const identity = {
+    userEmail: owner,
+    orgId: null,
+    identityAssurance: "user" as const,
+    orgDomain: undefined,
+  };
+  const read = async (path: string) => {
+    const { readScopedSkillForMcp } = await import("./store.js");
+    return runWithRequestContext(
+      { userEmail: owner, orgScope: "personal" },
+      () => readScopedSkillForMcp({ identity, scope: "personal", path }),
+    );
+  };
+
+  it("reads a skill's files only from the tree its manifest is stored in", async () => {
+    await seed("open", owner, "skills/a/SKILL.md", skill("a"));
+    await seed(
+      "hidden",
+      owner,
+      "/skills/a/SKILL.md",
+      "---\nname: a\ndescription: hidden\nuser-invocable: false\n---\nbody",
+    );
+    await seed("secret", owner, "/skills/a/references/secret.md", "secret");
+    await seed("ref", owner, "skills/a/references/open.md", "open");
+
+    await expect(read("skills/a/references/secret.md")).rejects.toThrow(
+      "Skill resource unavailable",
+    );
+    await expect(read("skills/a/references/open.md")).resolves.toMatchObject({
+      id: "ref",
+    });
+    await expect(read("skills/a/SKILL.md")).resolves.toMatchObject({
+      id: "open",
+    });
+    await expect(read("/skills/a/SKILL.md")).rejects.toThrow();
+  });
+
+  it("does not read a skill stored only under a slashed path", async () => {
+    await seed("slashed", owner, "/skills/b/SKILL.md", skill("b"));
+
+    await expect(read("skills/b/SKILL.md")).rejects.toThrow(
+      "Skill manifest unavailable",
+    );
   });
 });

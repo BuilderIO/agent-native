@@ -1743,6 +1743,7 @@ async function lookupScopedResourceForMcp(
   const name = canonicalResourcePath(path);
   if (
     !name ||
+    (allowSkill && path !== name) ||
     name.includes("\\") ||
     name.split("/").some((part) => !part || part === "." || part === "..") ||
     /[\x00-\x1f\x7f]/.test(name)
@@ -1768,7 +1769,7 @@ async function lookupScopedResourceForMcp(
   const { rows } = await getDbExec().execute(sql`SELECT
       ${RESOURCE_META_SELECT}, substr(content, 1, 65537) AS content,
       CASE WHEN content = substr(content, 1, 65537) THEN 1 ELSE 0 END AS content_complete
-    FROM resources WHERE owner IN ${sql.in(owners)} AND ${resourcePathNamedSql(sql`path`, [name])}
+    FROM resources WHERE owner IN ${sql.in(owners)} AND ${allowSkill ? sql`path = ${sql.value(path)}` : resourcePathNamedSql(sql`path`, [name])}
     ${EXCLUDE_AGENT_SCRATCH}
   `);
   const spellingRank = (stored: string) =>
@@ -1782,7 +1783,9 @@ async function lookupScopedResourceForMcp(
     .filter(
       ({ resource }) =>
         owners.includes(resource.owner) &&
-        canonicalResourcePath(resource.path) === name &&
+        (allowSkill
+          ? resource.path === path
+          : canonicalResourcePath(resource.path) === name) &&
         resource.visibility !== "agent_scratch" &&
         isLegacySharedResourceVisibleToOrganization(resource, orgId),
     )
@@ -4478,6 +4481,37 @@ export async function resourceMoveIfCurrent(
   const moved = rowToResource(row);
   emitResourceChange(moved.id, moved.path, moved.owner);
   return moved;
+}
+
+/**
+ * The paths stored for `owner` under any spelling of `path`'s name
+ * ("notes.md", "/notes.md", "//notes.md"): the exact spelling first, then the
+ * one without leading "/". With `orgId`, a shared row from before
+ * organizations counts only when that organization can see it.
+ */
+export async function resourceStoredSpellings(
+  owner: string,
+  path: string,
+  options?: { orgId?: string | null },
+): Promise<string[]> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute(
+    sql`SELECT path, owner, metadata FROM resources WHERE owner = ${sql.value(owner)} AND ${resourcePathNamedSql(sql`path`, [path])}`,
+  );
+  const name = canonicalResourcePath(path);
+  const rank = (stored: string) =>
+    stored === path ? 0 : stored === name ? 1 : 2;
+  return rows
+    .filter(
+      (row) =>
+        options?.orgId === undefined ||
+        isLegacySharedResourceVisibleToOrganization(
+          { owner: String(row.owner), metadata: nullableString(row.metadata) },
+          options.orgId,
+        ),
+    )
+    .map((row) => String(row.path))
+    .sort((a, b) => rank(a) - rank(b) || a.length - b.length);
 }
 
 /**
