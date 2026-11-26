@@ -666,9 +666,7 @@ async function main() {
             beforeFocus,
             readCalendarSettingsFocus(page),
           ]);
-          if (before || afterFailure) {
-            receipt.calendarSettingsFocus = { before, afterFailure };
-          }
+          receipt.calendarSettingsFocus = { before, afterFailure };
         }
         throw error;
       }
