@@ -1,3 +1,5 @@
+import { restoreCanvasImageUrlsInMessage } from "@shared/canvas-image-url";
+
 import type { ElementInfo, PortableStyleSnapshot } from "../types";
 import { designPreviewWindowsForScreen } from "./measure-selection";
 
@@ -66,6 +68,12 @@ function selectionFrameBridge(
   }
 }
 
+function cloneRestoringCanvasImages<T>(read: T): T {
+  const clone = structuredClone(read);
+  restoreCanvasImageUrlsInMessage(clone, window.location.origin);
+  return clone;
+}
+
 // Both readers copy the result into this realm: a frame's own object kept by
 // the clipboard would pin that frame's whole realm after it is evicted.
 /** Synchronous so copy can still write the clipboard inside the user's gesture. */
@@ -84,7 +92,7 @@ export function readPortableStyleSnapshot(
     target.selector,
     target.instanceIndex,
   );
-  return read ? structuredClone(read) : { status: "missing" };
+  return read ? cloneRestoringCanvasImages(read) : { status: "missing" };
 }
 
 export function readSubtreeColorStyles(
@@ -102,5 +110,5 @@ export function readSubtreeColorStyles(
     target.selector,
     target.instanceIndex,
   );
-  return read ? structuredClone(read) : { status: "missing" };
+  return read ? cloneRestoringCanvasImages(read) : { status: "missing" };
 }

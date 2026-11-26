@@ -182,15 +182,134 @@ describe("withCanvasImageSizing", () => {
 
   it("rewrites url() in style attributes and style blocks, any quoting", () => {
     const html =
-      `<style>.a{background:url(https://a.com/1.jpg)} .b{background-image:url('https://a.com/2.jpg?a=1&b=2') , url("https://a.com/3.png")}</style>` +
+      `<style>.a{background:url(https://a.com/1.jpg);background-size:cover} .b{background-image:url('https://a.com/2.jpg?a=1&b=2') , url("https://a.com/3.png");background-size:contain}</style>` +
       `<div style="background: url(https://a.com/4.jpg) center / cover"></div>` +
-      `<div style='background-image:url(&quot;https://a.com/5.jpg?q=1&amp;r=2&quot;)'></div>`;
+      `<div style='background-image:url(&quot;https://a.com/5.jpg?q=1&amp;r=2&quot;);background-size:cover'></div>`;
     const out = roundTrip(html);
     expect(out.match(/canvas-image\?src=/g)).toHaveLength(5);
   });
 
+  it("rewrites a background only when its size ignores the image's own size", () => {
+    const count = (html: string) =>
+      withCanvasImageSizing(html, PROXY).match(/canvas-image\?src=/g)?.length ??
+      0;
+    const style = (css: string) => `<div style="${css}"></div>`;
+    const img = "background-image:url(https://a.com/1.jpg)";
+    for (const size of [
+      "cover",
+      "contain",
+      "COVER",
+      "100px 50px",
+      "50% 50%",
+      "0 0",
+      "cover !important",
+    ]) {
+      expect(count(style(`${img};background-size:${size}`))).toBe(1);
+      expect(count(style(`background-size:${size};${img}`))).toBe(1);
+    }
+    for (const size of [
+      "auto",
+      "auto auto",
+      "200px",
+      "100% auto",
+      "auto 50%",
+      "var(--s)",
+      "calc(100% - 4px) 10px",
+      "",
+    ]) {
+      expect(count(style(`${img};background-size:${size}`))).toBe(0);
+    }
+    expect(count(style(img))).toBe(0);
+    expect(count(style("background-size:cover"))).toBe(0);
+  });
+
+  it("reads the size from the background shorthand", () => {
+    const count = (css: string) =>
+      withCanvasImageSizing(`<div style="${css}"></div>`, PROXY).match(
+        /canvas-image\?src=/g,
+      )?.length ?? 0;
+    expect(count("background:url(https://a.com/1.jpg) center / cover")).toBe(1);
+    expect(
+      count("background:url(https://a.com/1.jpg) center/contain no-repeat"),
+    ).toBe(1);
+    expect(count("background:url(https://a.com/1.jpg) 0 0 / 40px 20px")).toBe(
+      1,
+    );
+    expect(count("background:url(https://a.com/1.jpg) center / 40px")).toBe(0);
+    expect(count("background:url(https://a.com/1.jpg) center / auto 50%")).toBe(
+      0,
+    );
+    expect(count("background:url(https://a.com/1.jpg) center no-repeat")).toBe(
+      0,
+    );
+    expect(
+      count("background:rgb(0 0 0 / 50%) url(https://a.com/1.jpg) center"),
+    ).toBe(0);
+  });
+
+  it("lets the last size declaration in the block win", () => {
+    const count = (css: string) =>
+      withCanvasImageSizing(`<div style="${css}"></div>`, PROXY).match(
+        /canvas-image\?src=/g,
+      )?.length ?? 0;
+    const img = "background-image:url(https://a.com/1.jpg)";
+    expect(count(`background-size:cover;${img};background-size:auto`)).toBe(0);
+    expect(count(`background-size:auto;${img};background-size:cover`)).toBe(1);
+    expect(
+      count("background-size:cover;background:url(https://a.com/1.jpg)"),
+    ).toBe(0);
+    expect(
+      count("background:url(https://a.com/1.jpg);background-size:cover"),
+    ).toBe(1);
+    expect(
+      count(`background-size:cover !important;${img};background-size:auto`),
+    ).toBe(1);
+  });
+
+  it("matches sizes to background layers one by one", () => {
+    const out = withCanvasImageSizing(
+      `<div style="background-image:url(https://a.com/1.jpg),url(https://a.com/2.jpg),url(https://a.com/3.jpg);background-size:cover,auto,10px 10px"></div>`,
+      PROXY,
+    );
+    expect(out).toContain("url(https://a.com/2.jpg)");
+    expect(out).not.toContain("url(https://a.com/1.jpg)");
+    expect(out).not.toContain("url(https://a.com/3.jpg)");
+    expect(out.match(/canvas-image\?src=/g)).toHaveLength(2);
+    const cycled = withCanvasImageSizing(
+      `<div style="background-image:url(https://a.com/1.jpg),url(https://a.com/2.jpg);background-size:cover"></div>`,
+      PROXY,
+    );
+    expect(cycled.match(/canvas-image\?src=/g)).toHaveLength(2);
+    const shorthand = withCanvasImageSizing(
+      `<div style="background:url(https://a.com/1.jpg) center / cover, url(https://a.com/2.jpg) center"></div>`,
+      PROXY,
+    );
+    expect(shorthand).toContain("url(https://a.com/2.jpg)");
+    expect(shorthand.match(/canvas-image\?src=/g)).toHaveLength(1);
+  });
+
+  it("only reads sizes from the same rule in style blocks", () => {
+    const out = withCanvasImageSizing(
+      `<style>.a{background-image:url(https://a.com/1.jpg)} .b{background-size:cover} .c{background-image:url(https://a.com/2.jpg);background-size:cover} @media (min-width:1px){.d{background:url(https://a.com/3.jpg) center / cover}}</style>`,
+      PROXY,
+    );
+    expect(out).toContain("url(https://a.com/1.jpg)");
+    expect(out.match(/canvas-image\?src=/g)).toHaveLength(2);
+    expect(restoreCanvasImageUrls(out, ORIGIN)).toBe(
+      out.replace(/url\(https:\/\/design[^)]*\)/g, (m) => {
+        const src = new URL(m.slice(4, -1)).searchParams.get("src");
+        return `url(${src})`;
+      }),
+    );
+  });
+
+  it("leaves custom properties alone", () => {
+    const html = `<div style="--bg:url(https://a.com/1.jpg);background:var(--bg) center / cover"></div>`;
+    expect(withCanvasImageSizing(html, PROXY)).toBe(html);
+  });
+
   it("leaves fonts, imports and svg in CSS alone", () => {
-    const html = `<style>@import url(https://fonts.com/css?family=A);@font-face{font-family:A;src:url(https://fonts.com/a.woff2)}.x{background:url(https://a.com/a.svg)}</style>`;
+    const html = `<style>@import url(https://fonts.com/css?family=A);@font-face{font-family:A;src:url(https://fonts.com/a.woff2)}.x{background:url(https://a.com/a.svg) center / cover}</style>`;
     expect(withCanvasImageSizing(html, PROXY)).toBe(html);
   });
 
@@ -339,5 +458,45 @@ describe("restoreCanvasImageUrlsInMessage", () => {
   it("ignores primitives and null", () => {
     expect(() => restoreCanvasImageUrlsInMessage(null, ORIGIN)).not.toThrow();
     expect(() => restoreCanvasImageUrlsInMessage("x", ORIGIN)).not.toThrow();
+  });
+});
+
+describe("attribute-safe restore", () => {
+  it("keeps a single-quoted attribute closed when the URL held an entity quote", () => {
+    const html = "<img src='https://x.com/a&#39;b.jpg'>";
+    const rewritten = withCanvasImageSizing(html, PROXY);
+    expect(rewritten).not.toBe(html);
+    const restored = restoreCanvasImageUrls(rewritten, ORIGIN);
+    expect(restored).toBe(html);
+    expect(restored).not.toContain("a'b");
+  });
+
+  it("keeps a double-quoted attribute closed when the URL held &quot;", () => {
+    const html = '<img src="https://x.com/a&quot;b.jpg">';
+    const rewritten = withCanvasImageSizing(html, PROXY);
+    expect(rewritten).not.toBe(html);
+    expect(restoreCanvasImageUrls(rewritten, ORIGIN)).toBe(html);
+  });
+
+  it("escapes angle brackets and leaves a plain query string unchanged", () => {
+    const angle = '<img src="https://x.com/a&lt;b&gt;.jpg">';
+    expect(
+      restoreCanvasImageUrls(withCanvasImageSizing(angle, PROXY), ORIGIN),
+    ).toBe(angle);
+    const plain = `<img src="${PHOTO.replace(/&/g, "&amp;")}">`;
+    expect(
+      restoreCanvasImageUrls(withCanvasImageSizing(plain, PROXY), ORIGIN),
+    ).toBe(plain);
+  });
+
+  it("round-trips entity quotes inside a style attribute", () => {
+    const html = `<div style="background-image:url(&quot;https://x.com/a&#39;b.jpg&quot;);background-size:cover"></div>`;
+    const rewritten = withCanvasImageSizing(html, PROXY);
+    expect(rewritten).not.toBe(html);
+    expect(restoreCanvasImageUrls(rewritten, ORIGIN)).toBe(html);
+  });
+
+  it("leaves raw URLs without entities unescaped", () => {
+    expect(restoreCanvasImageUrls(proxied(PHOTO), ORIGIN)).toBe(PHOTO);
   });
 });

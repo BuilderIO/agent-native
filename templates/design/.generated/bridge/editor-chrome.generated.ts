@@ -943,7 +943,17 @@ export const editorChromeBridgeScript: string = `"use strict";
     } catch {
       return match;
     }
-    return amp ? original.replace(/&/g, "&amp;") : original;
+    return amp ? escapeAttrUrl(original) : original;
+  }
+  var ATTR_URL_ESCAPES = {
+    "&": "&amp;",
+    '"': "&quot;",
+    "'": "&#39;",
+    "<": "&lt;",
+    ">": "&gt;"
+  };
+  function escapeAttrUrl(value) {
+    return value.replace(/[&"'<>]/g, (c) => ATTR_URL_ESCAPES[c] ?? c);
   }
   var SCRIPT_CLOSE = ["</", "script>"].join("");
 

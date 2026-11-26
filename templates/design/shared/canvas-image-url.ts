@@ -77,7 +77,7 @@ const MARKUP_RE = new RegExp(
 const ATTR_RE =
   /(\s)([^\s"'<>\/=]+)(\s*=\s*)(?:"([^"]*)"|'([^']*)'|([^\s>]+))/g;
 const CSS_DECLARATION_RE =
-  /((?:-webkit-)?(?:background(?:-image)?|border-image(?:-source)?|list-style(?:-image)?|mask(?:-image)?|content|--[\w-]+)\s*:)((?:url\([^)]*\)|[^;}])*)/gi;
+  /((?:-webkit-)?(?:background(?:-image|-size)?|border-image(?:-source)?|list-style(?:-image)?|mask(?:-image)?|content|--[\w-]+)\s*:)((?:url\([^)]*\)|[^;}])*)/gi;
 const CSS_URL_RE =
   /url\(\s*(?:(&quot;|&#39;|&#x27;|&apos;|"|')([\s\S]*?)\1|([^)\s"']*))\s*\)/gi;
 
@@ -201,7 +201,19 @@ function restoreMatch(match: string, encoded: string, amp?: string): string {
   } catch {
     return match;
   }
-  return amp ? original.replace(/&/g, "&amp;") : original;
+  return amp ? escapeAttrUrl(original) : original;
+}
+
+const ATTR_URL_ESCAPES: Record<string, string> = {
+  "&": "&amp;",
+  '"': "&quot;",
+  "'": "&#39;",
+  "<": "&lt;",
+  ">": "&gt;",
+};
+
+function escapeAttrUrl(value: string): string {
+  return value.replace(/[&"'<>]/g, (c) => ATTR_URL_ESCAPES[c] ?? c);
 }
 
 function rewriteAttrUrl(raw: string, proxy: CanvasImageProxy): string {
@@ -231,39 +243,148 @@ function rewriteSrcset(raw: string, proxy: CanvasImageProxy): string {
   return out;
 }
 
+const SIZE_LENGTH_RE = /^-?(?:\d+\.?\d*|\.\d+)(?:[a-z]+|%)?$/i;
+const IMPORTANT_RE = /\s*!\s*important\s*$/i;
+const BLOCK_RE = /\{([^{}]*)\}/g;
+
+function splitTopLevel(
+  value: string,
+  isSeparator: (char: string) => boolean,
+): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < value.length; i++) {
+    const char = value.charAt(i);
+    if (char === "(") depth++;
+    else if (char === ")") depth = Math.max(0, depth - 1);
+    else if (depth === 0 && isSeparator(char)) {
+      parts.push(value.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(value.slice(start));
+  return parts;
+}
+
+function sizeTokens(value: string): string[] {
+  return splitTopLevel(value, (char) => /\s/.test(char))
+    .map((token) => token.trim().toLowerCase())
+    .filter((token) => token !== "");
+}
+
+function isFixedSize(tokens: string[]): boolean {
+  if (tokens.length === 1)
+    return tokens[0] === "cover" || tokens[0] === "contain";
+  return (
+    tokens.length === 2 && tokens.every((token) => SIZE_LENGTH_RE.test(token))
+  );
+}
+
+function backgroundSizeLayers(value: string): boolean[] {
+  return splitTopLevel(value, (char) => char === ",").map((layer) =>
+    isFixedSize(sizeTokens(layer)),
+  );
+}
+
+function shorthandSizeLayers(value: string): boolean[] {
+  return splitTopLevel(value, (char) => char === ",").map((layer) => {
+    const parts = splitTopLevel(layer, (char) => char === "/");
+    if (parts.length !== 2) return false;
+    const tokens = sizeTokens(parts[1] ?? "");
+    const size = tokens.slice(0, 1);
+    const second = tokens
+      .slice(1, 2)
+      .filter((token) => token === "auto" || SIZE_LENGTH_RE.test(token));
+    return isFixedSize(size.concat(second));
+  });
+}
+
+function declarationName(property: string): string {
+  return property
+    .replace(/\s*:$/, "")
+    .toLowerCase()
+    .replace(/^-webkit-/, "");
+}
+
+function rewriteCssUrls(
+  value: string,
+  proxy: CanvasImageProxy,
+  inAttribute: boolean,
+): string {
+  return value.replace(
+    CSS_URL_RE,
+    (
+      whole,
+      quote: string | undefined,
+      quoted: string | undefined,
+      bare: string | undefined,
+    ) => {
+      const raw = quoted ?? bare ?? "";
+      const decoded = inAttribute ? decodeEntities(raw) : raw;
+      if (NON_IMAGE_CSS_PATH.test(decoded.replace(/[?#][\s\S]*$/, "")))
+        return whole;
+      const rewritten = toCanvasImageUrl(decoded, proxy);
+      if (rewritten === null) return whole;
+      const url = inAttribute ? rewritten.replace(/&/g, "&amp;") : rewritten;
+      return quote === undefined
+        ? `url(${url})`
+        : `url(${quote}${url}${quote})`;
+    },
+  );
+}
+
+function rewriteCssBlock(
+  block: string,
+  proxy: CanvasImageProxy,
+  inAttribute: boolean,
+): string {
+  let fixedSizes: boolean[] = [];
+  let important = false;
+  for (const [, property = "", value = ""] of block.matchAll(
+    CSS_DECLARATION_RE,
+  )) {
+    const name = declarationName(property);
+    if (name !== "background" && name !== "background-size") continue;
+    const isImportant = IMPORTANT_RE.test(value);
+    if (important && !isImportant) continue;
+    important = isImportant;
+    const bare = value.replace(IMPORTANT_RE, "");
+    fixedSizes =
+      name === "background-size"
+        ? backgroundSizeLayers(bare)
+        : shorthandSizeLayers(bare);
+  }
+  return block.replace(
+    CSS_DECLARATION_RE,
+    (match, property: string, value: string) => {
+      const name = declarationName(property);
+      if (name.startsWith("--")) return match;
+      const next =
+        name === "background" || name === "background-image"
+          ? splitTopLevel(value, (char) => char === ",")
+              .map((layer, index) =>
+                fixedSizes[index % Math.max(fixedSizes.length, 1)] === true
+                  ? rewriteCssUrls(layer, proxy, inAttribute)
+                  : layer,
+              )
+              .join(",")
+          : rewriteCssUrls(value, proxy, inAttribute);
+      return next === value ? match : property + next;
+    },
+  );
+}
+
 function rewriteCss(
   css: string,
   proxy: CanvasImageProxy,
   inAttribute: boolean,
 ): string {
   if (!css.includes("//")) return css;
+  if (inAttribute) return rewriteCssBlock(css, proxy, true);
   return css.replace(
-    CSS_DECLARATION_RE,
-    (match, property: string, value: string) => {
-      const next = value.replace(
-        CSS_URL_RE,
-        (
-          whole,
-          quote: string | undefined,
-          quoted: string | undefined,
-          bare: string | undefined,
-        ) => {
-          const raw = quoted ?? bare ?? "";
-          const decoded = inAttribute ? decodeEntities(raw) : raw;
-          if (NON_IMAGE_CSS_PATH.test(decoded.replace(/[?#][\s\S]*$/, "")))
-            return whole;
-          const rewritten = toCanvasImageUrl(decoded, proxy);
-          if (rewritten === null) return whole;
-          const url = inAttribute
-            ? rewritten.replace(/&/g, "&amp;")
-            : rewritten;
-          return quote === undefined
-            ? `url(${url})`
-            : `url(${quote}${url}${quote})`;
-        },
-      );
-      return next === value ? match : property + next;
-    },
+    BLOCK_RE,
+    (_match, block: string) => `{${rewriteCssBlock(block, proxy, false)}}`,
   );
 }
 
