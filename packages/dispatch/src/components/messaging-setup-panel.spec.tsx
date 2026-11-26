@@ -10,6 +10,7 @@ import { TooltipProvider } from "./ui/tooltip";
 const clientState = vi.hoisted(() => ({
   statuses: [] as any[],
   envStatuses: [] as any[],
+  installations: [] as Record<string, unknown>[],
 }));
 
 const saveScope = vi.hoisted(() => ({
@@ -36,7 +37,9 @@ vi.mock("@agent-native/core/client/integrations", async () => ({
   >("@agent-native/core/client/integrations")),
   disconnectManagedIntegrationInstallation: vi.fn(() => Promise.resolve()),
   listManagedIntegrationBudgets: vi.fn(() => Promise.resolve([])),
-  listManagedIntegrationInstallations: vi.fn(() => Promise.resolve([])),
+  listManagedIntegrationInstallations: vi.fn(() =>
+    Promise.resolve(clientState.installations),
+  ),
   listManagedIntegrationScopes: vi.fn(() => Promise.resolve([])),
   listIntegrationStatuses: vi.fn(() => Promise.resolve(clientState.statuses)),
   listIntegrationEnvStatuses: vi.fn(() =>
@@ -61,9 +64,15 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     formatDate: (value: Date | number | string) =>
       new Date(value).toLocaleDateString("en-US"),
   }),
-  useT: () => (key: string) =>
+  useT: () => (key: string, values?: Record<string, unknown>) =>
     (
       ({
+        "messaging.slackBotToken.rejectedStatus": "Token rejected",
+        "messaging.slackBotToken.rejectedTitle": "Slack rejected the bot token",
+        "messaging.slackBotToken.rejectedReason": "Slack answered {{code}}.",
+        "messaging.slackBotToken.rejectedFix":
+          "Reinstall the Slack app and save its new bot token, or connect the workspace with Add to Slack.",
+        "messaging.slackBotToken.rejected": "Rejected",
         "messaging.managed.title": "Managed Slack workspaces",
         "messaging.managed.description":
           "Install managed Slack workspaces with channel identities.",
@@ -74,7 +83,9 @@ vi.mock("@agent-native/core/client/i18n", () => ({
         "messaging.managed.requiredCredentials":
           "Save the required Slack app credentials below to enable Add to Slack.",
       }) as Record<string, string>
-    )[key] ?? key,
+    )[key]?.replace(/\{\{(\w+)\}\}/g, (_, name: string) =>
+      String(values?.[name]),
+    ) ?? key,
 }));
 
 vi.mock("@agent-native/core/integrations/catalog", () => ({
@@ -132,6 +143,7 @@ describe("MessagingSetupPanel", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     clientState.statuses = [];
     clientState.envStatuses = [];
+    clientState.installations = [];
     saveScope.scope = "user";
     saveScope.canChoose = false;
     vi.mocked(saveIntegrationEnvVars).mockClear();
@@ -330,6 +342,66 @@ describe("MessagingSetupPanel", () => {
     expect(container.textContent).toContain("Slack rejected the bot token");
     expect(container.textContent).toContain("Slack answered invalid_auth.");
     expect(container.textContent).not.toContain("Messages are flowing");
+    expect(container.textContent).toContain("Rejected");
+  });
+
+  it("keeps a connected managed workspace's status when the legacy token is rejected", async () => {
+    clientState.statuses = [
+      {
+        platform: "slack",
+        label: "Slack",
+        configured: true,
+        enabled: true,
+        details: {
+          hasToken: true,
+          botTokenHealth: "revoked",
+          botTokenError: "invalid_auth",
+        },
+      },
+    ];
+    clientState.envStatuses = [
+      {
+        key: "SLACK_BOT_TOKEN",
+        label: "Slack Bot Token",
+        required: false,
+        configured: true,
+      },
+    ];
+    clientState.installations = [
+      {
+        id: "installation-1",
+        platform: "slack",
+        status: "connected",
+        health: "healthy",
+        teamId: "T123",
+        teamName: "Example workspace",
+        scopes: ["chat:write"],
+        updatedAt: "2026-11-26T12:00:00Z",
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <MessagingSetupPanel />
+        </TooltipProvider>,
+      );
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Connected");
+    expect(container.textContent).not.toContain("Token rejected");
+    for (const label of ["Slack", "Credentials", "Slack Bot Token (legacy)"]) {
+      const trigger = [...container.querySelectorAll("button")].find((button) =>
+        button.textContent.includes(label),
+      );
+      await act(async () => {
+        trigger?.click();
+        await Promise.resolve();
+      });
+    }
+    expect(container.textContent).toContain("Messages are flowing");
+    expect(container.textContent).not.toContain("Slack answered invalid_auth.");
     expect(container.textContent).toContain("Rejected");
   });
 

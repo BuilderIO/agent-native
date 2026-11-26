@@ -50,6 +50,13 @@ const SLACK_TOKEN_IDENTITY_NEGATIVE_CACHE_TTL_MS = 30 * 1_000;
 const SLACK_BOT_TOKEN_HEALTH_TIMEOUT_MS = 3_000;
 const SLACK_BOT_TOKEN_HEALTH_CACHE_TTL_MS = 5 * 60 * 1_000;
 const SLACK_BOT_TOKEN_HEALTH_RETRY_TTL_MS = 30 * 1_000;
+const SLACK_BOT_TOKEN_HEALTH_CACHE_MAX_ENTRIES = 100;
+const SLACK_REJECTED_BOT_TOKEN_ERRORS = new Set([
+  "invalid_auth",
+  "token_revoked",
+  "token_expired",
+  "account_inactive",
+]);
 const SLACK_DELIVERY_RECONCILIATION_PAGE_LIMIT = 200;
 const SLACK_DELIVERY_RECONCILIATION_MAX_PAGES = 3;
 const SLACK_DELIVERY_MARKER_PREFIX = "agent_native_terminal_";
@@ -70,6 +77,10 @@ type SlackBotTokenHealth = Pick<
 > & { expiresAt: number };
 
 const slackBotTokenHealthCache = new Map<string, SlackBotTokenHealth>();
+const slackBotTokenHealthChecks = new Map<
+  string,
+  Promise<SlackBotTokenHealth>
+>();
 
 interface SlackUserIdentity {
   email: string | null;
@@ -800,7 +811,8 @@ export function slackAdapter(
         },
         error: !configured
           ? "Connect a Slack workspace with OAuth or save a bot token and signing secret"
-          : botTokenHealth?.health === "revoked"
+          : botTokenHealth?.health === "revoked" &&
+              connectedInstallations.length === 0
             ? `Slack rejected the saved bot token (${botTokenHealth.error}). Reinstall the Slack app and save its new bot token as SLACK_BOT_TOKEN, or connect the workspace with Add to Slack.`
             : undefined,
       };
@@ -808,26 +820,49 @@ export function slackAdapter(
   };
 }
 
-async function checkSlackBotToken(token: string): Promise<SlackBotTokenHealth> {
+function checkSlackBotToken(token: string): Promise<SlackBotTokenHealth> {
   const cached = slackBotTokenHealthCache.get(token);
-  if (cached && cached.expiresAt > Date.now()) return cached;
+  if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached);
 
+  let check = slackBotTokenHealthChecks.get(token);
+  if (!check) {
+    check = askSlackAboutBotToken(token).finally(() =>
+      slackBotTokenHealthChecks.delete(token),
+    );
+    slackBotTokenHealthChecks.set(token, check);
+  }
+  return check;
+}
+
+async function askSlackAboutBotToken(
+  token: string,
+): Promise<SlackBotTokenHealth> {
   const result = await testSlackAuth(token, (input, init) =>
     fetch(input, {
       ...init,
+      redirect: "manual",
       signal: AbortSignal.timeout(SLACK_BOT_TOKEN_HEALTH_TIMEOUT_MS),
     }),
   );
+  const rejected =
+    result.error !== null && SLACK_REJECTED_BOT_TOKEN_ERRORS.has(result.error);
   const health: SlackBotTokenHealth = {
-    health: result.health,
-    error: result.error,
+    health: result.ok ? "healthy" : rejected ? "revoked" : "degraded",
+    error: rejected ? result.error : null,
     checkedAt: result.checkedAt,
     expiresAt:
-      result.checkedAt +
-      (result.health === "degraded"
-        ? SLACK_BOT_TOKEN_HEALTH_RETRY_TTL_MS
-        : SLACK_BOT_TOKEN_HEALTH_CACHE_TTL_MS),
+      Date.now() +
+      (result.ok || rejected
+        ? SLACK_BOT_TOKEN_HEALTH_CACHE_TTL_MS
+        : SLACK_BOT_TOKEN_HEALTH_RETRY_TTL_MS),
   };
+  slackBotTokenHealthCache.delete(token);
+  if (
+    slackBotTokenHealthCache.size >= SLACK_BOT_TOKEN_HEALTH_CACHE_MAX_ENTRIES
+  ) {
+    const oldestKey = slackBotTokenHealthCache.keys().next().value;
+    if (oldestKey) slackBotTokenHealthCache.delete(oldestKey);
+  }
   slackBotTokenHealthCache.set(token, health);
   return health;
 }

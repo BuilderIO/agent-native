@@ -2,21 +2,32 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const installationStoreMocks = vi.hoisted(() => ({
   getActiveIntegrationInstallationByKey: vi.fn(),
+  listIntegrationInstallations: vi.fn(),
 }));
 const fileUploadMocks = vi.hoisted(() => ({
   findFileUploadProviderOwningUrl: vi.fn(),
 }));
 
-vi.mock("../installations-store.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../installations-store.js")>()),
-  getActiveIntegrationInstallationByKey:
-    installationStoreMocks.getActiveIntegrationInstallationByKey,
-}));
+vi.mock("../installations-store.js", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("../installations-store.js")>();
+  installationStoreMocks.listIntegrationInstallations.mockImplementation(
+    original.listIntegrationInstallations,
+  );
+  return {
+    ...original,
+    getActiveIntegrationInstallationByKey:
+      installationStoreMocks.getActiveIntegrationInstallationByKey,
+    listIntegrationInstallations:
+      installationStoreMocks.listIntegrationInstallations,
+  };
+});
 vi.mock("../../file-upload/registry.js", () => ({
   findFileUploadProviderOwningUrl:
     fileUploadMocks.findFileUploadProviderOwningUrl,
 }));
 
+import { runWithRequestContext } from "../../server/request-context.js";
 import { resolveSlackBotTokenForIncoming, slackAdapter } from "./slack.js";
 
 const originalNodeEnv = process.env.NODE_ENV;
@@ -2371,11 +2382,18 @@ function slackEvent(overrides: Record<string, unknown> = {}) {
 }
 
 describe("slackAdapter getStatus", () => {
+  const savedEnv = {
+    SLACK_BOT_TOKEN: process.env.SLACK_BOT_TOKEN,
+    SLACK_SIGNING_SECRET: process.env.SLACK_SIGNING_SECRET,
+  };
+
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
-    delete process.env.SLACK_BOT_TOKEN;
-    delete process.env.SLACK_SIGNING_SECRET;
+    for (const [key, value] of Object.entries(savedEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   });
 
   function saveBotToken(token: string) {
@@ -2397,7 +2415,11 @@ describe("slackAdapter getStatus", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       "https://slack.com/api/auth.test",
-      expect.objectContaining({ method: "POST" }),
+      expect.objectContaining({
+        method: "POST",
+        redirect: "manual",
+        signal: expect.any(AbortSignal),
+      }),
     );
     expect(status.configured).toBe(true);
     expect(status.details).toMatchObject({
@@ -2411,6 +2433,31 @@ describe("slackAdapter getStatus", () => {
     expect(JSON.stringify(status)).not.toContain(
       "xoxb-rejected-status-example",
     );
+  });
+
+  it("treats an expired token as rejected", async () => {
+    saveBotToken("xoxb-expired-status-example");
+    stubAuthTest({ ok: false, error: "token_expired" });
+
+    const status = await slackAdapter().getStatus();
+
+    expect(status.details).toMatchObject({
+      botTokenHealth: "revoked",
+      botTokenError: "token_expired",
+    });
+  });
+
+  it("keeps other Slack answers out of the status", async () => {
+    saveBotToken("xoxb-other-error-status-example");
+    stubAuthTest({ ok: false, error: "ratelimited" });
+
+    const status = await slackAdapter().getStatus();
+
+    expect(status.details).toMatchObject({
+      botTokenHealth: "degraded",
+      botTokenError: null,
+    });
+    expect(status.error).toBeUndefined();
   });
 
   it("reports a working bot token as healthy", async () => {
@@ -2441,6 +2488,30 @@ describe("slackAdapter getStatus", () => {
     expect(status.error).toBeUndefined();
   });
 
+  it("asks Slack once when status requests overlap", async () => {
+    saveBotToken("xoxb-overlapping-status-example");
+    let answer: (response: Response) => void = () => undefined;
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          answer = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const adapter = slackAdapter();
+
+    const statuses = Promise.all([adapter.getStatus(), adapter.getStatus()]);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    // fixed-sleep-ok: gives the second status call time to make its own Slack request if overlapping checks weren't shared
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    answer(new Response(JSON.stringify({ ok: false, error: "invalid_auth" })));
+
+    for (const status of await statuses) {
+      expect(status.details).toMatchObject({ botTokenHealth: "revoked" });
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("asks Slack about a token at most once every five minutes", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-11-26T12:00:00Z"));
@@ -2469,13 +2540,59 @@ describe("slackAdapter getStatus", () => {
     const adapter = slackAdapter();
 
     await adapter.getStatus();
+    vi.setSystemTime(new Date("2026-11-26T12:00:29Z"));
+    await adapter.getStatus();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
     vi.setSystemTime(new Date("2026-11-26T12:00:31Z"));
     await adapter.getStatus();
-
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("checks a replaced token right away", async () => {
+    saveBotToken("xoxb-replaced-old-status-example");
+    stubAuthTest({ ok: false, error: "invalid_auth" });
+    const adapter = slackAdapter();
+    await adapter.getStatus();
+
+    saveBotToken("xoxb-replaced-new-status-example");
+    const fetchMock = stubAuthTest({ ok: true, team_id: "T123" });
+    const status = await adapter.getStatus();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(status.details).toMatchObject({ botTokenHealth: "healthy" });
+    expect(status.error).toBeUndefined();
+  });
+
+  it("leaves the status alone when a managed workspace is connected", async () => {
+    saveBotToken("xoxb-rejected-with-managed-status-example");
+    stubAuthTest({ ok: false, error: "invalid_auth" });
+    installationStoreMocks.listIntegrationInstallations.mockResolvedValueOnce([
+      {
+        id: "installation-1",
+        status: "connected",
+        teamId: "T123",
+        teamName: "Example",
+        enterpriseId: null,
+        health: "healthy",
+        scopes: ["chat:write"],
+      },
+    ] as never);
+
+    const status = await runWithRequestContext(
+      { userEmail: "owner@example.com" },
+      () => slackAdapter().getStatus(),
+    );
+
+    expect(status.details).toMatchObject({
+      botTokenHealth: "revoked",
+      managedInstallationCount: 1,
+    });
+    expect(status.error).toBeUndefined();
+  });
+
   it("doesn't call Slack when no bot token is saved", async () => {
+    delete process.env.SLACK_BOT_TOKEN;
     process.env.SLACK_SIGNING_SECRET = "signing-secret-example";
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

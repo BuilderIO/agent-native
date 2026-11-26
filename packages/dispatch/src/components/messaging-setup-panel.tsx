@@ -161,8 +161,14 @@ function ConnectionStatus({
   enabled: boolean;
   tokenRejected: boolean;
 }) {
+  const t = useT();
   if (tokenRejected) {
-    return <StatusPill tone="warning" label="Token rejected" />;
+    return (
+      <StatusPill
+        tone="warning"
+        label={t("messaging.slackBotToken.rejectedStatus")}
+      />
+    );
   }
   if (enabled) {
     return <StatusPill tone="success" label="Connected" />;
@@ -466,15 +472,17 @@ export function MessagingSetupPanel() {
       >
         {CHANNELS.map((platform) => {
           const status = statusByPlatform.get(platform.id);
-          const configured =
-            !!status?.configured ||
-            (platform.id === "slack" &&
-              installations.some(
-                (installation) => installation.status === "connected",
-              ));
+          const managedWorkspaceConnected =
+            platform.id === "slack" &&
+            installations.some(
+              (installation) => installation.status === "connected",
+            );
+          const configured = !!status?.configured || managedWorkspaceConnected;
           const enabled = !!status?.enabled;
-          const botTokenRejected =
+          const legacyBotTokenRejected =
             status?.details?.botTokenHealth === "revoked";
+          const botTokenRejected =
+            legacyBotTokenRejected && !managedWorkspaceConnected;
           const botTokenError =
             typeof status?.details?.botTokenError === "string"
               ? status.details.botTokenError
@@ -533,7 +541,7 @@ export function MessagingSetupPanel() {
                     <div>
                       <p className="text-sm font-medium text-foreground">
                         {botTokenRejected
-                          ? "Slack rejected the bot token"
+                          ? t("messaging.slackBotToken.rejectedTitle")
                           : enabled
                             ? "Messages are flowing"
                             : configured
@@ -550,10 +558,11 @@ export function MessagingSetupPanel() {
                       {botTokenRejected ? (
                         <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
                           {botTokenError
-                            ? `Slack answered ${botTokenError}. `
+                            ? `${t("messaging.slackBotToken.rejectedReason", {
+                                code: botTokenError,
+                              })} `
                             : null}
-                          Reinstall the Slack app and save its new bot token, or
-                          connect the workspace with Add to Slack.
+                          {t("messaging.slackBotToken.rejectedFix")}
                         </p>
                       ) : null}
                     </div>
@@ -974,15 +983,17 @@ export function MessagingSetupPanel() {
                                     </div>
                                     <StatusPill
                                       tone={
-                                        isConfigured && botTokenRejected
+                                        isConfigured && legacyBotTokenRejected
                                           ? "warning"
                                           : isConfigured
                                             ? "success"
                                             : "neutral"
                                       }
                                       label={
-                                        isConfigured && botTokenRejected
-                                          ? "Rejected"
+                                        isConfigured && legacyBotTokenRejected
+                                          ? t(
+                                              "messaging.slackBotToken.rejected",
+                                            )
                                           : isConfigured
                                             ? "Saved"
                                             : "Not set"

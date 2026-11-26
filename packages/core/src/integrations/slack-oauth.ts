@@ -8,13 +8,6 @@ export const SLACK_AUTHORIZE_URL = "https://slack.com/oauth/v2/authorize";
 export const SLACK_TOKEN_URL = "https://slack.com/api/oauth.v2.access";
 export const SLACK_AUTH_TEST_URL = "https://slack.com/api/auth.test";
 
-const SLACK_REJECTED_TOKEN_ERRORS = new Set([
-  "invalid_auth",
-  "token_revoked",
-  "token_expired",
-  "account_inactive",
-]);
-
 export const SLACK_AGENT_BOT_SCOPES = [
   "assistant:write",
   "app_mentions:read",
@@ -222,7 +215,10 @@ export async function testSlackAuth(
       );
       return {
         ok: false,
-        health: SLACK_REJECTED_TOKEN_ERRORS.has(error) ? "revoked" : "degraded",
+        health:
+          error === "invalid_auth" || error === "token_revoked"
+            ? "revoked"
+            : "degraded",
         error,
         checkedAt,
         teamId: null,
