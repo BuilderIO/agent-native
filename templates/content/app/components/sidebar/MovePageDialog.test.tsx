@@ -606,7 +606,7 @@ it.each([
       '[aria-label="sidebar.chooseSpace"]',
     );
     if (!trigger) throw new Error("Missing space selector");
-    expect(trigger.textContent?.trim()).toBe("Space");
+    expect(trigger.textContent.trim()).toBe("Space");
 
     await act(async () =>
       trigger.dispatchEvent(
@@ -629,7 +629,7 @@ it.each([
       document.querySelector("[data-move-space-warning]")?.textContent,
     ).toContain(warning);
     const confirm = [...document.querySelectorAll<HTMLElement>("button")].find(
-      (button) => button.textContent?.trim() === "sidebar.movePage",
+      (button) => button.textContent.trim() === "sidebar.movePage",
     );
     if (!confirm) throw new Error("Missing move confirmation");
     await act(async () => confirm.click());

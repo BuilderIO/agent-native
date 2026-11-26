@@ -285,14 +285,16 @@ describe("sidebar document permission menus", () => {
       const menuItems = Array.from(
         document.querySelectorAll<HTMLElement>("[role=menuitem]"),
       );
-      expect(menuItems.map((item) => item.textContent?.trim())).toEqual([
+      expect(menuItems.map((item) => item.textContent.trim())).toEqual([
         "Page",
         "Collection",
       ]);
+      const chosen = menuItems.find(
+        (item) => item.textContent.trim() === choice,
+      );
+      if (!chosen) throw new Error(`Missing ${choice} menu item`);
       await act(async () => {
-        menuItems
-          .find((item) => item.textContent?.trim() === choice)
-          ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+        chosen.dispatchEvent(new MouseEvent("click", { bubbles: true }));
         await Promise.resolve();
       });
 
@@ -318,10 +320,12 @@ describe("sidebar document permission menus", () => {
     );
 
     const menuItems = await openActions(container);
+    const deleteItem = menuItems.find(
+      (item) => item.textContent.trim() === "Delete",
+    );
+    if (!deleteItem) throw new Error("Missing Delete menu item");
     await act(async () => {
-      menuItems
-        .find((item) => item.textContent.trim() === "Delete")
-        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      deleteItem.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       await Promise.resolve();
     });
 

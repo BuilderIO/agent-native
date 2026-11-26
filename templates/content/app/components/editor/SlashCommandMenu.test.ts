@@ -170,7 +170,7 @@ async function pressEnter() {
 function buttonNamed(name: string, scope: ParentNode = document.body) {
   const button = Array.from(
     scope.querySelectorAll<HTMLButtonElement>("button"),
-  ).find((candidate) => candidate.textContent?.trim().startsWith(name));
+  ).find((candidate) => candidate.textContent.trim().startsWith(name));
   if (!button) throw new Error(`No button named "${name}"`);
   return button;
 }
@@ -182,12 +182,10 @@ function menuItem(title: string) {
 }
 
 async function waitFor(done: () => boolean) {
-  for (let wait = 0; wait < 100 && !done(); wait += 1) {
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
-  }
-  if (!done()) throw new Error("Timed out waiting.");
+  await vi.waitFor(async () => {
+    await act(async () => Promise.resolve());
+    if (!done()) throw new Error("Timed out waiting.");
+  });
 }
 
 describe("failed slash creation cleanup", () => {
@@ -308,7 +306,7 @@ describe("generate command affordances", () => {
       extensions: [StarterKit],
       content: "<p></p>",
     });
-    (editor.storage as any).markdown = { getMarkdown: () => "" };
+    Object.assign(editor.storage, { markdown: { getMarkdown: () => "" } });
 
     try {
       await act(async () => {
@@ -347,14 +345,14 @@ describe("generate command affordances", () => {
           }),
         );
       });
-      let composer: HTMLElement | null = null;
-      for (let wait = 0; wait < 50 && !composer; wait += 1) {
-        await act(async () => {
-          await new Promise((resolve) => setTimeout(resolve, 10));
-        });
-        composer = document.body.querySelector("[data-prompt-composer]");
-      }
-      if (!composer) throw new Error("The Generate popover did not open.");
+      const composer = await vi.waitFor(async () => {
+        await act(async () => Promise.resolve());
+        const opened = document.body.querySelector<HTMLElement>(
+          "[data-prompt-composer]",
+        );
+        if (!opened) throw new Error("The Generate popover did not open.");
+        return opened;
+      });
       expect(composer.closest('[role="dialog"]')).not.toBeNull();
 
       act(() => composer.click());
@@ -534,7 +532,8 @@ describe("slash command menu trigger", () => {
       await pressEnter();
       await act(async () => Promise.resolve());
 
-      expect(editor.getJSON().content?.[0]?.type).toBe("codeBlock");
+      const [first] = editor.getJSON().content;
+      expect(first).toMatchObject({ type: "codeBlock" });
       expect(onDraftCommitted).toHaveBeenCalledOnce();
       expect(toastError).toHaveBeenCalledTimes(toasts);
     },
