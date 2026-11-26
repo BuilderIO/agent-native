@@ -2636,6 +2636,20 @@ jobs:
           scripts/guard-no-unscoped-queries.test.ts
           scripts/guard-no-heavy-dashboard-list-reads.test.ts
 
+      - name: Restore fast-guards Rust binary cache
+        id: fast-guards-cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: tools/fast-guards/target/release/fast-guards
+          key: fast-guards-${{ runner.os }}-${{ hashFiles('tools/fast-guards/Cargo.toml', 'tools/fast-guards/Cargo.lock', 'tools/fast-guards/src/**') }}
+
+      - name: Build fast-guards Rust binary
+        if: steps.fast-guards-cache.outputs.cache-hit != 'true'
+        run: cargo build --release --manifest-path tools/fast-guards/Cargo.toml
+
+      - name: Test fast-guards parity
+        run: node --import tsx --test scripts/fast-guards.test.ts
+
       - name: Run security guards
         env:
           GITHUB_BASE_REF: ${{ github.base_ref }}

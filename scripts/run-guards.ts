@@ -5,6 +5,30 @@ import path from "node:path";
 
 import { resultStatus, summarizeGuardRun } from "./lib/guard-run-summary";
 
+const FAST_GUARDS_SUPPORTED = new Set<GuardName>([
+  "guard:agent-native-brand",
+  "guard:no-secret-literals",
+  "guard:no-core-client-barrel-imports",
+]);
+
+type FastGuardReport = {
+  name: GuardName;
+  passed: boolean;
+  elapsed_ms: number;
+  summary: string;
+  violations: string[];
+};
+
+function resolveFastGuardsBinary(): string | null {
+  const ext = process.platform === "win32" ? ".exe" : "";
+  const candidate = path.resolve(
+    process.cwd(),
+    "tools/fast-guards/target/release",
+    `fast-guards${ext}`,
+  );
+  return fs.existsSync(candidate) ? candidate : null;
+}
+
 const SHELL_META_RE = /[|&;<>()$`'"]/;
 
 const rootScripts: Record<string, string> = (() => {
@@ -247,11 +271,27 @@ console.error(summary.message);
 process.exit(summary.exitCode);
 
 async function runAll(concurrency: number): Promise<GuardResult[]> {
-  const queue = [...selectedGuards];
+  const fastBin = resolveFastGuardsBinary();
+  const fastBatch = fastBin
+    ? selectedGuards.filter((g) => FAST_GUARDS_SUPPORTED.has(g))
+    : [];
+  const fastSet = new Set<GuardName>(fastBatch);
+  const queue = selectedGuards.filter((g) => !fastSet.has(g));
   const results: GuardResult[] = [];
 
-  await Promise.all(
-    Array.from({ length: concurrency }, async () => {
+  const fastPromise =
+    fastBin && fastBatch.length > 0
+      ? runFastGuardsBatch(fastBin, fastBatch).then((batchResults) => {
+          for (const result of batchResults) {
+            results.push(result);
+            printResult(result);
+          }
+        })
+      : Promise.resolve();
+
+  await Promise.all([
+    fastPromise,
+    ...Array.from({ length: concurrency }, async () => {
       for (;;) {
         const guard = queue.shift();
         if (!guard) return;
@@ -260,9 +300,98 @@ async function runAll(concurrency: number): Promise<GuardResult[]> {
         printResult(result);
       }
     }),
-  );
+  ]);
 
   return results;
+}
+
+function runFastGuardsBatch(
+  binPath: string,
+  batch: GuardName[],
+): Promise<GuardResult[]> {
+  const startedAt = Date.now();
+  const child = spawn(
+    binPath,
+    ["--root", process.cwd(), "--guards", batch.join(","), "--json"],
+    {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  running.add(child);
+  const stdoutChunks: string[] = [];
+  const stderrChunks: string[] = [];
+  child.stdout.on("data", (chunk: Buffer) =>
+    stdoutChunks.push(chunk.toString()),
+  );
+  child.stderr.on("data", (chunk: Buffer) =>
+    stderrChunks.push(chunk.toString()),
+  );
+
+  return new Promise((resolve) => {
+    child.on("error", (error) => {
+      stderrChunks.push(`[fast-guards] Failed to start: ${error.message}\n`);
+    });
+    child.on("close", (code, signal) => {
+      running.delete(child);
+      const elapsedMs = Date.now() - startedAt;
+      const rawOut = stdoutChunks.join("").trim();
+      const rawErr = stderrChunks.join("");
+      if (rawOut.length > 0 && (code === 0 || code === 1)) {
+        try {
+          const parsed = JSON.parse(rawOut) as FastGuardReport[];
+          const byName = new Map(parsed.map((item) => [item.name, item]));
+          const mapped = batch.map((name): GuardResult => {
+            const report = byName.get(name);
+            if (!report) {
+              return {
+                name,
+                code: 2,
+                signal: null,
+                elapsedMs,
+                output: `[fast-guards] Missing report for ${name}\n${rawErr}`,
+              };
+            }
+            const lines = [report.summary];
+            for (const violation of report.violations) {
+              lines.push(`  - ${violation}`);
+            }
+            return {
+              name,
+              code: report.passed ? 0 : 1,
+              signal: null,
+              elapsedMs: report.elapsed_ms,
+              output: `${lines.join("\n")}\n`,
+            };
+          });
+          resolve(mapped);
+          return;
+        } catch (parseError) {
+          resolve(
+            batch.map((name) => ({
+              name,
+              code: 2,
+              signal,
+              elapsedMs,
+              output: `[fast-guards] Invalid JSON output: ${parseError instanceof Error ? parseError.message : String(parseError)}\n${rawErr}`,
+            })),
+          );
+          return;
+        }
+      }
+      resolve(
+        batch.map((name) => ({
+          name,
+          code: code ?? 2,
+          signal,
+          elapsedMs,
+          output:
+            rawErr || rawOut || `[fast-guards] exited with code ${code}\n`,
+        })),
+      );
+    });
+  });
 }
 
 function runGuard(name: GuardName): Promise<GuardResult> {
