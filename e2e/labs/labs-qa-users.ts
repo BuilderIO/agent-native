@@ -269,11 +269,7 @@ async function action(
   return call(jar, "POST", base, body ?? {});
 }
 
-async function uiAction(
-  jar: Jar,
-  name: string,
-  body: Record<string, unknown>,
-) {
+async function uiAction(jar: Jar, name: string, body: Record<string, unknown>) {
   const base = `${origin}/${probeApp}/_agent-native`;
   const minted = await call(jar, "GET", `${base}/ui-capability`);
   if (minted.status !== 200) return minted;

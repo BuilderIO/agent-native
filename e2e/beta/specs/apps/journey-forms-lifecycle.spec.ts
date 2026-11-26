@@ -57,12 +57,15 @@ async function purgeFromApp(page: Page, id: string) {
           text: `ui-capability: ${await minted.text()}`,
         };
       }
-      const response = await fetch(`${base}/_agent-native/actions/delete-form`, {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { ...headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ id, purge: true }),
-      });
+      const response = await fetch(
+        `${base}/_agent-native/actions/delete-form`,
+        {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ id, purge: true }),
+        },
+      );
       return { status: response.status, text: await response.text() };
     },
     { base: origin, id, headers: ACTION_HEADERS },
