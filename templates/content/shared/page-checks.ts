@@ -535,7 +535,7 @@ function placeOf(
 ): PageCheckPlace {
   const nodes = blocks.map((block) => block.node);
   const text = docToNfm({ type: "doc", content: nodes });
-  const first = blocks.at(0);
+  const first = blocks.length > 0 ? blocks[0] : undefined;
   return {
     key,
     path: first?.path ?? "0",

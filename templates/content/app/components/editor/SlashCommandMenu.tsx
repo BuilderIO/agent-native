@@ -1660,8 +1660,9 @@ export function SlashCommandMenu({
       } else if (e.key === "Enter") {
         e.preventDefault();
         e.stopPropagation();
-        const command = filteredCommands.at(activeIndex);
-        if (command) void executeCommand(command);
+        if (activeIndex < filteredCommands.length) {
+          void executeCommand(filteredCommands[activeIndex]);
+        }
       } else if (e.key === "Escape") {
         e.stopPropagation();
         setIsOpen(false);

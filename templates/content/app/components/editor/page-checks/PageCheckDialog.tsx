@@ -190,8 +190,8 @@ function PageCheckForm({
             onChange={(event) => {
               const value = event.currentTarget.value;
               if (value.startsWith("section:")) {
-                const section = sections.at(Number(value.slice(8)));
-                if (section) setScope(section);
+                const index = Number(value.slice(8));
+                if (index < sections.length) setScope(sections[index]);
               } else {
                 setScope({ kind: value } as PageCheckScope);
               }
@@ -350,8 +350,7 @@ function tryPart(
     evaluatePageCheckPart(part, place),
   );
   const misses = results.filter((result) => result.finding === "not_fine");
-  const firstMiss = misses.at(0);
-  if (!firstMiss) return { miss: false, result: t("pageChecks.fine") };
+  if (misses.length === 0) return { miss: false, result: t("pageChecks.fine") };
   return {
     miss: true,
     result: each
@@ -359,6 +358,6 @@ function tryPart(
           missing: misses.length,
           total: results.length,
         })
-      : pageCheckMissText(t, [part], [firstMiss]),
+      : pageCheckMissText(t, [part], [misses[0]]),
   };
 }

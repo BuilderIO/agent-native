@@ -29,9 +29,13 @@ export function pageCheckMissText(
 ): string {
   return results
     .flatMap((result, index) => {
-      const part = parts.at(index);
-      if (!part || result.finding !== "not_fine" || result.count === undefined)
+      if (
+        index >= parts.length ||
+        result.finding !== "not_fine" ||
+        result.count === undefined
+      )
         return [];
+      const part = parts[index];
       const count = t(`pageChecks.${part.unit}`, { count: result.count });
       const distance = pageCheckCountDistance(part, result.count);
       return [

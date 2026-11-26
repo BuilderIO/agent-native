@@ -644,7 +644,7 @@ describe("slash command menu trigger", () => {
       await act(async () => Promise.resolve());
 
       expect(onAddCheck).toHaveBeenCalledOnce();
-      expect(editor.getJSON().content.at(0)?.type).toBe("paragraph");
+      expect(editor.getJSON().content[0]).toMatchObject({ type: "paragraph" });
     } finally {
       await act(async () => root.unmount());
       editor.destroy();
