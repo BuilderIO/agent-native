@@ -46,6 +46,7 @@ export default defineAction({
     promptSearch: z.string().optional(),
     expiresInSeconds: z.coerce.number().min(60).max(86400).default(1800),
   }),
+  mcpTool: false,
   run: async (args) => {
     const scope = await assertOrgAdmin();
     const db = getDb();

@@ -13,7 +13,10 @@ import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { getUserSetting } from "@agent-native/core/settings";
 import { splitAgentChatContextFromMessage } from "@agent-native/core/shared";
 
-import { DESIGN_OUTPUT_ACTIONS } from "../../shared/generation-output-receipt.js";
+import {
+  DESIGN_OUTPUT_ACTIONS,
+  isAssetsImageTool,
+} from "../../shared/generation-output-receipt.js";
 import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "../../shared/mutation-turn.js";
 import {
   isRepromptSelectionMessage,
@@ -263,6 +266,7 @@ function hasSuccessfulMutation(
     if (result.isError) return false;
 
     const name = normalizeToolName(result.name);
+    if (isAssetsImageTool(name)) return true;
     if (!DESIGN_MUTATION_ACTIONS.has(name)) return false;
 
     const parsed = parseResult(String(result.content ?? ""));

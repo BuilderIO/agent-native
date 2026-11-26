@@ -29,5 +29,6 @@ export default defineAction({
     settings: generationPresetSettingsSchema.optional(),
     sortOrder: z.coerce.number().optional(),
   }),
+  mcpTool: "search",
   run: async (args) => updateTemplate.run(args),
 });

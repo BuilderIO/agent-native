@@ -24,6 +24,7 @@ export default defineAction({
     collectionId: z.string().optional(),
     paletteSize: z.coerce.number().int().min(3).max(12).default(6),
   }),
+  mcpTool: "search",
   run: async ({ libraryId, collectionId, paletteSize }) => {
     await assertCanApprove(libraryId, "Saving a style analysis");
     const db = getDb();

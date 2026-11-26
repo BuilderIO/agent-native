@@ -1,6 +1,9 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useT } from "@agent-native/core/client/i18n";
-import type { DragHandleMenuRequest } from "@agent-native/toolkit/editor";
+import {
+  type DragHandleMenuRequest,
+  isListItem,
+} from "@agent-native/toolkit/editor";
 import { docToNfm, longestRun } from "@shared/nfm";
 import {
   IconCheck,
@@ -21,6 +24,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 
 import {
   DropdownMenu,
@@ -34,7 +38,6 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
@@ -43,6 +46,7 @@ import { cn } from "@/lib/utils";
 
 import {
   blockActionLocks,
+  blockColorTarget,
   blockCommentRange,
   canTurnInto,
   currentTurnIntoTarget,
@@ -52,7 +56,17 @@ import {
   type TurnIntoTarget,
 } from "./block-actions";
 import {
+  BLOCK_MENU_GAP,
+  BLOCK_MENU_HEIGHT,
+  BLOCK_MENU_PADDING,
+  pageLeftOf,
+  placeBlockMenu,
+  type BlockMenuPlacement,
+  type Box,
+} from "./block-menu-placement";
+import {
   blockMenuEntry,
+  blockMenuTitle,
   type BlockAt,
   type BlockMenuSwitch,
 } from "./block-menu-registry";
@@ -66,7 +80,7 @@ import {
 } from "./ColorSubmenu";
 import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
 import { takesBlockColor } from "./extensions/NotionFidelity";
-import { instantCloseMenuClass } from "./menu-classes";
+import { instantCloseMenuClass, menuSearchInputClass } from "./menu-classes";
 import { MenuSwitchItem } from "./MenuSwitchItem";
 import { useMoveBlock } from "./MoveBlockDialog";
 
@@ -182,6 +196,51 @@ type BlockMenuSection =
 
 type SheetView = "menu" | "turn-into" | "color";
 
+interface BlockMenuLayout {
+  placement: BlockMenuPlacement;
+  wrapper: HTMLElement | null;
+  tint: Box;
+}
+
+const boxStyle = (box: Box) => ({
+  height: box.height,
+  left: box.left,
+  top: box.top,
+  width: box.width,
+});
+
+function measureBlockMenu(
+  request: DragHandleMenuRequest,
+  menuHeight: number,
+): BlockMenuLayout {
+  const block = request.getBlock();
+  const dom = block ? request.view.nodeDOM(block.pos) : null;
+  const blockRect =
+    dom instanceof HTMLElement
+      ? dom.getBoundingClientRect()
+      : request.anchorRect;
+  const wrapper = request.view.dom.closest<HTMLElement>(
+    ".visual-editor-wrapper",
+  );
+  const origin = wrapper?.getBoundingClientRect() ?? { top: 0, left: 0 };
+  return {
+    placement: placeBlockMenu({
+      grip: request.anchorRect,
+      block: blockRect,
+      pageLeft: pageLeftOf(request.view.dom),
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      menuHeight,
+    }),
+    wrapper,
+    tint: {
+      top: blockRect.top - origin.top - 2,
+      left: blockRect.left - origin.left - 4,
+      width: blockRect.width + 8,
+      height: blockRect.height + 4,
+    },
+  };
+}
+
 export function BlockActionsMenu({
   editor,
   suggesting,
@@ -208,7 +267,10 @@ export function BlockActionsMenu({
   const [sheet, setSheet] = useState(false);
   const [sheetView, setSheetView] = useState<SheetView>("menu");
   const [query, setQuery] = useState("");
-  const [, setRevision] = useState(0);
+  const [revision, setRevision] = useState(0);
+  const [layout, setLayout] = useState<BlockMenuLayout | null>(null);
+  const [zone, setZone] = useState<HTMLSpanElement | null>(null);
+  const menuHeightRef = useRef(BLOCK_MENU_HEIGHT);
   const escapedRef = useRef(false);
   const editorFocusRef = useRef(false);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -275,6 +337,22 @@ export function BlockActionsMenu({
     };
   }, [editor, request]);
 
+  useLayoutEffect(() => {
+    setLayout(
+      request ? measureBlockMenu(request, menuHeightRef.current) : null,
+    );
+  }, [request, revision]);
+
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    if (!request || !layout || sheet || !content) return;
+    const height =
+      content.scrollHeight + content.offsetHeight - content.clientHeight;
+    if (Math.abs(height - menuHeightRef.current) < 1) return;
+    menuHeightRef.current = height;
+    setLayout(measureBlockMenu(request, height));
+  }, [layout, request, sheet]);
+
   // Changing the sheet's view takes away the row that had focus. A view
   // focuses its chosen option, and Back focuses the row that opened the view.
   useLayoutEffect(() => {
@@ -291,18 +369,24 @@ export function BlockActionsMenu({
     (next ?? content).focus({ preventScroll: true });
   }, [sheetView]);
 
-  if (!request) return moveBlock.dialog;
+  if (!request || !layout) return moveBlock.dialog;
 
   const block = request.getBlock();
   const node = block?.node ?? null;
+  const parent = block
+    ? request.view.state.doc.resolve(block.pos).parent
+    : null;
   const entry = node ? blockMenuEntry(node) : null;
-  const title =
-    node && entry ? entry.title(node, t) : t("editor.blockMenu.block");
+  const title = node
+    ? blockMenuTitle(node, parent, t)
+    : t("editor.blockMenu.block");
   const turnTargets =
     !suggesting && node && canTurnInto(node) ? TURN_INTO_TARGETS : [];
-  const currentTarget = node ? currentTurnIntoTarget(node) : null;
-  const colorable = !suggesting && !!node && takesBlockColor(node.type.name);
-  const color: string | null = node?.attrs.color ?? null;
+  const currentTarget = node ? currentTurnIntoTarget(node, parent) : null;
+  const colorBlock = block ? blockColorTarget(block.node, block.pos) : null;
+  const colorable =
+    !suggesting && !!colorBlock && takesBlockColor(colorBlock.node.type.name);
+  const color: string | null = colorBlock?.node.attrs.color ?? null;
   const commentRange =
     onComment && block ? blockCommentRange(block.node, block.pos) : null;
   const locks = block
@@ -379,7 +463,7 @@ export function BlockActionsMenu({
     const tr = request.view.state.tr;
     if (!edit(tr, latest.pos)) return;
     const restyled = tr.doc.nodeAt(latest.pos);
-    if (restyled) {
+    if (restyled && !tr.selectionSet) {
       tr.setSelection(
         TextSelection.near(
           tr.doc.resolve(latest.pos + restyled.nodeSize - 1),
@@ -398,8 +482,18 @@ export function BlockActionsMenu({
 
   const setColor = (next: string | null) =>
     restyleBlock((tr, pos) => {
-      if (!takesBlockColor(tr.doc.nodeAt(pos)?.type.name ?? "")) return false;
-      tr.setNodeAttribute(pos, "color", next);
+      const current = tr.doc.nodeAt(pos);
+      const target = current && blockColorTarget(current, pos);
+      if (!target || !takesBlockColor(target.node.type.name)) return false;
+      tr.setNodeAttribute(target.pos, "color", next);
+      if (target.pos !== pos) {
+        tr.setSelection(
+          TextSelection.near(
+            tr.doc.resolve(target.pos + target.node.nodeSize - 1),
+            -1,
+          ),
+        );
+      }
       return true;
     });
 
@@ -429,11 +523,14 @@ export function BlockActionsMenu({
     const latest = request.getBlock();
     if (!latest) return;
     const { doc } = request.view.state;
-    let index = 0;
-    doc.forEach((_child, offset, childIndex) => {
-      if (offset === latest.pos) index = childIndex;
+    const $block = doc.resolve(latest.pos);
+    const index = $block.index(0);
+    const list = isListItem(latest.node) ? $block.parent : null;
+    const json = latest.node.toJSON();
+    const nfm = docToNfm({
+      type: "doc",
+      content: [list ? { type: list.type.name, content: [json] } : json],
     });
-    const nfm = docToNfm({ type: "doc", content: [latest.node.toJSON()] });
     const excerpt = nfm.slice(0, ASK_AGENT_MAX_CHARS);
     const fence = "~".repeat(Math.max(3, longestRun(excerpt, /~+/g) + 1));
     sendToAgentChat({
@@ -442,12 +539,15 @@ export function BlockActionsMenu({
       message: " ",
       submit: false,
       openSidebar: true,
-      contextLabel: blockMenuEntry(latest.node).title(latest.node, t),
+      contextLabel: blockMenuTitle(latest.node, list, t),
       context: [
         "The user attached this block from the Content page they are editing, and will say what they want done with it.",
         documentId ? `Document ID: ${documentId}` : null,
         `Block type: ${latest.node.type.name}`,
         `Block position: ${index + 1} of ${doc.childCount} top-level blocks`,
+        list
+          ? `List item: ${$block.index() + 1} of ${list.childCount}${$block.depth > 1 ? ", nested in another item" : ""}`
+          : null,
         "",
         excerpt === nfm
           ? "The block as NFM:"
@@ -715,6 +815,17 @@ export function BlockActionsMenu({
       </p>
     ));
 
+  const tint = layout.wrapper
+    ? createPortal(
+        <div
+          aria-hidden="true"
+          className="content-block-menu-tint"
+          style={boxStyle(layout.tint)}
+        />,
+        layout.wrapper,
+      )
+    : null;
+
   const noResults =
     sections.length === 0 ? (
       <p className="px-2 py-1.5 text-xs text-muted-foreground">
@@ -944,6 +1055,7 @@ export function BlockActionsMenu({
         }}
         open
       >
+        {tint}
         <SheetContent
           ref={contentRef}
           aria-describedby={undefined}
@@ -994,10 +1106,10 @@ export function BlockActionsMenu({
               <div className="border-b border-border/70 p-2">
                 <div className="flex min-h-11 items-center gap-2 px-3">
                   <IconSearch className="size-4 shrink-0 text-muted-foreground" />
-                  <Input
+                  <input
                     ref={searchInput}
                     aria-label={t("editor.blockMenu.search")}
-                    className="h-8 border-0 bg-transparent px-0 text-base shadow-none focus-visible:ring-0"
+                    className={cn(menuSearchInputClass, "h-8 text-base")}
                     onChange={(event) => setQuery(event.target.value)}
                     onKeyDown={handleSearchKeyDown}
                     placeholder={t("editor.blockMenu.search")}
@@ -1072,7 +1184,8 @@ export function BlockActionsMenu({
                     "max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto",
                     instantCloseMenuClass,
                   )}
-                  collisionPadding={8}
+                  collisionBoundary={zone}
+                  collisionPadding={BLOCK_MENU_PADDING}
                   onEscapeKeyDown={markEscaped}
                 >
                   {turnTargets.map(turnIntoItem)}
@@ -1081,6 +1194,7 @@ export function BlockActionsMenu({
             ) : null}
             {section.color ? (
               <ColorSubmenu
+                collisionBoundary={zone}
                 value={color}
                 onChange={setColor}
                 onEscapeKeyDown={markEscaped}
@@ -1121,7 +1235,7 @@ export function BlockActionsMenu({
     }
   };
 
-  const { anchorRect } = request;
+  const { placement } = layout;
 
   return (
     <DropdownMenu
@@ -1132,16 +1246,18 @@ export function BlockActionsMenu({
       }}
       open
     >
+      {tint}
+      <span
+        ref={setZone}
+        aria-hidden="true"
+        className="pointer-events-none invisible fixed"
+        style={boxStyle(placement.zone)}
+      />
       <DropdownMenuTrigger asChild>
         <span
           aria-hidden="true"
           className="pointer-events-none fixed"
-          style={{
-            height: anchorRect.height,
-            left: anchorRect.left,
-            top: anchorRect.top,
-            width: anchorRect.width,
-          }}
+          style={boxStyle(placement.anchor)}
         />
       </DropdownMenuTrigger>
       <DropdownMenuContent
@@ -1152,7 +1268,8 @@ export function BlockActionsMenu({
           "max-h-[var(--radix-dropdown-menu-content-available-height)] w-60 overflow-y-auto",
           instantCloseMenuClass,
         )}
-        collisionPadding={8}
+        collisionBoundary={zone}
+        collisionPadding={BLOCK_MENU_PADDING}
         // The actions focus the editor themselves, and a click elsewhere keeps
         // the focus it gave. This runs a tick after the menu goes, so focus
         // taken in between stays too.
@@ -1167,23 +1284,22 @@ export function BlockActionsMenu({
         }}
         onEscapeKeyDown={markEscaped}
         onKeyDown={handleMenuKeyDown}
-        side="right"
-        sideOffset={6}
+        side={placement.side}
+        sideOffset={BLOCK_MENU_GAP}
       >
-        <div className="border-b border-border/70 p-1">
-          <div className="flex h-8 items-center gap-2 px-2">
-            <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
-            <Input
-              ref={searchInput}
-              aria-label={t("editor.blockMenu.search")}
-              className="h-6 border-0 bg-transparent px-0 text-sm shadow-none focus-visible:ring-0"
-              onChange={(event) => setQuery(event.target.value)}
-              onKeyDown={handleSearchKeyDown}
-              placeholder={t("editor.blockMenu.search")}
-              value={query}
-            />
-          </div>
+        <div className="flex h-8 items-center gap-1.5 px-1.5">
+          <IconSearch className="size-3.5 shrink-0 text-muted-foreground" />
+          <input
+            ref={searchInput}
+            aria-label={t("editor.blockMenu.search")}
+            className={menuSearchInputClass}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={handleSearchKeyDown}
+            placeholder={t("editor.blockMenu.search")}
+            value={query}
+          />
         </div>
+        <DropdownMenuSeparator />
         <DropdownMenuLabel>{title}</DropdownMenuLabel>
         {sections.map((section, index) => (
           <Fragment key={section.key}>

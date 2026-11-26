@@ -737,7 +737,7 @@ test("UI: enter review mode, pin a comment on the document, and see it persist",
     .click({ force: true });
 
   await expect(
-    page.getByText("Add a comment...", { exact: false }),
+    page.getByRole("textbox", { name: "Add a comment..." }),
     "clicking the document in comment mode should open the inline composer",
   ).toBeVisible({ timeout: 10000 });
 

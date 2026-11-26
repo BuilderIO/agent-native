@@ -306,6 +306,11 @@ import {
   resolveCanonicalUserForLegacySession,
   type CanonicalLegacyUser,
 } from "./legacy-auth-migration.js";
+import {
+  isLocalDevIdentityEmail,
+  LEGACY_LOCAL_DEV_IDENTITY_EMAIL,
+  LOCAL_DEV_IDENTITY_EMAIL,
+} from "./local-dev-identity.js";
 import * as loopback from "./loopback.js";
 import {
   encodeMagicLinkSignupAttribution,
@@ -4875,7 +4880,7 @@ function createAuthGuardFn(
         if (
           !workspaceOrgId &&
           !hasExplicitPersonalOrgScope(event) &&
-          isSyntheticAutoDevIdentity(session.email) &&
+          isLocalDevIdentityEmail(session.email) &&
           isLoopbackDevRequest(event) &&
           getAppConfig().access.orgCreation === "open" &&
           getAppConfig().access.autoCreateDefaultOrg
@@ -4971,7 +4976,7 @@ function createAuthGuardFn(
   };
 }
 
-const AUTO_DEV_ACCOUNT_EMAIL = "dev@local.test";
+const AUTO_DEV_ACCOUNT_EMAIL = LOCAL_DEV_IDENTITY_EMAIL;
 // No fixed password: maybeAutoCreateDevSession mints a random one per DB and
 // never emits it to logs.
 
@@ -4979,7 +4984,7 @@ const AUTO_DEV_ACCOUNT_EMAIL = "dev@local.test";
 // legacy address as the dev account too, so the "any real users?" check
 // below doesn't mistake the old auto-account for a real signup (which would
 // permanently disable auto-create) and the post-logout guard still fires.
-const LEGACY_AUTO_DEV_ACCOUNT_EMAIL = "dev@local";
+const LEGACY_AUTO_DEV_ACCOUNT_EMAIL = LEGACY_LOCAL_DEV_IDENTITY_EMAIL;
 
 let authDisabledWarningLogged = false;
 
@@ -5136,13 +5141,6 @@ function isLoopbackDevRequest(event: H3Event): boolean {
     isLocalDevAuthAllowed(event) &&
     isLoopbackRequest(event) &&
     !isHostedPreviewRequest(event)
-  );
-}
-
-/** The framework's own throwaway local account, never a real signup. */
-function isSyntheticAutoDevIdentity(email: string | undefined): boolean {
-  return (
-    email === AUTO_DEV_ACCOUNT_EMAIL || email === LEGACY_AUTO_DEV_ACCOUNT_EMAIL
   );
 }
 

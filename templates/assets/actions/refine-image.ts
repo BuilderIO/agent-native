@@ -42,6 +42,7 @@ export default defineAction({
     contextModeOverride: z.literal("off").optional(),
   }),
   parallelSafe: true,
+  mcpTool: "search",
   run: async (
     {
       assetId,
