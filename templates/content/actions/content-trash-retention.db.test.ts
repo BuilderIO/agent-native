@@ -7,7 +7,12 @@ import {
   hasRecurringSweepHandler,
   runWithRequestContext,
 } from "@agent-native/core/server";
-import { and, eq } from "drizzle-orm";
+import {
+  deleteSetting,
+  getSetting,
+  putSetting,
+} from "@agent-native/core/settings";
+import { and, desc, eq, isNotNull } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
@@ -178,6 +183,52 @@ async function addToCollection(
     });
 }
 
+async function addCollectionProperty(
+  collectionDocumentId: string,
+  memberDocumentId: string,
+) {
+  await getDb()
+    .insert(schema.documentPropertyDefinitions)
+    .values({
+      id: `${collectionDocumentId}-status`,
+      ownerEmail: OWNER,
+      orgId: ORG_ID,
+      databaseId: `${collectionDocumentId}-database`,
+      name: "Status",
+      type: "text",
+    });
+  await getDb()
+    .insert(schema.documentPropertyValues)
+    .values({
+      id: `${memberDocumentId}-status`,
+      ownerEmail: OWNER,
+      documentId: memberDocumentId,
+      propertyId: `${collectionDocumentId}-status`,
+      valueJson: JSON.stringify("Draft"),
+    });
+}
+
+async function startFromEmptyTrash() {
+  const db = getDb();
+  await db.delete(schema.contentTrashPurgePlanItems);
+  await db.delete(schema.contentTrashPurgePlans);
+  await db.delete(schema.contentTrashPurgeOperations);
+  await db.delete(schema.documentPropertyValues);
+  await db.delete(schema.documentPropertyDefinitions);
+  await db.delete(schema.contentDatabaseItems);
+  await db.delete(schema.contentDatabases);
+  await db
+    .delete(schema.documents)
+    .where(isNotNull(schema.documents.trashedAt));
+}
+
+async function workOnce(operationId: string) {
+  return runWithRequestContext(
+    { userEmail: purge.CONTENT_TRASH_RETENTION_ACTOR },
+    () => purge.processContentTrashPurge(operationId),
+  );
+}
+
 const holdDispatch = (deferred: string[]) => async (operationId: string) => {
   deferred.push(operationId);
 };
@@ -204,6 +255,7 @@ function run(
     maxUnits?: number;
     scanPageSize?: number;
     scanPages?: number;
+    protectionBudget?: number;
     idleRearmMs?: number;
   } = {},
 ) {
@@ -605,6 +657,7 @@ describe("Content Trash automatic deletion", () => {
       startedAfter: null,
       stoppedAt: cursor("starve-collection-1", at(80, 1)),
       exhausted: false,
+      bound: cursor("starve-eligible", at(85)),
     });
 
     const second = await run(at(121, HOUR), window);
@@ -614,6 +667,7 @@ describe("Content Trash automatic deletion", () => {
       startedAfter: cursor("starve-collection-1", at(80, 1)),
       stoppedAt: cursor("starve-collection-3", at(80, 3)),
       exhausted: false,
+      bound: cursor("starve-eligible", at(85)),
     });
     expect(await page("starve-eligible")).toBeDefined();
 
@@ -625,6 +679,7 @@ describe("Content Trash automatic deletion", () => {
       startedAfter: cursor("starve-collection-3", at(80, 3)),
       stoppedAt: cursor("starve-eligible", at(85)),
       exhausted: true,
+      bound: cursor("starve-eligible", at(85)),
     });
   });
 
@@ -695,6 +750,342 @@ describe("Content Trash automatic deletion", () => {
       units: 1,
     });
     expect(await page("rearm-root")).toBeUndefined();
+  });
+
+  it("keeps a collection whose member became protected after it was planned", async () => {
+    await startFromEmptyTrash();
+    await insertPage("flip-collection", { trashedAt: at(150) });
+    await insertPage("flip-member", { trashedAt: at(165) });
+    await addToCollection("flip-collection", "flip-member");
+    await addCollectionProperty("flip-collection", "flip-member");
+    const deferred: string[] = [];
+    await expect(
+      run(at(180, HOUR), { dispatch: holdDispatch(deferred) }),
+    ).resolves.toMatchObject({ outcome: "started", units: 1, documents: 1 });
+    await getDb()
+      .update(schema.documents)
+      .set({ sourceMode: "linked" })
+      .where(eq(schema.documents.id, "flip-member"));
+    const [operationId] = deferred;
+    if (!operationId) throw new Error("automatic deletion was not dispatched");
+
+    await drain(operationId);
+
+    expect(await page("flip-collection")).toBeDefined();
+    expect(await page("flip-member")).toBeDefined();
+    expect(
+      await getDb()
+        .select({ id: schema.contentDatabaseItems.id })
+        .from(schema.contentDatabaseItems)
+        .where(
+          eq(
+            schema.contentDatabaseItems.databaseId,
+            "flip-collection-database",
+          ),
+        ),
+    ).toEqual([{ id: "flip-collection-membership" }]);
+    expect(
+      await getDb()
+        .select({ id: schema.documentPropertyDefinitions.id })
+        .from(schema.documentPropertyDefinitions)
+        .where(
+          eq(
+            schema.documentPropertyDefinitions.databaseId,
+            "flip-collection-database",
+          ),
+        ),
+    ).toEqual([{ id: "flip-collection-status" }]);
+    expect(
+      await getDb()
+        .select({ valueJson: schema.documentPropertyValues.valueJson })
+        .from(schema.documentPropertyValues)
+        .where(eq(schema.documentPropertyValues.documentId, "flip-member")),
+    ).toEqual([{ valueJson: JSON.stringify("Draft") }]);
+    expect(await operation(operationId)).toMatchObject({
+      status: "conflicted",
+      deletedCount: 0,
+    });
+    expect(
+      (await planItems(operationId)).map(
+        (item: { outcome: string; outcomeDetail: string | null }) => [
+          item.outcome,
+          item.outcomeDetail,
+        ],
+      ),
+    ).toEqual([
+      ["conflicted", "Protected from automatic deletion after it was planned"],
+    ]);
+    expect((await planFilters(operationId)).unitFailures).toBeUndefined();
+  });
+
+  it("skips Trash roots with too many related Pages to check and deletes the root behind them", async () => {
+    await startFromEmptyTrash();
+    const chain = [1, 2, 3, 4, 5, 6].map((index) => `chain-${index}`);
+    for (const [index, id] of chain.entries()) {
+      await insertPage(id, {
+        trashedAt: at(151, index),
+        parentId: index > 0 ? chain[index - 1] : null,
+      });
+    }
+    await addToCollection("chain-6", "chain-1");
+    await insertPage("budget-eligible", { trashedAt: at(152) });
+
+    await expect(
+      run(at(182, HOUR), { protectionBudget: 3 }),
+    ).resolves.toMatchObject({ outcome: "started", units: 1, documents: 1 });
+
+    expect(await page("budget-eligible")).toBeUndefined();
+    for (const id of chain) expect(await page(id)).toBeDefined();
+    const [plan] = await getDb()
+      .select({ filtersJson: schema.contentTrashPurgePlans.filtersJson })
+      .from(schema.contentTrashPurgePlans);
+    const filters = purge.parseContentTrashRetentionPlanFilters(
+      plan.filtersJson,
+    );
+    expect(filters.skipped).toEqual(
+      Object.fromEntries(chain.map((id) => [id, "too-many-related-pages"])),
+    );
+    expect(filters.scan).toMatchObject({
+      stoppedAt: { id: "budget-eligible" },
+      exhausted: true,
+    });
+  });
+
+  it("reaches a root made eligible behind the scan while new roots keep arriving ahead of it", async () => {
+    await startFromEmptyTrash();
+    await insertPage("tail-behind", {
+      trashedAt: at(153),
+      sourceMode: "linked",
+    });
+    await insertPage("tail-a1", { trashedAt: at(154) });
+    await insertPage("tail-a2", { trashedAt: at(154, 1) });
+    await insertPage("tail-a3", { trashedAt: at(154, 2) });
+    const window = { scanPageSize: 2, scanPages: 1 };
+    const cursor = (id: string, trashedAt: Date) => ({
+      trashedAt: trashedAt.toISOString(),
+      id,
+    });
+
+    const first = await run(at(184, HOUR), window);
+    if (first.outcome !== "started") throw new Error("expected a run");
+    expect(await page("tail-a1")).toBeUndefined();
+    expect(await page("tail-a2")).toBeUndefined();
+    expect((await planFilters(first.operationId)).scan).toEqual({
+      startedAfter: null,
+      stoppedAt: cursor("tail-a2", at(154, 1)),
+      exhausted: false,
+      bound: cursor("tail-a3", at(154, 2)),
+    });
+    await getDb()
+      .update(schema.documents)
+      .set({ sourceMode: null })
+      .where(eq(schema.documents.id, "tail-behind"));
+    await insertPage("tail-b1", { trashedAt: at(155) });
+    await insertPage("tail-b2", { trashedAt: at(155, 1) });
+
+    const second = await run(at(185, HOUR), window);
+    if (second.outcome !== "started") throw new Error("expected a run");
+    expect(await page("tail-a3")).toBeUndefined();
+    expect(await page("tail-behind")).toBeDefined();
+    expect((await planFilters(second.operationId)).scan).toEqual({
+      startedAfter: cursor("tail-a2", at(154, 1)),
+      stoppedAt: cursor("tail-a3", at(154, 2)),
+      exhausted: true,
+      bound: cursor("tail-a3", at(154, 2)),
+    });
+    await insertPage("tail-c1", { trashedAt: at(156) });
+    await insertPage("tail-c2", { trashedAt: at(156, 1) });
+
+    const third = await run(at(186, HOUR), window);
+    if (third.outcome !== "started") throw new Error("expected a run");
+    expect(await page("tail-behind")).toBeUndefined();
+    expect((await planFilters(third.operationId)).scan).toEqual({
+      startedAfter: null,
+      stoppedAt: cursor("tail-b1", at(155)),
+      exhausted: false,
+      bound: cursor("tail-c2", at(156, 1)),
+    });
+  });
+
+  it("starts a new scan when the latest plan has no scan position", async () => {
+    const [latest] = await getDb()
+      .select({
+        id: schema.contentTrashPurgePlans.id,
+        filtersJson: schema.contentTrashPurgePlans.filtersJson,
+      })
+      .from(schema.contentTrashPurgePlans)
+      .where(
+        eq(
+          schema.contentTrashPurgePlans.actorEmail,
+          purge.CONTENT_TRASH_RETENTION_ACTOR,
+        ),
+      )
+      .orderBy(desc(schema.contentTrashPurgePlans.createdAt))
+      .limit(1);
+    const { cutoff, startedAt } = purge.parseContentTrashRetentionPlanFilters(
+      latest.filtersJson,
+    );
+    await getDb()
+      .update(schema.contentTrashPurgePlans)
+      .set({ filtersJson: JSON.stringify({ cutoff, startedAt }) })
+      .where(eq(schema.contentTrashPurgePlans.id, latest.id));
+
+    const next = await run(at(187, HOUR), { scanPageSize: 2, scanPages: 1 });
+    if (next.outcome !== "started") throw new Error("expected a run");
+    expect((await planFilters(next.operationId)).scan).toMatchObject({
+      startedAfter: null,
+      stoppedAt: { id: "tail-c1" },
+    });
+    expect(await page("tail-b2")).toBeUndefined();
+    expect(await page("tail-c1")).toBeUndefined();
+  });
+
+  it("keeps its attempts when the database reports a serialization failure", async () => {
+    await startFromEmptyTrash();
+    await insertPage("transient-root", { trashedAt: at(160) });
+    const exec = getDbExec();
+    await exec.execute(`
+      CREATE FUNCTION retention_transient_delete() RETURNS trigger
+      LANGUAGE plpgsql AS $failure$
+      BEGIN
+        IF OLD.id = 'transient-root' THEN
+          RAISE EXCEPTION 'injected serialization failure' USING ERRCODE = '40001';
+        END IF;
+        RETURN OLD;
+      END;
+      $failure$;
+    `);
+    await exec.execute(`
+      CREATE TRIGGER retention_transient_delete
+      BEFORE DELETE ON documents
+      FOR EACH ROW EXECUTE FUNCTION retention_transient_delete();
+    `);
+    const deferred: string[] = [];
+    let operationId: string | undefined;
+    try {
+      await expect(
+        run(at(190, HOUR), { dispatch: holdDispatch(deferred) }),
+      ).resolves.toMatchObject({ outcome: "started", units: 1 });
+      [operationId] = deferred;
+      if (!operationId)
+        throw new Error("automatic deletion was not dispatched");
+
+      await expect(workOnce(operationId)).resolves.toMatchObject({
+        accepted: true,
+        status: "retryable",
+      });
+      expect(await operation(operationId)).toMatchObject({
+        status: "retryable",
+        deletedCount: 0,
+      });
+      expect((await operation(operationId)).lastError).toMatch(
+        /^Failed query: delete from "documents"/,
+      );
+      expect((await planFilters(operationId)).unitFailures).toBeUndefined();
+      expect(
+        (await planItems(operationId)).map(
+          (item: { outcome: string }) => item.outcome,
+        ),
+      ).toEqual(["pending"]);
+    } finally {
+      await exec.execute(
+        "DROP TRIGGER retention_transient_delete ON documents",
+      );
+      await exec.execute("DROP FUNCTION retention_transient_delete()");
+    }
+
+    if (!operationId) throw new Error("automatic deletion was not dispatched");
+    await drain(operationId);
+    expect(await page("transient-root")).toBeUndefined();
+    expect(await operation(operationId)).toMatchObject({ status: "succeeded" });
+  });
+
+  it("deletes nothing when an operation planned before a re-arm reaches the worker", async () => {
+    await startFromEmptyTrash();
+    await insertPage("stale-generation-root", { trashedAt: at(160) });
+    const deferred: string[] = [];
+    await expect(
+      run(at(192, HOUR), { dispatch: holdDispatch(deferred) }),
+    ).resolves.toMatchObject({ outcome: "started", units: 1 });
+    const [staleId] = deferred;
+    if (!staleId) throw new Error("automatic deletion was not dispatched");
+    await putSetting(retention.CONTENT_TRASH_RETENTION_SETTING_KEY, {
+      startedAt: at(192, 2 * HOUR).toISOString(),
+      lastSweepAt: at(192, 2 * HOUR).toISOString(),
+    });
+
+    await expect(workOnce(staleId)).resolves.toMatchObject({
+      accepted: true,
+      status: "failed",
+    });
+
+    expect(await page("stale-generation-root")).toBeDefined();
+    expect(await operation(staleId)).toMatchObject({
+      status: "failed",
+      lastError: purge.CONTENT_TRASH_RETENTION_REARM_REASON,
+      deletedCount: 0,
+      leaseToken: null,
+    });
+    expect(
+      (await planItems(staleId)).map(
+        (item: { outcome: string }) => item.outcome,
+      ),
+    ).toEqual(["cancelled"]);
+  });
+
+  it("starts the 30 days again when its setting is missing and an operation survives", async () => {
+    await startFromEmptyTrash();
+    await insertPage("orphan-root", { trashedAt: at(190) });
+    const deferred: string[] = [];
+    await expect(
+      run(at(223, HOUR), { dispatch: holdDispatch(deferred) }),
+    ).resolves.toMatchObject({ outcome: "started", units: 1 });
+    const [orphanId] = deferred;
+    if (!orphanId) throw new Error("automatic deletion was not dispatched");
+    await deleteSetting(retention.CONTENT_TRASH_RETENTION_SETTING_KEY);
+
+    await expect(run(at(223, 2 * HOUR))).resolves.toEqual({
+      outcome: "rearmed",
+      deletionsBeginAt: at(253, 2 * HOUR).toISOString(),
+      cancelledOperationIds: [orphanId],
+    });
+    expect(await operation(orphanId)).toMatchObject({
+      status: "failed",
+      lastError: purge.CONTENT_TRASH_RETENTION_REARM_REASON,
+    });
+    await expect(workOnce(orphanId)).resolves.toMatchObject({
+      accepted: false,
+    });
+    expect(await page("orphan-root")).toBeDefined();
+    await expect(retention.readContentTrashRetention()).resolves.toMatchObject({
+      startedAt: at(223, 2 * HOUR).toISOString(),
+    });
+  });
+
+  it("re-arms on its recorded last run, which can be up to an hour older than the real one", async () => {
+    const idleRearmMs = retention.CONTENT_TRASH_RETENTION_IDLE_REARM_MS;
+    const recordedRun = at(223, 2 * HOUR);
+    const realLastRun = new Date(
+      recordedRun.getTime() +
+        retention.CONTENT_TRASH_RETENTION_HEARTBEAT_INTERVAL_MS -
+        60_000,
+    );
+    await expect(run(realLastRun, { idleRearmMs })).resolves.toMatchObject({
+      outcome: "done-today",
+    });
+    await expect(
+      getSetting(retention.CONTENT_TRASH_RETENTION_SETTING_KEY),
+    ).resolves.toEqual({
+      startedAt: recordedRun.toISOString(),
+      lastSweepAt: recordedRun.toISOString(),
+    });
+    const now = new Date(recordedRun.getTime() + idleRearmMs + 60_000);
+    expect(now.getTime() - realLastRun.getTime()).toBeLessThan(idleRearmMs);
+
+    await expect(run(now, { idleRearmMs })).resolves.toMatchObject({
+      outcome: "rearmed",
+      deletionsBeginAt: new Date(now.getTime() + 30 * DAY).toISOString(),
+    });
   });
 
   it("registers the daily sweep", () => {

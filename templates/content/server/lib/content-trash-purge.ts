@@ -22,6 +22,7 @@ import {
   isNull,
   lt,
   or,
+  type SQL,
   sql,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
@@ -29,11 +30,17 @@ import { z } from "zod";
 
 import { cleanupBuilderPrivatePayload } from "../../actions/_builder-cms-blob-custody.js";
 import { contentTrashPredicates } from "../../actions/_content-trash-query.js";
+import { transactionRows } from "../../actions/_user-setting-transaction.js";
 import {
   deleteTrashedDocumentSubtree,
   PermanentDeleteScopeChangedError,
 } from "../../actions/delete-document.js";
 import { getDb, schema } from "../db/index.js";
+import {
+  CONTENT_TRASH_PROTECTION_GROUP_BUDGET,
+  inspectTrashGroupProtection,
+  type TrashGroupProtection,
+} from "./content-trash-protection.js";
 import { firstRow } from "./first-row.js";
 
 export const CONTENT_TRASH_PURGE_TOKEN_KIND = "content-trash-purge-operation";
@@ -43,8 +50,21 @@ export const CONTENT_TRASH_RETENTION_ACTOR =
   "content-trash-retention@system.invalid";
 export const CONTENT_TRASH_RETENTION_PLAN_MODE = "retention";
 export const CONTENT_TRASH_RETENTION_UNIT_ATTEMPTS = 3;
+export const CONTENT_TRASH_RETENTION_SETTING_KEY = "content-trash-retention";
+export const CONTENT_TRASH_RETENTION_REARM_REASON =
+  "Cancelled because automatic deletion started its 30 days again";
+const CONTENT_TRASH_RETENTION_LOCK = "content-trash-retention:publish";
 const BATCH_UNITS = 5;
 const LEASE_MS = 2 * 60 * 1000;
+const TRANSIENT_SQLSTATES = new Set(["40001", "40P01", "57014"]);
+const PROTECTION_CONFLICT_DETAIL: Record<
+  Exclude<TrashGroupProtection, "clear">,
+  string
+> = {
+  protected: "Protected from automatic deletion after it was planned",
+  "over-budget": "Too many related Pages to check before automatic deletion",
+  "out-of-time": "Ran out of time checking related Pages before deletion",
+};
 
 const retentionScanCursorSchema = z.object({
   trashedAt: z.string(),
@@ -53,11 +73,15 @@ const retentionScanCursorSchema = z.object({
 const retentionPlanFiltersSchema = z.looseObject({
   cutoff: z.string(),
   startedAt: z.string(),
-  scan: z.object({
-    startedAfter: retentionScanCursorSchema.nullable(),
-    stoppedAt: retentionScanCursorSchema.nullable(),
-    exhausted: z.boolean(),
-  }),
+  scan: z
+    .object({
+      startedAfter: retentionScanCursorSchema.nullable(),
+      stoppedAt: retentionScanCursorSchema.nullable(),
+      exhausted: z.boolean(),
+      bound: retentionScanCursorSchema.nullable().optional(),
+    })
+    .optional(),
+  skipped: z.record(z.string(), z.string()).optional(),
   unitFailures: z.record(z.string(), z.number().int().positive()).optional(),
 });
 export type ContentTrashRetentionPlanFilters = z.infer<
@@ -68,6 +92,64 @@ export function parseContentTrashRetentionPlanFilters(
   filtersJson: string,
 ): ContentTrashRetentionPlanFilters {
   return retentionPlanFiltersSchema.parse(JSON.parse(filtersJson));
+}
+
+const retentionSettingSchema = z.object({
+  startedAt: z.iso.datetime(),
+  lastSweepAt: z.iso.datetime().optional(),
+});
+export type ContentTrashRetentionSetting = z.infer<
+  typeof retentionSettingSchema
+>;
+
+export function parseContentTrashRetentionSetting(
+  value: unknown,
+): ContentTrashRetentionSetting {
+  const parsed = retentionSettingSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new Error(
+      `Setting "${CONTENT_TRASH_RETENTION_SETTING_KEY}" is invalid; automatic Trash deletion will not run until it is repaired: ${parsed.error.message}`,
+    );
+  }
+  return parsed.data;
+}
+
+type RetentionStateTransaction = { execute(query: SQL): Promise<unknown> };
+
+export async function lockContentTrashRetentionState(
+  tx: RetentionStateTransaction,
+  mode: "exclusive" | "shared",
+): Promise<ContentTrashRetentionSetting | null> {
+  await tx.execute(
+    mode === "exclusive"
+      ? sql`SELECT pg_advisory_xact_lock(hashtextextended(${CONTENT_TRASH_RETENTION_LOCK}, 0::bigint))`
+      : sql`SELECT pg_advisory_xact_lock_shared(hashtextextended(${CONTENT_TRASH_RETENTION_LOCK}, 0::bigint))`,
+  );
+  const row = firstRow(
+    transactionRows(
+      await tx.execute(
+        mode === "exclusive"
+          ? sql`SELECT value FROM public.settings WHERE key = ${CONTENT_TRASH_RETENTION_SETTING_KEY} FOR UPDATE`
+          : sql`SELECT value FROM public.settings WHERE key = ${CONTENT_TRASH_RETENTION_SETTING_KEY} FOR SHARE`,
+      ),
+    ),
+  );
+  return row
+    ? parseContentTrashRetentionSetting(JSON.parse(String(row.value)))
+    : null;
+}
+
+function isTransientDatabaseError(error: unknown): boolean {
+  let cause = error;
+  for (let depth = 0; depth < 5; depth += 1) {
+    if (!cause || typeof cause !== "object") return false;
+    const code = (cause as { code?: unknown }).code;
+    if (typeof code === "string" && /^[0-9A-Z]{5}$/.test(code)) {
+      return TRANSIENT_SQLSTATES.has(code) || code.startsWith("08");
+    }
+    cause = (cause as { cause?: unknown }).cause;
+  }
+  return false;
 }
 
 class ContentTrashPurgeLeaseLostError extends Error {}
@@ -95,6 +177,24 @@ async function recordRetentionUnitFailure(
   return db.transaction(async (tx) => {
     const transactionDb = tx as unknown as ReturnType<typeof getDb>;
     const now = new Date().toISOString();
+    const receipt = firstRow(
+      await transactionDb
+        .update(schema.contentTrashPurgeOperations)
+        .set({ lastError: options.failure.message, updatedAt: now })
+        .where(
+          and(
+            eq(schema.contentTrashPurgeOperations.id, options.operationId),
+            eq(
+              schema.contentTrashPurgeOperations.leaseToken,
+              options.leaseToken,
+            ),
+            eq(schema.contentTrashPurgeOperations.status, "running"),
+            gt(schema.contentTrashPurgeOperations.leaseExpiresAt, now),
+          ),
+        )
+        .returning({ id: schema.contentTrashPurgeOperations.id }),
+    );
+    if (!receipt) throw new ContentTrashPurgeLeaseLostError();
     const plan = firstRow(
       await transactionDb
         .select({ filtersJson: schema.contentTrashPurgePlans.filtersJson })
@@ -133,23 +233,6 @@ async function recordRetentionUnitFailure(
           ),
         );
     }
-    const receipt = firstRow(
-      await transactionDb
-        .update(schema.contentTrashPurgeOperations)
-        .set({ lastError: options.failure.message, updatedAt: now })
-        .where(
-          and(
-            eq(schema.contentTrashPurgeOperations.id, options.operationId),
-            eq(
-              schema.contentTrashPurgeOperations.leaseToken,
-              options.leaseToken,
-            ),
-            eq(schema.contentTrashPurgeOperations.status, "running"),
-          ),
-        )
-        .returning({ id: schema.contentTrashPurgeOperations.id }),
-    );
-    if (!receipt) throw new ContentTrashPurgeLeaseLostError();
     return exhausted;
   });
 }
@@ -286,7 +369,10 @@ export async function processContentTrashPurge(operationId: string) {
 
   try {
     const planRows = await db
-      .select({ mode: schema.contentTrashPurgePlans.mode })
+      .select({
+        mode: schema.contentTrashPurgePlans.mode,
+        filtersJson: schema.contentTrashPurgePlans.filtersJson,
+      })
       .from(schema.contentTrashPurgePlans)
       .where(eq(schema.contentTrashPurgePlans.id, claimed.planId))
       .limit(1);
@@ -294,6 +380,9 @@ export async function processContentTrashPurge(operationId: string) {
     const retention =
       claimed.actorEmail === CONTENT_TRASH_RETENTION_ACTOR &&
       plan?.mode === CONTENT_TRASH_RETENTION_PLAN_MODE;
+    const retentionGeneration = retention
+      ? parseContentTrashRetentionPlanFilters(plan.filtersJson).startedAt
+      : null;
     const permittedDocumentIds = (
       transactionDb: ReturnType<typeof getDb>,
       items: Array<{ documentId: string; ownerEmail: string }>,
@@ -314,6 +403,10 @@ export async function processContentTrashPurge(operationId: string) {
       const batch = db.transaction(
         async (tx) => {
           const transactionDb = tx as unknown as ReturnType<typeof getDb>;
+          const current =
+            retentionGeneration === null
+              ? null
+              : await lockContentTrashRetentionState(transactionDb, "shared");
           const transactionNow = new Date().toISOString();
           const renewedUntil = new Date(Date.now() + LEASE_MS).toISOString();
           const [leaseReceipt] = await transactionDb
@@ -332,6 +425,36 @@ export async function processContentTrashPurge(operationId: string) {
             )
             .returning({ id: schema.contentTrashPurgeOperations.id });
           if (!leaseReceipt) throw new ContentTrashPurgeLeaseLostError();
+          if (
+            retentionGeneration !== null &&
+            current?.startedAt !== retentionGeneration
+          ) {
+            await transactionDb
+              .update(schema.contentTrashPurgeOperations)
+              .set({
+                status: "failed",
+                lastError: CONTENT_TRASH_RETENTION_REARM_REASON,
+                leaseToken: null,
+                leaseExpiresAt: null,
+                completedAt: transactionNow,
+                updatedAt: transactionNow,
+              })
+              .where(eq(schema.contentTrashPurgeOperations.id, operationId));
+            await transactionDb
+              .update(schema.contentTrashPurgePlanItems)
+              .set({
+                outcome: "cancelled",
+                outcomeDetail: CONTENT_TRASH_RETENTION_REARM_REASON,
+                completedAt: transactionNow,
+              })
+              .where(
+                and(
+                  eq(schema.contentTrashPurgePlanItems.planId, claimed.planId),
+                  eq(schema.contentTrashPurgePlanItems.outcome, "pending"),
+                ),
+              );
+            return { cancelled: true as const };
+          }
 
           const allPending = await transactionDb
             .select({
@@ -474,26 +597,44 @@ export async function processContentTrashPurge(operationId: string) {
             const frozen = allPending.filter(
               (item) => item.unitId === unit.unitId,
             );
-            let deleted: string[];
+            let deleted: string[] = [];
+            let conflict: string | null = null;
             try {
-              deleted = await deleteTrashedDocumentSubtree(
-                transactionDb,
-                unit.rootDocumentId,
-                unit.ownerEmail,
-                deletedBlobReferences,
-                frozen,
-                frozen[0]?.expectedScopeFingerprint,
-              );
+              const protection = retention
+                ? await inspectTrashGroupProtection(
+                    transactionDb,
+                    frozen.map(({ documentId }) => documentId),
+                    {
+                      maxGroups: CONTENT_TRASH_PROTECTION_GROUP_BUDGET,
+                      deadlineAt: Date.now() + LEASE_MS / 2,
+                    },
+                  )
+                : "clear";
+              if (protection === "clear") {
+                deleted = await deleteTrashedDocumentSubtree(
+                  transactionDb,
+                  unit.rootDocumentId,
+                  unit.ownerEmail,
+                  deletedBlobReferences,
+                  frozen,
+                  frozen[0]?.expectedScopeFingerprint,
+                );
+              } else {
+                conflict = PROTECTION_CONFLICT_DETAIL[protection];
+              }
             } catch (error) {
               if (!(error instanceof PermanentDeleteScopeChangedError))
-                throw retention
+                throw retention && !isTransientDatabaseError(error)
                   ? new RetentionUnitFailedError(unit.unitId, error)
                   : error;
+              conflict = "Trash scope changed after confirmation";
+            }
+            if (conflict !== null) {
               await transactionDb
                 .update(schema.contentTrashPurgePlanItems)
                 .set({
                   outcome: "conflicted",
-                  outcomeDetail: "Trash scope changed after confirmation",
+                  outcomeDetail: conflict,
                   completedAt: new Date().toISOString(),
                 })
                 .where(
@@ -540,6 +681,7 @@ export async function processContentTrashPurge(operationId: string) {
             if (!countReceipt) throw new ContentTrashPurgeLeaseLostError();
           }
           return {
+            cancelled: false as const,
             blockedDelta,
             deletedDelta,
             deletedBlobReferences,
@@ -561,6 +703,9 @@ export async function processContentTrashPurge(operationId: string) {
         });
         if (!exhausted) throw error;
         continue;
+      }
+      if (batchResult.cancelled) {
+        return { accepted: true, continued: false, status: "failed" };
       }
       claimed.blockedCount += batchResult.blockedDelta;
       claimed.deletedCount += batchResult.deletedDelta;

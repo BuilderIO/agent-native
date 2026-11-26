@@ -1,6 +1,10 @@
 import { randomBytes, randomUUID } from "node:crypto";
 
-import { getSettingEntry, mutateSetting } from "@agent-native/core/settings";
+import {
+  ensureSettingsStore,
+  getSettingEntry,
+  getSettingsEmitter,
+} from "@agent-native/core/settings";
 import {
   and,
   asc,
@@ -10,6 +14,7 @@ import {
   gt,
   inArray,
   isNotNull,
+  lt,
   lte,
   ne,
   notExists,
@@ -17,7 +22,6 @@ import {
   sql,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import { z } from "zod";
 
 import { inspectPermanentDeleteRelationships } from "../../actions/delete-document.js";
 import {
@@ -28,33 +32,44 @@ import {
 } from "../../shared/content-trash-retention.js";
 import { getDb, schema } from "../db/index.js";
 import {
+  CONTENT_TRASH_PROTECTION_GROUP_BUDGET,
+  inspectTrashGroupProtection,
+} from "./content-trash-protection.js";
+import {
   CONTENT_TRASH_RETENTION_ACTOR,
   CONTENT_TRASH_RETENTION_PLAN_MODE,
+  CONTENT_TRASH_RETENTION_REARM_REASON,
+  CONTENT_TRASH_RETENTION_SETTING_KEY,
   type ContentTrashRetentionPlanFilters,
+  type ContentTrashRetentionSetting,
   dispatchContentTrashPurge,
   hashTrashScopeToken,
+  lockContentTrashRetentionState,
   parseContentTrashRetentionPlanFilters,
+  parseContentTrashRetentionSetting,
 } from "./content-trash-purge.js";
 import { firstRow } from "./first-row.js";
 
+export { CONTENT_TRASH_RETENTION_SETTING_KEY };
 export const CONTENT_TRASH_RETENTION_SWEEP_ID = "content-trash-retention";
-export const CONTENT_TRASH_RETENTION_SETTING_KEY = "content-trash-retention";
 export const CONTENT_TRASH_RETENTION_IDLE_REARM_MS = 3 * 24 * 60 * 60 * 1000;
+export const CONTENT_TRASH_RETENTION_HEARTBEAT_INTERVAL_MS = 60 * 60 * 1000;
 const MAX_UNITS = 200;
 const STALLED_MS = 2 * 60 * 1000;
-const HEARTBEAT_INTERVAL_MS = 60 * 60 * 1000;
 const ROOT_PAGE_SIZE = 100;
 const MAX_ROOT_PAGES = 10;
 const PLANNING_RESERVE_MS = 15_000;
 const PLAN_ITEM_INSERT_CHUNK = 500;
-const PUBLISH_LOCK = "content-trash-retention:publish";
 const UNFINISHED_STATUSES = ["queued", "running", "retryable"];
+const OVER_BUDGET_REASON = "too-many-related-pages";
 
 type Db = ReturnType<typeof getDb>;
 
-type RetentionScan = ContentTrashRetentionPlanFilters["scan"];
+type RetentionScan = NonNullable<ContentTrashRetentionPlanFilters["scan"]>;
 
 type ScanCursor = NonNullable<RetentionScan["stoppedAt"]>;
+
+type ScanPass = { startAfter: ScanCursor | null; bound: ScanCursor };
 
 type RetentionItem = {
   id: string;
@@ -99,27 +114,25 @@ class RetentionRunInProgressError extends Error {
   }
 }
 
-const retentionSettingSchema = z.object({
-  startedAt: z.iso.datetime(),
-  lastSweepAt: z.iso.datetime().optional(),
-});
+type SweepDecision =
+  | { kind: "fresh"; startedAt: string }
+  | {
+      kind: "first-start" | "rearm" | "heartbeat";
+      next: ContentTrashRetentionSetting;
+    };
 
-function parseRetentionSetting(value: unknown) {
-  const parsed = retentionSettingSchema.safeParse(value);
-  if (!parsed.success) {
-    throw new Error(
-      `Setting "${CONTENT_TRASH_RETENTION_SETTING_KEY}" is invalid; automatic Trash deletion will not run until it is repaired: ${parsed.error.message}`,
-    );
-  }
-  return parsed.data;
-}
+type SweepRecord = {
+  startedAt: string;
+  rearmed: boolean;
+  cancelledOperationIds: string[];
+};
 
 export async function readContentTrashRetention(): Promise<ContentTrashRetention> {
   const entry = await getSettingEntry(CONTENT_TRASH_RETENTION_SETTING_KEY, {
     bypassCache: true,
   });
   const startedAt = entry.found
-    ? parseRetentionSetting(entry.value).startedAt
+    ? parseContentTrashRetentionSetting(entry.value).startedAt
     : null;
   return {
     retentionDays: CONTENT_TRASH_RETENTION_DAYS,
@@ -130,88 +143,153 @@ export async function readContentTrashRetention(): Promise<ContentTrashRetention
   };
 }
 
-async function recordContentTrashRetentionSweep(
+function decideRetentionSweep(
+  current: ContentTrashRetentionSetting | null,
   now: Date,
   idleRearmMs: number,
-) {
+): SweepDecision {
   const nowIso = now.toISOString();
-  let rearmed = false;
-  const stored = await mutateSetting(
-    CONTENT_TRASH_RETENTION_SETTING_KEY,
-    (current) => {
-      rearmed = false;
-      if (current === null) return { startedAt: nowIso, lastSweepAt: nowIso };
-      const setting = parseRetentionSetting(current);
-      const sinceLastSweep = setting.lastSweepAt
-        ? now.getTime() - Date.parse(setting.lastSweepAt)
-        : null;
-      if (sinceLastSweep !== null && sinceLastSweep > idleRearmMs) {
-        rearmed = setting.startedAt < nowIso;
-        return {
-          startedAt: rearmed ? nowIso : setting.startedAt,
-          lastSweepAt: nowIso,
-        };
-      }
-      if (sinceLastSweep !== null && sinceLastSweep < HEARTBEAT_INTERVAL_MS) {
-        return current;
-      }
-      return { startedAt: setting.startedAt, lastSweepAt: nowIso };
-    },
-    { validateStoredValue: (value) => void parseRetentionSetting(value) },
-  );
-  return { startedAt: parseRetentionSetting(stored).startedAt, rearmed };
+  if (!current) {
+    return {
+      kind: "first-start",
+      next: { startedAt: nowIso, lastSweepAt: nowIso },
+    };
+  }
+  const sinceRecordedSweep = current.lastSweepAt
+    ? now.getTime() - Date.parse(current.lastSweepAt)
+    : null;
+  if (
+    sinceRecordedSweep !== null &&
+    sinceRecordedSweep > idleRearmMs &&
+    current.startedAt < nowIso
+  ) {
+    return { kind: "rearm", next: { startedAt: nowIso, lastSweepAt: nowIso } };
+  }
+  if (
+    sinceRecordedSweep !== null &&
+    sinceRecordedSweep < CONTENT_TRASH_RETENTION_HEARTBEAT_INTERVAL_MS
+  ) {
+    return { kind: "fresh", startedAt: current.startedAt };
+  }
+  return {
+    kind: "heartbeat",
+    next: { startedAt: current.startedAt, lastSweepAt: nowIso },
+  };
 }
 
-async function cancelUnfinishedRetentionOperations(db: Db) {
-  const reason =
-    "Cancelled because automatic deletion had stopped running; its 30 days started again";
-  return db.transaction(async (tx) => {
-    await tx.execute(
-      sql`SELECT pg_advisory_xact_lock(hashtextextended(${PUBLISH_LOCK}, 0::bigint))`,
-    );
-    const now = new Date().toISOString();
-    const cancelled = await tx
-      .update(schema.contentTrashPurgeOperations)
+async function cancelUnfinishedRetentionOperations(transactionDb: Db) {
+  const now = new Date().toISOString();
+  const cancelled = await transactionDb
+    .update(schema.contentTrashPurgeOperations)
+    .set({
+      status: "failed",
+      lastError: CONTENT_TRASH_RETENTION_REARM_REASON,
+      leaseToken: null,
+      leaseExpiresAt: null,
+      completedAt: now,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(
+          schema.contentTrashPurgeOperations.actorEmail,
+          CONTENT_TRASH_RETENTION_ACTOR,
+        ),
+        inArray(schema.contentTrashPurgeOperations.status, UNFINISHED_STATUSES),
+      ),
+    )
+    .returning({
+      id: schema.contentTrashPurgeOperations.id,
+      planId: schema.contentTrashPurgeOperations.planId,
+    });
+  if (cancelled.length > 0) {
+    await transactionDb
+      .update(schema.contentTrashPurgePlanItems)
       .set({
-        status: "failed",
-        lastError: reason,
-        leaseToken: null,
-        leaseExpiresAt: null,
+        outcome: "cancelled",
+        outcomeDetail: CONTENT_TRASH_RETENTION_REARM_REASON,
         completedAt: now,
-        updatedAt: now,
       })
       .where(
         and(
-          eq(
-            schema.contentTrashPurgeOperations.actorEmail,
-            CONTENT_TRASH_RETENTION_ACTOR,
-          ),
           inArray(
-            schema.contentTrashPurgeOperations.status,
-            UNFINISHED_STATUSES,
+            schema.contentTrashPurgePlanItems.planId,
+            cancelled.map(({ planId }) => planId),
           ),
+          eq(schema.contentTrashPurgePlanItems.outcome, "pending"),
         ),
-      )
-      .returning({
-        id: schema.contentTrashPurgeOperations.id,
-        planId: schema.contentTrashPurgeOperations.planId,
-      });
-    if (cancelled.length > 0) {
-      await tx
-        .update(schema.contentTrashPurgePlanItems)
-        .set({ outcome: "cancelled", outcomeDetail: reason, completedAt: now })
-        .where(
-          and(
-            inArray(
-              schema.contentTrashPurgePlanItems.planId,
-              cancelled.map(({ planId }) => planId),
-            ),
-            eq(schema.contentTrashPurgePlanItems.outcome, "pending"),
-          ),
-        );
-    }
-    return cancelled.map(({ id }) => id);
+      );
+  }
+  return cancelled.map(({ id }) => id);
+}
+
+async function recordContentTrashRetentionSweep(
+  db: Db,
+  now: Date,
+  idleRearmMs: number,
+): Promise<SweepRecord> {
+  const entry = await getSettingEntry(CONTENT_TRASH_RETENTION_SETTING_KEY, {
+    bypassCache: true,
   });
+  if (entry.found) {
+    const unlocked = decideRetentionSweep(
+      parseContentTrashRetentionSetting(entry.value),
+      now,
+      idleRearmMs,
+    );
+    if (unlocked.kind === "fresh") {
+      return {
+        startedAt: unlocked.startedAt,
+        rearmed: false,
+        cancelledOperationIds: [],
+      };
+    }
+  }
+  await ensureSettingsStore();
+  const recorded = await db.transaction(async (tx) => {
+    const transactionDb = tx as unknown as Db;
+    const decision = decideRetentionSweep(
+      await lockContentTrashRetentionState(transactionDb, "exclusive"),
+      now,
+      idleRearmMs,
+    );
+    if (decision.kind === "fresh") {
+      return {
+        startedAt: decision.startedAt,
+        rearmed: false,
+        cancelledOperationIds: [],
+        written: false,
+      };
+    }
+    await transactionDb.execute(sql`
+      INSERT INTO public.settings (key, value, updated_at)
+      VALUES (${CONTENT_TRASH_RETENTION_SETTING_KEY}, ${JSON.stringify(decision.next)}, ${Date.now()})
+      ON CONFLICT (key) DO UPDATE
+      SET value = EXCLUDED.value, updated_at = EXCLUDED.updated_at
+    `);
+    const cancelledOperationIds =
+      decision.kind === "heartbeat"
+        ? []
+        : await cancelUnfinishedRetentionOperations(transactionDb);
+    return {
+      startedAt: decision.next.startedAt,
+      rearmed: decision.kind === "rearm" || cancelledOperationIds.length > 0,
+      cancelledOperationIds,
+      written: true,
+    };
+  });
+  if (recorded.written) {
+    getSettingsEmitter().emit("settings", {
+      source: "settings",
+      type: "change",
+      key: CONTENT_TRASH_RETENTION_SETTING_KEY,
+    });
+  }
+  return {
+    startedAt: recorded.startedAt,
+    rearmed: recorded.rearmed,
+    cancelledOperationIds: recorded.cancelledOperationIds,
+  };
 }
 
 function isStalled(
@@ -256,141 +334,41 @@ async function dispatchOrRelease(
   }
 }
 
-async function isProtectedTrashGroup(
-  db: Db,
-  documentIds: string[],
-  visited: Set<string>,
-): Promise<boolean> {
-  for (const id of documentIds) visited.add(id);
-  // guard:allow-unscoped — Empty Trash's blockers, checked for the system across owners before anything is planned.
-  const sourceBacked = firstRow(
-    await db
-      .select({ id: schema.documents.id })
-      .from(schema.documents)
-      .where(
-        and(
-          inArray(schema.documents.id, documentIds),
-          isNotNull(schema.documents.sourceMode),
-        ),
-      )
-      .limit(1),
-  );
-  if (sourceBacked) return true;
-  // guard:allow-unscoped — the collections these Pages host; Empty Trash blocks the same ones.
-  const databases = await db
-    .select({
-      id: schema.contentDatabases.id,
-      systemRole: schema.contentDatabases.systemRole,
-    })
-    .from(schema.contentDatabases)
-    .where(inArray(schema.contentDatabases.documentId, documentIds));
-  if (databases.some((database) => database.systemRole)) return true;
-  const databaseIds = databases.map(({ id }) => id);
-  if (databaseIds.length > 0) {
-    // guard:allow-unscoped — a source-connected collection blocks its whole Trash group, whoever connected it.
-    const source = firstRow(
-      await db
-        .select({ id: schema.contentDatabaseSources.id })
-        .from(schema.contentDatabaseSources)
-        .where(inArray(schema.contentDatabaseSources.databaseId, databaseIds))
-        .limit(1),
-    );
-    if (source) return true;
-  }
-  // guard:allow-unscoped — Pages a blocker reaches this group through: its sub-pages and its collections' members.
-  const dependents = await db
-    .select({
-      id: schema.documents.id,
-      trashRootId: schema.documents.trashRootId,
-      trashedAt: schema.documents.trashedAt,
-    })
-    .from(schema.documents)
-    .where(
-      or(
-        inArray(schema.documents.parentId, documentIds),
-        databaseIds.length > 0
-          ? inArray(
-              schema.documents.id,
-              db
-                .select({ id: schema.contentDatabaseItems.documentId })
-                .from(schema.contentDatabaseItems)
-                .where(
-                  inArray(schema.contentDatabaseItems.databaseId, databaseIds),
-                ),
-            )
-          : undefined,
-      ),
-    );
-  const outside = dependents.filter(({ id }) => !visited.has(id));
-  const liveIds = outside
-    .filter((dependent) => !dependent.trashedAt)
-    .map(({ id }) => id);
-  if (liveIds.length > 0) {
-    // guard:allow-unscoped — a live Page whose collection sits in legacy database Trash; Empty Trash blocks the group above it.
-    const legacy = firstRow(
-      await db
-        .select({ id: schema.contentDatabases.id })
-        .from(schema.contentDatabases)
-        .where(
-          and(
-            inArray(schema.contentDatabases.documentId, liveIds),
-            isNotNull(schema.contentDatabases.deletedAt),
-          ),
-        )
-        .limit(1),
-    );
-    if (legacy) return true;
-  }
-  const groupRoots = new Set(
-    outside
-      .filter((dependent) => dependent.trashedAt)
-      .map((dependent) => dependent.trashRootId ?? dependent.id),
-  );
-  for (const rootId of groupRoots) {
-    // guard:allow-unscoped — the rest of a dependent Page's Trash group, checked with the same blockers.
-    const group = await db
-      .select({ id: schema.documents.id })
-      .from(schema.documents)
-      .where(
-        and(
-          or(
-            eq(schema.documents.trashRootId, rootId),
-            eq(schema.documents.id, rootId),
-          ),
-          isNotNull(schema.documents.trashedAt),
-        ),
-      );
-    const groupIds = group.map(({ id }) => id).filter((id) => !visited.has(id));
-    if (groupIds.length === 0) continue;
-    if (await isProtectedTrashGroup(db, groupIds, visited)) return true;
-  }
-  return false;
-}
-
 async function inspectRetentionUnit(
   db: Db,
   rootId: string,
   items: RetentionItem[],
-  cutoff: string,
-): Promise<RetentionUnit | null> {
+  options: { cutoff: string; maxGroups: number; deadlineAt: number },
+): Promise<
+  | { kind: "unit"; unit: RetentionUnit }
+  | { kind: "blocked" }
+  | { kind: "over-budget" }
+  | { kind: "out-of-time" }
+> {
   const ownerEmail = items[0]?.ownerEmail;
   if (
     !ownerEmail ||
     !items.some((item) => item.id === rootId) ||
     items.some(
-      (item) => item.ownerEmail !== ownerEmail || item.trashedAt > cutoff,
+      (item) =>
+        item.ownerEmail !== ownerEmail || item.trashedAt > options.cutoff,
     )
   ) {
-    return null;
+    return { kind: "blocked" };
   }
   const documentIds = items.map((item) => item.id);
-  if (await isProtectedTrashGroup(db, documentIds, new Set())) return null;
+  const protection = await inspectTrashGroupProtection(db, documentIds, {
+    maxGroups: options.maxGroups,
+    deadlineAt: options.deadlineAt,
+  });
+  if (protection === "protected") return { kind: "blocked" };
+  if (protection !== "clear") return { kind: protection };
   const relationships = await inspectPermanentDeleteRelationships(
     db,
     documentIds,
     ownerEmail,
   );
-  if (relationships.inaccessibleRelationship) return null;
+  if (relationships.inaccessibleRelationship) return { kind: "blocked" };
   const hostedDatabaseIds = new Set(
     relationships.databases.map(({ id }) => id),
   );
@@ -400,21 +378,24 @@ async function inspectRetentionUnit(
     .from(schema.documents)
     .where(inArray(schema.documents.parentId, documentIds));
   return {
-    rootId,
-    ownerEmail,
-    items,
-    fingerprint: relationships.fingerprint,
-    adjacentDocumentIds: new Set([
-      ...items.flatMap((item) => (item.parentId ? [item.parentId] : [])),
-      ...children.map(({ id }) => id),
-      ...relationships.memberships
-        .filter((membership) => hostedDatabaseIds.has(membership.databaseId))
-        .map((membership) => membership.documentId),
-    ]),
+    kind: "unit",
+    unit: {
+      rootId,
+      ownerEmail,
+      items,
+      fingerprint: relationships.fingerprint,
+      adjacentDocumentIds: new Set([
+        ...items.flatMap((item) => (item.parentId ? [item.parentId] : [])),
+        ...children.map(({ id }) => id),
+        ...relationships.memberships
+          .filter((membership) => hostedDatabaseIds.has(membership.databaseId))
+          .map((membership) => membership.documentId),
+      ]),
+    },
   };
 }
 
-async function latestScanStop(db: Db): Promise<ScanCursor | null> {
+async function latestScanPass(db: Db): Promise<ScanPass | null> {
   const plan = firstRow(
     await db
       .select({ filtersJson: schema.contentTrashPurgePlans.filtersJson })
@@ -436,7 +417,8 @@ async function latestScanStop(db: Db): Promise<ScanCursor | null> {
   );
   if (!plan) return null;
   const { scan } = parseContentTrashRetentionPlanFilters(plan.filtersJson);
-  return scan.exhausted ? null : scan.stoppedAt;
+  if (!scan?.bound || scan.exhausted) return null;
+  return { startAfter: scan.stoppedAt, bound: scan.bound };
 }
 
 async function findContentTrashRetentionUnits(
@@ -447,26 +429,114 @@ async function findContentTrashRetentionUnits(
     maxUnits: number;
     pageSize: number;
     maxPages: number;
-    startAfter: ScanCursor | null;
+    maxGroups: number;
+    pass: ScanPass | null;
     signal?: AbortSignal | undefined;
   },
-): Promise<{ units: RetentionUnit[]; scan: RetentionScan }> {
+): Promise<{
+  units: RetentionUnit[];
+  scan: RetentionScan;
+  skipped: Record<string, string>;
+}> {
   const chosen: RetentionUnit[] = [];
   const chosenDocumentIds = new Set<string>();
   const chosenAdjacentIds = new Set<string>();
+  const skipped: Record<string, string> = {};
   const document = schema.documents;
   const member = alias(schema.documents, "retention_member");
   const memberDatabase = alias(
     schema.contentDatabases,
     "retention_member_database",
   );
-  let cursor = options.startAfter;
-  let stoppedAt = options.startAfter;
+  const eligibleRoot = and(
+    isNotNull(document.trashedAt),
+    eq(document.trashRootId, document.id),
+    lte(document.trashedAt, options.cutoff),
+    notExists(
+      db
+        .select({ id: member.id })
+        .from(member)
+        .where(
+          and(
+            eq(member.trashRootId, document.id),
+            isNotNull(member.trashedAt),
+            or(
+              isNotNull(member.sourceMode),
+              gt(member.trashedAt, options.cutoff),
+              ne(member.ownerEmail, document.ownerEmail),
+            ),
+          ),
+        ),
+    ),
+    notExists(
+      db
+        .select({ id: memberDatabase.id })
+        .from(memberDatabase)
+        .innerJoin(member, eq(member.id, memberDatabase.documentId))
+        .where(
+          and(
+            eq(member.trashRootId, document.id),
+            isNotNull(member.trashedAt),
+            or(
+              isNotNull(memberDatabase.systemRole),
+              exists(
+                db
+                  .select({ id: schema.contentDatabaseSources.id })
+                  .from(schema.contentDatabaseSources)
+                  .where(
+                    eq(
+                      schema.contentDatabaseSources.databaseId,
+                      memberDatabase.id,
+                    ),
+                  ),
+              ),
+            ),
+          ),
+        ),
+    ),
+  );
+  const after = (position: ScanCursor) =>
+    or(
+      gt(document.trashedAt, position.trashedAt),
+      and(
+        eq(document.trashedAt, position.trashedAt),
+        gt(document.id, position.id),
+      ),
+    );
+  const atOrBefore = (position: ScanCursor) =>
+    or(
+      lt(document.trashedAt, position.trashedAt),
+      and(
+        eq(document.trashedAt, position.trashedAt),
+        lte(document.id, position.id),
+      ),
+    );
+  const newestEligibleRoot = async (): Promise<ScanCursor | null> => {
+    // guard:allow-unscoped — the newest root this pass will reach, across every space, so roots that become eligible later wait for the next pass.
+    const newest = firstRow(
+      await db
+        .select({ id: document.id, trashedAt: document.trashedAt })
+        .from(document)
+        .where(eligibleRoot)
+        .orderBy(desc(document.trashedAt), desc(document.id))
+        .limit(1),
+    );
+    return newest?.trashedAt
+      ? { trashedAt: newest.trashedAt, id: newest.id }
+      : null;
+  };
+  const startAfter = options.pass?.startAfter ?? null;
+  const bound = options.pass ? options.pass.bound : await newestEligibleRoot();
+  let cursor = startAfter;
+  let stoppedAt = startAfter;
   const result = (exhausted: boolean) => ({
     units: chosen,
-    scan: { startedAfter: options.startAfter, stoppedAt, exhausted },
+    skipped,
+    scan: { startedAfter: startAfter, stoppedAt, exhausted, bound },
   });
-  const outOfTime = () => Date.now() > options.deadlineAt - PLANNING_RESERVE_MS;
+  if (!bound) return result(true);
+  const planningDeadline = options.deadlineAt - PLANNING_RESERVE_MS;
+  const outOfTime = () => Date.now() > planningDeadline;
   for (let page = 0; page < options.maxPages; page += 1) {
     if (outOfTime()) return result(false);
     options.signal?.throwIfAborted();
@@ -476,60 +546,9 @@ async function findContentTrashRetentionUnits(
       .from(document)
       .where(
         and(
-          isNotNull(document.trashedAt),
-          eq(document.trashRootId, document.id),
-          lte(document.trashedAt, options.cutoff),
-          notExists(
-            db
-              .select({ id: member.id })
-              .from(member)
-              .where(
-                and(
-                  eq(member.trashRootId, document.id),
-                  isNotNull(member.trashedAt),
-                  or(
-                    isNotNull(member.sourceMode),
-                    gt(member.trashedAt, options.cutoff),
-                    ne(member.ownerEmail, document.ownerEmail),
-                  ),
-                ),
-              ),
-          ),
-          notExists(
-            db
-              .select({ id: memberDatabase.id })
-              .from(memberDatabase)
-              .innerJoin(member, eq(member.id, memberDatabase.documentId))
-              .where(
-                and(
-                  eq(member.trashRootId, document.id),
-                  isNotNull(member.trashedAt),
-                  or(
-                    isNotNull(memberDatabase.systemRole),
-                    exists(
-                      db
-                        .select({ id: schema.contentDatabaseSources.id })
-                        .from(schema.contentDatabaseSources)
-                        .where(
-                          eq(
-                            schema.contentDatabaseSources.databaseId,
-                            memberDatabase.id,
-                          ),
-                        ),
-                    ),
-                  ),
-                ),
-              ),
-          ),
-          cursor
-            ? or(
-                gt(document.trashedAt, cursor.trashedAt),
-                and(
-                  eq(document.trashedAt, cursor.trashedAt),
-                  gt(document.id, cursor.id),
-                ),
-              )
-            : undefined,
+          eligibleRoot,
+          cursor ? after(cursor) : undefined,
+          atOrBefore(bound),
         ),
       )
       .orderBy(asc(document.trashedAt), asc(document.id))
@@ -570,15 +589,25 @@ async function findContentTrashRetentionUnits(
       }
       options.signal?.throwIfAborted();
       if (!root.trashedAt) continue;
-      stoppedAt = { trashedAt: root.trashedAt, id: root.id };
-      const unit = await inspectRetentionUnit(
+      const inspected = await inspectRetentionUnit(
         db,
         root.id,
         itemsByRoot.get(root.id) ?? [],
-        options.cutoff,
+        {
+          cutoff: options.cutoff,
+          maxGroups: options.maxGroups,
+          deadlineAt: planningDeadline,
+        },
       );
+      if (inspected.kind === "out-of-time") return result(false);
+      stoppedAt = { trashedAt: root.trashedAt, id: root.id };
+      if (inspected.kind === "over-budget") {
+        skipped[root.id] = OVER_BUDGET_REASON;
+        continue;
+      }
+      if (inspected.kind === "blocked") continue;
+      const { unit } = inspected;
       if (
-        !unit ||
         unit.items.some((item) => chosenAdjacentIds.has(item.id)) ||
         [...unit.adjacentDocumentIds].some((id) => chosenDocumentIds.has(id))
       ) {
@@ -588,7 +617,9 @@ async function findContentTrashRetentionUnits(
       for (const item of unit.items) chosenDocumentIds.add(item.id);
       for (const id of unit.adjacentDocumentIds) chosenAdjacentIds.add(id);
     }
-    if (roots.length < options.pageSize) return result(true);
+    if (roots.length < options.pageSize || stoppedAt?.id === bound.id) {
+      return result(true);
+    }
     cursor = stoppedAt;
   }
   return result(false);
@@ -602,6 +633,7 @@ async function startRetentionOperation(
     startedAt: string;
     units: RetentionUnit[];
     scan: RetentionScan;
+    skipped: Record<string, string>;
   },
 ) {
   const planId = randomUUID();
@@ -630,12 +662,19 @@ async function startRetentionOperation(
     cutoff: options.cutoff,
     startedAt: options.startedAt,
     scan: options.scan,
+    ...(Object.keys(options.skipped).length > 0
+      ? { skipped: options.skipped }
+      : {}),
   };
   const operations = schema.contentTrashPurgeOperations;
   await db.transaction(async (tx) => {
-    await tx.execute(
-      sql`SELECT pg_advisory_xact_lock(hashtextextended(${PUBLISH_LOCK}, 0::bigint))`,
+    const setting = await lockContentTrashRetentionState(
+      tx as unknown as Db,
+      "exclusive",
     );
+    if (setting?.startedAt !== options.startedAt) {
+      throw new RetentionRunClaimedElsewhereError();
+    }
     const sameDay = firstRow(
       await tx
         .select({ id: operations.id })
@@ -716,6 +755,7 @@ export async function runContentTrashRetention(options: {
   maxUnits?: number;
   scanPageSize?: number;
   scanPages?: number;
+  protectionBudget?: number;
   idleRearmMs?: number;
   dispatch?: (operationId: string) => Promise<void>;
 }): Promise<ContentTrashRetentionRun> {
@@ -723,6 +763,7 @@ export async function runContentTrashRetention(options: {
   const now = options.now ?? new Date();
   const dispatch = options.dispatch ?? dispatchContentTrashPurge;
   const sweep = await recordContentTrashRetentionSweep(
+    db,
     now,
     options.idleRearmMs ?? CONTENT_TRASH_RETENTION_IDLE_REARM_MS,
   );
@@ -733,7 +774,7 @@ export async function runContentTrashRetention(options: {
     return {
       outcome: "rearmed",
       deletionsBeginAt,
-      cancelledOperationIds: await cancelUnfinishedRetentionOperations(db),
+      cancelledOperationIds: sweep.cancelledOperationIds,
     };
   }
 
@@ -781,13 +822,15 @@ export async function runContentTrashRetention(options: {
   const cutoff = new Date(
     now.getTime() - CONTENT_TRASH_RETENTION_MS,
   ).toISOString();
-  const { units, scan } = await findContentTrashRetentionUnits(db, {
+  const { units, scan, skipped } = await findContentTrashRetentionUnits(db, {
     cutoff,
     deadlineAt: options.deadlineAt,
     maxUnits: options.maxUnits ?? MAX_UNITS,
     pageSize: options.scanPageSize ?? ROOT_PAGE_SIZE,
     maxPages: options.scanPages ?? MAX_ROOT_PAGES,
-    startAfter: await latestScanStop(db),
+    maxGroups:
+      options.protectionBudget ?? CONTENT_TRASH_PROTECTION_GROUP_BUDGET,
+    pass: await latestScanPass(db),
     signal: options.signal,
   });
   let started: Awaited<ReturnType<typeof startRetentionOperation>>;
@@ -798,6 +841,7 @@ export async function runContentTrashRetention(options: {
       startedAt: sweep.startedAt,
       units,
       scan,
+      skipped,
     });
   } catch (error) {
     if (error instanceof RetentionRunClaimedElsewhereError) {
