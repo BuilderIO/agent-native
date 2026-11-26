@@ -340,7 +340,10 @@ function guardCommand(name: GuardName): [string, string[]] {
       : [];
 
   if (name === "guard:no-heavy-dashboard-list-reads") {
-    return [process.execPath, ["scripts/guard-no-heavy-dashboard-list-reads.mjs"]];
+    return [
+      process.execPath,
+      ["scripts/guard-no-heavy-dashboard-list-reads.mjs"],
+    ];
   }
   if (name === "guard:no-blob-column-predicate") {
     return [process.execPath, ["scripts/guard-no-blob-column-predicate.mjs"]];
