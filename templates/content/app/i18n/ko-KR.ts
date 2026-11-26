@@ -2176,6 +2176,10 @@ const overrides = {
     aiBusyInThread:
       "AI가 아직 이 스레드에서 작업 중입니다. 답변을 기다리거나 중지한 다음 다시 보내세요.",
     aiFailedNoReason: "AI가 이유를 밝히지 않고 멈췄습니다.",
+    aiStoppedEarly: "AI가 끝내기 전에 멈췄습니다.",
+    aiStoppedRateLimited:
+      "AI 제공업체가 지금 요청을 제한하고 있습니다. 1분 기다린 후 다시 시도하세요.",
+    aiStoppedTimeLimit: "AI가 끝내기 전에 시간 제한에 도달했습니다.",
     aiSignInToUse: "로그인하여 사용",
     aiReplyToAi: "AI에게 답글",
     aiReplyingToAi: "AI에게 답글 작성 중",

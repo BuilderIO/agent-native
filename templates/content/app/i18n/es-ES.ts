@@ -2495,6 +2495,10 @@ const overrides = {
     aiBusyInThread:
       "La IA sigue trabajando en este hilo. Espera su respuesta o detenla y vuelve a enviarlo.",
     aiFailedNoReason: "La IA se detuvo sin decir por qué.",
+    aiStoppedEarly: "La IA se detuvo antes de terminar.",
+    aiStoppedRateLimited:
+      "El proveedor de IA está limitando las solicitudes ahora mismo. Espera un minuto y vuelve a intentarlo.",
+    aiStoppedTimeLimit: "La IA llegó a su límite de tiempo antes de terminar.",
     aiSignInToUse: "Inicia sesión para usarlo",
     aiReplyToAi: "Responder a la IA",
     aiReplyingToAi: "Respondiendo a la IA",

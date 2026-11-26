@@ -18,7 +18,7 @@ import {
   type EditorState,
 } from "@tiptap/pm/state";
 import { CellSelection } from "@tiptap/pm/tables";
-import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import type { Editor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -323,19 +323,32 @@ export function shouldShowBubbleToolbar({
   return !selectionIncludesBubbleToolbarExcludedNode(state, from, to);
 }
 
-/** Starts a comment on the text in `range`; false when there's nothing to quote. */
-export function selectedSuggestionWidgetId(root: HTMLElement) {
-  const selection = root.ownerDocument.getSelection();
+export function selectedSuggestionWidgetId(
+  view: EditorView,
+  range: CommentRange,
+) {
+  const selection = view.dom.ownerDocument.getSelection();
   if (!selection || selection.isCollapsed) return undefined;
-  for (const node of [selection.anchorNode, selection.focusNode]) {
+  const { anchorNode, focusNode } = selection;
+  if (
+    !anchorNode ||
+    !focusNode ||
+    !view.dom.contains(anchorNode) ||
+    !view.dom.contains(focusNode)
+  )
+    return undefined;
+  for (const node of [anchorNode, focusNode]) {
     const widget = (
-      node instanceof Element ? node : node?.parentElement
+      node instanceof Element ? node : node.parentElement
     )?.closest<HTMLElement>("[data-suggestion-widget][data-suggestion-id]");
-    if (widget && root.contains(widget)) return widget.dataset.suggestionId;
+    if (!widget) continue;
+    const at = view.posAtDOM(widget, 0);
+    if (at >= range.from && at <= range.to) return widget.dataset.suggestionId;
   }
   return undefined;
 }
 
+/** Starts a comment on the text in `range`; false when there's nothing to quote. */
 export function startCommentOnRange(
   editor: Editor,
   onComment: NonNullable<BubbleToolbarProps["onComment"]>,
@@ -379,7 +392,7 @@ function useCommentFromSelection(
         editor,
         onComment,
         editor.state.selection,
-        selectedSuggestionWidgetId(editor.view.dom),
+        selectedSuggestionWidgetId(editor.view, editor.state.selection),
       ),
     [editor, onComment],
   );

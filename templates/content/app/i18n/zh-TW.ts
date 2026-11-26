@@ -1376,6 +1376,9 @@ const overrides = {
     aiBusyInThread:
       "AI 仍在此討論串中工作。請等待它的回答或停止它，然後再傳送。",
     aiFailedNoReason: "AI 停止了，但沒有說明原因。",
+    aiStoppedEarly: "AI 在完成前停止了。",
+    aiStoppedRateLimited: "AI 供應商目前正在限制請求。請等一分鐘後再試。",
+    aiStoppedTimeLimit: "AI 在完成前達到了時間限制。",
     aiSignInToUse: "登入以使用",
     aiReplyToAi: "回覆 AI",
     aiReplyingToAi: "正在回覆 AI",

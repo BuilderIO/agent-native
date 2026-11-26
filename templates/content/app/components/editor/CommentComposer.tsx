@@ -720,14 +720,14 @@ export const CommentComposer = forwardRef<
         (reference) => reference.refType === AI_SIGN_IN_REFERENCE_TYPE,
       )
     ) {
-      setTimeout(() =>
-        composerRef.current?.replaceReference(AI_SIGN_IN_REFERENCE_TYPE, null),
-      );
-      window.dispatchEvent(
-        new CustomEvent("agent-panel:open-settings", {
-          detail: { section: "llm" },
-        }),
-      );
+      setTimeout(() => {
+        composerRef.current?.replaceReference(AI_SIGN_IN_REFERENCE_TYPE, null);
+        window.dispatchEvent(
+          new CustomEvent("agent-panel:open-settings", {
+            detail: { section: "llm" },
+          }),
+        );
+      });
       return;
     }
     const currentAiDraft = aiDraftRef.current;

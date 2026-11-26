@@ -1439,6 +1439,19 @@ function requestStatusLabel(
 
 const BARE_FAILURE_REASON = /^(?:(?:error|aborted):)?([a-z0-9_.-]+)$/i;
 
+const STOP_REASON_KEYS: ReadonlyMap<string, string> = new Map([
+  ["run_timeout", "comments.aiStoppedTimeLimit"],
+  ["gateway_timeout", "comments.aiStoppedTimeLimit"],
+  ["run_budget_exhausted", "comments.aiStoppedTimeLimit"],
+  ["rate_limited", "comments.aiStoppedRateLimited"],
+  ["loop_limit", "comments.aiStoppedEarly"],
+  ["no_progress", "comments.aiStoppedEarly"],
+  ["max_tokens", "comments.aiStoppedEarly"],
+  ["stream_ended", "comments.aiStoppedEarly"],
+  ["agent_run_stream_ended", "comments.aiStoppedEarly"],
+  ["network_interrupted", "comments.aiStoppedEarly"],
+]);
+
 export function commentAiFailureReason(
   error: string | null | undefined,
   t: ReturnType<typeof useT>,
@@ -1447,6 +1460,8 @@ export function commentAiFailureReason(
   if (!text) return null;
   const code = BARE_FAILURE_REASON.exec(text)?.[1];
   if (!code) return text;
+  const stopKey = STOP_REASON_KEYS.get(code.toLowerCase());
+  if (stopKey) return t(stopKey);
   const { message } = normalizeChatError(text, code);
   return message === text || BARE_FAILURE_REASON.test(message)
     ? t("comments.aiFailedNoReason")
@@ -1548,7 +1563,6 @@ export function CommentAiRequestStatus({
           "flex min-w-0 flex-1 items-center gap-1.5 text-sm",
           failed ? "text-destructive" : "text-muted-foreground",
         )}
-        title={error ?? undefined}
       >
         {active ? <Spinner aria-hidden className="size-3.5 shrink-0" /> : null}
         {/* Wraps rather than truncates: in a narrow card, "Claude Haiku 5.5

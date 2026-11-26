@@ -150,6 +150,7 @@ import {
   CommentAiConversation,
   CommentAiRequestStatus,
   CommentAiSuggestionReady,
+  isCommentAiRequestActive,
   isCommentAiWorkingOn,
   latestCommentAiRequest,
   startCommentAiSubmission,
@@ -3189,11 +3190,12 @@ export function CommentsSidebar({
     if (!request) return null;
     const continuation = commentAi.continuations.get(request.operationId);
     if (
-      isCommentAiWorkingOn(commentAi, member.threadId) ||
+      isCommentAiRequestActive(request) ||
       continuation?.status === "queued" ||
       continuation?.status === "running"
     )
       return { thread: member, request, continuation, rank: 3 };
+    if (commentAi.startingThreadIds.has(member.threadId)) return null;
     if (
       request.status === "failed" ||
       request.status === "needs-review" ||
@@ -3202,17 +3204,24 @@ export function CommentsSidebar({
       continuation?.status === "unavailable"
     )
       return { thread: member, request, continuation, rank: 2 };
-    if (
-      request.status === "suggested" &&
-      !continuation &&
-      (threadSuggestions.get(member.threadId) ?? []).some(
-        (suggestion) =>
-          suggestion.id === request.result?.suggestionId &&
-          suggestion.status === "pending",
+    const waiting = (threadSuggestions.get(member.threadId) ?? []).filter(
+      (suggestion) => suggestion.status === "pending",
+    );
+    const suggested = commentAi.requests
+      .filter((candidate) => candidate.threadId === member.threadId)
+      .sort(
+        (left, right) =>
+          Date.parse(right.updatedAt) - Date.parse(left.updatedAt),
       )
-    )
-      return { thread: member, request, continuation, rank: 1 };
-    return null;
+      .find((candidate) =>
+        waiting.some(
+          (suggestion) =>
+            suggestion.metadata?.commentAiRequestId === candidate.operationId,
+        ),
+      );
+    return suggested
+      ? { thread: member, request: suggested, continuation: undefined, rank: 1 }
+      : null;
   };
 
   const renderFoldedStack = (

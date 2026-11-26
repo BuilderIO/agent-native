@@ -1105,6 +1105,35 @@ describe("comment stacks in the margin", () => {
       expect(margin()[0]).toBe("stack:c");
     });
 
+    it("keeps a waiting suggestion on the card after a later reply", () => {
+      commentAi = aiWith([
+        aiRequest("a", "suggested", { result: { suggestionId: "s1" } }),
+        aiRequest("a", "replied", {
+          operationId: "request-a-reply",
+          requestId: "request-a-reply",
+          updatedAt: "2026-10-20T12:05:00Z",
+        }),
+      ]);
+      suggestions = [askedSuggestion("s1", "a")];
+      render();
+      expect(margin()[0]).toBe("stack:a");
+      expect(
+        aiStatus().querySelector('[data-comment-ai-status="suggested"]'),
+      ).not.toBeNull();
+    });
+
+    it("shows no earlier failure while AI starts again", () => {
+      commentAi = {
+        ...aiWith([aiRequest("c", "failed", { error: "The model timed out" })]),
+        startingThreadIds: new Set(["c"]),
+      };
+      render();
+      expect(margin()[0]).toBe("stack:d");
+      expect(
+        found(foldedStacks()[0]).querySelector("[data-comment-stack-ai]"),
+      ).toBeNull();
+    });
+
     it("keeps the thread AI works on in front after another is read", () => {
       commentAi = aiWith([aiRequest("b", "running")]);
       render();

@@ -73,33 +73,54 @@ describe("commenting on suggested text", () => {
   });
 
   it("names the suggestion whose inserted words a selection starts or ends in", () => {
-    const root = document.createElement("div");
-    root.innerHTML =
-      '<p>Keep <span data-suggestion-widget="true" data-suggestion-id="s1" contenteditable="false">very sleepy</span> that.</p>';
+    const element = document.createElement("div");
     const outside = document.createElement("p");
-    outside.innerHTML =
-      '<span data-suggestion-widget="true" data-suggestion-id="s2">elsewhere</span>';
-    document.body.append(root, outside);
+    outside.textContent = "Elsewhere";
+    document.body.append(element, outside);
+    const editor = new Editor({
+      element,
+      extensions: createVisualEditorExtensions(),
+      content: nfmToDoc("Keep that."),
+    });
     const selection = found(document.getSelection());
-    const paragraph = found(root.querySelector("p"));
-    const before = found(paragraph.firstChild);
-    const after = found(paragraph.lastChild);
-    const inserted = found(
-      root.querySelector("[data-suggestion-id]")?.firstChild,
-    );
     try {
-      selection.setBaseAndExtent(inserted, 5, after, 5);
-      expect(selectedSuggestionWidgetId(root)).toBe("s1");
-      selection.setBaseAndExtent(after, 5, inserted, 0);
-      expect(selectedSuggestionWidgetId(root)).toBe("s1");
+      const at = 1 + "Keep ".length;
+      setSuggestionHighlights(editor.view, {
+        specs: [
+          {
+            suggestionId: "s1",
+            kind: "insert",
+            from: at,
+            to: at,
+            insertedText: "very sleepy ",
+          },
+        ],
+      });
+      const widget = found(
+        element.querySelector<HTMLElement>('[data-suggestion-id="s1"]'),
+      );
+      const inserted = found(
+        document.createTreeWalker(widget, NodeFilter.SHOW_TEXT).nextNode(),
+      );
+      const after = found(widget.nextSibling);
+      const before = found(widget.previousSibling);
+      const around = { from: at, to: at + 2 };
+
+      selection.setBaseAndExtent(inserted, 5, after, 2);
+      expect(selectedSuggestionWidgetId(editor.view, around)).toBe("s1");
+      selection.setBaseAndExtent(after, 2, inserted, 0);
+      expect(selectedSuggestionWidgetId(editor.view, around)).toBe("s1");
+      expect(
+        selectedSuggestionWidgetId(editor.view, { from: 1, to: 3 }),
+      ).toBeUndefined();
       selection.setBaseAndExtent(before, 0, before, 4);
-      expect(selectedSuggestionWidgetId(root)).toBeUndefined();
-      const elsewhere = found(outside.firstChild?.firstChild);
-      selection.setBaseAndExtent(elsewhere, 0, elsewhere, 4);
-      expect(selectedSuggestionWidgetId(root)).toBeUndefined();
+      expect(selectedSuggestionWidgetId(editor.view, around)).toBeUndefined();
+      selection.setBaseAndExtent(inserted, 0, found(outside.firstChild), 4);
+      expect(selectedSuggestionWidgetId(editor.view, around)).toBeUndefined();
     } finally {
       selection.removeAllRanges();
-      root.remove();
+      editor.destroy();
+      element.remove();
       outside.remove();
     }
   });

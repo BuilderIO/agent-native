@@ -2178,6 +2178,10 @@ const enUS = {
     aiBusyInThread:
       "AI is still working in this thread. Wait for its answer or stop it, then send again.",
     aiFailedNoReason: "The AI stopped without saying why.",
+    aiStoppedEarly: "The AI stopped before finishing.",
+    aiStoppedRateLimited:
+      "The AI provider is limiting requests right now. Wait a minute, then retry.",
+    aiStoppedTimeLimit: "The AI reached its time limit before finishing.",
     aiSignInToUse: "Sign in to use",
     aiReplyToAi: "Reply to AI",
     aiReplyingToAi: "Replying to AI",

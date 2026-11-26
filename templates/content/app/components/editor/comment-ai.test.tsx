@@ -218,8 +218,11 @@ describe("comment AI controls", () => {
       "comments.aiFailed",
     );
     expect(
-      document.querySelector('[role="alert"]')?.getAttribute("title"),
+      document.querySelector("[data-comment-ai-reason]")?.textContent,
     ).toBe(failed.error);
+    expect(
+      document.querySelector('[role="alert"]')?.hasAttribute("title"),
+    ).toBe(false);
     await act(async () =>
       [...document.querySelectorAll<HTMLButtonElement>("button")]
         .find((button) => button.textContent === "comments.retry")!
@@ -247,6 +250,15 @@ describe("comment AI controls", () => {
       "The request failed",
     );
     expect(commentAiFailureReason("error:some_new_code", t)).toBe(
+      "comments.aiFailedNoReason",
+    );
+    expect(commentAiFailureReason("run_timeout", t)).toBe(
+      "comments.aiStoppedTimeLimit",
+    );
+    expect(commentAiFailureReason("no_progress", t)).toBe(
+      "comments.aiStoppedEarly",
+    );
+    expect(commentAiFailureReason("constructor", t)).toBe(
       "comments.aiFailedNoReason",
     );
     expect(commentAiFailureReason(null, t)).toBeNull();
