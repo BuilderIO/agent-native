@@ -207,6 +207,10 @@ _(버전은 다를 수 있습니다. 현재 `protocolVersion`에 대해서는 `/
   {
     "status": "503",
     "description": "Hosted production runtime with no A2A_SECRET configured — fails closed instead of running unauthenticated."
+  },
+  {
+    "status": "401",
+    "description": "Missing or invalid credentials, or an unauthenticated call from another host on a development server with no A2A_SECRET."
   }
 ]}>
 
@@ -595,7 +599,7 @@ mountA2A(app, {
 const client = new A2AClient(url, process.env.A2A_API_KEY);
 ```
 
-에이전트 카드 엔드포인트는 항상 공개(인증 없음)이므로 다른 에이전트가 기능을 검색할 수 있습니다. `/_agent-native/a2a` JSON-RPC 엔드포인트는 `A2A_SECRET`가 서명한 JWT 전달자 토큰을 허용하고 구성 시 레거시 `apiKeyEnv` 토큰도 허용합니다. 로컬 개발에서는 인증을 생략할 수 있습니다. 호스팅된 프로덕션 런타임에서 A2A 인증이 누락되면 인증되지 않은 실행 대신 503이 반환됩니다.
+에이전트 카드 엔드포인트는 항상 공개(인증 없음)이므로 다른 에이전트가 기능을 검색할 수 있습니다. `/_agent-native/a2a` JSON-RPC 엔드포인트는 `A2A_SECRET`가 서명한 JWT 전달자 토큰을 허용하고 구성 시 레거시 `apiKeyEnv` 토큰도 허용합니다. `A2A_SECRET` 또는 `apiKeyEnv`가 없으면 개발 서버는 같은 머신에서 온 인증되지 않은 호출만 허용하고 다른 모든 호스트에는 401을 반환합니다. 공개 미리보기 URL로 게시된 개발 서버도 마찬가지입니다. 호스팅된 프로덕션 런타임에서 A2A 인증이 누락되면 인증되지 않은 실행 대신 503이 반환됩니다.
 
 ### 인증 정책 경계 {#auth-policy}
 
@@ -605,7 +609,7 @@ const client = new A2AClient(url, process.env.A2A_API_KEY);
 - `A2A_SECRET`가 설정된 경우 `hasConfiguredA2ASecret()`는 `true`를 반환합니다.
 - `shouldAdvertiseJwtA2AAuth()`는 에이전트 카드가 `jwtBearer` 보안 체계 게시 여부를 결정하는 데 사용하는 것입니다.
 
-프로덕션 정책은 엄격합니다. 모든 프로덕션 런타임에서 비동기 `_process-task` 경로는 `A2A_SECRET`가 구성되지 않는 한(503 반환) 발송을 거부하고 JSON-RPC 엔드포인트는 인증되지 않은 호출을 거부합니다. 개발 폴백(한 번 경고, 허용)은 프로덕션 플래그가 설정되지 않은 경우에만 실행됩니다.
+프로덕션 정책은 엄격합니다. 모든 프로덕션 런타임에서 비동기 `_process-task` 경로는 `A2A_SECRET`가 구성되지 않는 한(503 반환) 발송을 거부하고 JSON-RPC 엔드포인트는 인증되지 않은 호출을 거부합니다. 프로덕션 외부에서 인증되지 않은 호출은 같은 머신에서 온 경우에만 (한 번 경고와 함께) 허용됩니다. 피어 주소, `Host` 및 모든 포워딩 헤더가 루프백이어야 하며, Builder 클라우드 개발 컨테이너는 로컬로 간주되지 않습니다. 서명되지 않은 `_process-task` 발송을 포함한 그 밖의 인증되지 않은 호출은 401을 반환합니다. 허용하려면 앱에 `A2A_SECRET`를 설정하세요.
 
 에이전트 루프가 원격 호출자의 자유 형식 입력을 허용하기 때문에 이 경계가 중요합니다. 루프 내부에 전달자 검사를 넣거나 이를 시행하는 도구를 사용하면 프롬프트 주입이나 버그가 있는 처리기가 인증을 우회할 수 있습니다. HTTP 경계에 유지한다는 것은 LLM 호출 전에 토큰 오류가 단락됨을 의미합니다.
 

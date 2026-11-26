@@ -144,10 +144,16 @@ describe("update-mail-settings action", () => {
       "mail-settings",
       expect.objectContaining({
         writingStyle: "Keep it concise.",
-        contactPanelWidgets: { notes: false, attachments: true, recent: true },
+        contactPanelWidgets: {
+          meetings: true,
+          notes: false,
+          attachments: true,
+          recent: true,
+        },
       }),
     );
     expect(result.contactPanelWidgets).toEqual({
+      meetings: true,
       notes: false,
       attachments: true,
       recent: true,

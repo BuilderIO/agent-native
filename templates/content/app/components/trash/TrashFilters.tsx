@@ -1,7 +1,14 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
-  IconAdjustmentsHorizontal,
+  FilterBar,
+  FilterButton,
+  activeFilterRuleCount,
+  type FilterField,
+  type FilterState,
+} from "@agent-native/toolkit/app/filters";
+import {
   IconArrowsSort,
+  IconFilter,
   IconSearch,
   IconTrash,
 } from "@tabler/icons-react";
@@ -15,34 +22,16 @@ import {
   ContentTableToolbarButton,
 } from "@/components/editor/database/ContentTable";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import type { ContentSpaceSummary } from "@/hooks/use-content-spaces";
-import {
   changeTrashSort,
   type ContentTrashFilters,
   type ContentTrashSort,
 } from "@/hooks/use-content-trash";
-
-const FILTER_KEYS = [
-  "kind",
-  "spaceId",
-  "createdBy",
-  "updatedBy",
-  "actor",
-  "parentId",
-  "deletedFrom",
-  "deletedTo",
-] as const;
 
 const SORTS = [
   ["name", "trash.name"],
@@ -54,52 +43,30 @@ const SORTS = [
 export function TrashFilters({
   filters,
   onChange,
+  fields,
+  filterState,
+  onFilterStateChange,
   onEmptyTrash,
+  emptyTrashPending = false,
   emptyTrashRef,
-  spaces,
 }: {
   filters: ContentTrashFilters;
   onChange: (filters: ContentTrashFilters) => void;
+  fields: FilterField<never>[];
+  filterState: FilterState;
+  onFilterStateChange: (state: FilterState) => void;
   onEmptyTrash: () => void;
+  emptyTrashPending?: boolean;
   emptyTrashRef?: Ref<HTMLButtonElement>;
-  spaces: ContentSpaceSummary[];
 }) {
   const t = useT();
   const [searchOpen, setSearchOpen] = useState(Boolean(filters.query));
-  const active = FILTER_KEYS.filter((key) => filters[key]);
-  const needsSpace = spaces.length !== 1 && !filters.spaceId;
-  const showSpaceHint = needsSpace && spaces.length > 1;
+  const activeFilters = activeFilterRuleCount(filterState, fields);
   const sortLabel = SORTS.find(([sort]) => sort === filters.sort)?.[1];
-  const set = <K extends (typeof FILTER_KEYS)[number]>(
-    key: K,
-    value?: ContentTrashFilters[K],
-  ) => onChange({ ...filters, [key]: value || undefined });
-  const clearFilters = () =>
-    onChange({
-      query: filters.query,
-      sort: filters.sort,
-      direction: filters.direction,
-    });
-  const label = (key: (typeof FILTER_KEYS)[number]) => {
-    const value = filters[key];
-    if (key === "spaceId")
-      return `${t("sidebar.workspaces")}: ${spaces.find((space) => space.id === value)?.name ?? value}`;
-    if (key === "kind")
-      return `${t("trash.kind")}: ${t(value === "database" ? "trash.collections" : "trash.pages")}`;
-    const labelKey = {
-      createdBy: "trash.createdBy",
-      updatedBy: "trash.updatedBy",
-      actor: "trash.deletedByColumn",
-      parentId: "trash.location",
-      deletedFrom: "trash.deletedFrom",
-      deletedTo: "trash.deletedTo",
-    }[key];
-    return `${t(labelKey)}: ${value}`;
-  };
 
   return (
-    <div className="border-b">
-      <ContentTableToolbar className="flex-nowrap justify-start px-3 py-1 sm:px-5">
+    <div className="grid gap-2">
+      <ContentTableToolbar className="flex-nowrap">
         <ContentTableSearch
           open={searchOpen}
           value={filters.query ?? ""}
@@ -144,216 +111,87 @@ export function TrashFilters({
             ))}
           </PopoverContent>
         </Popover>
-        <Popover>
-          <PopoverTrigger asChild>
-            <ContentTableToolbarButton
-              label={t("trash.filter")}
-              active={active.length > 0}
-              count={active.length || undefined}
-            >
-              <IconAdjustmentsHorizontal className="size-3.5" />
-            </ContentTableToolbarButton>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="grid w-80 gap-3">
-            <fieldset className="grid gap-1.5">
-              <legend className="text-xs font-medium">
-                {t("sidebar.workspaces")}
-              </legend>
-              <div className="grid gap-1">
-                {spaces.map((space) => (
-                  <Button
-                    key={space.id}
-                    type="button"
-                    size="sm"
-                    variant={
-                      filters.spaceId === space.id ? "secondary" : "ghost"
-                    }
-                    className="justify-start"
-                    onClick={() =>
-                      set(
-                        "spaceId",
-                        filters.spaceId === space.id ? undefined : space.id,
-                      )
-                    }
-                  >
-                    {space.name}
-                  </Button>
-                ))}
-              </div>
-            </fieldset>
-            <fieldset className="grid gap-1.5">
-              <legend className="text-xs font-medium">{t("trash.kind")}</legend>
-              <div className="grid grid-cols-2 gap-1">
-                {(["page", "database"] as const).map((kind) => (
-                  <Button
-                    key={kind}
-                    type="button"
-                    size="sm"
-                    variant={filters.kind === kind ? "secondary" : "ghost"}
-                    onClick={() =>
-                      set("kind", filters.kind === kind ? undefined : kind)
-                    }
-                  >
-                    {t(kind === "page" ? "trash.pages" : "trash.collections")}
-                  </Button>
-                ))}
-              </div>
-            </fieldset>
-            <TrashFilterInput
-              label={t("trash.createdBy")}
-              value={filters.createdBy}
-              placeholder={t("trash.actorPlaceholder")}
-              onChange={(value) => set("createdBy", value)}
-            />
-            <TrashFilterInput
-              label={t("trash.updatedBy")}
-              value={filters.updatedBy}
-              placeholder={t("trash.actorPlaceholder")}
-              onChange={(value) => set("updatedBy", value)}
-            />
-            <TrashFilterInput
-              label={t("trash.deletedByColumn")}
-              value={filters.actor}
-              placeholder={t("trash.actorPlaceholder")}
-              onChange={(value) => set("actor", value)}
-            />
-            <TrashFilterInput
-              label={t("trash.location")}
-              value={filters.parentId}
-              placeholder={t("trash.locationPlaceholder")}
-              onChange={(value) => set("parentId", value)}
-            />
-            <div className="grid grid-cols-2 gap-2">
-              <TrashFilterInput
-                type="date"
-                label={t("trash.deletedFrom")}
-                value={filters.deletedFrom?.slice(0, 10)}
-                onChange={(value) =>
-                  set(
-                    "deletedFrom",
-                    value ? `${value}T00:00:00.000Z` : undefined,
-                  )
-                }
-              />
-              <TrashFilterInput
-                type="date"
-                label={t("trash.deletedTo")}
-                value={filters.deletedTo?.slice(0, 10)}
-                onChange={(value) =>
-                  set("deletedTo", value ? `${value}T23:59:59.999Z` : undefined)
-                }
-              />
-            </div>
-            {active.length ? (
-              <Button variant="ghost" size="sm" onClick={clearFilters}>
-                {t("trash.clearFilters")}
-              </Button>
-            ) : null}
-          </PopoverContent>
-        </Popover>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span
-              className="ms-auto shrink-0"
-              tabIndex={showSpaceHint ? 0 : undefined}
-              role={showSpaceHint ? "group" : undefined}
-              aria-label={showSpaceHint ? t("trash.emptyTrash") : undefined}
-            >
-              <Button
-                ref={emptyTrashRef}
-                variant="ghost"
-                size="sm"
-                className="h-7 gap-1.5 px-2 text-destructive hover:text-destructive"
-                onClick={onEmptyTrash}
-                disabled={needsSpace}
-                aria-label={t("trash.emptyTrash")}
-              >
-                <IconTrash className="size-3.5" />
-                <span className="hidden sm:inline">
-                  {t("trash.emptyTrash")}
-                </span>
-              </Button>
-            </span>
-          </TooltipTrigger>
-          {showSpaceHint ? (
-            <TooltipContent>{t("trash.emptyTrashPickSpace")}</TooltipContent>
-          ) : null}
-        </Tooltip>
-      </ContentTableToolbar>
-      {filters.query || filters.sort || active.length ? (
-        <ContentTableConstraintBar
-          className="px-3 pb-2 sm:px-5"
-          trailing={
-            active.length ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 shrink-0 text-xs"
-                onClick={clearFilters}
-              >
-                {t("trash.clearFilters")}
-              </Button>
-            ) : undefined
-          }
+        <FilterButton
+          fields={fields}
+          state={filterState}
+          onChange={onFilterStateChange}
+          nouns={{ items: t("trash.filterItems") }}
+          nestedGroups
+          groupMode="and"
+          align="end"
         >
+          <ContentTableToolbarButton
+            label={t("trash.filter")}
+            active={activeFilters > 0}
+            count={activeFilters || undefined}
+          >
+            <IconFilter className="size-3.5" />
+          </ContentTableToolbarButton>
+        </FilterButton>
+        <Button
+          ref={emptyTrashRef}
+          variant="ghost"
+          size="sm"
+          className="h-7 gap-1.5 px-2 text-destructive hover:bg-destructive/10 hover:text-destructive aria-disabled:cursor-default aria-disabled:opacity-50"
+          onClick={() => {
+            if (!emptyTrashPending) onEmptyTrash();
+          }}
+          aria-disabled={emptyTrashPending || undefined}
+          aria-busy={emptyTrashPending || undefined}
+          aria-label={t("trash.emptyTrash")}
+        >
+          <IconTrash className="size-3.5" />
+          <span className="hidden sm:inline">{t("trash.emptyTrash")}</span>
+        </Button>
+      </ContentTableToolbar>
+      {filters.query || filters.sort || filterState.items.length ? (
+        <ContentTableConstraintBar>
+          {filters.sort && sortLabel ? (
+            <ContentTableConstraintChip
+              icon={<IconArrowsSort className="size-3.5" />}
+              label={`${t("trash.sortBy")}: ${t(sortLabel)} ${(filters.direction ?? "desc") === "asc" ? "↑" : "↓"}`}
+              removeLabel={t("trash.removeFilter", {
+                filter: t("trash.sortBy"),
+              })}
+              onRemove={() => {
+                const {
+                  sort: _sort,
+                  direction: _direction,
+                  ...unsorted
+                } = filters;
+                onChange(unsorted);
+              }}
+            />
+          ) : null}
+          {filters.sort ? (
+            <div
+              aria-hidden="true"
+              className="mx-1 h-4 w-px shrink-0 bg-border"
+            />
+          ) : null}
+          <FilterBar
+            fields={fields}
+            state={filterState}
+            onChange={onFilterStateChange}
+            nestedGroups
+            groupMode="and"
+            clearable={false}
+          />
           {filters.query ? (
             <ContentTableConstraintChip
               icon={<IconSearch className="size-3.5" />}
               label={`${t("trash.searchPlaceholder")}: ${filters.query}`}
-              removeLabel={t("trash.searchPlaceholder")}
+              removeLabel={t("trash.removeFilter", {
+                filter: t("trash.searchPlaceholder"),
+              })}
               onRemove={() => {
                 onChange({ ...filters, query: undefined });
                 setSearchOpen(false);
               }}
             />
           ) : null}
-          {filters.sort && sortLabel ? (
-            <ContentTableConstraintChip
-              icon={<IconArrowsSort className="size-3.5" />}
-              label={`${t("trash.sortBy")}: ${t(sortLabel)} ${(filters.direction ?? "desc") === "asc" ? "↑" : "↓"}`}
-              removeLabel={t("trash.sortBy")}
-              onRemove={() =>
-                onChange({ ...filters, sort: undefined, direction: undefined })
-              }
-            />
-          ) : null}
-          {active.map((key) => (
-            <ContentTableConstraintChip
-              key={key}
-              label={label(key)}
-              removeLabel={t("trash.removeFilter", { filter: label(key) })}
-              onRemove={() => set(key, undefined)}
-            />
-          ))}
         </ContentTableConstraintBar>
       ) : null}
     </div>
-  );
-}
-
-function TrashFilterInput({
-  label,
-  value,
-  placeholder,
-  type = "text",
-  onChange,
-}: {
-  label: string;
-  value?: string;
-  placeholder?: string;
-  type?: "text" | "date";
-  onChange: (value?: string) => void;
-}) {
-  return (
-    <label className="grid gap-1 text-xs font-medium">
-      {label}
-      <Input
-        size="sm"
-        type={type}
-        value={value ?? ""}
-        placeholder={placeholder}
-        onChange={(event) => onChange(event.target.value || undefined)}
-      />
-    </label>
   );
 }

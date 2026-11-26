@@ -141,6 +141,7 @@ describe("update-mail-preferences action", () => {
     });
 
     expect(result.contactPanelWidgets).toEqual({
+      meetings: true,
       notes: false,
       attachments: true,
       recent: false,

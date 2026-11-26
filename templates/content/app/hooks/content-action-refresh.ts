@@ -224,6 +224,14 @@ const PAGE_COMMENT_MUTATIONS = new Set([
   "update-comment",
 ]);
 
+const PAGE_CHECK_MUTATIONS = new Set([
+  "add-page-check",
+  "delete-page-check",
+  "run-page-checks",
+  "skip-page-check",
+  "update-page-check",
+]);
+
 // Reads of one page's comments alone.
 const PAGE_COMMENT_QUERIES = new Set([
   "list-comments",
@@ -603,6 +611,15 @@ export function contentActionInvalidatePredicate(
       )
     ) {
       return true;
+    }
+    if (
+      query.queryKey[0] === "action" &&
+      query.queryKey[1] === "list-page-checks"
+    ) {
+      return (
+        typeof targetId === "string" &&
+        eventsIncludePageMutation(events, PAGE_CHECK_MUTATIONS, targetId)
+      );
     }
     if (documentId === undefined) {
       return false;

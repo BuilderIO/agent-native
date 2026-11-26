@@ -12,7 +12,8 @@ export type BearerCredentialRefusal =
   | "identity-mismatch"
   | "not-member"
   | "email-retired"
-  | "service-principal-inactive";
+  | "service-principal-inactive"
+  | "local-dev-identity";
 
 const CONTEXT_KEY = "__anBearerCredentialRefusal";
 
@@ -36,6 +37,8 @@ export function describeBearerCredentialRefusal(
       return "This token was issued to an email address the account no longer uses.";
     case "service-principal-inactive":
       return "This token belongs to a service principal an organization admin suspended or retired; only an admin can resume a suspended one.";
+    case "local-dev-identity":
+      return "This token belongs to the local development identity, which is accepted only from this machine over localhost.";
     case "invalid":
       return "This bearer token could not be verified: it is malformed, expired, issued for another app, or older than a required reconnect.";
   }

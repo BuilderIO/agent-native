@@ -1,12 +1,13 @@
 import { useT } from "@agent-native/core/client/i18n";
 import type { ContentTrashItem } from "@shared/content-trash";
-import { IconRestore, IconTrashX } from "@tabler/icons-react";
+import { IconArrowBackUp, IconTrashX } from "@tabler/icons-react";
 import type { Ref } from "react";
 
 import { ContentTableSelectionBar } from "@/components/editor/database/ContentTable";
 import { Button } from "@/components/ui/button";
 import {
   type ContentTrashSelection,
+  trashRestoreTargets,
   trashSelectionCount,
 } from "@/hooks/use-content-trash";
 
@@ -31,11 +32,9 @@ export function TrashRecoveryActions({
 }) {
   const t = useT();
   const selectedCount = trashSelectionCount(selection);
-
   const canRestore =
     selection.mode === "loaded" &&
-    selectedItems.length === 1 &&
-    selectedItems[0]?.canRestore;
+    trashRestoreTargets(selectedItems).length > 0;
 
   return (
     <ContentTableSelectionBar
@@ -46,30 +45,47 @@ export function TrashRecoveryActions({
       }
     >
       {selection.mode === "loaded" ? (
-        <Button size="sm" variant="ghost" onClick={onSelectMatching}>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="h-7 gap-1.5 px-2 text-xs"
+          onClick={onSelectMatching}
+        >
           {t("trash.selectAllMatching")}
         </Button>
       ) : null}
       {canRestore ? (
         <Button
+          type="button"
           size="sm"
-          variant="outline"
+          variant="ghost"
+          className="h-7 gap-1.5 px-2 text-xs"
           disabled={pendingRestore}
           onClick={onRestore}
         >
-          <IconRestore size={15} />
+          <IconArrowBackUp className="size-3.5" />
           {t("trash.restore")}
         </Button>
-      ) : (
-        <span className="px-1 text-xs text-muted-foreground">
-          {t("trash.bulkRestoreUnsupported")}
-        </span>
-      )}
-      <Button ref={deleteRef} size="sm" variant="ghost" onClick={onDelete}>
-        <IconTrashX size={15} />
+      ) : null}
+      <Button
+        ref={deleteRef}
+        type="button"
+        size="sm"
+        variant="ghost"
+        className="h-7 gap-1.5 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+        onClick={onDelete}
+      >
+        <IconTrashX className="size-3.5" />
         {t("trash.deletePermanently")}
       </Button>
-      <Button size="sm" variant="ghost" onClick={onClear}>
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        className="h-7 gap-1.5 px-2 text-xs"
+        onClick={onClear}
+      >
         {t("trash.cancel")}
       </Button>
     </ContentTableSelectionBar>

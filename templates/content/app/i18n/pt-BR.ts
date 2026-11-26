@@ -1225,6 +1225,7 @@ const editor = {
       "Em todas as linhas, para todos. Uma visualização ainda pode ocultá-la.",
   },
   slash: {
+    ai: "IA",
     audio: "Áudio",
     audioDescription: "Carregar ou incorporar áudio",
     basicBlocks: "Blocos básicos",

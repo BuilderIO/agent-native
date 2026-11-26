@@ -367,6 +367,21 @@ describe("DocumentToolbar at narrow widths", () => {
     expect(shareTrigger()).toBeUndefined();
   });
 
+  it("counts checks on a phone's Info tab instead of beside the title", async () => {
+    const pill = createElement("span", { "data-checks-pill": true });
+    const info = () =>
+      container.querySelector('[data-document-panel-tab="info"]');
+
+    await renderToolbar(800, { pageChecksCount: pill, checksToLookAt: 2 });
+    expect(container.querySelector("[data-checks-pill]")).not.toBeNull();
+    expect(info()?.textContent).toBe("");
+
+    vi.stubGlobal("innerWidth", 599);
+    await renderToolbar(599, { pageChecksCount: pill, checksToLookAt: 2 });
+    expect(container.querySelector("[data-checks-pill]")).toBeNull();
+    expect(info()?.textContent).toBe("2");
+  });
+
   it("ends page actions with Move to Trash below a divider", async () => {
     await renderToolbar(1000, { canDelete: true, onDelete: vi.fn() });
     const trash = (await openPageActions()).pop();

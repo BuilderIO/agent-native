@@ -22,6 +22,7 @@ import { useContactPanelWidgets } from "@/hooks/use-contact-panel";
 export const CONTACT_PANEL_SLOT_ID = "mail.contact-sidebar.bottom";
 
 const BUILT_IN_LABELS: Record<ContactPanelWidgetId, string> = {
+  meetings: "mail.contactPanel.meetings",
   notes: "mail.contactPanel.notes",
   attachments: "mail.contactPanel.attachments",
   recent: "mail.contactPanel.recent",

@@ -72,6 +72,7 @@ export default defineAction({
       .optional()
       .describe("Optional Slack oldest timestamp or ISO date for pilot sync."),
   }),
+  mcpTool: false,
   run: async (args) => {
     const access = args.readHistory
       ? await assertAccess("brain-source", args.sourceId, "editor")

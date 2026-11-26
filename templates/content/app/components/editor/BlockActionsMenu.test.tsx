@@ -1,8 +1,12 @@
 // @vitest-environment happy-dom
 
 import { parseSubmitChatMessage } from "@agent-native/core/client/agent-chat";
-import type { DragHandleMenuRequest } from "@agent-native/toolkit/editor";
+import {
+  type DragHandleMenuRequest,
+  isListItem,
+} from "@agent-native/toolkit/editor";
 import { Editor, type JSONContent } from "@tiptap/core";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -724,6 +728,22 @@ describe("BlockActionsMenu", () => {
     expect(request.onClose).not.toHaveBeenCalled();
   });
 
+  it("tints its block in the editor's wrapper while open", () => {
+    const target = mount();
+    const wrapper = page as HTMLElement;
+    wrapper.classList.add("visual-editor-wrapper");
+    const { close } = open(target, 0);
+    if (!close) throw new Error("The editor's menu didn't open");
+
+    expect(
+      wrapper.querySelectorAll(":scope > .content-block-menu-tint"),
+    ).toHaveLength(1);
+
+    act(() => close());
+
+    expect(wrapper.querySelector(".content-block-menu-tint")).toBeNull();
+  });
+
   it("tells the grip it closed when it goes while open", () => {
     const target = mount();
     const { request } = open(target, 1);
@@ -1029,6 +1049,102 @@ describe("BlockActionsMenu", () => {
 
       expect(getTableHeaders(target.state.doc.child(1)).column).toBe(true);
       expect(sheet()).toBeTruthy();
+    });
+  });
+
+  describe("on a list item", () => {
+    const listItem = (text: string) => ({
+      type: "listItem",
+      content: [paragraph(text)],
+    });
+    const numbered = {
+      type: "orderedList",
+      content: ["One", "Two", "Three"].map(listItem),
+    };
+
+    function itemBlock(target: Editor, text: string) {
+      const items: { node: ProseMirrorNode; pos: number }[] = [];
+      target.state.doc.descendants((node, pos) => {
+        if (isListItem(node)) items.push({ node, pos });
+      });
+      return (
+        items.find(({ node }) => node.firstChild?.textContent === text) ?? null
+      );
+    }
+
+    function openItem(target: Editor, text: string) {
+      act(() => {
+        openBlockActionsMenu({
+          view: target.view,
+          anchorRect: new DOMRect(0, 0, 24, 24),
+          getBlock: () => itemBlock(target, text),
+          dispatch: (tr) => target.view.dispatch(tr),
+          duplicate: vi.fn(),
+          remove: vi.fn(),
+          insertAbove: vi.fn(),
+          insertBelow: vi.fn(),
+          onClose: vi.fn(),
+        });
+      });
+    }
+
+    const lists = (target: Editor) =>
+      target.state.doc.content.content.map(
+        (node) => `${node.type.name}: ${node.textContent}`,
+      );
+
+    it("titles an item by its list and checks the list's kind in Turn into", () => {
+      openItem(mount({ content: [numbered], onComment: vi.fn() }), "Two");
+
+      expect(menuAt().textContent).toContain("editor.slash.numberedList");
+      expect(items()).toContain("editor.color.label");
+      expect(items()).toContain("editor.comment");
+      expect(items(openSubmenu("editor.slash.turnInto"))).toContain(
+        "editor.slash.numberedList=true",
+      );
+    });
+
+    it("turns only the item, ready to type in at the end of its line", () => {
+      const target = mount({ content: [numbered, paragraph("End")] });
+      openItem(target, "Two");
+
+      choose("editor.slash.bulletedList", openSubmenu("editor.slash.turnInto"));
+
+      expect(lists(target)).toEqual([
+        "orderedList: One",
+        "bulletList: Two",
+        "orderedList: Three",
+        "paragraph: End",
+      ]);
+      expect(menus()).toEqual([]);
+      expect(target.state.selection.$from.parent.textContent).toBe("Two");
+      expect(target.state.selection.$from.parentOffset).toBe(3);
+    });
+
+    it("colours the item's own line", () => {
+      const target = mount({ content: [numbered] });
+      openItem(target, "Two");
+
+      choose(
+        "editor.color.backgroundChoice(editor.color.blue)",
+        openSubmenu("editor.color.label"),
+      );
+
+      const two = itemBlock(target, "Two");
+      expect(two?.node.firstChild?.attrs.color).toBe("blue_bg");
+      expect(target.state.selection.$from.parent.textContent).toBe("Two");
+    });
+
+    it("attaches the item to the agent's chat in a list of its kind", () => {
+      openItem(mount({ content: [numbered] }), "Three");
+
+      choose("editor.blockMenu.askAgent");
+
+      const message = sendToAgentChat.mock.calls[0]?.[0];
+      expect(message.contextLabel).toBe("editor.slash.numberedList");
+      expect(message.context).toContain("Block type: listItem");
+      expect(message.context).toContain("List item: 3 of 3");
+      expect(message.context).toContain("~~~\n1. Three\n~~~");
     });
   });
 });

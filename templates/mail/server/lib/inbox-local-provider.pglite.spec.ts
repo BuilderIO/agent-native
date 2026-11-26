@@ -173,7 +173,7 @@ describe("inbox sync with a local provider", () => {
       });
       expect(pageSizes).toEqual([50, 24]);
       expect(queries).toEqual(["in:inbox", "in:inbox"]);
-      expect(batchSizes).toEqual([50, 24]);
+      expect(batchSizes).toEqual([10, 10, 10, 10, 10, 10, 10, 4]);
       expect(rows).toHaveLength(73);
       expect(
         rows.every((row) => row.inInbox && row.labelIds.includes("INBOX")),

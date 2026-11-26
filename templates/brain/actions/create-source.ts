@@ -1,4 +1,8 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isOutsideAgentCall,
+} from "@agent-native/core/action";
 import { getCredentialContext } from "@agent-native/core/server";
 import { z } from "zod";
 
@@ -68,6 +72,15 @@ export default defineAction({
         "Optional answer policy controlling trust, eligibility, authority, freshness, review, and conflicts",
       ),
   }),
+  needsApproval: (args, ctx) => {
+    if (!isOutsideAgentCall(ctx)) return false;
+    if (args.visibility === "org" || args.sourceKey) return true;
+    const config = mergeSourceConfigJson(args.config, args.configJson) ?? {};
+    return ["sourceKey", "ingestTokenHash"].some((key) =>
+      Object.prototype.hasOwnProperty.call(config, key),
+    );
+  },
+  mcpTool: "search",
   run: async (args) => {
     let config = { ...mergeSourceConfigJson(args.config, args.configJson) };
     assertValidSourceConfig(args.provider, config, { creating: true });
