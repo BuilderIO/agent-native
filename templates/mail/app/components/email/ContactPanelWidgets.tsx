@@ -1,6 +1,10 @@
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
-import type { ContactAttachment } from "@shared/types";
+import type {
+  ContactAttachment,
+  ContactMeeting,
+  ContactMeetings,
+} from "@shared/types";
 import {
   IconArrowUpRight,
   IconFile,
@@ -23,6 +27,7 @@ import {
 import {
   useAddContactNote,
   useContactAttachments,
+  useContactMeetings,
   useContactNote,
 } from "@/hooks/use-contact-panel";
 import { mailThreadHref, mailViewHasThreadLinks } from "@/lib/mail-routes";
@@ -177,6 +182,24 @@ function openExternal(url: string) {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
+function OpenElsewhereButton({ url, label }: { url: string; label: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => openExternal(url)}
+          aria-label={label}
+          className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground"
+        >
+          <IconArrowUpRight className="h-3.5 w-3.5 rtl:-scale-x-100" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 export function NotesWidget({
   email,
   name,
@@ -247,21 +270,10 @@ export function NotesWidget({
       title={t("mail.contactPanel.notes")}
       action={
         url ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => openExternal(url)}
-                aria-label={t("mail.contactPanel.openInContent")}
-                className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground"
-              >
-                <IconArrowUpRight className="h-3.5 w-3.5 rtl:-scale-x-100" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {t("mail.contactPanel.openInContent")}
-            </TooltipContent>
-          </Tooltip>
+          <OpenElsewhereButton
+            url={url}
+            label={t("mail.contactPanel.openInContent")}
+          />
         ) : null
       }
     >
@@ -323,6 +335,204 @@ export function NotesWidget({
             className="w-full rounded-md border border-transparent bg-transparent px-0 py-1 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:border-border focus:bg-background focus:px-2"
           />
         </>
+      )}
+    </WidgetSection>
+  );
+}
+
+function webUrl(url: string | undefined) {
+  if (!url || !URL.canParse(url)) return undefined;
+  const { protocol } = new URL(url);
+  return protocol === "https:" || protocol === "http:" ? url : undefined;
+}
+
+function MeetingRows({
+  title,
+  meetings,
+}: {
+  title: string;
+  meetings: ContactMeeting[];
+}) {
+  const t = useT();
+  const { formatDate } = useFormatters();
+  if (meetings.length === 0) return null;
+  return (
+    <div className="mb-2 last:mb-0">
+      <p className="mb-0.5 text-[11px] text-muted-foreground/60">{title}</p>
+      <ul className="space-y-0.5">
+        {meetings.map((meeting) => {
+          const name = meeting.title || t("mail.contactPanel.untitledMeeting");
+          const day = meeting.allDay
+            ? formatDate(meeting.start.slice(0, 10), {
+                month: "short",
+                day: "numeric",
+                timeZone: "UTC",
+              })
+            : formatDate(meeting.start, { month: "short", day: "numeric" });
+          const when = meeting.allDay
+            ? day
+            : formatDate(meeting.start, {
+                dateStyle: "medium",
+                timeStyle: "short",
+              });
+          const href = webUrl(meeting.url);
+          const row = (
+            <>
+              <span className="min-w-0 flex-1 truncate text-[12px] text-foreground/75">
+                {name}
+              </span>
+              <span className="shrink-0 text-[11px] text-muted-foreground/50 tabular-nums">
+                {day}
+              </span>
+            </>
+          );
+          return (
+            <li key={`${meeting.accountEmail ?? ""}:${meeting.id}`}>
+              {href ? (
+                <a
+                  href={href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={`${name} · ${when}`}
+                  className="-mx-1.5 flex w-[calc(100%+0.75rem)] items-center gap-2 rounded px-1.5 py-1 text-start hover:bg-accent/60"
+                >
+                  {row}
+                </a>
+              ) : (
+                <div
+                  title={`${name} · ${when}`}
+                  className="flex items-center gap-2 py-1"
+                >
+                  {row}
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+function SetUpCalendarLink({ url }: { url: string }) {
+  const t = useT();
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mt-1 inline-block text-[11px] text-primary/80 hover:text-primary hover:underline"
+    >
+      {t("mail.contactPanel.setUpCalendar")}
+    </a>
+  );
+}
+
+function MeetingsBody({
+  data,
+  onRetry,
+  retrying,
+}: {
+  data: ContactMeetings;
+  onRetry: () => void;
+  retrying: boolean;
+}) {
+  const t = useT();
+  const calendarUrl = webUrl(data.calendarUrl);
+  const suggestCalendar = data.calendar === "not_connected" && calendarUrl;
+
+  if (data.source === "none") {
+    if (data.calendar === "unavailable") {
+      return (
+        <WidgetError
+          message={t("mail.contactPanel.meetingsCalendarUnreachable")}
+          retrying={retrying}
+          onRetry={onRetry}
+        />
+      );
+    }
+    return (
+      <>
+        <p className="text-[11px] text-muted-foreground/60">
+          {t("mail.contactPanel.noCalendar")}
+        </p>
+        {suggestCalendar && <SetUpCalendarLink url={calendarUrl} />}
+      </>
+    );
+  }
+
+  const empty =
+    data.upcoming.length === 0 &&
+    data.recent.length === 0 &&
+    data.failedAccounts.length === 0;
+  return (
+    <>
+      {empty && (
+        <p className="text-[11px] text-muted-foreground/60">
+          {t("mail.contactPanel.noMeetings")}
+        </p>
+      )}
+      <MeetingRows
+        title={t("mail.contactPanel.meetingsUpcoming")}
+        meetings={data.upcoming}
+      />
+      <MeetingRows
+        title={t("mail.contactPanel.meetingsPast")}
+        meetings={data.recent}
+      />
+      {data.failedAccounts.length > 0 && (
+        <p
+          className="mt-1 text-[11px] text-muted-foreground/60"
+          title={data.failedAccounts
+            .map((account) => account.accountEmail)
+            .join(", ")}
+        >
+          {t("mail.contactPanel.meetingsPartial")}
+        </p>
+      )}
+      {suggestCalendar && (
+        <div>
+          <SetUpCalendarLink url={calendarUrl} />
+        </div>
+      )}
+    </>
+  );
+}
+
+export function MeetingsWidget({ email }: { email: string }) {
+  const t = useT();
+  const query = useContactMeetings(email, true);
+  const calendarUrl =
+    query.data?.source === "calendar"
+      ? webUrl(query.data.calendarUrl)
+      : undefined;
+
+  return (
+    <WidgetSection
+      title={t("mail.contactPanel.meetings")}
+      action={
+        calendarUrl ? (
+          <OpenElsewhereButton
+            url={calendarUrl}
+            label={t("mail.contactPanel.openInCalendar")}
+          />
+        ) : null
+      }
+    >
+      {query.isPending ? (
+        <WidgetSkeleton rows={2} />
+      ) : query.isError ? (
+        <WidgetError
+          message={t("mail.contactPanel.meetingsLoadError")}
+          retrying={query.isFetching}
+          onRetry={() => void query.refetch()}
+        />
+      ) : (
+        <MeetingsBody
+          data={query.data}
+          retrying={query.isFetching}
+          onRetry={() => void query.refetch()}
+        />
       )}
     </WidgetSection>
   );

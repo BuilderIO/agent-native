@@ -74,6 +74,7 @@ vi.mock("@/hooks/use-contact-panel", () => ({
 
 vi.mock("@/components/email/ContactPanelWidgets", () => ({
   AttachmentsWidget: () => null,
+  MeetingsWidget: () => null,
   NotesWidget: () => null,
   RecentWidget: () => null,
 }));
