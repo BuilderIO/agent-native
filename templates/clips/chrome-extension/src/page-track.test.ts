@@ -127,6 +127,7 @@ async function bodyOf(calls: Call[], url: string): Promise<string> {
 
 const ONLY_CHUNK_URL = `${TRACKS_URL}/page?index=0&contentType=application%2Fgzip&isFinal=1`;
 const FINALIZE_URL = `${TRACKS_URL}/finalize`;
+const DRAFT_URL = `${TRACKS_URL}/draft`;
 
 describe("page track recording", () => {
   it("records the page on the recording clock and finalizes it as one track", async () => {
@@ -172,12 +173,18 @@ describe("page track recording", () => {
 
       expect(calls.map((call) => call.url)).toEqual([
         ONLY_CHUNK_URL,
+        DRAFT_URL,
         FINALIZE_URL,
       ]);
       await expect(bodyOf(calls, ONLY_CHUNK_URL)).resolves.toBe(
         `${meta}\n${fullSnapshot}\n${scroll}\n`,
       );
-      expect(JSON.parse(await bodyOf(calls, FINALIZE_URL))).toEqual({
+      const finalized = JSON.parse(await bodyOf(calls, FINALIZE_URL));
+      expect(JSON.parse(await bodyOf(calls, DRAFT_URL))).toEqual({
+        ...finalized,
+        status: "recovered",
+      });
+      expect(finalized).toEqual({
         status: "complete",
         startedAt: "2026-11-26T15:00:00.000Z",
         durationMs: 3_500,
@@ -234,7 +241,9 @@ describe("page track recording", () => {
       page.send({ kind: "events", lines: big });
 
       await expect(track.finish()).resolves.toEqual({ status: "finalized" });
-      const chunks = calls.slice(0, -1);
+      const chunks = calls.filter((call) =>
+        new URL(call.url).pathname.endsWith("/tracks/page"),
+      );
       expect(
         chunks.map((call) => new URL(call.url).searchParams.get("index")),
       ).toEqual(["0", "1", "2"]);
@@ -268,6 +277,7 @@ describe("page track recording", () => {
       expect(calls.map((call) => new URL(call.url).pathname)).toEqual([
         "/api/uploads/rec-1/tracks/page",
         "/api/uploads/rec-1/tracks/page",
+        "/api/uploads/rec-1/tracks/draft",
         "/api/uploads/rec-1/tracks/finalize",
       ]);
       expect(waits).toContain(500);
@@ -431,6 +441,7 @@ describe("page track recording", () => {
       expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
         ONLY_CHUNK_URL,
         ONLY_CHUNK_URL,
+        DRAFT_URL,
         FINALIZE_URL,
       ]);
     } finally {
@@ -466,6 +477,87 @@ describe("page track recording", () => {
       status: "stopped",
       reason: "discarded",
     });
+  });
+
+  it("sends a draft after each chunk stored while recording, so the server can finish the track without the extension", async () => {
+    const { track, calls, advance } = harness(ok);
+    const page = fakePort();
+    track.connect(page.port);
+    track.start(WALL_START);
+    advance(2_000);
+    page.send({
+      kind: "events",
+      lines: JSON.stringify({
+        type: 3,
+        data: { text: "x".repeat(PAGE_TRACK_CHUNK_BYTES + 10) },
+        timestamp: WALL_START + 2_000,
+      }),
+    });
+    await vi.waitFor(() => {
+      expect(calls.map((call) => new URL(call.url).pathname)).toEqual([
+        "/api/uploads/rec-1/tracks/page",
+        "/api/uploads/rec-1/tracks/draft",
+      ]);
+    });
+    const draft = JSON.parse(await bodyOf(calls, DRAFT_URL)) as {
+      status: string;
+      durationMs: number;
+      tracks: Array<{ startMs: number; endMs: number; complete: boolean }>;
+    };
+    expect(draft.status).toBe("recovered");
+    expect(draft.durationMs).toBe(2_000);
+    expect(draft.tracks).toMatchObject([
+      { startMs: 2_000, endMs: 2_000, complete: false },
+    ]);
+
+    await expect(track.finish()).resolves.toEqual({ status: "finalized" });
+    expect(calls.map((call) => new URL(call.url).pathname)).toEqual([
+      "/api/uploads/rec-1/tracks/page",
+      "/api/uploads/rec-1/tracks/draft",
+      "/api/uploads/rec-1/tracks/page",
+      "/api/uploads/rec-1/tracks/draft",
+      "/api/uploads/rec-1/tracks/finalize",
+    ]);
+  });
+
+  it("still finalizes when the server keeps no draft, and reports that once", async () => {
+    const report = vi.fn();
+    const { track, calls, advance } = harness(
+      (url) =>
+        url === DRAFT_URL
+          ? { status: 500, body: { ok: false, error: "no room" } }
+          : { status: 200, body: { ok: true } },
+      { report },
+    );
+    const page = fakePort();
+    track.connect(page.port);
+    track.start(WALL_START);
+    advance(2_000);
+    page.send({
+      kind: "events",
+      lines: JSON.stringify({
+        type: 3,
+        data: { text: "x".repeat(PAGE_TRACK_CHUNK_BYTES + 10) },
+        timestamp: WALL_START + 2_000,
+      }),
+    });
+    await vi.waitFor(() => {
+      expect(report).toHaveBeenCalledOnce();
+    });
+
+    await expect(track.finish()).resolves.toEqual({ status: "finalized" });
+    expect(calls.map((call) => new URL(call.url).pathname)).toEqual([
+      "/api/uploads/rec-1/tracks/page",
+      "/api/uploads/rec-1/tracks/draft",
+      "/api/uploads/rec-1/tracks/page",
+      "/api/uploads/rec-1/tracks/draft",
+      "/api/uploads/rec-1/tracks/finalize",
+    ]);
+    expect(report).toHaveBeenCalledOnce();
+    expect(report).toHaveBeenCalledWith(
+      new Error("draft not kept: 500: no room"),
+      "page-track-draft",
+    );
   });
 
   it("sends nothing when the page never sent an event", async () => {

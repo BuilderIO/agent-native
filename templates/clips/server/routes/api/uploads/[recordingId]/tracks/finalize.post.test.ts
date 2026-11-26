@@ -147,7 +147,8 @@ vi.mock("../../../../../lib/video-storage.js", () => ({
 }));
 
 import { RETRYABLE_UPLOAD_INTERRUPTION_REASON } from "../../../../../../shared/upload-interruption.js";
-import { handleFinalizeTracks } from "./finalize.post";
+import { finalizeRichRecordingSchema } from "../../../../../lib/rich-recording-manifest.js";
+import { finalizeRecordingTracks, handleFinalizeTracks } from "./finalize.post";
 
 const resumable = mocks.provider.resumable;
 const manifestUrl = "https://storage.example.com/clips/rec-1/manifest.json";
@@ -879,5 +880,47 @@ describe("POST /api/uploads/:recordingId/tracks/finalize", () => {
     });
     expect(status).toBe(409);
     expect(result).toMatchObject({ staleAttempt: true });
+  });
+
+  it("finalizes for a caller with no request, as the sweep does with a recorder's draft", async () => {
+    session("screen", 10);
+    const setStatus = vi.fn();
+    const result = await finalizeRecordingTracks({
+      recordingId: "rec-1",
+      input: finalizeRichRecordingSchema.parse({
+        ...body([{ ...listed("screen"), endMs: 30_000, complete: false }]),
+        status: "recovered",
+      }),
+      ownerEmail: "Owner@example.com",
+      setStatus,
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      mediaFormat: "rich",
+      richBytes: 10,
+    });
+    expect(setStatus).not.toHaveBeenCalled();
+    const [upload] = mocks.upload.mock.calls[0] as [{ data: Uint8Array }];
+    const manifest = JSON.parse(new TextDecoder().decode(upload.data));
+    expect(manifest.status).toBe("recovered");
+    expect(manifest.tracks).toMatchObject([
+      { id: "screen", endMs: 30_000, complete: false },
+    ]);
+  });
+
+  it("gives that caller the status of a refusal", async () => {
+    session("screen", 10);
+    await client.query(
+      "UPDATE recordings SET status='failed', failure_reason='Upload failed'",
+    );
+    const setStatus = vi.fn();
+    const result = await finalizeRecordingTracks({
+      recordingId: "rec-1",
+      input: finalizeRichRecordingSchema.parse(body([listed("screen")])),
+      ownerEmail: "Owner@example.com",
+      setStatus,
+    });
+    expect(result).toMatchObject({ ok: false, tracksStopped: true });
+    expect(setStatus).toHaveBeenCalledWith(409);
   });
 });

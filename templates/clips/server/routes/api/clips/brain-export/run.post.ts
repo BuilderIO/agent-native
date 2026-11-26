@@ -4,6 +4,7 @@ import { createError, defineEventHandler, getHeader } from "h3";
 
 import { runBrainExportSweepOnce } from "../../../../jobs/brain-export.js";
 import { runTransactionalEmailsOnce } from "../../../../jobs/transactional-emails.js";
+import { recoverIdleTrackUploads } from "../../../../lib/rich-track-recovery.js";
 import { reapExpiredUploads } from "../../../../lib/upload-lease.js";
 
 declare global {
@@ -42,16 +43,19 @@ export default defineEventHandler(async (event) => {
     !headerMatchesSecret(getHeader(event, "authorization"), secret)
   )
     throw createError({ statusCode: 401, statusMessage: "Unauthorized" });
-  const [uploads, transactionalEmails, brainExport] = await Promise.allSettled([
-    reapExpiredUploads(),
-    runTransactionalEmailsOnce().catch((error) => {
-      console.error("[transactional-emails] scheduled run failed:", error);
-      return null;
-    }),
-    runBrainExportSweepOnce(),
-  ]);
+  const [uploads, tracks, transactionalEmails, brainExport] =
+    await Promise.allSettled([
+      reapExpiredUploads(),
+      recoverIdleTrackUploads(),
+      runTransactionalEmailsOnce().catch((error) => {
+        console.error("[transactional-emails] scheduled run failed:", error);
+        return null;
+      }),
+      runBrainExportSweepOnce(),
+    ]);
   const failures = [
     ["uploads", uploads],
+    ["track-recovery", tracks],
     ["brain-export", brainExport],
   ] as const;
   for (const [name, result] of failures) {
@@ -59,7 +63,11 @@ export default defineEventHandler(async (event) => {
       console.error(`[${name}] scheduled run failed:`, result.reason);
     }
   }
-  if (uploads.status === "rejected" || brainExport.status === "rejected") {
+  if (
+    uploads.status === "rejected" ||
+    tracks.status === "rejected" ||
+    brainExport.status === "rejected"
+  ) {
     throw createError({
       statusCode: 500,
       statusMessage: "One or more scheduled Clips jobs failed",
@@ -68,6 +76,7 @@ export default defineEventHandler(async (event) => {
   return {
     ok: true,
     uploads: uploads.value,
+    tracks: tracks.value,
     transactionalEmails:
       transactionalEmails.status === "fulfilled"
         ? transactionalEmails.value
