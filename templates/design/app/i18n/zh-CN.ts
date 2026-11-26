@@ -1887,6 +1887,7 @@ export default {
     bringToFront: "置于顶层",
     sendBackward: "下移一层",
     sendToBack: "置于底层",
+    arrangeUnavailable: "请在可编辑的设计中选择一个图层以调整顺序",
     pasteToReplace: "粘贴替换",
     frameSelection: "创建画框",
     flipHorizontal: "水平翻转",

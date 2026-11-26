@@ -1936,6 +1936,7 @@ export default {
     bringToFront: "सबसे आगे लाएं",
     sendBackward: "पीछे भेजें",
     sendToBack: "सबसे पीछे भेजें",
+    arrangeUnavailable: "पुनः क्रमित करने के लिए संपादन योग्य डिज़ाइन में कोई लेयर चुनें",
     pasteToReplace: "बदलने के लिए पेस्ट करें",
     frameSelection: "चयन को फ़्रेम करें",
     flipHorizontal: "क्षैतिज रूप से फ़्लिप करें",
