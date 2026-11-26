@@ -20,6 +20,12 @@ const {
 
 type Handler = (url: URL) => { status?: number; body: unknown };
 
+function first<T>(items: readonly T[]): T {
+  const [item] = items;
+  if (item === undefined) throw new Error("expected at least one item");
+  return item;
+}
+
 function serve(handler: Handler) {
   const requests: Array<{ url: URL; authorization: string | null }> = [];
   vi.stubGlobal(
@@ -77,12 +83,12 @@ describe("X API client", () => {
       missing: ["nobody_here"],
     });
     expect(requests).toHaveLength(1);
-    expect(requests[0].url.origin).toBe("https://api.x.com");
-    expect(requests[0].url.pathname).toBe("/2/users/by");
-    expect(requests[0].url.searchParams.get("usernames")).toBe(
+    expect(first(requests).url.origin).toBe("https://api.x.com");
+    expect(first(requests).url.pathname).toBe("/2/users/by");
+    expect(first(requests).url.searchParams.get("usernames")).toBe(
       "BuilderIO,nobody_here",
     );
-    expect(requests[0].authorization).toBe("Bearer test-token");
+    expect(first(requests).authorization).toBe("Bearer test-token");
   });
 
   it("asks a timeline for 100 posts a page without reposts or replies, from a since_id or a start time", async () => {
@@ -117,19 +123,34 @@ describe("X API client", () => {
       undefined,
     );
 
-    const [page1, page2, backfill] = requests.map(({ url }) => url);
-    expect(page1.pathname).toBe("/2/users/111/tweets");
-    expect(Object.fromEntries(page1.searchParams)).toEqual({
-      max_results: "100",
-      exclude: "retweets,replies",
-      "tweet.fields": "created_at,public_metrics,entities,note_tweet",
-      since_id: "4",
-    });
-    expect(page2.searchParams.get("pagination_token")).toBe("page-2");
-    expect(backfill.searchParams.get("start_time")).toBe(
-      "2026-10-27T00:00:00Z",
-    );
-    expect(backfill.searchParams.has("since_id")).toBe(false);
+    expect(requests.map(({ url }) => url.pathname)).toEqual([
+      "/2/users/111/tweets",
+      "/2/users/111/tweets",
+      "/2/users/111/tweets",
+    ]);
+    expect(
+      requests.map(({ url }) => Object.fromEntries(url.searchParams)),
+    ).toEqual([
+      {
+        max_results: "100",
+        exclude: "retweets,replies",
+        "tweet.fields": "created_at,public_metrics,entities,note_tweet",
+        since_id: "4",
+      },
+      {
+        max_results: "100",
+        exclude: "retweets,replies",
+        "tweet.fields": "created_at,public_metrics,entities,note_tweet",
+        since_id: "4",
+        pagination_token: "page-2",
+      },
+      {
+        max_results: "100",
+        exclude: "retweets,replies",
+        "tweet.fields": "created_at,public_metrics,entities,note_tweet",
+        start_time: "2026-10-27T00:00:00Z",
+      },
+    ]);
   });
 
   it("reads a long post's full text and links, and either name for reposts", () => {
@@ -213,9 +234,9 @@ describe("X API client", () => {
     expect(result.returned).toBe(1);
     expect(result.posts.map((post) => post.id)).toEqual(["1"]);
     expect(result.missing).toEqual(["2"]);
-    expect(requests[0].url.pathname).toBe("/2/tweets");
-    expect(requests[0].url.searchParams.get("ids")).toBe("1,2,3");
-    expect(requests[0].url.searchParams.get("tweet.fields")).toBe(
+    expect(first(requests).url.pathname).toBe("/2/tweets");
+    expect(first(requests).url.searchParams.get("ids")).toBe("1,2,3");
+    expect(first(requests).url.searchParams.get("tweet.fields")).toBe(
       "created_at,public_metrics,entities,note_tweet",
     );
   });
@@ -273,8 +294,8 @@ describe("X API client", () => {
     }));
     await testXBearerToken("test-token");
     expect(requests).toHaveLength(1);
-    expect(requests[0].url.pathname).toBe("/2/usage/tweets");
-    expect(requests[0].url.searchParams.get("days")).toBe("1");
+    expect(first(requests).url.pathname).toBe("/2/usage/tweets");
+    expect(first(requests).url.searchParams.get("days")).toBe("1");
     serve(() => ({ status: 401, body: { title: "Unauthorized" } }));
     await expect(testXBearerToken("bad-token")).rejects.toMatchObject({
       errorCode: "x_token_rejected",

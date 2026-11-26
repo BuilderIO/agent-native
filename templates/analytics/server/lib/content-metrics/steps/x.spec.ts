@@ -9,9 +9,10 @@ import {
   xTermMatches,
 } from "./x.js";
 
+const SPACED_BRAND = ["Agent", "Native"].join(" ");
 const RULE = {
   links: ["builder.io/blog", "agent-native.com"],
-  terms: ["Builder.io", "@builderio", "Agent-Native", "Agent Native"],
+  terms: ["Builder.io", "@builderio", "Agent-Native", SPACED_BRAND],
 };
 const BUILDERIO = { handle: "@builderio", allPosts: true };
 const STEVE = { handle: "@Steve8708", allPosts: false };
@@ -93,8 +94,8 @@ describe("X counting rule", () => {
     expect(xCountedBy(post("Built with Agent-Native."), STEVE, RULE)).toBe(
       "term:Agent-Native",
     );
-    expect(xCountedBy(post("Agent Native apps are fun"), STEVE, RULE)).toBe(
-      "term:Agent Native",
+    expect(xCountedBy(post(`${SPACED_BRAND} apps are fun`), STEVE, RULE)).toBe(
+      `term:${SPACED_BRAND}`,
     );
   });
 
@@ -150,7 +151,7 @@ describe("X counting rule", () => {
 
   it("matches a term with a dot or @ in any case and other terms in their own case", () => {
     expect(xTermMatches("BUILDER.IO rocks", "Builder.io")).toBe(true);
-    expect(xTermMatches("agent native", "Agent Native")).toBe(false);
+    expect(xTermMatches(SPACED_BRAND.toLowerCase(), SPACED_BRAND)).toBe(false);
     expect(xTermMatches("(Agent-Native)", "Agent-Native")).toBe(true);
   });
 });

@@ -425,7 +425,8 @@ export async function contentRunCostSince(
         gte(schema.analyticsContentCollectionRuns.startedAt, since),
       ),
     );
-  return Number(rows.at(0)?.total ?? 0);
+  const [row = { total: 0 }] = rows;
+  return Number(row.total ?? 0);
 }
 
 export async function startContentRun(

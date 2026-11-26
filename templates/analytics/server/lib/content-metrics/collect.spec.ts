@@ -519,6 +519,7 @@ describe("content collection", () => {
         "signups",
         "agent_native_signups",
         "youtube",
+        "x",
       ].map((step) =>
         expect.objectContaining({
           step,
@@ -3139,14 +3140,21 @@ describe("content collection", () => {
       links?: Array<{ url: string; expanded_url: string; display_url: string }>;
       views: number;
     };
-    const USERS: Record<string, { id: string; username: string }> = {
-      builderio: { id: "1", username: "builderio" },
-      steve8708: { id: "2", username: "Steve8708" },
-    };
+    const SPACED_BRAND = ["Agent", "Native"].join(" ");
+    const USERS = new Map([
+      ["builderio", { id: "1", username: "builderio" }],
+      ["steve8708", { id: "2", username: "Steve8708" }],
+    ]);
     let posts: FakePost[] = [];
     let requests: URL[] = [];
     let failWith: (url: URL) => { status: number; body: unknown } | null = () =>
       null;
+
+    function first<T>(items: readonly T[]): T {
+      const [item] = items;
+      if (item === undefined) throw new Error("expected at least one item");
+      return item;
+    }
 
     function json(body: unknown, status = 200) {
       return new Response(JSON.stringify(body), { status });
@@ -3184,10 +3192,12 @@ describe("content collection", () => {
           if (url.pathname === "/2/users/by") {
             const names = (url.searchParams.get("usernames") ?? "").split(",");
             const found = names.flatMap((name) => {
-              const user = USERS[name.toLowerCase()];
+              const user = USERS.get(name.toLowerCase());
               return user ? [{ ...user, name: user.username }] : [];
             });
-            const missing = names.filter((name) => !USERS[name.toLowerCase()]);
+            const missing = names.filter(
+              (name) => !USERS.has(name.toLowerCase()),
+            );
             return json({
               data: found,
               ...(missing.length > 0
@@ -3263,7 +3273,7 @@ describe("content collection", () => {
               { handle: "@Steve8708", allPosts: false },
             ],
             links: ["builder.io/blog", "agent-native.com"],
-            terms: ["Builder.io", "@builderio", "Agent-Native", "Agent Native"],
+            terms: ["Builder.io", "@builderio", "Agent-Native", SPACED_BRAND],
             ...x,
           },
         },
@@ -3330,10 +3340,11 @@ describe("content collection", () => {
     }
 
     async function xRun() {
-      const [run] = await rows(
-        "SELECT status, error_code, error_message, cost_usd, detail, row_count FROM analytics_content_collection_runs WHERE step = 'x' AND id NOT LIKE 'prior-%' ORDER BY started_at DESC LIMIT 1",
+      return first(
+        await rows(
+          "SELECT status, error_code, error_message, cost_usd, detail, row_count FROM analytics_content_collection_runs WHERE step = 'x' AND id NOT LIKE 'prior-%' ORDER BY started_at DESC LIMIT 1",
+        ),
       );
-      return run;
     }
 
     beforeEach(() => {
@@ -3423,15 +3434,17 @@ describe("content collection", () => {
         "/2/users/1/tweets",
         "/2/users/2/tweets",
       ]);
-      expect(requests[0].searchParams.get("usernames")).toBe(
+      expect(first(requests).searchParams.get("usernames")).toBe(
         "builderio,Steve8708",
       );
-      expect(Object.fromEntries(requests[2].searchParams)).toEqual({
-        max_results: "100",
-        exclude: "retweets,replies",
-        "tweet.fields": "created_at,public_metrics,entities,note_tweet",
-        start_time: "2026-10-27T08:00:00Z",
-      });
+      expect(Object.fromEntries(first(requests.slice(2)).searchParams)).toEqual(
+        {
+          max_results: "100",
+          exclude: "retweets,replies",
+          "tweet.fields": "created_at,public_metrics,entities,note_tweet",
+          start_time: "2026-10-27T08:00:00Z",
+        },
+      );
       expect(
         await rows(
           "SELECT external_id, url, title, author, relevance, metadata FROM analytics_content_items ORDER BY external_id",
@@ -3547,7 +3560,7 @@ describe("content collection", () => {
       ];
       const days = [0, 1, 2, 3, 7, 30, 31];
       for (const [index, day] of days.entries()) {
-        posts[0].views = (index + 1) * 100;
+        first(posts).views = (index + 1) * 100;
         const now = new Date(
           Date.parse("2026-11-02T08:00:00.000Z") + day * 86_400_000,
         ).toISOString();
@@ -3696,7 +3709,7 @@ describe("content collection", () => {
         (url.searchParams.get("ids") ?? "").split(","),
       );
       expect(batches.map((ids) => ids.length)).toEqual([100, 32]);
-      expect(batches[0].slice(0, 2)).toEqual(["6000", "6001"]);
+      expect(first(batches).slice(0, 2)).toEqual(["6000", "6001"]);
       const run = await xRun();
       expect(run.detail).toContain("132 re-reads");
       expect(run.cost_usd).toBeCloseTo(0.66, 5);

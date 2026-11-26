@@ -60,6 +60,7 @@ function hostAndPath(href: string): { host: string; path: string } | null {
       path: url.pathname.toLowerCase(),
     };
   } catch {
+    // coercion-ok: an address that is not a URL cannot match a tracked link
     return null;
   }
 }

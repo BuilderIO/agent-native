@@ -134,7 +134,7 @@ export default defineAction({
       .max(20)
       .optional()
       .describe(
-        'Words that make a post count when its text names them as a whole word, replacing the saved list. Terms with "@" or "." match any case and an @handle also matches a link to a post by that account, as a quote post carries; other terms match their exact case. E.g. ["Builder.io","@builderio","Agent-Native","Agent Native"].',
+        'Words that make a post count when its text names them as a whole word, replacing the saved list. Terms with "@" or "." match any case and an @handle also matches a link to a post by that account, as a quote post carries; other terms match their exact case. E.g. ["Builder.io","@builderio","Agent-Native"].',
       ),
   }),
   run: async (
