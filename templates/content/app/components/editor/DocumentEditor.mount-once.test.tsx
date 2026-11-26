@@ -160,6 +160,7 @@ function Visit(args: VisitProps) {
         schema: getContentEditorSchema(),
         content,
         documentId: "page",
+        runInteractiveHtml: false,
       }),
     );
   return createElement(VisualEditor, {

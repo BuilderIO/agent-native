@@ -1,9 +1,13 @@
 import { isListItem } from "@agent-native/toolkit/editor";
+import { INTERACTIVE_HTML_LANGUAGE } from "@shared/interactive-html-language";
 import { registryBlockSpecByType } from "@shared/nfm-registry";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
 
-import { isMermaidCodeBlock } from "./extensions/CodeBlockNode";
+import {
+  isInteractiveHtmlCodeBlock,
+  isMermaidCodeBlock,
+} from "./extensions/CodeBlockNode";
 import { toggleTitleNode } from "./extensions/NotionExtensions";
 import {
   getTableHeaders,
@@ -85,6 +89,29 @@ function tableSwitches(node: ProseMirrorNode, t: Translate): BlockMenuSwitch[] {
   ];
 }
 
+function codeBlockSwitches(
+  node: ProseMirrorNode,
+  t: Translate,
+): BlockMenuSwitch[] {
+  const interactive = isInteractiveHtmlCodeBlock(node);
+  if (!interactive && node.attrs.language !== "html") return [];
+  return [
+    {
+      id: "interactive-html",
+      label: t("editor.interactiveHtml.runsOnPage"),
+      checked: interactive,
+      toggle: (tr, block) =>
+        tr.setNodeAttribute(
+          block.pos,
+          "language",
+          isInteractiveHtmlCodeBlock(block.node)
+            ? "html"
+            : INTERACTIVE_HTML_LANGUAGE,
+        ),
+    },
+  ];
+}
+
 /**
  * Every kind of block a page can hold, by node type. A kind with no entry
  * gets a menu titled "Block"; the registry's test fails until it has one.
@@ -106,8 +133,11 @@ export const BLOCK_MENU_ENTRIES: Record<string, BlockMenuEntry> = {
       t(
         isMermaidCodeBlock(node)
           ? "editor.mermaid.source"
-          : "editor.slash.codeBlock",
+          : isInteractiveHtmlCodeBlock(node)
+            ? "editor.slash.interactiveHtml"
+            : "editor.slash.codeBlock",
       ),
+    switches: codeBlockSwitches,
   },
   horizontalRule: { title: titled("editor.slash.divider") },
   image: { title: titled("editor.slash.image") },

@@ -562,6 +562,56 @@ source is the diagram, so it stays the editable copy.
   source. If the source has a syntax error, the block shows it beside the
   source; fix it there. Public pages show the source as code.
 
+### Interactive HTML
+
+An interactive HTML block is a fenced code block whose language is
+`html interactive`. Its source is a whole HTML page that runs where the block
+sits, in a frame that can reach nothing but itself:
+
+````md
+```html interactive
+<title>Tap counter</title>
+<button id="tap">0</button>
+<script>
+  tap.onclick = () => tap.textContent++;
+</script>
+```
+````
+
+- Write one when the user asks for something to click, drag or play with: a
+  calculator, an explorable chart, a small game. Keep text, tables, diagrams and
+  charts that only need reading in their own blocks. A plain `html` code block
+  stays code.
+- Give it a `<title>`. It is the block's caption, and the words of its link
+  wherever the block can't run.
+- Inline `<script>` and `<style>` work. Scripts, stylesheets and fonts load only
+  from `https://cdn.jsdelivr.net` (`/npm/<package>@<version>/<file>`; pin the
+  version). Images load from `/api/private-media/<id>`, `data:` addresses and
+  the deployment's allowed hosts.
+- Nothing else works, by design: no `fetch`, storage, cookies, parent page,
+  popups, dialogs, nested frames or links to other pages. Keep state in
+  variables.
+- The block is as tall as its content, up to 1,000px, and scrolls past that; it
+  also opens full screen, so make the layout fill what it is given and follow
+  `prefers-color-scheme`.
+- Change it with small `edit-document` find/replace edits, like any text. The
+  page runs the new version as soon as the edit saves.
+- A write that adds or changes a block that can't work is refused with
+  `INTERACTIVE_HTML_BLOCK_REFUSED`, which says what to change. Nothing is saved,
+  so fix the block and send the whole write again.
+- "Make this button blue" means the selected block: `view-screen` returns its
+  `interactiveBlock` with `title`, `blockId`, and `number`, which counts the
+  page's `html interactive` fences from 1.
+- `get-document` and `pull-document` list the page's `interactiveBlocks`, each
+  with the `url` that opens it full screen. Give people that `url`, and match a
+  block link a person gives you to its `blockId` there. They list the page's
+  body; a block in another Blocks field runs but has no link.
+- A block runs on its own on pages its reader owns. Other readers, public ones
+  included, click Run.
+- HTML and PDF exports and Builder get the caption linked to the block. That link
+  is how a body pulled back from Builder finds its block again. Markdown keeps
+  the source. For Notion, see `notion-integration`.
+
 ### Analytics charts
 
 An `<AnalyticsChart … />` block is a copy of one Analytics dashboard panel (a

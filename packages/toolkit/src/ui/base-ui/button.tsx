@@ -9,6 +9,7 @@ import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
 import * as React from "react";
 
+import { swappable } from "../../design-system/primitives.js";
 import { cn } from "../../utils.js";
 import { partClassName } from "./part-class.js";
 import { splitProps } from "./props.js";
@@ -83,7 +84,7 @@ function createButtonLink(part: "button" | "icon-button", displayName: string) {
  *
  * @import import { Button } from "@agent-native/toolkit/ui/base-ui/button";
  */
-const Button = createButton("button", "Button");
+const Button = swappable("Button", createButton("button", "Button"));
 
 /**
  * A square button that holds only an icon, named by its `aria-label`. It is
@@ -91,7 +92,10 @@ const Button = createButton("button", "Button");
  *
  * @import import { IconButton } from "@agent-native/toolkit/ui/base-ui/button";
  */
-const IconButton = createButton("icon-button", "IconButton");
+const IconButton = swappable(
+  "IconButton",
+  createButton("icon-button", "IconButton"),
+);
 
 /**
  * A link that looks like a Button: an `<a href>` that keeps its link role, so
@@ -101,7 +105,10 @@ const IconButton = createButton("icon-button", "IconButton");
  *
  * @import import { ButtonLink } from "@agent-native/toolkit/ui/base-ui/button";
  */
-const ButtonLink = createButtonLink("button", "ButtonLink");
+const ButtonLink = swappable(
+  "ButtonLink",
+  createButtonLink("button", "ButtonLink"),
+);
 
 /**
  * An Icon Button that is a link, named by its `aria-label`. It is the
@@ -109,6 +116,9 @@ const ButtonLink = createButtonLink("button", "ButtonLink");
  *
  * @import import { IconButtonLink } from "@agent-native/toolkit/ui/base-ui/button";
  */
-const IconButtonLink = createButtonLink("icon-button", "IconButtonLink");
+const IconButtonLink = swappable(
+  "IconButtonLink",
+  createButtonLink("icon-button", "IconButtonLink"),
+);
 
 export { Button, ButtonLink, IconButton, IconButtonLink };

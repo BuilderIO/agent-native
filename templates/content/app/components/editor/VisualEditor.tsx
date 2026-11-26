@@ -41,6 +41,7 @@ import {
   parseRegistryBlockData,
   type ParsedRegistryBlock,
 } from "@shared/nfm-registry";
+import type { PublicInteractiveHtml } from "@shared/public-reader";
 import { suggestionFormattingSourceRange } from "@shared/suggestion-formatting";
 import type { SuggestionPlacement } from "@shared/suggestion-placement";
 import {
@@ -144,6 +145,7 @@ import {
   heldBlockLinkId,
   useBlockIdentityStamps,
   useLinkedBlockReveal,
+  usePublicBlockIds,
 } from "./block-links";
 import type { BlockAt } from "./block-menu-registry";
 import { BlockActionsMenu } from "./BlockActionsMenu";
@@ -188,7 +190,10 @@ import {
 import { AudioNode } from "./extensions/AudioNode";
 import { BlockIdentityIds } from "./extensions/BlockIdentityIds";
 import { BodyElementTiming } from "./extensions/BodyElementTiming";
-import { CodeBlock, DrawingCodeBlock } from "./extensions/CodeBlockNode";
+import {
+  DrawingCodeBlock,
+  isInteractiveHtmlCodeBlock,
+} from "./extensions/CodeBlockNode";
 import {
   CommentHighlight,
   type CommentHighlightOptions,
@@ -264,6 +269,7 @@ import {
   waitForImageUploadsToSettle,
   wasImageUploadBlockRemoved,
 } from "./image-upload-previews";
+import { InteractiveHtmlContext } from "./interactive-html/interactive-html-context";
 import {
   LinkCardPaste,
   type LinkCardPasteContext,
@@ -2009,11 +2015,8 @@ interface VisualEditorProps {
   privateImageUploads?: boolean;
   localFilePath?: string | null;
   referenceDepth?: number;
-  /**
-   * Draw Mermaid code blocks as diagrams. Public pages turn it off: they
-   * never run document source.
-   */
   drawDiagrams?: boolean;
+  runInteractiveHtml?: boolean;
   onComment?: (
     quotedText: string,
     offsetTop: number,
@@ -2080,6 +2083,9 @@ interface VisualEditorProps {
   ) => void;
   blockLinks?: boolean;
   linkedBlockId?: string | null;
+  linkedBlockFullScreen?: boolean;
+  onFullScreenClosed?: () => void;
+  publicInteractiveHtml?: PublicInteractiveHtml & { documentId: string };
   onBlockIdentityIds?: (markdown: string, ids: EditorBlockIds) => void;
   /** Receives a reader for where the editor shows suggestions' words. */
   onSuggestionPlacementsChange?: (
@@ -3549,7 +3555,7 @@ export function createVisualEditorExtensions({
       CompatibleCode,
       EmptyLineParagraph,
       NotionBlockquote,
-      drawDiagrams ? DrawingCodeBlock : CodeBlock,
+      DrawingCodeBlock.configure({ drawDiagrams }),
       VisualEditorPlaceholder.configure({
         emptyBlockPlaceholder,
         emptyDocumentPlaceholder,
@@ -3999,6 +4005,7 @@ export function VisualEditor({
   localFilePath,
   referenceDepth,
   drawDiagrams = true,
+  runInteractiveHtml = false,
   onComment,
   onSuggestEdit,
   onBlockComment,
@@ -4035,6 +4042,9 @@ export function VisualEditor({
   onSuggestionPlacementsChange,
   blockLinks = false,
   linkedBlockId = null,
+  linkedBlockFullScreen = false,
+  onFullScreenClosed,
+  publicInteractiveHtml,
   onBlockIdentityIds,
 }: VisualEditorProps) {
   const t = useT();
@@ -5196,11 +5206,28 @@ export function VisualEditor({
     documentId,
     enabled: blockLinks && editable && !suggesting,
   });
+  usePublicBlockIds(editor, publicInteractiveHtml?.blockIds);
+  const linkDocumentId = blockLinks
+    ? documentId
+    : publicInteractiveHtml?.documentId;
+  const fullScreenBlockId = linkedBlockFullScreen ? linkedBlockId : null;
+  const [fullScreenPos, setFullScreenPos] = useState<number | null>(null);
+  const [openedBlockId, setOpenedBlockId] = useState(fullScreenBlockId);
+  if (fullScreenBlockId !== openedBlockId) {
+    setOpenedBlockId(fullScreenBlockId);
+    setFullScreenPos(null);
+  }
   useLinkedBlockReveal({
     editor,
-    documentId,
-    blockId: blockLinks ? linkedBlockId : null,
+    documentId: linkDocumentId,
+    blockId: linkDocumentId ? linkedBlockId : null,
+    fullScreen: linkedBlockFullScreen,
     ready: collabSynced,
+    onRevealed: ({ pos, node }) => {
+      if (linkedBlockFullScreen && isInteractiveHtmlCodeBlock(node)) {
+        setFullScreenPos(pos);
+      }
+    },
     onDeleted: () => toast(tRef.current("editor.blockMenu.linkedBlockDeleted")),
     onMissing: () =>
       toast.error(tRef.current("editor.blockMenu.linkedBlockMissing")),
@@ -5208,14 +5235,15 @@ export function VisualEditor({
       toast.error(tRef.current("editor.blockMenu.linkedBlockLookupFailed")),
   });
   const copyBlockLink = useCallback(
-    (block: BlockAt) => {
-      if (!documentId) return;
+    (block: BlockAt, options?: { fullScreen?: boolean }) => {
+      if (!linkDocumentId) return;
       const copy = async (id: string | null) => {
         if (!id) {
           toast.error(tRef.current("editor.blockMenu.linkNotReady"));
           return;
         }
-        if (await writeClipboardText(blockLinkUrl(documentId, id))) {
+        const url = blockLinkUrl(linkDocumentId, id, options);
+        if (await writeClipboardText(url)) {
           toast.success(tRef.current("editor.blockMenu.linkCopied"));
         } else {
           toast.error(tRef.current("editor.blockMenu.copyLinkFailed"));
@@ -5230,7 +5258,7 @@ export function VisualEditor({
       void blockLinkId({
         editor,
         block,
-        documentId,
+        documentId: linkDocumentId,
         stamp: canWrite,
         save: canWrite
           ? async () => {
@@ -5258,12 +5286,39 @@ export function VisualEditor({
     },
     [
       bodyIsLiveCopy,
-      documentId,
       editable,
       editor,
       flushCollabUpdates,
+      linkDocumentId,
       persistEditorContent,
       requestCollabSync,
+    ],
+  );
+  const publicDisplaySources = publicInteractiveHtml?.displaySources ?? null;
+  const interactiveHtml = useMemo(
+    () => ({
+      runsOnOpen: runInteractiveHtml,
+      displaySources: publicDisplaySources,
+      fullScreenPos,
+      onFullScreenClosed: () => {
+        setFullScreenPos(null);
+        onFullScreenClosed?.();
+      },
+      copyLink: linkDocumentId
+        ? (pos: number) => {
+            const node = editor.state.doc.nodeAt(pos);
+            if (node) copyBlockLink({ pos, node }, { fullScreen: true });
+          }
+        : null,
+    }),
+    [
+      copyBlockLink,
+      editor,
+      fullScreenPos,
+      linkDocumentId,
+      onFullScreenClosed,
+      publicDisplaySources,
+      runInteractiveHtml,
     ],
   );
 
@@ -6508,16 +6563,19 @@ export function VisualEditor({
         onOpenChange={handleFileStorageSetupOpenChange}
       />
       <RegistryBlockDataProvider value={registryBlockDataValue}>
-        {showStoredBody ? (
-          <StaticDocumentBody
-            schema={editor.schema}
-            content={content}
-            documentId={referenceDepth ? undefined : documentId}
-          />
-        ) : null}
-        <DrawDiagramsContext.Provider value={drawDiagrams}>
-          <EditorContent editor={editor} hidden={showStoredBody} />
-        </DrawDiagramsContext.Provider>
+        <InteractiveHtmlContext.Provider value={interactiveHtml}>
+          {showStoredBody ? (
+            <StaticDocumentBody
+              schema={editor.schema}
+              content={content}
+              documentId={referenceDepth ? undefined : documentId}
+              runInteractiveHtml={runInteractiveHtml}
+            />
+          ) : null}
+          <DrawDiagramsContext.Provider value={drawDiagrams}>
+            <EditorContent editor={editor} hidden={showStoredBody} />
+          </DrawDiagramsContext.Provider>
+        </InteractiveHtmlContext.Provider>
       </RegistryBlockDataProvider>
       {collabState.initialSeedFailed ? (
         <div

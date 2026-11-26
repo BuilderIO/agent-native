@@ -8,6 +8,7 @@ import { schema } from "../server/db/index.js";
 import { syncAnalyticsChartCitations } from "../server/lib/analytics-chart-citations.js";
 import { documentAttributionActor } from "../server/lib/document-attribution.js";
 import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
+import { assertInteractiveHtmlBlocks } from "../server/lib/interactive-html-blocks.js";
 import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import {
@@ -228,7 +229,7 @@ export async function snapshotMigration(tx: any, databaseId: string) {
 export function validatePlan(
   plan: MigrationPlan,
   snapshot: Awaited<ReturnType<typeof snapshotMigration>>,
-  options: { checkTimestamps?: boolean } = {},
+  options: { checkTimestamps?: boolean; ctx?: CallProvenance | undefined } = {},
 ) {
   if (
     plan.databaseId !== snapshot.database.id ||
@@ -324,6 +325,11 @@ export function validatePlan(
     )
       throw new Error(`Stale row ${row.documentId}.`);
     assertNoNewlySharedVideoIds(persisted.document.content, row.content);
+    assertInteractiveHtmlBlocks(
+      options.ctx,
+      persisted.document.content,
+      row.content,
+    );
     if (
       duplicate(row.propertyValues.map((v) => v.propertyId)) ||
       duplicate(row.protectedPropertyValues.map((v) => v.propertyId))

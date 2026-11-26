@@ -36,6 +36,7 @@ function render(
         ancestors: [],
         subPages: [],
         pageLinks: {},
+        interactiveHtml: null,
         ...options.reader,
       },
       basePath: options.basePath ?? "",
