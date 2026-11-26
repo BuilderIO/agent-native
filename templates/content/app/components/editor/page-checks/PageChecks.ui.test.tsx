@@ -1,8 +1,10 @@
 // @vitest-environment happy-dom
-import type {
-  PageCheckPlaceAnswer,
-  PageCheckScope,
-  PageCheckView,
+import {
+  readPageCheckSentence,
+  type PageCheckPlaceAnswer,
+  type PageCheckScope,
+  type PageCheckTry,
+  type PageCheckView,
 } from "@shared/page-checks";
 import { act } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -61,6 +63,7 @@ function check(overrides: Partial<PageCheckView> = {}): PageCheckView {
     ],
     scope: { kind: "intro" },
     wordingHash: "wording-1",
+    sure: "balanced",
     paused: false,
     createdBy: "editor@example.com",
     createdAt: "2026-11-25T00:00:00.000Z",
@@ -113,6 +116,9 @@ function actions(
     openList: vi.fn(),
     focusCheck: vi.fn(),
     runNow: vi.fn(),
+    tryCheck: vi.fn(async (): Promise<PageCheckTry> => {
+      throw new Error("Not tried in this test");
+    }),
     save: vi.fn(async () => true),
     setPaused: vi.fn(async () => {}),
     remove: vi.fn(async () => true),
@@ -326,6 +332,7 @@ describe("page checks", () => {
       checkId: undefined,
       sentence: "Under 120 words",
       scope: intro,
+      sure: "balanced",
     });
     expect(page.closeDialog).toHaveBeenCalled();
   });
@@ -339,12 +346,215 @@ describe("page checks", () => {
     const dialog = required(
       document.querySelector<HTMLElement>("[data-page-check-dialog]"),
     );
-    setText(required(dialog.querySelector("textarea")), "Make it good");
-    expect(dialog.textContent).toContain("Can't read this yet");
+    setText(
+      required(dialog.querySelector("textarea")),
+      "Under 120 words. Opens with a question. Ends with a link. Names a person.",
+    );
+    expect(dialog.textContent).toContain(
+      "A check can have at most three parts.",
+    );
+    expect(addButton(dialog).disabled).toBe(true);
+  });
+
+  it("shows no How sure while a count is half typed", () => {
+    render({
+      actions: actions(),
+      state: state({ dialog: { mode: "add", scope: { kind: "intro" } } }),
+    });
+    const dialog = required(
+      document.querySelector<HTMLElement>("[data-page-check-dialog]"),
+    );
+    const sentence = required(dialog.querySelector("textarea"));
+
+    setText(sentence, "At most");
+    expect(dialog.querySelector("[data-page-check-sure]")).toBeNull();
+    setText(sentence, "At most 12 words");
+    expect(dialog.querySelector("[data-page-check-sure]")).toBeNull();
+    expect(addButton(dialog).disabled).toBe(false);
+  });
+
+  it("asks a yes/no part, names its model, and switches How sure without asking again", async () => {
+    const tryCheck = vi.fn(async (): Promise<PageCheckTry> => developerTry);
+    const page = actions({ tryCheck });
+    const each: PageCheckScope = { kind: "each_paragraph" };
+    render({
+      actions: page,
+      state: state({ dialog: { mode: "add", scope: each } }),
+    });
+    const dialog = required(
+      document.querySelector<HTMLElement>("[data-page-check-dialog]"),
+    );
+    const tryLines = () =>
+      dialog.querySelector("[data-page-check-try]")?.textContent;
+
+    setText(required(dialog.querySelector("textarea")), "Mentions a developer");
+    expect(tryLines()).toContain("Mentions a developer: Checking…");
+    expect(dialog.querySelector("[data-page-check-sure]")).toBeNull();
+    expect(addButton(dialog).disabled).toBe(true);
+    await afterTypingPause();
+
+    expect(tryCheck).toHaveBeenCalledOnce();
+    expect(tryCheck).toHaveBeenCalledWith({
+      sentence: "Mentions a developer",
+      scope: each,
+      questions: [],
+      sure: "balanced",
+    });
+    expect(tryLines()).toContain("Mentions a developer: 1 of 2");
+    expect(tryLines()).toContain(
+      "Asks: “Does text mention a developer?” Passes on yes.",
+    );
     expect(
-      Array.from(dialog.querySelectorAll("button")).find(
-        (button) => button.textContent === "Add check",
-      )?.disabled,
-    ).toBe(true);
+      Array.from(
+        dialog.querySelectorAll("[data-page-check-sure-count]"),
+        (count) => count.textContent,
+      ),
+    ).toEqual(["0", "1", "1"]);
+    expect(dialog.querySelector("[data-page-check-model]")?.textContent).toBe(
+      "Jev, from TypeSafe AI, reads the text this check looks at to answer its yes/no parts. No other model is asked.",
+    );
+
+    await click(
+      required(
+        dialog.querySelector(
+          "[data-page-check-sure] [role='radio'][value='sure']",
+        ),
+      ),
+    );
+    expect(tryLines()).toContain("Mentions a developer: Fine");
+    expect(tryCheck).toHaveBeenCalledOnce();
+
+    await click(required(buttonNamed("Edit question")));
+    const question = required(
+      dialog.querySelector<HTMLTextAreaElement>(
+        "[data-page-check-question-edit] textarea",
+      ),
+    );
+    setText(question, "Does text name a developer?");
+    act(() => {
+      question.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+    await afterTypingPause();
+    const edited = {
+      sentence: "Mentions a developer",
+      scope: each,
+      questions: [
+        {
+          text: "Mentions a developer",
+          question: "Does text name a developer?",
+          passes: "yes",
+        },
+      ],
+      sure: "sure",
+    };
+    expect(tryCheck).toHaveBeenCalledTimes(2);
+    expect(tryCheck).toHaveBeenLastCalledWith(edited);
+
+    await click(addButton(dialog));
+    expect(page.save).toHaveBeenCalledWith({ checkId: undefined, ...edited });
+  });
+
+  it("offers two sharper checks for a vague part, and says when no model can answer", async () => {
+    const tryCheck = vi.fn(
+      async (input: { sentence: string }): Promise<PageCheckTry> => ({
+        reading: readPageCheckSentence(input.sentence),
+        parts: null,
+        answers: null,
+        problem:
+          input.sentence === "Make it good"
+            ? {
+                kind: "vague",
+                text: "Make it good",
+                examples: ["Opens with a story", "Ends with a question"],
+              }
+            : { kind: "no_model" },
+        decider: null,
+      }),
+    );
+    render({
+      actions: actions({ tryCheck }),
+      state: state({ dialog: { mode: "add", scope: { kind: "intro" } } }),
+    });
+    const dialog = required(
+      document.querySelector<HTMLElement>("[data-page-check-dialog]"),
+    );
+    const sentence = required(
+      dialog.querySelector<HTMLTextAreaElement>("textarea"),
+    );
+
+    setText(sentence, "Make it good");
+    await afterTypingPause();
+    expect(dialog.textContent).toContain("Make it good: Too vague to check");
+    expect(dialog.textContent).toContain(
+      "“Make it good” is too vague to answer the same way twice.",
+    );
+    expect(addButton(dialog).disabled).toBe(true);
+
+    await click(required(buttonNamed("Opens with a story")));
+    expect(sentence.value).toBe("Opens with a story");
+    await afterTypingPause();
+    expect(dialog.textContent).toContain(
+      "Opens with a story: Couldn't check: no decision model",
+    );
+    expect(dialog.textContent).toContain(
+      "No decision model is ready to answer yes/no parts.",
+    );
+    expect(dialog.querySelector("[data-page-check-model]")).toBeNull();
+    expect(addButton(dialog).disabled).toBe(true);
   });
 });
+
+function addButton(dialog: HTMLElement) {
+  return required(
+    Array.from(dialog.querySelectorAll("button")).find(
+      (button) => button.textContent === "Add check",
+    ),
+  );
+}
+
+async function afterTypingPause() {
+  await act(async () => {
+    // fixed-sleep-ok: the subject is the dialog's own wait after typing before it asks the model.
+    await new Promise((resolve) => setTimeout(resolve, 750));
+  });
+}
+
+function questionAnswer(key: string, passing: number): PageCheckPlaceAnswer {
+  const finding = passing < 0.5 ? "not_fine" : "fine";
+  return {
+    key,
+    place: {
+      key,
+      path: key,
+      blockId: null,
+      textHash: `text-${key}`,
+      excerpt: `Paragraph ${key}`,
+    },
+    answer: finding,
+    result: {
+      placeKey: key,
+      wordingHash: "wording-1",
+      textHash: `text-${key}`,
+      finding,
+      parts: [{ finding, passing }],
+      checkedBy: "editor@example.com",
+      checkedAt: "2026-11-25T00:00:00.000Z",
+    },
+  };
+}
+
+const developerTry: PageCheckTry = {
+  reading: readPageCheckSentence("Mentions a developer"),
+  parts: [
+    {
+      kind: "question",
+      text: "Mentions a developer",
+      question: "Does text mention a developer?",
+      passes: "yes",
+      decider: "jev",
+    },
+  ],
+  answers: [questionAnswer("0", 0.95), questionAnswer("2", 0.3)],
+  problem: null,
+  decider: { provider: "jev", model: "Jev", company: "TypeSafe AI" },
+};

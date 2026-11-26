@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import {
+  hasPageCheckQuestion,
   PAGE_CHECK_LIMIT,
   type PageCheckPlaceAnswer,
   type PageCheckView,
@@ -20,7 +21,11 @@ import {
   shownPageCheckAnswers,
   type LivePageChecks,
 } from "./page-check-body";
-import { pageCheckScopeLabel, pageCheckSummaryText } from "./page-check-format";
+import {
+  PAGE_CHECK_SURE_LABELS,
+  pageCheckScopeLabel,
+  pageCheckSummaryText,
+} from "./page-check-format";
 import {
   usePageChecksActions,
   usePageChecksState,
@@ -151,7 +156,7 @@ function PageCheckRow({
     ? t("pageChecks.paused")
     : pageCheckSummaryText(
         t,
-        check.parts,
+        check,
         answers.filter(
           (answer) => !(answer.writing && answer.answer === "changed"),
         ),
@@ -175,6 +180,12 @@ function PageCheckRow({
         <span className="text-xs text-muted-foreground">
           {pageCheckScopeLabel(t, check.scope)}
           <span aria-hidden="true"> · </span>
+          {hasPageCheckQuestion(check.parts) ? (
+            <>
+              {t(PAGE_CHECK_SURE_LABELS[check.sure])}
+              <span aria-hidden="true"> · </span>
+            </>
+          ) : null}
           {summary}
         </span>
       </span>

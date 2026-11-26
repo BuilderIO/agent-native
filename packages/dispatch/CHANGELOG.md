@@ -1,5 +1,25 @@
 # @agent-native/dispatch
 
+## 0.43.3
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [8959acb]
+- Updated dependencies [3cf91b8]
+- Updated dependencies [6409765]
+- Updated dependencies [3b2114d]
+- Updated dependencies
+- Updated dependencies [415f03e]
+- Updated dependencies [a37f935]
+- Updated dependencies [4827e48]
+- Updated dependencies [4827e48]
+- Updated dependencies [4827e48]
+- Updated dependencies [0a08ec4]
+- Updated dependencies [3e81b56]
+  - @agent-native/toolkit@0.235.0
+  - @agent-native/agentkit@0.235.0
+
 ## 0.43.2
 
 ### Patch Changes
@@ -1728,14 +1748,5 @@
 - Release all public npm packages with a patch version bump.
 - Updated dependencies
   - @agent-native/toolkit@0.16.14
-
-## 0.31.18
-
-### Patch Changes
-
-- Release all public npm packages with a patch version bump.
-- eff9004: Include available and connected apps in Dispatch app search results.
-- Updated dependencies
-  - @agent-native/toolkit@0.16.13
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

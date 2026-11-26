@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/design-system",
-  "version": "0.234.0",
+  "version": "0.235.0",
   "description": "Themable design tokens, brand color generation, and component CSS for Agent-Native apps.",
   "license": "MIT",
   "files": [

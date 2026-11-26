@@ -11,9 +11,9 @@ import {
   pageCheckHeadings,
   pageCheckPlaces,
   pageCheckWordingHash,
-  readablePageCheckParts,
   readPageCheckPart,
   readPageCheckSentence,
+  type PageCheckCountPart,
   type PageCheckPlace,
   type PageCheckResult,
   type PageCheckView,
@@ -27,6 +27,13 @@ function required<T>(value: T | null | undefined): T {
 
 const words = (count: number, word = "word") =>
   Array.from({ length: count }, () => word).join(" ");
+
+function countParts(sentence: string): PageCheckCountPart[] {
+  return readPageCheckSentence(sentence).parts.map((part) => {
+    if (part.kind !== "count") throw new Error(`Not a count: ${part.text}`);
+    return part;
+  });
+}
 
 function placesOf(
   markdown: string,
@@ -135,10 +142,16 @@ describe("reading a check's sentence", () => {
     ]);
   });
 
-  it("saves only sentences whose every part reads", () => {
-    expect(readablePageCheckParts("Under 120 words")).toHaveLength(1);
-    expect(readablePageCheckParts("Under 120 words. Be funny.")).toBeNull();
-    expect(readablePageCheckParts("   ")).toBeNull();
+  it("reads a part that isn't a count as one to ask", () => {
+    expect(
+      readPageCheckSentence("Under 120 words").parts.map((part) => part.kind),
+    ).toEqual(["count"]);
+    expect(
+      readPageCheckSentence("Under 120 words. Be funny.").parts.map(
+        (part) => part.kind,
+      ),
+    ).toEqual(["count", "unread"]);
+    expect(readPageCheckSentence("   ").parts).toEqual([]);
   });
 });
 
@@ -325,8 +338,8 @@ describe("answers", () => {
   });
 
   it("changes the wording hash with the parts or the place, not the sentence's spelling", () => {
-    const parts = required(readablePageCheckParts("Under 120 words"));
-    const same = required(readablePageCheckParts("Keep it under 120 words."));
+    const parts = countParts("Under 120 words");
+    const same = countParts("Keep it under 120 words.");
     const hash = pageCheckWordingHash({ parts, scope: { kind: "intro" } });
     expect(
       pageCheckWordingHash({ parts: same, scope: { kind: "intro" } }),
@@ -338,7 +351,7 @@ describe("answers", () => {
 });
 
 describe("answers while someone writes", () => {
-  const parts = required(readablePageCheckParts("Under 120 words"));
+  const parts = countParts("Under 120 words");
   const scope = { kind: "intro" } as const;
   const wordingHash = pageCheckWordingHash({ parts, scope });
 
@@ -359,6 +372,7 @@ describe("answers while someone writes", () => {
       parts,
       scope,
       wordingHash,
+      sure: "balanced" as const,
       paused: false,
       createdBy: "editor@example.com",
       createdAt: "2026-11-25T00:00:00.000Z",
