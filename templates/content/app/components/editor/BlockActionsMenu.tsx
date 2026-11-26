@@ -248,6 +248,7 @@ export function BlockActionsMenu({
   onTurnTableIntoCollection,
   onTurnCollectionIntoTable,
   onCopyLink,
+  onAddCheck,
   documentId,
 }: {
   editor: Editor;
@@ -257,6 +258,7 @@ export function BlockActionsMenu({
   onTurnTableIntoCollection?: (table: BlockAt) => void;
   onTurnCollectionIntoTable?: (collection: BlockAt) => void;
   onCopyLink?: (block: BlockAt) => void;
+  onAddCheck?: (block: BlockAt) => void;
   /** The page, named to the agent a block is attached to. */
   documentId?: string | null;
 }) {
@@ -768,6 +770,14 @@ export function BlockActionsMenu({
       id: "ask-agent",
       label: t("editor.blockMenu.askAgent"),
       onSelect: askAgent,
+    },
+    !!onAddCheck && {
+      id: "add-check",
+      label: t("pageChecks.addCheck"),
+      onSelect: () => {
+        const latest = request.getBlock();
+        if (latest) onAddCheck(latest);
+      },
     },
   ]);
 

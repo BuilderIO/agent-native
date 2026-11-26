@@ -87,6 +87,9 @@
   --warning: #fffbeb;
   --warning-border: #fcd34d;
   --warning-foreground: #92400e;
+
+  /* A check's dot where a part of the page doesn't pass. */
+  --page-check-miss: #d97706;
 }
 
 @theme {
@@ -186,6 +189,8 @@
   --warning: #451a034d;
   --warning-border: #92400e;
   --warning-foreground: #fde68a;
+
+  --page-check-miss: #f59e0b;
 }
 
 @layer base {
@@ -399,6 +404,81 @@
 
 .visual-editor-wrapper .content-editor {
   min-height: max(320px, 50vh);
+}
+
+/* Checks: a dot beside each part of the page that doesn't pass. Its shape
+   says which answer it is, so color is never the only sign. */
+.page-check-marks {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.page-check-mark {
+  position: absolute;
+  top: var(--page-check-top);
+  inset-inline-start: var(--page-check-inset);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 4px;
+  border-radius: 999px;
+  transform: translateY(-50%);
+  color: hsl(var(--muted-foreground));
+  pointer-events: auto;
+}
+
+.page-check-mark:hover,
+.page-check-mark[data-state="open"] {
+  background: hsl(var(--muted));
+}
+
+.page-check-mark:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
+}
+
+.page-check-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+}
+
+.page-check-dot[data-shape="filled"] {
+  background: var(--page-check-miss);
+}
+
+.page-check-dot[data-shape="hollow"] {
+  border: 1.5px solid hsl(var(--muted-foreground));
+}
+
+.page-check-dot[data-shape="ring"] {
+  border: 1.5px dashed hsl(var(--muted-foreground));
+}
+
+.page-check-mark-count {
+  font-size: 0.625rem;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (pointer: coarse) {
+  .page-check-mark {
+    min-width: 32px;
+    height: 32px;
+  }
+}
+
+@media print {
+  .page-check-marks {
+    display: none;
+  }
 }
 
 /* TipTap injects these for `.ProseMirror` only once an editor exists. The

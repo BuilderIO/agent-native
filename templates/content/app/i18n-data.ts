@@ -12,6 +12,7 @@ import {
 } from "./discussion-messages";
 import { importMessagesByLocale } from "./import-messages";
 import { linkCardMessagesByLocale } from "./link-card-messages";
+import { pageCheckMessagesByLocale } from "./page-check-messages";
 import { trashMessagesByLocale } from "./trash-messages";
 import { trashRetentionMessagesByLocale } from "./trash-retention-messages";
 
@@ -2528,6 +2529,7 @@ const enUS = {
   clipEmbed: clipEmbedMessagesByLocale["en-US"],
   analyticsChart: analyticsChartMessagesByLocale["en-US"],
   linkCard: linkCardMessagesByLocale["en-US"],
+  pageChecks: pageCheckMessagesByLocale["en-US"],
   designScreen: designScreenMessagesByLocale["en-US"],
   builderAutosave: builderAutosaveMessagesByLocale["en-US"],
 };
@@ -2597,6 +2599,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
     clipEmbed: enUS.clipEmbed,
     analyticsChart: enUS.analyticsChart,
     linkCard: enUS.linkCard,
+    pageChecks: enUS.pageChecks,
     designScreen: enUS.designScreen,
     builderAutosave: enUS.builderAutosave,
     creativeContext: {
@@ -3124,6 +3127,7 @@ function mergeMessagesForLocale(
     clipEmbed: clipEmbedMessagesByLocale[locale],
     analyticsChart: analyticsChartMessagesByLocale[locale],
     linkCard: linkCardMessagesByLocale[locale],
+    pageChecks: pageCheckMessagesByLocale[locale],
     designScreen: designScreenMessagesByLocale[locale],
     builderAutosave: builderAutosaveMessagesByLocale[locale],
   };

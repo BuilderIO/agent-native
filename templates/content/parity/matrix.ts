@@ -742,6 +742,41 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
   },
   {
+    id: "editor.page-checks",
+    surface: "editor",
+    label:
+      "Add, change, pause, delete, run and skip a page's checks, and read what each found",
+    uiEntrypoints: [
+      "app/components/editor/page-checks/PageCheckDialog.tsx",
+      "app/components/editor/page-checks/PageCheckMarks.tsx",
+      "app/components/editor/page-checks/PageChecksSection.tsx",
+      "app/components/editor/page-checks/page-checks-context.tsx",
+    ],
+    durableEffect:
+      "Checks, their stored results and skipped places are saved per page; viewers and public readers are sent none of them.",
+    uiImplementation:
+      "The add box tries a sentence with the same shared counting try-page-check uses; the dots, the Info list and the header count read list-page-checks; Check now and the typing pause call run-page-checks; agents use the same actions.",
+    status: "action-backed",
+    actions: [
+      "add-page-check",
+      "delete-page-check",
+      "list-page-checks",
+      "run-page-checks",
+      "skip-page-check",
+      "try-page-check",
+      "update-page-check",
+    ],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/page-checks.db.test.ts",
+      "shared/page-checks.spec.ts",
+    ],
+  },
+  {
     id: "sharing.document-discoverability-and-export",
     surface: "sharing",
     label: "Share, hide from search, export, and reveal documents",
