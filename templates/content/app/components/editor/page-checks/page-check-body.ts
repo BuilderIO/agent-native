@@ -143,11 +143,11 @@ export function readLivePageChecks(
 export function pageCheckScopeAt(
   doc: ProseMirrorNode,
   pos: number,
-  headings: readonly PageCheckHeading[],
+  live: Pick<LivePageChecks, "headings"> | null,
 ): PageCheckScope {
   const positions = blockPositionsByPath(doc);
   let found: PageCheckHeading | null = null;
-  for (const heading of headings) {
+  for (const heading of (live ?? readLivePageChecks(doc, [])).headings) {
     const start = positions.get(heading.path);
     if (start !== undefined && start <= pos) found = heading;
   }

@@ -148,14 +148,28 @@ describe("checks in the editor's text", () => {
 
   it("finds the section the cursor is in, or the intro above the first heading", () => {
     const doc = editorDoc(markdown);
-    const { headings } = readLivePageChecks(doc, []);
+    const live = readLivePageChecks(doc, []);
 
-    expect(pageCheckScopeAt(doc, 1, headings)).toEqual({ kind: "intro" });
+    expect(pageCheckScopeAt(doc, 1, live)).toEqual({ kind: "intro" });
     let insideDeeper = -1;
     doc.forEach((child, offset) => {
       if (child.textContent === "Inside.") insideDeeper = offset + 1;
     });
-    expect(pageCheckScopeAt(doc, insideDeeper, headings)).toMatchObject({
+    expect(pageCheckScopeAt(doc, insideDeeper, live)).toMatchObject({
+      kind: "section",
+      heading: "Deeper",
+      level: 3,
+    });
+  });
+
+  it("finds the cursor's section on a page with no checks yet", () => {
+    const doc = editorDoc(markdown);
+    let insideDeeper = -1;
+    doc.forEach((child, offset) => {
+      if (child.textContent === "Inside.") insideDeeper = offset + 1;
+    });
+
+    expect(pageCheckScopeAt(doc, insideDeeper, null)).toMatchObject({
       kind: "section",
       heading: "Deeper",
       level: 3,

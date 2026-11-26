@@ -223,7 +223,7 @@ export function PageCheckMarks({
         pageCheckScopeAt(
           editor.state.doc,
           pos ?? editor.state.selection.from,
-          live?.headings ?? [],
+          live,
         ),
       focusCheck,
     });
