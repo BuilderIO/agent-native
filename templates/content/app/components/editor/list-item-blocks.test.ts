@@ -96,9 +96,8 @@ describe("list items as blocks", () => {
         found.push({ node, pos });
       }
     });
-    const first = found.at(0);
-    if (!first) throw new Error(`No item "${value}"`);
-    return first;
+    if (!found.length) throw new Error(`No item "${value}"`);
+    return found[0];
   }
 
   function caretIn(target: Editor, value: string, offset = 0) {
@@ -106,8 +105,8 @@ describe("list items as blocks", () => {
     target.state.doc.descendants((node, pos) => {
       if (node.isTextblock && node.textContent === value) found.push(pos);
     });
-    const pos = found.at(0);
-    if (pos === undefined) throw new Error(`No line "${value}"`);
+    if (!found.length) throw new Error(`No line "${value}"`);
+    const pos = found[0];
     target.view.dispatch(
       target.state.tr.setSelection(
         TextSelection.create(target.state.doc, pos + 1 + offset),
