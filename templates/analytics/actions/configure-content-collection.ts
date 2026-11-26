@@ -15,6 +15,9 @@ import {
   searchConsoleSiteSchema,
   signupsSettingsUpdateSchema,
   storedSearchConsoleSiteSchema,
+  xAccountSchema,
+  xLinkTargetSchema,
+  xTermSchema,
   youtubeChannelSchema,
 } from "../server/lib/content-metrics/config.js";
 import { readContentCollectionStatus } from "../server/lib/content-metrics/status.js";
@@ -107,6 +110,32 @@ export default defineAction({
       .describe(
         'YouTube channels to collect, replacing the saved list, each a channel ID or @handle, e.g. ["@Builderio"]. A run reads at most 10,000 videos in all.',
       ),
+    x: cliBoolean
+      .optional()
+      .describe(
+        "Collect posts from xAccounts through the official X API once a day: each new post when first seen, then its views, likes, reposts and replies again at 1, 3, 7 and 30 days old, for the posts that count. Needs an X API Bearer token under Data Sources. X bills every post it returns, so the step stops before $25 of reads in a UTC calendar month.",
+      ),
+    xAccounts: z
+      .array(xAccountSchema)
+      .max(20)
+      .optional()
+      .describe(
+        'X accounts to collect, replacing the saved list. With allPosts every post counts; otherwise a post counts only when it links under xLinks or names one of xTerms. Reposts and replies are never read. E.g. [{"handle":"@builderio","allPosts":true},{"handle":"@Steve8708"}].',
+      ),
+    xLinks: z
+      .array(xLinkTargetSchema)
+      .max(20)
+      .optional()
+      .describe(
+        'Links that make a post count, replacing the saved list: a host and optional path, matched on the full address a link points to, subdomains included, e.g. ["builder.io/blog","agent-native.com"].',
+      ),
+    xTerms: z
+      .array(xTermSchema)
+      .max(20)
+      .optional()
+      .describe(
+        'Words that make a post count when its text names them as a whole word, replacing the saved list. Terms with "@" or "." match any case and an @handle also matches a link to a post by that account, as a quote post carries; other terms match their exact case. E.g. ["Builder.io","@builderio","Agent-Native","Agent Native"].',
+      ),
   }),
   run: async (
     {
@@ -124,6 +153,10 @@ export default defineAction({
       agentNativeSignups,
       youtube,
       youtubeChannels,
+      x,
+      xAccounts,
+      xLinks,
+      xTerms,
     },
     ctx,
   ) => {
@@ -164,6 +197,12 @@ export default defineAction({
       youtube: {
         enabled: youtube ?? saved.youtube.enabled,
         channels: youtubeChannels ?? saved.youtube.channels,
+      },
+      x: {
+        enabled: x ?? saved.x.enabled,
+        accounts: xAccounts ?? saved.x.accounts,
+        links: xLinks ?? saved.x.links,
+        terms: xTerms ?? saved.x.terms,
       },
     });
     if (enabled && config.searchConsole.enabled) {

@@ -50,16 +50,20 @@ export function contentRunFailureFromError(error: unknown): ContentRunFailure {
   const message = error instanceof Error ? error.message : String(error);
   const statusCode = (error as { statusCode?: unknown } | null)?.statusCode;
   const errorCode = (error as { errorCode?: unknown } | null)?.errorCode;
+  const costUsd = (error as { costUsd?: unknown } | null)?.costUsd;
+  const spent = typeof costUsd === "number" ? { costUsd } : {};
   if (statusCode === 412 || statusCode === 424) {
     return {
       status: "not_configured",
       errorCode: typeof errorCode === "string" ? errorCode : "not_configured",
       errorMessage: message,
+      ...spent,
     };
   }
   return {
     status: "failed",
     errorCode: typeof errorCode === "string" ? errorCode : "step_failed",
     errorMessage: message,
+    ...spent,
   };
 }

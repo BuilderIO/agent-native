@@ -17,6 +17,7 @@ import { ga4Step } from "./steps/ga4.js";
 import { searchConsoleQueriesStep } from "./steps/search-console-queries.js";
 import { searchConsoleStep } from "./steps/search-console.js";
 import { signupsStep } from "./steps/signups.js";
+import { xStep } from "./steps/x.js";
 import { youtubeStep } from "./steps/youtube.js";
 import {
   closeStaleContentRuns,
@@ -38,6 +39,7 @@ const STEPS: Record<ContentCollectionStepId, ContentStep> = {
   signups: signupsStep,
   agent_native_signups: agentNativeSignupsStep,
   youtube: youtubeStep,
+  x: xStep,
 };
 
 export type ContentStepRunSummary = {
@@ -111,16 +113,19 @@ export async function collectContentForCollection(
         result,
         result.outcome,
       );
+      const stopped = result.outcome.stopped;
       summaries.push({
         tenantKey: collection.tenantKey,
         step: stepId,
-        status: "succeeded",
+        status: stopped?.status ?? "succeeded",
         runId,
+        ...(stopped ? { reason: stopped.errorCode } : {}),
       });
     } catch (error) {
       const failure = {
         bytesProcessed: result?.outcome.bytesProcessed,
         bytesCap: result?.outcome.bytesCap,
+        costUsd: result?.outcome.costUsd,
         ...contentRunFailureFromError(error),
       };
       await failContentRun(runId, failure);

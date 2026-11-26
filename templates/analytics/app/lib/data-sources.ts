@@ -848,27 +848,31 @@ export const dataSources: DataSource[] = [
   {
     id: "twitter",
     name: "X / Twitter",
-    description: "Tweet engagement and social metrics",
+    description:
+      "Views, likes, reposts and replies for chosen accounts' posts, through the official X API",
     category: "communication",
     icon: IconBrandX,
     envKeys: ["TWITTER_BEARER_TOKEN"],
-    docsUrl: "https://developer.x.com/en/docs",
+    docsUrl: "https://docs.x.com/x-api/posts/timelines/integrate",
     walkthroughSteps: [
       {
-        title: "Apply for a Developer Account",
+        title: "Create an app in the X Developer Console",
         description:
-          "Go to the X Developer Portal and apply for access (or sign in if you already have it).",
-        url: "https://developer.x.com/en/portal/dashboard",
-        linkText: "X Developer Portal",
+          "Sign in to the X Developer Console with the account that will pay for reads, create an app, and copy its Bearer Token under Keys and Tokens. Collection reads public posts with the app's own token, so no account has to sign in.",
+        url: "https://docs.x.com/fundamentals/developer-portal",
+        linkText: "Developer Console guide",
       },
       {
-        title: "Create a project and app",
+        title: "Set a $25 spending limit",
         description:
-          "Create a new project and app in the developer portal. Generate a Bearer Token under Keys and Tokens.",
+          "X bills every post and account a request returns: $0.005 a post and $0.010 an account. In the console, set the app's spending limit to $25, so X stops serving reads at $25 a billing cycle whatever happens here. The Content dashboard also stops its own reads before $25 in each calendar month.",
+        url: "https://docs.x.com/x-api/getting-started/pricing",
+        linkText: "X API pricing",
       },
       {
         title: "Enter your Bearer Token",
-        description: "Paste the Bearer Token from your app settings.",
+        description:
+          "Paste the Bearer Token. Testing the connection asks X for the app's usage, which returns no posts. Then ask the agent to turn on X collection for the Content dashboard and name the accounts to follow, for example @builderio. It takes an organization owner or admin.",
         inputKey: "TWITTER_BEARER_TOKEN",
         inputLabel: "Bearer Token",
         inputPlaceholder: "AAAA...",

@@ -218,14 +218,35 @@ reports `not_configured` without channels or a key, and costs about one
 quota unit per 25 videos of the key's free 10,000 a day. A run whose channels
 have more than 10,000 videos in all fails rather than storing part of them.
 
+The `x` step reads posts through the official X API v2 with the app-only
+Bearer token saved as `TWITTER_BEARER_TOKEN` under Data Sources → X / Twitter.
+Set it with `configure-content-collection --x --xAccounts --xLinks --xTerms`:
+each account is `{ handle, allPosts }`, and a post counts when its account has
+`allPosts`, when a link's expanded or unwound address is under one of `xLinks`
+(a host, or a host and path such as `builder.io/blog`), or when its text names
+one of `xTerms` as a whole word (a term with a dot or `@` in any case, others
+only in their own case; an `@handle` term also matches a link to that account,
+so quotes of its posts count). Reposts and replies are never read. Every post
+read is stored as an `x` item with `relevance` `counted` or `not_counted` and
+`metadata.countedBy`; only counted posts get `x_views`, `x_likes`,
+`x_reposts`, `x_replies`, `x_quotes`, `x_bookmarks` and `x_age_hours`
+snapshots, when first seen and once more in the 30 hours after each of 1, 3, 7
+and 30 days old. X bills each post ($0.005) and account ($0.010) it returns,
+so each run records its cost in `cost_usd` and stops as `cost_limited`
+(`x_monthly_cap`) before the `x` runs' spend this UTC calendar month would pass
+$25, skipping 30-day re-reads first when the month-end projection would pass
+it. The first run reads back 30 days. It stays off until turned on and reports
+`not_configured` without accounts, a counting rule or a token. A changed rule
+applies only to posts read after the change.
+
 The catalog's "Content" dashboard (`content-view`) is the reference for these
 tables: start from its panels before writing new content SQL. Its Missing
 data callout has no `tab`, so it shows on every tab. It joins the expected
 sources to their latest run in the last 30 days, so it names each source whose
 run failed, hit the cost cap or isn't connected, and each one with no run in
 that window; keep that pattern rather than letting a missing row read as
-"nothing missing". YouTube, which is off by default, is named only once it
-has run. The
+"nothing missing". YouTube and X, which are off by default, are named only
+once they have run. The
 first-party SQL policy rejects functions outside its allow-list (for example
 `concat_ws`) and reads `CASE (` as a function call, so join a status column
 instead of a scalar subquery inside `CASE`. Its parser also rejects `VALUES`

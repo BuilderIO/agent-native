@@ -1,8 +1,10 @@
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 
 import { drizzle } from "drizzle-orm/pglite";
 import {
   afterAll,
+  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -23,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   dryRunQuerySchema: vi.fn(),
   runQuery: vi.fn(),
   listYouTubeChannelVideos: vi.fn(),
+  xToken: "test-x-token" as string | null,
   contexts: [] as unknown[],
 }));
 
@@ -58,6 +61,14 @@ vi.mock("../youtube.js", () => ({
   listYouTubeChannelVideos: mocks.listYouTubeChannelVideos,
 }));
 
+vi.mock("../credentials", () => ({
+  resolveCredential: async () => mocks.xToken,
+}));
+
+vi.mock("../credentials-context", () => ({
+  requireRequestCredentialContext: () => ({ email: "alice@example.test" }),
+}));
+
 vi.mock("../bigquery.js", () => ({
   BigQueryMaximumBytesBilledError: class extends Error {},
   dryRunQuerySchema: mocks.dryRunQuerySchema,
@@ -73,8 +84,10 @@ import {
 } from "./collect.js";
 import {
   agentNativeSignupsConfigSchema,
+  defaultContentCollectionConfig,
   signupsConfigSchema,
   type AgentNativeSignupsConfig,
+  type ContentCollectionConfig,
   type SignupsConfig,
 } from "./config.js";
 import {
@@ -112,7 +125,8 @@ function onlySteps(
       | "searchConsoleQueries"
       | "signups"
       | "agentNativeSignups"
-      | "youtube",
+      | "youtube"
+      | "x",
       boolean
     >
   >,
@@ -148,6 +162,7 @@ function onlySteps(
         enabled: steps.agentNativeSignups ?? false,
       },
       youtube: { enabled: steps.youtube ?? false, channels: youtubeChannels },
+      x: { enabled: steps.x ?? false, accounts: [], links: [], terms: [] },
     },
   });
 }
@@ -201,6 +216,7 @@ describe("content collection", () => {
     mocks.dryRunQuerySchema.mockReset();
     mocks.runQuery.mockReset();
     mocks.listYouTubeChannelVideos.mockReset();
+    mocks.xToken = "test-x-token";
     mocks.contexts.length = 0;
     for (const statement of CONTENT_METRICS_MIGRATION_SQL) {
       await client.exec(statement);
@@ -3111,6 +3127,696 @@ describe("content collection", () => {
         }),
       ]);
       expect(await rows("SELECT id FROM analytics_content_items")).toEqual([]);
+    });
+  });
+
+  describe("X", () => {
+    type FakePost = {
+      id: string;
+      authorId: string;
+      createdAt: string;
+      text: string;
+      links?: Array<{ url: string; expanded_url: string; display_url: string }>;
+      views: number;
+    };
+    const USERS: Record<string, { id: string; username: string }> = {
+      builderio: { id: "1", username: "builderio" },
+      steve8708: { id: "2", username: "Steve8708" },
+    };
+    let posts: FakePost[] = [];
+    let requests: URL[] = [];
+    let failWith: (url: URL) => { status: number; body: unknown } | null = () =>
+      null;
+
+    function json(body: unknown, status = 200) {
+      return new Response(JSON.stringify(body), { status });
+    }
+
+    function raw(post: FakePost) {
+      return {
+        id: post.id,
+        text: post.text,
+        created_at: post.createdAt,
+        ...(post.links ? { entities: { urls: post.links } } : {}),
+        public_metrics: {
+          impression_count: post.views,
+          like_count: 2,
+          retweet_count: 1,
+          reply_count: 1,
+          quote_count: 0,
+          bookmark_count: 0,
+        },
+      };
+    }
+
+    function newestFirst(a: FakePost, b: FakePost) {
+      return BigInt(b.id) > BigInt(a.id) ? 1 : -1;
+    }
+
+    function serveX() {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: URL) => {
+          const url = new URL(input);
+          requests.push(url);
+          const failure = failWith(url);
+          if (failure) return json(failure.body, failure.status);
+          if (url.pathname === "/2/users/by") {
+            const names = (url.searchParams.get("usernames") ?? "").split(",");
+            const found = names.flatMap((name) => {
+              const user = USERS[name.toLowerCase()];
+              return user ? [{ ...user, name: user.username }] : [];
+            });
+            const missing = names.filter((name) => !USERS[name.toLowerCase()]);
+            return json({
+              data: found,
+              ...(missing.length > 0
+                ? {
+                    errors: missing.map((value) => ({
+                      value,
+                      title: "Not Found Error",
+                    })),
+                  }
+                : {}),
+            });
+          }
+          const timeline = /^\/2\/users\/(\d+)\/tweets$/.exec(url.pathname);
+          if (timeline) {
+            const sinceId = url.searchParams.get("since_id");
+            const startTime = Date.parse(
+              url.searchParams.get("start_time") ?? "",
+            );
+            const page = Number(url.searchParams.get("pagination_token") ?? 0);
+            const size = Number(url.searchParams.get("max_results"));
+            const matching = posts
+              .filter(
+                (post) =>
+                  post.authorId === timeline[1] &&
+                  (sinceId
+                    ? BigInt(post.id) > BigInt(sinceId)
+                    : Date.parse(post.createdAt) >= startTime),
+              )
+              .sort(newestFirst);
+            const slice = matching.slice(page * size, (page + 1) * size);
+            return json({
+              ...(slice.length > 0 ? { data: slice.map(raw) } : {}),
+              meta: {
+                result_count: slice.length,
+                ...(matching.length > (page + 1) * size
+                  ? { next_token: String(page + 1) }
+                  : {}),
+              },
+            });
+          }
+          if (url.pathname === "/2/tweets") {
+            const ids = (url.searchParams.get("ids") ?? "").split(",");
+            const found = posts.filter((post) => ids.includes(post.id));
+            const missing = ids.filter(
+              (id) => !found.some((post) => post.id === id),
+            );
+            return json({
+              data: found.map(raw),
+              ...(missing.length > 0
+                ? {
+                    errors: missing.map((id) => ({
+                      resource_id: id,
+                      title: "Not Found Error",
+                    })),
+                  }
+                : {}),
+            });
+          }
+          return json({ title: "Not Found" }, 404);
+        }),
+      );
+    }
+
+    function xOnly(x: Partial<ContentCollectionConfig["x"]> = {}) {
+      return writeContentCollection(ORG_A, {
+        enabled: true,
+        config: {
+          ...defaultContentCollectionConfig(),
+          x: {
+            enabled: true,
+            accounts: [
+              { handle: "@builderio", allPosts: true },
+              { handle: "@Steve8708", allPosts: false },
+            ],
+            links: ["builder.io/blog", "agent-native.com"],
+            terms: ["Builder.io", "@builderio", "Agent-Native", "Agent Native"],
+            ...x,
+          },
+        },
+      });
+    }
+
+    async function runX(now: string) {
+      const collection = await readContentCollection(ORG_A);
+      if (!collection) throw new Error("no content collection");
+      return collectContentForCollection(collection, {
+        trigger: "scheduled",
+        now: new Date(now),
+        steps: ["x"],
+      });
+    }
+
+    async function spentBefore(costUsd: number, startedAt: string) {
+      await client.query(
+        "INSERT INTO analytics_content_collection_runs (id, tenant_key, owner_email, org_id, step, trigger, status, started_at, cost_usd) VALUES ($1, 'org:org_a', 'alice@example.test', 'org_a', 'x', 'scheduled', 'succeeded', $2, $3)",
+        [`prior-${startedAt}`, startedAt, costUsd],
+      );
+    }
+
+    function storedItemId(externalId: string) {
+      const digest = createHash("sha256")
+        .update(`org:org_a\u0000x\u0000${externalId}`)
+        .digest("base64url");
+      return `cci_${digest}`;
+    }
+
+    async function storeCountedPosts(
+      entries: Array<{ id: string; publishedAt: string; lastReadAt: string }>,
+    ) {
+      for (const entry of entries) {
+        await client.query(
+          "INSERT INTO analytics_content_items (id, tenant_key, owner_email, org_id, source, external_id, url, title, author, authors, published_at, metadata, relevance, first_seen_at, updated_at) VALUES ($1, 'org:org_a', 'alice@example.test', 'org_a', 'x', $2, $3, $4, '@builderio', '[\"@builderio\"]', $5, $6, 'counted', $7, $7)",
+          [
+            storedItemId(entry.id),
+            entry.id,
+            `https://x.com/builderio/status/${entry.id}`,
+            `Post ${entry.id}`,
+            entry.publishedAt,
+            JSON.stringify({
+              authorId: "1",
+              username: "builderio",
+              countedBy: "account",
+              lastReadAt: entry.lastReadAt,
+            }),
+            entry.lastReadAt,
+          ],
+        );
+        posts.push({
+          id: entry.id,
+          authorId: "1",
+          createdAt: entry.publishedAt,
+          text: `Post ${entry.id}`,
+          views: 10,
+        });
+      }
+    }
+
+    function lookups() {
+      return requests.filter((url) => url.pathname === "/2/tweets");
+    }
+
+    async function xRun() {
+      const [run] = await rows(
+        "SELECT status, error_code, error_message, cost_usd, detail, row_count FROM analytics_content_collection_runs WHERE step = 'x' AND id NOT LIKE 'prior-%' ORDER BY started_at DESC LIMIT 1",
+      );
+      return run;
+    }
+
+    beforeEach(() => {
+      posts = [];
+      requests = [];
+      failWith = () => null;
+      serveX();
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it("stays off until an admin turns it on", async () => {
+      await onlySteps({});
+      const collection = await readContentCollection(ORG_A);
+      if (!collection) throw new Error("no content collection");
+      expect(
+        await collectContentForCollection(collection, {
+          trigger: "scheduled",
+          now: new Date("2026-11-26T08:00:00.000Z"),
+          steps: ["x"],
+        }),
+      ).toEqual([
+        expect.objectContaining({
+          step: "x",
+          status: "skipped",
+          reason: "step_disabled",
+        }),
+      ]);
+      expect(requests).toEqual([]);
+    });
+
+    it("backfills 30 days of each account, counting every @builderio post and others only by the rule", async () => {
+      await xOnly();
+      posts = [
+        {
+          id: "1000",
+          authorId: "1",
+          createdAt: "2026-11-24T08:00:00.000Z",
+          text: "Happy Thanksgiving from the team",
+          views: 500,
+        },
+        {
+          id: "1001",
+          authorId: "1",
+          createdAt: "2026-11-21T08:00:00.000Z",
+          text: "Ship log",
+          views: 900,
+        },
+        {
+          id: "2000",
+          authorId: "2",
+          createdAt: "2026-11-25T08:00:00.000Z",
+          text: "New article https://t.co/a",
+          links: [
+            {
+              url: "https://t.co/a",
+              expanded_url: "https://www.builder.io/blog/fusion",
+              display_url: "builder.io/blog/fusion",
+            },
+          ],
+          views: 300,
+        },
+        {
+          id: "2001",
+          authorId: "2",
+          createdAt: "2026-11-23T08:00:00.000Z",
+          text: "Every builder should read this",
+          views: 50,
+        },
+        {
+          id: "900",
+          authorId: "2",
+          createdAt: "2026-10-01T08:00:00.000Z",
+          text: "An old Builder.io post",
+          views: 10,
+        },
+      ];
+
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({ step: "x", status: "succeeded" }),
+      ]);
+
+      expect(requests.map((url) => url.pathname)).toEqual([
+        "/2/users/by",
+        "/2/users/1/tweets",
+        "/2/users/2/tweets",
+      ]);
+      expect(requests[0].searchParams.get("usernames")).toBe(
+        "builderio,Steve8708",
+      );
+      expect(Object.fromEntries(requests[2].searchParams)).toEqual({
+        max_results: "100",
+        exclude: "retweets,replies",
+        "tweet.fields": "created_at,public_metrics,entities,note_tweet",
+        start_time: "2026-10-27T08:00:00Z",
+      });
+      expect(
+        await rows(
+          "SELECT external_id, url, title, author, relevance, metadata FROM analytics_content_items ORDER BY external_id",
+        ),
+      ).toEqual([
+        {
+          external_id: "1000",
+          url: "https://x.com/builderio/status/1000",
+          title: "Happy Thanksgiving from the team",
+          author: "@builderio",
+          relevance: "counted",
+          metadata:
+            '{"authorId":"1","username":"builderio","countedBy":"account","lastReadAt":"2026-11-26T08:00:00.000Z"}',
+        },
+        expect.objectContaining({ external_id: "1001", relevance: "counted" }),
+        {
+          external_id: "2000",
+          url: "https://x.com/Steve8708/status/2000",
+          title: "New article builder.io/blog/fusion",
+          author: "@Steve8708",
+          relevance: "counted",
+          metadata:
+            '{"authorId":"2","username":"Steve8708","countedBy":"link:builder.io/blog","lastReadAt":"2026-11-26T08:00:00.000Z"}',
+        },
+        {
+          external_id: "2001",
+          url: "https://x.com/Steve8708/status/2001",
+          title: "Every builder should read this",
+          author: "@Steve8708",
+          relevance: "not_counted",
+          metadata: '{"authorId":"2","username":"Steve8708","countedBy":null}',
+        },
+      ]);
+      expect(
+        await rows(
+          "SELECT i.external_id, s.metric_date, s.metric, s.value FROM analytics_content_metric_snapshots s JOIN analytics_content_items i ON i.id = s.item_id WHERE s.metric IN ('x_views', 'x_age_hours') ORDER BY i.external_id, s.metric",
+        ),
+      ).toEqual([
+        {
+          external_id: "1000",
+          metric_date: "2026-11-26",
+          metric: "x_age_hours",
+          value: 48,
+        },
+        {
+          external_id: "1000",
+          metric_date: "2026-11-26",
+          metric: "x_views",
+          value: 500,
+        },
+        {
+          external_id: "1001",
+          metric_date: "2026-11-26",
+          metric: "x_age_hours",
+          value: 120,
+        },
+        {
+          external_id: "1001",
+          metric_date: "2026-11-26",
+          metric: "x_views",
+          value: 900,
+        },
+        {
+          external_id: "2000",
+          metric_date: "2026-11-26",
+          metric: "x_age_hours",
+          value: 24,
+        },
+        {
+          external_id: "2000",
+          metric_date: "2026-11-26",
+          metric: "x_views",
+          value: 300,
+        },
+      ]);
+      expect(
+        await rows(
+          "SELECT DISTINCT metric FROM analytics_content_metric_snapshots ORDER BY metric",
+        ),
+      ).toEqual(
+        [
+          "x_age_hours",
+          "x_bookmarks",
+          "x_likes",
+          "x_quotes",
+          "x_replies",
+          "x_reposts",
+          "x_views",
+        ].map((metric) => ({ metric })),
+      );
+      const run = await xRun();
+      expect(run).toEqual(
+        expect.objectContaining({
+          status: "succeeded",
+          row_count: 21,
+          detail:
+            "Read 4 posts and 2 accounts ($0.04): 3 of 4 new posts counted, 0 re-reads. This month: $0.04 of the $25.00 cap; month-end projection $0.06.",
+        }),
+      );
+      expect(run.cost_usd).toBeCloseTo(0.04, 5);
+    });
+
+    it("reads on from the newest stored post and re-reads a counted post at 1, 3, 7 and 30 days old, then never again", async () => {
+      await xOnly({ accounts: [{ handle: "@builderio", allPosts: true }] });
+      posts = [
+        {
+          id: "3000",
+          authorId: "1",
+          createdAt: "2026-11-02T03:00:00.000Z",
+          text: "Launch day",
+          views: 0,
+        },
+      ];
+      const days = [0, 1, 2, 3, 7, 30, 31];
+      for (const [index, day] of days.entries()) {
+        posts[0].views = (index + 1) * 100;
+        const now = new Date(
+          Date.parse("2026-11-02T08:00:00.000Z") + day * 86_400_000,
+        ).toISOString();
+        expect(await runX(now)).toEqual([
+          expect.objectContaining({ step: "x", status: "succeeded" }),
+        ]);
+      }
+
+      expect(
+        requests.filter((url) => url.pathname === "/2/users/by"),
+      ).toHaveLength(1);
+      expect(
+        requests
+          .filter((url) => url.pathname === "/2/users/1/tweets")
+          .slice(1)
+          .map((url) => url.searchParams.get("since_id")),
+      ).toEqual(["3000", "3000", "3000", "3000", "3000", "3000"]);
+      expect(lookups().map((url) => url.searchParams.get("ids"))).toEqual([
+        "3000",
+        "3000",
+        "3000",
+        "3000",
+      ]);
+      expect(
+        await rows(
+          "SELECT s.metric_date, MAX(s.value) FILTER (WHERE s.metric = 'x_age_hours') AS age_hours, MAX(s.value) FILTER (WHERE s.metric = 'x_views') AS views FROM analytics_content_metric_snapshots s GROUP BY s.metric_date ORDER BY s.metric_date",
+        ),
+      ).toEqual([
+        { metric_date: "2026-11-02", age_hours: 5, views: 100 },
+        { metric_date: "2026-11-03", age_hours: 29, views: 200 },
+        { metric_date: "2026-11-05", age_hours: 77, views: 400 },
+        { metric_date: "2026-11-09", age_hours: 173, views: 500 },
+        { metric_date: "2026-12-02", age_hours: 725, views: 600 },
+      ]);
+    });
+
+    it("stops before the month's $25 with the finished accounts saved, counting only this month's runs", async () => {
+      await xOnly();
+      await spentBefore(5, "2026-10-31T08:00:00.000Z");
+      await spentBefore(24.3, "2026-11-03T08:00:00.000Z");
+      posts = [
+        ...[0, 1, 2].map((n) => ({
+          id: String(1000 + n),
+          authorId: "1",
+          createdAt: `2026-11-2${n}T08:00:00.000Z`,
+          text: `Builder post ${n}`,
+          views: 10,
+        })),
+        ...Array.from({ length: 150 }, (_, n) => ({
+          id: String(2000 + n),
+          authorId: "2",
+          createdAt: "2026-11-10T08:00:00.000Z",
+          text: `Builder.io tip ${n}`,
+          views: 10,
+        })),
+      ];
+
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          step: "x",
+          status: "cost_limited",
+          reason: "x_monthly_cap",
+        }),
+      ]);
+
+      expect(
+        requests.filter((url) => url.pathname === "/2/users/2/tweets"),
+      ).toHaveLength(1);
+      expect(
+        await rows(
+          "SELECT external_id FROM analytics_content_items ORDER BY external_id",
+        ),
+      ).toEqual([
+        { external_id: "1000" },
+        { external_id: "1001" },
+        { external_id: "1002" },
+      ]);
+      const run = await xRun();
+      expect(run).toEqual(
+        expect.objectContaining({
+          status: "cost_limited",
+          error_code: "x_monthly_cap",
+          row_count: 21,
+          error_message: expect.stringMatching(
+            /^Stopped before the \$25\.00 monthly X cap: \$24\.8\d spent this month, \$0\.5\d of it in this run\.$/,
+          ),
+          detail: expect.stringContaining("Read 103 posts and 2 accounts"),
+        }),
+      );
+      expect(run.cost_usd).toBeCloseTo(0.535, 5);
+      expect(await runX("2026-11-26T09:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          status: "skipped",
+          reason: "already_ran_today",
+        }),
+      ]);
+    });
+
+    it("drops the 30-day re-reads when the month-end projection with them passes $25", async () => {
+      await xOnly({ accounts: [{ handle: "@builderio", allPosts: true }] });
+      await spentBefore(24.4, "2026-11-02T08:00:00.000Z");
+      await storeCountedPosts([
+        ...Array.from({ length: 130 }, (_, n) => ({
+          id: String(5000 + n),
+          publishedAt: "2026-10-27T03:00:00.000Z",
+          lastReadAt: "2026-11-03T08:00:00.000Z",
+        })),
+        ...["6000", "6001"].map((id) => ({
+          id,
+          publishedAt: "2026-11-19T03:00:00.000Z",
+          lastReadAt: "2026-11-22T08:00:00.000Z",
+        })),
+      ]);
+
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({ step: "x", status: "succeeded" }),
+      ]);
+
+      expect(lookups().map((url) => url.searchParams.get("ids"))).toEqual([
+        "6000,6001",
+      ]);
+      expect((await xRun()).detail).toBe(
+        "Read 2 posts and 0 accounts ($0.01): 0 of 0 new posts counted, 2 re-reads. This month: $24.41 of the $25.00 cap; month-end projection $24.41. Skipped 130 30-day re-reads to keep the projection under the cap.",
+      );
+    });
+
+    it("keeps the 30-day re-reads while the projection stays under $25, 100 posts a request", async () => {
+      await xOnly({ accounts: [{ handle: "@builderio", allPosts: true }] });
+      await spentBefore(20, "2026-11-02T08:00:00.000Z");
+      await storeCountedPosts([
+        ...Array.from({ length: 130 }, (_, n) => ({
+          id: String(5000 + n),
+          publishedAt: "2026-10-27T03:00:00.000Z",
+          lastReadAt: "2026-11-03T08:00:00.000Z",
+        })),
+        ...["6000", "6001"].map((id) => ({
+          id,
+          publishedAt: "2026-11-19T03:00:00.000Z",
+          lastReadAt: "2026-11-22T08:00:00.000Z",
+        })),
+      ]);
+
+      await runX("2026-11-26T08:00:00.000Z");
+
+      const batches = lookups().map((url) =>
+        (url.searchParams.get("ids") ?? "").split(","),
+      );
+      expect(batches.map((ids) => ids.length)).toEqual([100, 32]);
+      expect(batches[0].slice(0, 2)).toEqual(["6000", "6001"]);
+      const run = await xRun();
+      expect(run.detail).toContain("132 re-reads");
+      expect(run.cost_usd).toBeCloseTo(0.66, 5);
+      expect(
+        await rows(
+          "SELECT COUNT(*)::int AS reads FROM analytics_content_metric_snapshots WHERE metric = 'x_age_hours' AND value = 725",
+        ),
+      ).toEqual([{ reads: 130 }]);
+    });
+
+    it("stops at X's own spending limit with the finished accounts saved", async () => {
+      await xOnly();
+      posts = [
+        {
+          id: "1000",
+          authorId: "1",
+          createdAt: "2026-11-24T08:00:00.000Z",
+          text: "Ship log",
+          views: 10,
+        },
+      ];
+      failWith = (url) =>
+        url.pathname === "/2/users/2/tweets"
+          ? {
+              status: 402,
+              body: { title: "Payment Required", detail: "Spend cap reached." },
+            }
+          : null;
+
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          status: "cost_limited",
+          reason: "x_spending_limit_reached",
+        }),
+      ]);
+      expect(
+        await rows("SELECT external_id FROM analytics_content_items"),
+      ).toEqual([{ external_id: "1000" }]);
+      const run = await xRun();
+      expect(run.error_message).toContain("Spend cap reached.");
+      expect(run.cost_usd).toBeCloseTo(0.025, 5);
+    });
+
+    it("records what a failed run spent and saves none of its posts", async () => {
+      await xOnly();
+      posts = [
+        {
+          id: "1000",
+          authorId: "1",
+          createdAt: "2026-11-24T08:00:00.000Z",
+          text: "Ship log",
+          views: 10,
+        },
+      ];
+      failWith = (url) =>
+        url.pathname === "/2/users/2/tweets"
+          ? { status: 503, body: { title: "Service Unavailable" } }
+          : null;
+
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          status: "failed",
+          reason: "x_request_failed",
+        }),
+      ]);
+      expect(
+        await rows("SELECT external_id FROM analytics_content_items"),
+      ).toEqual([]);
+      expect((await xRun()).cost_usd).toBeCloseTo(0.025, 5);
+    });
+
+    it("fails a run that names an account X lacks", async () => {
+      await xOnly({
+        accounts: [
+          { handle: "@builderio", allPosts: true },
+          { handle: "@nobody_here", allPosts: false },
+        ],
+      });
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          status: "failed",
+          reason: "x_account_not_found",
+        }),
+      ]);
+      const run = await xRun();
+      expect(run.error_message).toBe(
+        "X has no account @nobody_here. Check the collection's X accounts.",
+      );
+      expect(run.cost_usd).toBeCloseTo(0.01, 5);
+    });
+
+    it("names a missing Bearer token, accounts or counting rule as not set up, without calling X", async () => {
+      mocks.xToken = null;
+      await xOnly();
+      expect(await runX("2026-11-24T08:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          status: "not_configured",
+          reason: "x_bearer_token_missing",
+        }),
+      ]);
+      mocks.xToken = "test-x-token";
+      await xOnly({ accounts: [] });
+      expect(await runX("2026-11-25T08:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          status: "not_configured",
+          reason: "x_accounts_not_configured",
+        }),
+      ]);
+      await xOnly({
+        accounts: [{ handle: "@Steve8708", allPosts: false }],
+        links: [],
+        terms: [],
+      });
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          status: "not_configured",
+          reason: "x_counting_rule_not_configured",
+        }),
+      ]);
+      expect(requests).toEqual([]);
     });
   });
 });

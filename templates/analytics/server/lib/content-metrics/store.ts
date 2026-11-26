@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { and, desc, eq, gt, inArray, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, lt, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../../db/index.js";
 import {
@@ -46,6 +46,7 @@ export type ContentItemInput = {
   authors: string[];
   publishedAt: string | null;
   metadata: Record<string, unknown>;
+  relevance?: string | null;
 };
 
 export type ContentSnapshotInput = {
@@ -76,6 +77,7 @@ export type ContentRunOutcome = {
   bytesProcessed?: number | null;
   bytesCap?: number | null;
   costUsd?: number | null;
+  stopped?: { status: "cost_limited"; errorCode: string; errorMessage: string };
 };
 
 export type ContentRunFailure = {
@@ -84,6 +86,7 @@ export type ContentRunFailure = {
   errorMessage: string;
   bytesProcessed?: number | null;
   bytesCap?: number | null;
+  costUsd?: number | null;
 };
 
 function nowIso(): string {
@@ -343,6 +346,88 @@ export async function listContentItems(
   }));
 }
 
+export type RecentContentItem = StoredContentItem & {
+  title: string | null;
+  author: string | null;
+  relevance: string | null;
+  metadata: Record<string, unknown>;
+};
+
+export async function listRecentContentItems(
+  collection: ContentCollection,
+  source: ContentCollectionStepId,
+  publishedSince: string,
+): Promise<RecentContentItem[]> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      externalId: schema.analyticsContentItems.externalId,
+      url: schema.analyticsContentItems.url,
+      publishedAt: schema.analyticsContentItems.publishedAt,
+      title: schema.analyticsContentItems.title,
+      author: schema.analyticsContentItems.author,
+      relevance: schema.analyticsContentItems.relevance,
+      metadata: schema.analyticsContentItems.metadata,
+    })
+    .from(schema.analyticsContentItems)
+    .where(
+      and(
+        eq(schema.analyticsContentItems.tenantKey, collection.tenantKey),
+        eq(schema.analyticsContentItems.source, source),
+        gte(schema.analyticsContentItems.publishedAt, publishedSince),
+      ),
+    )
+    .limit(CONTENT_ITEMS_PER_SOURCE_LIMIT + 1);
+  if (rows.length > CONTENT_ITEMS_PER_SOURCE_LIMIT) {
+    throw new Error(
+      `More than ${CONTENT_ITEMS_PER_SOURCE_LIMIT} recent ${source} content items; refusing a partial read.`,
+    );
+  }
+  return rows.map(
+    (
+      row: Omit<RecentContentItem, "source" | "metadata"> & {
+        metadata: string;
+      },
+    ) => {
+      const metadata: unknown = JSON.parse(row.metadata);
+      return {
+        ...row,
+        source,
+        metadata:
+          metadata && typeof metadata === "object" && !Array.isArray(metadata)
+            ? (metadata as Record<string, unknown>)
+            : {},
+      };
+    },
+  );
+}
+
+export async function contentRunCostSince(
+  collection: ContentCollection,
+  step: ContentCollectionStepId,
+  since: string,
+): Promise<number> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      total: sql<
+        string | number | null
+      >`sum(${schema.analyticsContentCollectionRuns.costUsd})`,
+    })
+    .from(schema.analyticsContentCollectionRuns)
+    .where(
+      and(
+        eq(
+          schema.analyticsContentCollectionRuns.tenantKey,
+          collection.tenantKey,
+        ),
+        eq(schema.analyticsContentCollectionRuns.step, step),
+        gte(schema.analyticsContentCollectionRuns.startedAt, since),
+      ),
+    );
+  return Number(rows.at(0)?.total ?? 0);
+}
+
 export async function startContentRun(
   collection: ContentCollection,
   step: ContentCollectionStepId,
@@ -435,6 +520,7 @@ export async function failContentRun(
       errorMessage: failure.errorMessage.slice(0, 2000),
       bytesProcessed: failure.bytesProcessed ?? null,
       bytesCap: failure.bytesCap ?? null,
+      costUsd: failure.costUsd ?? null,
     })
     .where(
       and(
@@ -559,6 +645,7 @@ export async function completeContentRun(
           authors: JSON.stringify(item.authors),
           publishedAt: item.publishedAt,
           metadata: JSON.stringify(item.metadata),
+          relevance: item.relevance ?? null,
           firstSeenAt: timestamp,
           updatedAt: timestamp,
         }));
@@ -578,6 +665,7 @@ export async function completeContentRun(
             authors: sql`excluded.authors`,
             publishedAt: sql`excluded.published_at`,
             metadata: sql`excluded.metadata`,
+            relevance: sql`excluded.relevance`,
             updatedAt: sql`excluded.updated_at`,
           },
         });
@@ -671,8 +759,10 @@ export async function completeContentRun(
     await tx
       .update(schema.analyticsContentCollectionRuns)
       .set({
-        status: "succeeded",
+        status: outcome.stopped?.status ?? "succeeded",
         finishedAt: nowIso(),
+        errorCode: outcome.stopped?.errorCode ?? null,
+        errorMessage: outcome.stopped?.errorMessage.slice(0, 2000) ?? null,
         rowCount: outcome.rowCount,
         windowStart: outcome.windowStart ?? null,
         windowEnd: outcome.windowEnd ?? null,
