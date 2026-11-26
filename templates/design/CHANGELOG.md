@@ -3,6 +3,19 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-26
+
+### Improved
+
+- The layers panel now lists the components in your design, and each one opens its
+  component. Export preview now says why it cannot render instead of always
+  reporting "Preview unavailable".
+
+### Fixed
+
+- An image edit that succeeds no longer shows a "Generation may have stopped" error.
+- Arrange options in the right-click menu now reorder an image or layer selected in another screen from the overview.
+
 ## 2026-11-24
 
 ### Fixed
@@ -2061,16 +2074,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 ### Improved
 
 - Apply design updates from a centered top toolbar without covering the canvas tools
-
-## 2026-07-25
-
-### Improved
-
-- App branding now uses the product name without the Agent-Native prefix.
-- Settings navigation now keeps Manage agent as a dedicated linked destination at the bottom.
-
-### Fixed
-
-- Design edits now retry safely when another collaborator changes the file.
 
 For the full list of updates, see the [changelog folder](./changelog/).
