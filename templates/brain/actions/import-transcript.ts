@@ -29,6 +29,7 @@ export default defineAction({
     tags: z.array(z.string()).default([]),
     enqueueDistillation: z.coerce.boolean().default(true),
   }),
+  mcpTool: "search",
   run: async (args) => {
     const importerEmail = getRequestUserEmail()?.trim().toLowerCase();
     let participants = args.participants;

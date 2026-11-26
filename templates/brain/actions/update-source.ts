@@ -1,6 +1,10 @@
 import { isDeepStrictEqual } from "node:util";
 
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isOutsideAgentCall,
+} from "@agent-native/core/action";
 import { getCredentialContext } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
@@ -67,6 +71,19 @@ export default defineAction({
         "Merge trust, answer eligibility, authority, freshness, review, or conflict behavior into the source answer policy",
       ),
   }),
+  // An outside agent may rename, pause or resume a source. It asks first
+  // before archiving one or changing what it reads, its credentials, or how
+  // far Brain trusts its answers.
+  needsApproval: (args, ctx) =>
+    isOutsideAgentCall(ctx) &&
+    (args.config !== undefined ||
+      args.configJson !== undefined ||
+      args.cursor !== undefined ||
+      args.policy !== undefined ||
+      (args.status !== undefined &&
+        args.status !== "active" &&
+        args.status !== "paused")),
+  mcpTool: "search",
   run: async (args) => {
     const access = await assertAccess("brain-source", args.id, "editor");
     const applyUpdate = async (existing: typeof access.resource) => {

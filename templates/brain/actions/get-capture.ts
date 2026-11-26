@@ -37,6 +37,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: "search",
   run: async ({ id, includeRawContent }) => {
     const access = await getAccessibleCapture(id);
     if (!access) return { capture: null };

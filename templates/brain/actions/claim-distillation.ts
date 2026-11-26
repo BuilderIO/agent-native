@@ -23,6 +23,7 @@ export default defineAction({
     captureId: z.string().min(1),
     queueId: z.string().min(1).optional(),
   }),
+  mcpTool: false,
   run: async ({ captureId, queueId }) => {
     const access = await getAccessibleCapture(captureId);
     if (!access) throw new Error(`No access to capture ${captureId}`);

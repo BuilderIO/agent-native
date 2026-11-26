@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -13,6 +13,8 @@ export default defineAction({
     id: z.string().min(1),
   }),
   http: { method: "DELETE" },
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async ({ id }) => {
     await assertAccess("brain-source", id, "admin");
     await getDb()

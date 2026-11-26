@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { EXPECTED_REVISION_DESCRIPTION } from "@agent-native/core/save-conflict/server";
 import { z } from "zod";
 
@@ -75,5 +75,8 @@ export default defineAction({
             "supersedesRevision is required with supersedesId: send the superseded record's revision.",
         });
     }),
+  needsApproval: (args, ctx) =>
+    isOutsideAgentCall(ctx) && args.publishCanonical === true,
+  mcpTool: "search",
   run: async (args) => writeKnowledgeRecord(args),
 });

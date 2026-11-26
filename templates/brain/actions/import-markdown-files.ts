@@ -165,6 +165,7 @@ export default defineAction({
       ),
     enqueueDistillation: z.coerce.boolean().default(true),
   }),
+  mcpTool: "search",
   run: async (args) => {
     const prepared = args.files.map((file) => {
       const normalized = normalizeMarkdownPath(file.path);

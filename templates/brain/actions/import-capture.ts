@@ -29,6 +29,7 @@ export default defineAction({
     metadata: optionalJsonRecordSchema,
     enqueueDistillation: z.coerce.boolean().default(true),
   }),
+  mcpTool: "search",
   run: async (args) => {
     const source = args.sourceId
       ? null

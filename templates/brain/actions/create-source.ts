@@ -1,4 +1,8 @@
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  isOutsideAgentCall,
+} from "@agent-native/core/action";
 import { getCredentialContext } from "@agent-native/core/server";
 import { z } from "zod";
 
@@ -68,6 +72,12 @@ export default defineAction({
         "Optional answer policy controlling trust, eligibility, authority, freshness, review, and conflicts",
       ),
   }),
+  // An outside agent asks first before sharing a new source with the whole
+  // organization or minting a signed-ingest token, which this call returns.
+  needsApproval: (args, ctx) =>
+    isOutsideAgentCall(ctx) &&
+    (args.visibility === "org" || Boolean(args.sourceKey)),
+  mcpTool: "search",
   run: async (args) => {
     let config = { ...mergeSourceConfigJson(args.config, args.configJson) };
     assertValidSourceConfig(args.provider, config, { creating: true });
