@@ -1,0 +1,6 @@
+version = 1
+name = "agent-native"
+
+# Installs dependencies in the new worktree and copies ignored .env files. See scripts/worktree-setup.sh.
+[setup]
+script = 'bash "$CODEX_WORKTREE_PATH/scripts/worktree-setup.sh"'

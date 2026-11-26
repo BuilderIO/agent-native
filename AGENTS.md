@@ -51,6 +51,9 @@ Use `/sidecar <task>` for read-only investigations.
 - Never add `Co-Authored-By` or other agent attribution to commits.
 - Branch without asking; in a shared checkout, use a new worktree. PRs are
   ready for review unless drafts are requested.
+- A new worktree gets `pnpm install` and the main checkout's ignored `.env`
+  files from `scripts/worktree-setup.sh` (Claude SessionStart hook, Codex
+  environment); run it in worktrees made otherwise. Never symlink `node_modules`.
 - Deployment split: `.github/workflows/deploy-beta-sites-prebuilt.yml` is the
   sole beta publisher; Actions uploads prebuilt artifacts to independent
   `beta.*.agent-native.com` sites. Netlify Git builds are disabled; do not wait
