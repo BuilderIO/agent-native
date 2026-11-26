@@ -65,10 +65,22 @@ vi.mock("@/components/editor/TrashDocumentPreview", () => ({
       : null,
 }));
 
+async function fromRowMenu() {
+  await click(byLabel("trash.rowActions"));
+  return (
+    Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent === "trash.openPreview") ?? null
+  );
+}
+
 describe("Trash preview", () => {
   it.each([
-    ["the page's name", () => document.body.querySelector<HTMLElement>("a")],
-    ["its Preview button", () => byLabel("trash.preview")],
+    [
+      "the page's name",
+      async () => document.body.querySelector<HTMLElement>("a"),
+    ],
+    ["its row menu's Open preview", fromRowMenu],
   ])(
     "keeps its URL in step when opened from %s and closed",
     async (_, opener) => {
@@ -88,7 +100,7 @@ describe("Trash preview", () => {
           createElement(TooltipProvider, null, createElement(TrashBrowser)),
         ),
       );
-      const open = opener();
+      const open = await opener();
       if (!open) throw new Error("The trashed page has no way to open.");
 
       await click(open);
