@@ -8,6 +8,7 @@ import {
   PAGE_CHECK_QUESTION_MAX_LENGTH,
   pageCheckPartFinding,
   pageCheckPassing,
+  readPageCheckSentence,
   pageCheckQuestionInstructions,
   pageCheckSureCounts,
   pageCheckWordingHash,
@@ -78,6 +79,30 @@ describe("writing a check's questions", () => {
       text: "No hype words",
       examples: ["No 'revolutionary' or 'game-changing'", "Under 3 adjectives"],
     });
+  });
+
+  it("keeps each example one part, so picking it asks one question", () => {
+    const reply = JSON.stringify({
+      vague: 0,
+      examples: [
+        "Opens with a concrete event, not a general claim",
+        "Every paragraph is under four sentences long.",
+      ],
+    });
+    const examples = [
+      "Opens with a concrete event – not a general claim",
+      "Every paragraph is under four sentences long",
+    ];
+    expect(readWrittenPageCheckQuestions(texts, reply)).toEqual({
+      status: "vague",
+      text: "Opens with a story",
+      examples,
+    });
+    for (const example of examples) {
+      expect(readPageCheckSentence(example).parts).toEqual([
+        { kind: "unread", text: example },
+      ]);
+    }
   });
 
   it("refuses a reply that misses a part, or that it can't use", () => {

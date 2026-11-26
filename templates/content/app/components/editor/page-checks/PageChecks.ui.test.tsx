@@ -467,6 +467,23 @@ describe("page checks", () => {
     expect(addButton(dialog).disabled).toBe(true);
   });
 
+  it("shows no How sure while a count is half typed", () => {
+    render({
+      actions: actions(),
+      state: state({ dialog: { mode: "add", scope: { kind: "intro" } } }),
+    });
+    const dialog = required(
+      document.querySelector<HTMLElement>("[data-page-check-dialog]"),
+    );
+    const sentence = required(dialog.querySelector("textarea"));
+
+    setText(sentence, "At most");
+    expect(dialog.querySelector("[data-page-check-sure]")).toBeNull();
+    setText(sentence, "At most 12 words");
+    expect(dialog.querySelector("[data-page-check-sure]")).toBeNull();
+    expect(addButton(dialog).disabled).toBe(false);
+  });
+
   it("asks a yes/no part, names its model, and switches How sure without asking again", async () => {
     const tryCheck = vi.fn(async (): Promise<PageCheckTry> => developerTry);
     const page = actions({ tryCheck });
@@ -483,6 +500,7 @@ describe("page checks", () => {
 
     setText(required(dialog.querySelector("textarea")), "Mentions a developer");
     expect(tryLines()).toContain("Mentions a developer: Checking…");
+    expect(dialog.querySelector("[data-page-check-sure]")).toBeNull();
     expect(addButton(dialog).disabled).toBe(true);
     await afterTypingPause();
 

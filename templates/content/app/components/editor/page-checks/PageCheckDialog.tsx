@@ -176,6 +176,8 @@ function PageCheckForm({
   const asks =
     !reading.tooManyParts &&
     reading.parts.some((part) => part.kind === "unread");
+  const showSure =
+    asks && (Object.keys(written).length > 0 || Object.keys(edited).length > 0);
   const questions = useMemo(
     () =>
       reading.parts.flatMap((part): PageCheckQuestionInput[] => {
@@ -369,7 +371,7 @@ function PageCheckForm({
             }
           />
         ) : null}
-        {asks ? (
+        {showSure ? (
           <div className="grid gap-1.5">
             <Label id={sureId}>{t("pageChecks.howSure")}</Label>
             <RadioGroup
