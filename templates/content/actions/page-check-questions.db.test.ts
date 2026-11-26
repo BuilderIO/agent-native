@@ -201,7 +201,7 @@ describe("yes/no checks", () => {
     expect(writerInput).toContain("Mentions a developer");
     expect(writerInput).not.toContain("shipped");
 
-    const check = added.checks[0];
+    const check = added.checks.at(0);
     expect(check?.parts).toEqual([
       {
         kind: "question",
@@ -412,12 +412,12 @@ describe("yes/no checks", () => {
     ).toHaveLength(2);
     expect(models.decide).toHaveBeenCalledTimes(1);
 
-    const [usage] = await dbModule
+    const usage = await dbModule
       .getDb()
       .select()
       .from(dbModule.schema.contentPageCheckUsage)
       .where(eq(dbModule.schema.contentPageCheckUsage.documentId, documentId));
-    expect(usage?.questions).toBe(5_000);
+    expect(usage.map((row) => row.questions)).toEqual([5_000]);
   });
 
   it("hands the model the page's text as material and never as instructions", async () => {

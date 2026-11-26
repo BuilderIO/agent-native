@@ -50,7 +50,7 @@ import {
 
 const TRY_PAUSE_MS = 700;
 
-type Questions = Record<string, Omit<PageCheckQuestionInput, "text">>;
+type Questions = Partial<Record<string, Omit<PageCheckQuestionInput, "text">>>;
 
 const PROBLEM_LINES: Record<PageCheckProblem["kind"], string> = {
   unreadable: "pageChecks.couldnt",

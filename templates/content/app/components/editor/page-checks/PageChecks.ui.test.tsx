@@ -496,6 +496,7 @@ function addButton(dialog: HTMLElement) {
 
 async function afterTypingPause() {
   await act(async () => {
+    // fixed-sleep-ok: the subject is the dialog's own wait after typing before it asks the model.
     await new Promise((resolve) => setTimeout(resolve, 750));
   });
 }

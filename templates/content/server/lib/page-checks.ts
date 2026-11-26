@@ -289,6 +289,12 @@ function questionParts(parts: readonly PageCheckPart[]) {
   );
 }
 
+function firstQuestionPart(parts: readonly PageCheckPart[]) {
+  return parts.find(
+    (part): part is PageCheckQuestionPart => part.kind === "question",
+  );
+}
+
 function questionsOf(
   parts: readonly PageCheckPart[],
 ): PageCheckQuestionInput[] {
@@ -304,9 +310,9 @@ async function pageQuestionDecider(documentId: string) {
     .select({ parts: schema.contentPageChecks.parts })
     .from(schema.contentPageChecks)
     .where(eq(schema.contentPageChecks.documentId, documentId));
-  return questionParts(
+  return firstQuestionPart(
     rows.flatMap((row) => parseJson<PageCheckPart[]>(row.parts, [])),
-  ).find(() => true)?.decider;
+  )?.decider;
 }
 
 async function resolvePageCheckParts(args: {
@@ -334,7 +340,7 @@ async function resolvePageCheckParts(args: {
       ? null
       : await pageCheckDecider(
           args.ownerEmail,
-          questionParts(args.current ?? []).find(() => true)?.decider ??
+          firstQuestionPart(args.current ?? [])?.decider ??
             (await pageQuestionDecider(args.documentId)),
         );
   if (unread.length > 0 && !decider) {
@@ -396,7 +402,7 @@ async function resolvedPartsOrThrow(
 }
 
 function partsDecider(parts: readonly PageCheckPart[]) {
-  const decider = questionParts(parts).find(() => true)?.decider;
+  const decider = firstQuestionPart(parts)?.decider;
   return decider ? pageCheckDeciderName(decider) : null;
 }
 

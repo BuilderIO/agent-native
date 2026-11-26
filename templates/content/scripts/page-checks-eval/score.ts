@@ -59,7 +59,7 @@ export const writerRequest = (check: EvalCheck) => ({
 
 export function writtenQuestions(
   cases: EvalCases,
-  replies: Readonly<Record<string, string>>,
+  replies: Readonly<Partial<Record<string, string>>>,
 ): Map<string, WrittenQuestion> {
   return new Map(
     cases.checks.map((check) => {
@@ -69,8 +69,8 @@ export function writtenQuestions(
       if (written.status !== "ok") {
         throw new Error(`${check.name}: the reply was ${written.status}`);
       }
-      const [only, ...more] = written.questions;
-      if (!only || more.length > 0) {
+      const only = written.questions.at(0);
+      if (!only || written.questions.length > 1) {
         throw new Error(`${check.name}: expected one yes/no part`);
       }
       return [check.name, { question: only.question, passes: only.passes }];
@@ -106,12 +106,14 @@ export type CheckScore = {
 };
 
 function bestSetting(settings: readonly SettingScore[]): SettingScore {
-  const [best] = [...settings].sort(
-    (left, right) =>
-      left.missed.length - right.missed.length ||
-      left.marked - right.marked ||
-      Number(right.sure === "balanced") - Number(left.sure === "balanced"),
-  );
+  const best = [...settings]
+    .sort(
+      (left, right) =>
+        left.missed.length - right.missed.length ||
+        left.marked - right.marked ||
+        Number(right.sure === "balanced") - Number(left.sure === "balanced"),
+    )
+    .at(0);
   if (!best) throw new Error("No settings to choose from");
   return best;
 }
@@ -119,7 +121,7 @@ function bestSetting(settings: readonly SettingScore[]): SettingScore {
 export function scoreChecks(
   cases: EvalCases,
   questions: ReadonlyMap<string, WrittenQuestion>,
-  answers: Readonly<Record<string, number>>,
+  answers: Readonly<Partial<Record<string, number>>>,
   digests: Readonly<Record<string, string>>,
 ): CheckScore[] {
   return cases.checks.map((check) => {
