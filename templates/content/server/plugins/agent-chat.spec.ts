@@ -108,7 +108,7 @@ describe("Content agent chat plugin", () => {
           skills: ["content"],
           externalAgents: { writes: "allowlisted" },
           instructions: expect.stringContaining(
-            "delete-document moves pages and sub-pages to Trash, which deletes them permanently 30 days after they were trashed",
+            "delete-document moves pages and sub-pages to Trash, where they become eligible for automatic deletion after 30 days",
           ),
         }),
       }),

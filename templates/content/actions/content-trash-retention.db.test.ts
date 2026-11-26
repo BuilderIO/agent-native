@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { getDbExec } from "@agent-native/core/db";
 import {
   hasRecurringSweepHandler,
   runWithRequestContext,
@@ -79,6 +80,7 @@ async function insertPage(
     parentId?: string | null;
     ownerEmail?: string;
     spaceId?: string;
+    sourceMode?: string;
   },
 ) {
   const now = new Date().toISOString();
@@ -97,6 +99,7 @@ async function insertPage(
       trashedAt: options.trashedAt?.toISOString() ?? null,
       trashRootId: options.trashedAt ? (options.trashRootId ?? id) : null,
       trashedBy: options.trashedAt ? ownerEmail : null,
+      sourceMode: options.sourceMode ?? null,
       createdAt: now,
       updatedAt: now,
     });
@@ -144,6 +147,41 @@ async function planItems(operationId: string) {
     .where(eq(schema.contentTrashPurgePlanItems.planId, planId));
 }
 
+async function planFilters(operationId: string) {
+  const { planId } = await operation(operationId);
+  const [plan] = await getDb()
+    .select({ filtersJson: schema.contentTrashPurgePlans.filtersJson })
+    .from(schema.contentTrashPurgePlans)
+    .where(eq(schema.contentTrashPurgePlans.id, planId));
+  return purge.parseContentTrashRetentionPlanFilters(plan.filtersJson);
+}
+
+async function addToCollection(
+  collectionDocumentId: string,
+  memberDocumentId: string,
+) {
+  const databaseId = `${collectionDocumentId}-database`;
+  await getDb().insert(schema.contentDatabases).values({
+    id: databaseId,
+    documentId: collectionDocumentId,
+    ownerEmail: OWNER,
+    spaceId: ORG_SPACE,
+    title: collectionDocumentId,
+  });
+  await getDb()
+    .insert(schema.contentDatabaseItems)
+    .values({
+      id: `${collectionDocumentId}-membership`,
+      databaseId,
+      documentId: memberDocumentId,
+      ownerEmail: OWNER,
+    });
+}
+
+const holdDispatch = (deferred: string[]) => async (operationId: string) => {
+  deferred.push(operationId);
+};
+
 async function drain(operationId: string) {
   for (let attempt = 0; attempt < 20; attempt += 1) {
     await runWithRequestContext(
@@ -164,13 +202,17 @@ function run(
   options: {
     dispatch?: (operationId: string) => Promise<void>;
     maxUnits?: number;
+    scanPageSize?: number;
+    scanPages?: number;
+    idleRearmMs?: number;
   } = {},
 ) {
   return retention.runContentTrashRetention({
     deadlineAt: Date.now() + 60_000,
     now,
+    idleRearmMs: Number.POSITIVE_INFINITY,
+    ...options,
     dispatch: options.dispatch ?? drain,
-    maxUnits: options.maxUnits,
   });
 }
 
@@ -192,9 +234,6 @@ describe("Content Trash automatic deletion", () => {
       outcome: "waiting",
       deletionsBeginAt: at(30).toISOString(),
     });
-    await expect(
-      retention.ensureContentTrashRetentionStart(at(5)),
-    ).resolves.toBe(START);
     await expect(run(at(3))).resolves.toEqual({
       outcome: "waiting",
       deletionsBeginAt: at(30).toISOString(),
@@ -444,6 +483,218 @@ describe("Content Trash automatic deletion", () => {
       status: "succeeded",
       deletedCount: 1,
     });
+  });
+
+  it("keeps an old collection whose younger member is protected, as Empty Trash does", async () => {
+    await insertPage("guarded-collection", { trashedAt: at(60) });
+    await insertPage("guarded-member", {
+      trashedAt: at(75),
+      sourceMode: "linked",
+    });
+    await insertPage("unguarded-root", { trashedAt: at(61) });
+    await addToCollection("guarded-collection", "guarded-member");
+
+    await expect(run(at(100, HOUR))).resolves.toMatchObject({
+      outcome: "started",
+      units: 1,
+      documents: 1,
+    });
+    expect(await page("unguarded-root")).toBeUndefined();
+    expect(await page("guarded-collection")).toBeDefined();
+    expect(await page("guarded-member")).toBeDefined();
+
+    await expect(run(at(106, HOUR))).resolves.toMatchObject({
+      outcome: "done-today",
+    });
+    expect(await page("guarded-collection")).toBeDefined();
+    expect(await page("guarded-member")).toBeDefined();
+  });
+
+  it("records a Trash root that keeps failing and still deletes the roots behind it", async () => {
+    await insertPage("fail-a-poison", { trashedAt: at(70) });
+    await insertPage("fail-b-behind", { trashedAt: at(71) });
+    const exec = getDbExec();
+    await exec.execute(`
+      CREATE FUNCTION retention_fail_delete() RETURNS trigger
+      LANGUAGE plpgsql AS $failure$
+      BEGIN
+        IF OLD.id = 'fail-a-poison' THEN
+          RAISE EXCEPTION 'injected delete failure';
+        END IF;
+        RETURN OLD;
+      END;
+      $failure$;
+    `);
+    await exec.execute(`
+      CREATE TRIGGER retention_fail_delete
+      BEFORE DELETE ON documents
+      FOR EACH ROW EXECUTE FUNCTION retention_fail_delete();
+    `);
+    try {
+      const first = await run(at(110, HOUR));
+      expect(first).toMatchObject({ outcome: "started", units: 2 });
+      if (first.outcome !== "started") throw new Error("expected a run");
+      expect(await page("fail-b-behind")).toBeUndefined();
+      expect(await page("fail-a-poison")).toBeDefined();
+      expect(await operation(first.operationId)).toMatchObject({
+        status: "partially_completed",
+        deletedCount: 1,
+      });
+      const failed = (await planItems(first.operationId)).find(
+        (item: { documentId: string }) => item.documentId === "fail-a-poison",
+      );
+      expect(failed?.outcome).toBe("failed");
+      expect(failed?.outcomeDetail).toContain(
+        "Automatic deletion of Trash root fail-a-poison failed",
+      );
+      expect(failed?.outcomeDetail).toContain(
+        `(attempt ${purge.CONTENT_TRASH_RETENTION_UNIT_ATTEMPTS} of ${purge.CONTENT_TRASH_RETENTION_UNIT_ATTEMPTS})`,
+      );
+      expect((await planFilters(first.operationId)).unitFailures).toEqual({
+        "fail-a-poison": purge.CONTENT_TRASH_RETENTION_UNIT_ATTEMPTS,
+      });
+
+      const next = await run(at(111, HOUR));
+      expect(next).toMatchObject({ outcome: "started", units: 1 });
+      if (next.outcome !== "started") throw new Error("expected a run");
+      expect(await operation(next.operationId)).toMatchObject({
+        status: "partially_completed",
+        deletedCount: 0,
+      });
+    } finally {
+      await exec.execute("DROP TRIGGER retention_fail_delete ON documents");
+      await exec.execute("DROP FUNCTION retention_fail_delete()");
+    }
+
+    await expect(run(at(112, HOUR))).resolves.toMatchObject({
+      outcome: "started",
+      units: 1,
+    });
+    expect(await page("fail-a-poison")).toBeUndefined();
+  });
+
+  it("reaches an eligible root behind many it cannot delete", async () => {
+    for (const index of [1, 2, 3]) {
+      await insertPage(`starve-source-${index}`, {
+        trashedAt: at(79, index),
+        sourceMode: "linked",
+      });
+      await insertPage(`starve-member-${index}`, {
+        trashedAt: at(79, index),
+        sourceMode: "linked",
+      });
+      await insertPage(`starve-collection-${index}`, {
+        trashedAt: at(80, index),
+      });
+      await addToCollection(
+        `starve-collection-${index}`,
+        `starve-member-${index}`,
+      );
+    }
+    await insertPage("starve-eligible", { trashedAt: at(85) });
+    const window = { scanPageSize: 2, scanPages: 1 };
+    const cursor = (id: string, trashedAt: Date) => ({
+      trashedAt: trashedAt.toISOString(),
+      id,
+    });
+
+    const first = await run(at(120, HOUR), window);
+    expect(first).toMatchObject({ outcome: "done-today" });
+    if (first.outcome !== "done-today") throw new Error("expected a plan");
+    expect((await planFilters(first.operationId)).scan).toEqual({
+      startedAfter: null,
+      stoppedAt: cursor("starve-collection-1", at(80, 1)),
+      exhausted: false,
+    });
+
+    const second = await run(at(121, HOUR), window);
+    expect(second).toMatchObject({ outcome: "done-today" });
+    if (second.outcome !== "done-today") throw new Error("expected a plan");
+    expect((await planFilters(second.operationId)).scan).toEqual({
+      startedAfter: cursor("starve-collection-1", at(80, 1)),
+      stoppedAt: cursor("starve-collection-3", at(80, 3)),
+      exhausted: false,
+    });
+    expect(await page("starve-eligible")).toBeDefined();
+
+    const third = await run(at(122, HOUR), window);
+    expect(third).toMatchObject({ outcome: "started", units: 1 });
+    if (third.outcome !== "started") throw new Error("expected a run");
+    expect(await page("starve-eligible")).toBeUndefined();
+    expect((await planFilters(third.operationId)).scan).toEqual({
+      startedAfter: cursor("starve-collection-3", at(80, 3)),
+      stoppedAt: cursor("starve-eligible", at(85)),
+      exhausted: true,
+    });
+  });
+
+  it("keeps one automatic deletion unfinished when runs straddle UTC midnight", async () => {
+    await insertPage("midnight-root", { trashedAt: at(90) });
+    const deferred: string[] = [];
+
+    const results = await Promise.all([
+      run(at(131, -60_000), { dispatch: holdDispatch(deferred) }),
+      run(at(131), { dispatch: holdDispatch(deferred) }),
+    ]);
+
+    expect(results.map((result) => result.outcome).sort()).toEqual([
+      "in-progress",
+      "started",
+    ]);
+    const unfinished = (await retentionOperations()).filter(
+      (row: { status: string }) =>
+        ["queued", "running", "retryable"].includes(row.status),
+    );
+    expect(unfinished.map((row: { id: string }) => row.id)).toEqual(deferred);
+    const [operationId] = deferred;
+    if (!operationId) throw new Error("automatic deletion was not dispatched");
+    await drain(operationId);
+    expect(await page("midnight-root")).toBeUndefined();
+  });
+
+  it("starts the 30 days again after automatic deletion stopped running for over 3 days", async () => {
+    await insertPage("rearm-root", { trashedAt: at(100) });
+    const deferred: string[] = [];
+    await expect(
+      run(at(140, HOUR), { dispatch: holdDispatch(deferred) }),
+    ).resolves.toMatchObject({ outcome: "started", units: 1 });
+    const [staleId] = deferred;
+    if (!staleId) throw new Error("automatic deletion was not dispatched");
+    const idleRearmMs = retention.CONTENT_TRASH_RETENTION_IDLE_REARM_MS;
+
+    await expect(run(at(144, 2 * HOUR), { idleRearmMs })).resolves.toEqual({
+      outcome: "rearmed",
+      deletionsBeginAt: at(174, 2 * HOUR).toISOString(),
+      cancelledOperationIds: [staleId],
+    });
+    expect(await operation(staleId)).toMatchObject({
+      status: "failed",
+      leaseToken: null,
+    });
+    expect(
+      (await planItems(staleId)).map(
+        (item: { outcome: string }) => item.outcome,
+      ),
+    ).toEqual(["cancelled"]);
+    await expect(retention.readContentTrashRetention()).resolves.toEqual({
+      retentionDays: 30,
+      startedAt: at(144, 2 * HOUR).toISOString(),
+      deletionsBeginAt: at(174, 2 * HOUR).toISOString(),
+    });
+
+    await expect(run(at(146, 2 * HOUR), { idleRearmMs })).resolves.toEqual({
+      outcome: "waiting",
+      deletionsBeginAt: at(174, 2 * HOUR).toISOString(),
+    });
+    await expect(run(at(174, HOUR))).resolves.toMatchObject({
+      outcome: "waiting",
+    });
+    expect(await page("rearm-root")).toBeDefined();
+    await expect(run(at(174, 3 * HOUR))).resolves.toMatchObject({
+      outcome: "started",
+      units: 1,
+    });
+    expect(await page("rearm-root")).toBeUndefined();
   });
 
   it("registers the daily sweep", () => {

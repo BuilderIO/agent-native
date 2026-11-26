@@ -116,7 +116,7 @@ async function restoreDocumentWithReceipt(
 export default defineAction({
   changeResource: (input) => documentChangeResource(input.id),
   description:
-    "Restore one page and the sub-pages trashed with it from Trash, which keeps them for 30 days, guarded by the item's exact trashedAt and an idempotency key. Pass the Trash root; returns a receipt with the restored page ids. Collections use restore-content-database.",
+    "Restore one page and the sub-pages trashed with it from Trash, before automatic deletion removes them (they become eligible after 30 days in Trash), guarded by the item's exact trashedAt and an idempotency key. Pass the Trash root; returns a receipt with the restored page ids. Collections use restore-content-database.",
   mcpTool: true,
   mcpApp: { structuredContent: true },
   mcpAnnotations: {

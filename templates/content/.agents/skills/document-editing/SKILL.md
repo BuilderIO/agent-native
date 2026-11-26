@@ -354,11 +354,12 @@ pnpm action suggest-document-edit --id abc123 \
 ### delete-document
 
 Move a page and all its sub-pages to Trash. IDs, bodies, hierarchy, and
-collection membership remain intact so the subtree can be restored for 30 days.
-After that a daily job deletes it permanently; a sub-page trashed on its own
-keeps its own 30 days, and restoring a page then trashing it again starts its
-30 days over. Agents pass
-the page's exact `updatedAt` from `<current-screen>` or a fresh read, plus an
+collection membership remain intact so the subtree can be restored. A Trash
+root becomes eligible for automatic deletion after 30 days in Trash, counted
+from when automatic deletion started for Pages already in Trash then. A daily
+job deletes eligible roots, so deletion can come a little later. A sub-page
+trashed on its own keeps its own 30 days, and restoring a page then trashing it
+again starts its 30 days over. Agents pass the page's exact `updatedAt` from `<current-screen>` or a fresh read, plus an
 idempotency key. A conflict means the page changed: read it again before
 deciding to trash it. Collection pages use `delete-content-database` instead.
 

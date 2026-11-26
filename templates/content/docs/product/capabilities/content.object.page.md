@@ -42,7 +42,7 @@ An editor creates a brief, adds body content and Properties, places it in two Co
 - A Collection row is a Page; membership supplies collection context but never replaces Page identity or creates a primary membership.
 - UI, agents, automations, and APIs use shared Actions and the same authorization boundary.
 - References, comments, Discussion, history, Versions, sources, and exports target the Page identity, not a transient renderer or location.
-- Trash suspends ordinary use without silently reusing the identity; restore returns the Page with its durable context. Trash keeps each Trash root, with the Pages trashed together with it, for 30 days after it was trashed and then deletes it permanently; Pages already in Trash when this rule shipped got 30 days from its first run.
+- Trash suspends ordinary use without silently reusing the identity; restore returns the Page with its durable context. Each Trash root, with the Pages trashed together with it, becomes eligible for permanent deletion after 30 days in Trash, counted from when automatic deletion started for Pages already in Trash then; a daily job deletes eligible roots, so it can take a little longer. If that job stops running for more than 3 days, the 30 days start again when it resumes.
 
 ## Boundaries and non-goals
 

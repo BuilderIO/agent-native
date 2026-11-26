@@ -150,7 +150,7 @@ export const parityMatrix: ParityRow[] = [
       "app/hooks/use-content-trash.ts",
     ],
     durableEffect:
-      "Authorized Trash metadata and Page bodies are read; reviewed purge plans, operations, and item outcomes are persisted before bounded permanent deletion runs. A daily system run deletes Trash roots trashed more than 30 days ago through the same plans and operations.",
+      "Authorized Trash metadata and Page bodies are read; reviewed purge plans, operations, and item outcomes are persisted before bounded permanent deletion runs. Trash roots become eligible for automatic deletion after 30 days in Trash, counted from when automatic deletion started for older roots; a daily system run deletes eligible roots through the same plans and operations, so deletion can come a little later.",
     uiImplementation:
       "The dedicated Trash route calls the same list, preview, restore, permanent-delete, purge-plan, purge-plan-detail, purge-execute, and operation-progress actions available to agents. Selection supports loaded rows or a server-backed matching scope; Empty Trash uses scope mode and intentionally ignores text, kind, actor, and location filters while preserving an explicit space filter. The retention notice reads get-content-trash-retention.",
     status: "action-backed",

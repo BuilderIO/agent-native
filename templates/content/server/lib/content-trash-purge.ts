@@ -25,6 +25,7 @@ import {
   sql,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
+import { z } from "zod";
 
 import { cleanupBuilderPrivatePayload } from "../../actions/_builder-cms-blob-custody.js";
 import { contentTrashPredicates } from "../../actions/_content-trash-query.js";
@@ -41,10 +42,117 @@ export const CONTENT_TRASH_PURGE_WORKER_PATH =
 export const CONTENT_TRASH_RETENTION_ACTOR =
   "content-trash-retention@system.invalid";
 export const CONTENT_TRASH_RETENTION_PLAN_MODE = "retention";
+export const CONTENT_TRASH_RETENTION_UNIT_ATTEMPTS = 3;
 const BATCH_UNITS = 5;
 const LEASE_MS = 2 * 60 * 1000;
 
+const retentionScanCursorSchema = z.object({
+  trashedAt: z.string(),
+  id: z.string(),
+});
+const retentionPlanFiltersSchema = z.looseObject({
+  cutoff: z.string(),
+  startedAt: z.string(),
+  scan: z.object({
+    startedAfter: retentionScanCursorSchema.nullable(),
+    stoppedAt: retentionScanCursorSchema.nullable(),
+    exhausted: z.boolean(),
+  }),
+  unitFailures: z.record(z.string(), z.number().int().positive()).optional(),
+});
+export type ContentTrashRetentionPlanFilters = z.infer<
+  typeof retentionPlanFiltersSchema
+>;
+
+export function parseContentTrashRetentionPlanFilters(
+  filtersJson: string,
+): ContentTrashRetentionPlanFilters {
+  return retentionPlanFiltersSchema.parse(JSON.parse(filtersJson));
+}
+
 class ContentTrashPurgeLeaseLostError extends Error {}
+
+class RetentionUnitFailedError extends Error {
+  constructor(
+    readonly unitId: string,
+    cause: unknown,
+  ) {
+    super(
+      `Automatic deletion of Trash root ${unitId} failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+  }
+}
+
+async function recordRetentionUnitFailure(
+  db: ReturnType<typeof getDb>,
+  options: {
+    operationId: string;
+    planId: string;
+    leaseToken: string;
+    failure: RetentionUnitFailedError;
+  },
+): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const transactionDb = tx as unknown as ReturnType<typeof getDb>;
+    const now = new Date().toISOString();
+    const plan = firstRow(
+      await transactionDb
+        .select({ filtersJson: schema.contentTrashPurgePlans.filtersJson })
+        .from(schema.contentTrashPurgePlans)
+        .where(eq(schema.contentTrashPurgePlans.id, options.planId))
+        .limit(1),
+    );
+    if (!plan) throw new Error(`Retention plan ${options.planId} is missing`);
+    const filters = parseContentTrashRetentionPlanFilters(plan.filtersJson);
+    const { unitId } = options.failure;
+    const attempts = (filters.unitFailures?.[unitId] ?? 0) + 1;
+    await transactionDb
+      .update(schema.contentTrashPurgePlans)
+      .set({
+        filtersJson: JSON.stringify({
+          ...filters,
+          unitFailures: { ...filters.unitFailures, [unitId]: attempts },
+        }),
+        updatedAt: now,
+      })
+      .where(eq(schema.contentTrashPurgePlans.id, options.planId));
+    const exhausted = attempts >= CONTENT_TRASH_RETENTION_UNIT_ATTEMPTS;
+    if (exhausted) {
+      await transactionDb
+        .update(schema.contentTrashPurgePlanItems)
+        .set({
+          outcome: "failed",
+          outcomeDetail: `${options.failure.message} (attempt ${attempts} of ${CONTENT_TRASH_RETENTION_UNIT_ATTEMPTS})`,
+          completedAt: now,
+        })
+        .where(
+          and(
+            eq(schema.contentTrashPurgePlanItems.planId, options.planId),
+            eq(schema.contentTrashPurgePlanItems.unitId, unitId),
+            eq(schema.contentTrashPurgePlanItems.outcome, "pending"),
+          ),
+        );
+    }
+    const receipt = firstRow(
+      await transactionDb
+        .update(schema.contentTrashPurgeOperations)
+        .set({ lastError: options.failure.message, updatedAt: now })
+        .where(
+          and(
+            eq(schema.contentTrashPurgeOperations.id, options.operationId),
+            eq(
+              schema.contentTrashPurgeOperations.leaseToken,
+              options.leaseToken,
+            ),
+            eq(schema.contentTrashPurgeOperations.status, "running"),
+          ),
+        )
+        .returning({ id: schema.contentTrashPurgeOperations.id }),
+    );
+    if (!receipt) throw new ContentTrashPurgeLeaseLostError();
+    return exhausted;
+  });
+}
 
 async function stillTrashedDocumentIds(
   db: ReturnType<typeof getDb>,
@@ -203,7 +311,7 @@ export async function processContentTrashPurge(operationId: string) {
     // holding one unit's pages while locking the next unit's collections
     // would break Content's row-lock order.
     for (let pass = 0; pass < BATCH_UNITS; pass += 1) {
-      const batchResult = await db.transaction(
+      const batch = db.transaction(
         async (tx) => {
           const transactionDb = tx as unknown as ReturnType<typeof getDb>;
           const transactionNow = new Date().toISOString();
@@ -378,7 +486,9 @@ export async function processContentTrashPurge(operationId: string) {
               );
             } catch (error) {
               if (!(error instanceof PermanentDeleteScopeChangedError))
-                throw error;
+                throw retention
+                  ? new RetentionUnitFailedError(unit.unitId, error)
+                  : error;
               await transactionDb
                 .update(schema.contentTrashPurgePlanItems)
                 .set({
@@ -438,6 +548,20 @@ export async function processContentTrashPurge(operationId: string) {
         },
         { isolationLevel: "serializable" },
       );
+      let batchResult: Awaited<typeof batch>;
+      try {
+        batchResult = await batch;
+      } catch (error) {
+        if (!(error instanceof RetentionUnitFailedError)) throw error;
+        const exhausted = await recordRetentionUnitFailure(db, {
+          operationId,
+          planId: claimed.planId,
+          leaseToken,
+          failure: error,
+        });
+        if (!exhausted) throw error;
+        continue;
+      }
       claimed.blockedCount += batchResult.blockedDelta;
       claimed.deletedCount += batchResult.deletedDelta;
       for (const reference of batchResult.deletedBlobReferences) {
@@ -565,10 +689,13 @@ export async function processContentTrashPurge(operationId: string) {
   const conflictedCount = outcomes.filter(
     (item) => item.outcome === "conflicted",
   ).length;
+  const failedCount = outcomes.filter(
+    (item) => item.outcome === "failed",
+  ).length;
   const status =
     conflictedCount > 0
       ? "conflicted"
-      : claimed.blockedCount > 0
+      : claimed.blockedCount > 0 || failedCount > 0
         ? "partially_completed"
         : "succeeded";
   const [completionReceipt] = await db
