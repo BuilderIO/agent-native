@@ -11,14 +11,14 @@ import {
   restoreCanvasImageSources,
 } from "./export-image-source";
 
-const ORIGIN = "https://design.example.test";
+const ORIGIN = "https://design.example.com";
 const PROXY = {
   origin: ORIGIN,
   route: CANVAS_IMAGE_ROUTE,
   auth: { subject: "subj_-1", exp: 1893456000, token: "tok_-1" },
 };
-const PHOTO = "https://images.example.test/photo.jpg?w=5350&fit=crop";
-const LARGE = "https://images.example.test/photo-2x.jpg";
+const PHOTO = "https://images.example.com/photo.jpg?w=5350&fit=crop";
+const LARGE = "https://images.example.com/photo-2x.jpg";
 
 const originalDecode = HTMLImageElement.prototype.decode;
 

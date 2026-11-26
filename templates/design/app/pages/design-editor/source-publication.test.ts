@@ -43,7 +43,7 @@ it("maps duplicate source IDs to the exact projected nodes after repair", () => 
 it.each([
   ["css", "body { color: red }"],
   ["jsx", "export default () => <main />"],
-  ["html", "https://example.test/"],
+  ["html", "https://example.com/"],
 ])(
   "leaves non-HTML or URL-backed source unchanged (%s)",
   (fileType, content) => {
@@ -279,10 +279,10 @@ it("forgets prepared sources for files that left the design", () => {
 });
 
 it("stores the original URL of an image the canvas showed resized", () => {
-  const photo = "https://images.example.test/a/photo.jpg?w=5350&fit=crop";
+  const photo = "https://images.example.com/a/photo.jpg?w=5350&fit=crop";
   const resized =
     toCanvasImageUrl(photo, {
-      origin: "https://design.example.test",
+      origin: "https://design.example.com",
       route: "/api/canvas-image",
       auth: { subject: "subj_-1", exp: 1893456000, token: "tok_-1" },
     }) ?? "";
@@ -292,7 +292,7 @@ it("stores the original URL of an image the canvas showed resized", () => {
     resized.replace(/&/g, "&amp;"),
   );
   expect(fromFrame).not.toBe(authored);
-  vi.stubGlobal("location", { origin: "https://design.example.test" });
+  vi.stubGlobal("location", { origin: "https://design.example.com" });
   try {
     const prepared = prepareCanonicalSourceContent(fromFrame, {
       fileId: "screen-resized",
@@ -313,16 +313,16 @@ it("stores the original URL of an image the canvas showed resized", () => {
 });
 
 it("reports restored image URLs as a change when the clean content is already cached", () => {
-  const photo = "https://images.example.test/a/photo.jpg";
+  const photo = "https://images.example.com/a/photo.jpg";
   const resized =
     toCanvasImageUrl(photo, {
-      origin: "https://design.example.test",
+      origin: "https://design.example.com",
       route: "/api/canvas-image",
       auth: { subject: "subj_-1", exp: 1893456000, token: "tok_-1" },
     }) ?? "";
   const authored = `<main data-agent-native-node-id="m"><img data-agent-native-node-id="i" src="${photo}"></main>`;
   const fromFrame = authored.replace(photo, resized);
-  vi.stubGlobal("location", { origin: "https://design.example.test" });
+  vi.stubGlobal("location", { origin: "https://design.example.com" });
   try {
     const clean = prepareCanonicalSourceContent(authored, {
       fileId: "screen-cached-clean",
