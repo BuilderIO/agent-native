@@ -54,7 +54,7 @@ describe("component layer disclosure arrow", () => {
     };
     const chevron = host.querySelector<HTMLElement>("[data-layer-row-chevron]");
     expect(chevron).not.toBeNull();
-    await act(async () => chevron!.click());
+    await act(async () => chevron?.click());
     expect(onExpandedIdsChange).toHaveBeenCalledWith(["card"]);
   });
 });
@@ -92,7 +92,7 @@ describe("components section", () => {
     };
     const row = host.querySelector<HTMLElement>('[data-component-row="Card"]');
     expect(row?.textContent).toContain("Card");
-    await act(async () => row!.click());
+    await act(async () => row?.click());
     expect(onComponentSelect).toHaveBeenCalledWith(component);
   });
 });

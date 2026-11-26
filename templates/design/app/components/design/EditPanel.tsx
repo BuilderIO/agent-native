@@ -1580,19 +1580,18 @@ function PageProperties({
   );
 }
 
+const EXPORT_PREVIEW_FAILURE_KEYS = {
+  "no-preview": "editPanel.exportPreview.noPreview",
+  "external-preview": "editPanel.exportPreview.externalPreview",
+  "read-only-preview": "editPanel.exportPreview.readOnlyPreview",
+  "selection-unresolved": "editPanel.exportPreview.selectionUnresolved",
+  "blob-failed": "editPanel.exportPreview.failed",
+} as const satisfies Record<PngCaptureErrorCode, string>;
+
 export function exportPreviewFailureKey(reason: PngCaptureErrorCode | null) {
-  switch (reason) {
-    case "no-preview":
-      return "editPanel.exportPreview.noPreview" as const;
-    case "external-preview":
-      return "editPanel.exportPreview.externalPreview" as const;
-    case "read-only-preview":
-      return "editPanel.exportPreview.readOnlyPreview" as const;
-    case "selection-unresolved":
-      return "editPanel.exportPreview.selectionUnresolved" as const;
-    default:
-      return "editPanel.exportPreview.failed" as const;
-  }
+  return reason
+    ? EXPORT_PREVIEW_FAILURE_KEYS[reason]
+    : ("editPanel.exportPreview.failed" as const);
 }
 
 function ExportPreview({

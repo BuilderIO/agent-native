@@ -199,7 +199,6 @@ export interface LayersPanelProps {
   labels?: Partial<LayersPanelLabels>;
   onSearchQueryChange: (query: string) => void;
   onScreenSelect?: (id: string) => void;
-  /** Components created in this design, listed in their own section. */
   components?: readonly LayersPanelComponent[];
   onComponentSelect?: (component: LayersPanelComponent) => void;
   onAddScreen?: () => void;
