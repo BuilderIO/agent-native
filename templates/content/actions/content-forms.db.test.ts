@@ -1390,15 +1390,15 @@ async function whileLocked<T>(
   await getDbExec().execute(
     `CREATE FUNCTION ${name}() RETURNS trigger LANGUAGE plpgsql AS $race$ BEGIN ${statements.join("; ")}; RETURN NEW; END; $race$`,
   );
-  // raw-sql-ok: the trigger's name and the collection page's id come from this file's seeded ids.
+  // raw-sql-ok: the trigger's name and the collection's id come from this file's seeded ids.
   await getDbExec().execute(
-    `CREATE TRIGGER ${name} AFTER UPDATE ON documents FOR EACH ROW WHEN (NEW.id = '${ids.databaseDocumentId}') EXECUTE FUNCTION ${name}()`,
+    `CREATE TRIGGER ${name} AFTER UPDATE ON content_databases FOR EACH ROW WHEN (NEW.id = '${ids.databaseId}' AND OLD.updated_at IS NOT DISTINCT FROM NEW.updated_at AND pg_trigger_depth() < 1) EXECUTE FUNCTION ${name}()`,
   );
   try {
     return await run();
   } finally {
     // raw-sql-ok: the trigger's name is built above from a UUID.
-    await getDbExec().execute(`DROP TRIGGER ${name} ON documents`);
+    await getDbExec().execute(`DROP TRIGGER ${name} ON content_databases`);
     // raw-sql-ok: the function's name is built above from a UUID.
     await getDbExec().execute(`DROP FUNCTION ${name}()`);
   }
@@ -1678,6 +1678,7 @@ describe("Content forms: a resent key always gets its receipt", () => {
       [
         `UPDATE content_form_submissions SET idempotency_key = '${key}' WHERE id = '${first.receipt.receiptId}'`,
         `UPDATE content_forms SET accepting_answers = 0 WHERE database_id = '${ids.databaseId}'`,
+        `UPDATE content_databases SET view_config_json = view_config_json || ' ' WHERE id = '${ids.databaseId}'`,
       ],
       () => send(link, validAnswers(ids), { key }),
     );
@@ -1766,11 +1767,40 @@ describe("Content forms: a resent key always gets its receipt", () => {
       [
         `UPDATE content_form_submissions SET idempotency_key = '${key}' WHERE id = '${stored.id}'`,
         `UPDATE content_forms SET accepting_answers = 0 WHERE database_id = '${ids.databaseId}'`,
+        `UPDATE content_databases SET view_config_json = view_config_json || ' ' WHERE id = '${ids.databaseId}'`,
+        `INSERT INTO content_database_sources (id, database_id, source_type, source_name, source_table) VALUES ('source_${ids.databaseId}', '${ids.databaseId}', 'github', 'docs', 'docs')`,
       ],
       submit,
     );
     expect(resent).toEqual(first);
     await expect(rowsOf(ids)).resolves.toHaveLength(2);
+  });
+
+  it("replays a resend in the collection's own form after the collection starts following GitHub", async () => {
+    const ids = await seedCollection();
+    const key = `resend-${randomUUID()}`;
+    const submit = () =>
+      as(OWNER, () =>
+        submitCollectionForm.run({
+          databaseId: ids.databaseId,
+          viewId: ids.viewId,
+          title: "Editor request",
+          propertyEntries: [{ property: ids.priorityId, value: "P1 — High" }],
+          idempotencyKey: key,
+        }),
+      );
+    const first = await submit();
+    await getDb()
+      .insert(schema.contentDatabaseSources)
+      .values({
+        id: `source_${ids.databaseId}`,
+        databaseId: ids.databaseId,
+        sourceType: "github",
+        sourceName: "docs",
+        sourceTable: "docs",
+      });
+
+    await expect(submit()).resolves.toEqual(first);
   });
 });
 
@@ -1807,6 +1837,67 @@ describe("Content forms: rules that change while answers wait", () => {
     ).rejects.toMatchObject({ errorCode: "form_changed" });
     await expect(rowsOf(ids)).resolves.toEqual(before);
     await expect(receiptsOf(ids)).resolves.toEqual([]);
+  });
+
+  it("refuses with form_changed when the collection moves to another workspace before the write, on both channels", async () => {
+    const ids = await seedCollection();
+    const link = await setUpForm(ids, { audience: "anonymous" });
+    const before = await rowsOf(ids);
+    const move = `UPDATE content_databases SET space_id = 'forms_moved_space', org_id = 'forms_moved_org' WHERE id = '${ids.databaseId}'`;
+
+    await expect(
+      whileLocked(ids, [move], () => send(link, validAnswers(ids))),
+    ).rejects.toMatchObject({ errorCode: "form_changed", statusCode: 409 });
+    await expect(
+      whileLocked(ids, [move], () =>
+        as(OWNER, () =>
+          submitCollectionForm.run({
+            databaseId: ids.databaseId,
+            viewId: ids.viewId,
+            title: "Editor request",
+            propertyEntries: [{ property: ids.priorityId, value: "P1 — High" }],
+          }),
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "form_changed" });
+    await expect(rowsOf(ids)).resolves.toEqual(before);
+  });
+
+  it("refuses a relation to a row moved to Trash before the write, as a page's relation write would", async () => {
+    const ids = await seedCollection();
+    const linkedId = `linked_${ids.databaseId}`;
+    await addProperty(ids, {
+      id: linkedId,
+      name: "Linked request",
+      type: "relation",
+      optionsJson: serializePropertyOptions({
+        relation: { databaseId: ids.databaseId },
+      }),
+    });
+    const before = await rowsOf(ids);
+
+    await expect(
+      whileLocked(
+        ids,
+        [
+          `UPDATE documents SET trashed_at = '2026-11-26T00:00:00.000Z' WHERE id = '${ids.existingRowId}'`,
+        ],
+        () =>
+          as(OWNER, () =>
+            submitCollectionForm.run({
+              databaseId: ids.databaseId,
+              viewId: ids.viewId,
+              title: "Follow-up",
+              propertyEntries: [
+                { property: ids.priorityId, value: "P1 — High" },
+                { property: linkedId, value: [ids.existingRowId] },
+              ],
+            }),
+          ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "INVALID_RELATION_TARGET" });
+    await expect(receiptsOf(ids)).resolves.toEqual([]);
+    await expect(rowsOf(ids)).resolves.toEqual(before);
   });
 
   it("refuses once the collection stops taking new rows before the write", async () => {
@@ -1913,7 +2004,7 @@ describe("Content forms: the answer schema", () => {
     expect(read.answerSchema).toMatchObject({
       required: ["name", ids.priorityId, teamsId],
       properties: {
-        name: { type: "string", minLength: 1 },
+        name: { type: "string", minLength: 1, pattern: "\\S" },
         [ids.priorityId]: {
           type: "string",
           minLength: 1,
@@ -1935,6 +2026,11 @@ describe("Content forms: the answer schema", () => {
       Record<string, unknown>
     >;
     expect(properties[ids.emailId]).not.toHaveProperty("minLength");
+    const emailPattern = new RegExp(String(properties[ids.emailId]?.pattern));
+    expect(emailPattern.test("")).toBe(true);
+    expect(emailPattern.test(" ada@example.com ")).toBe(true);
+    expect(emailPattern.test("not-an-email")).toBe(false);
+    expect(new RegExp(String(properties.name?.pattern)).test(" ")).toBe(false);
 
     const sent = await send(link, [
       ...validAnswers(ids),

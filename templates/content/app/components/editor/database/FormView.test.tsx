@@ -191,7 +191,7 @@ describe("DatabaseFormView", () => {
     expect(container.textContent).toContain("database.openPage");
   });
 
-  it("resends the same answers under the same idempotency key, and uses a new one for changed answers or after a success", async () => {
+  it("resends any unconfirmed answers under their first idempotency key, and uses a new one for changed answers or after a success", async () => {
     const fill = async (titleText: string, descriptionText: string) => {
       await act(async () => {
         const title = container.querySelector<HTMLInputElement>(
@@ -225,14 +225,23 @@ describe("DatabaseFormView", () => {
     submitMutation.mutateAsync.mockReturnValueOnce(unanswered());
     await send();
     await fill("Refresh the pricing page", "Clarify the whole story.");
+    submitMutation.mutateAsync.mockReturnValueOnce(unanswered());
+    await send();
+    await fill("Refresh the pricing page", "Clarify the enterprise story.");
+    submitMutation.mutateAsync.mockReturnValueOnce(unanswered());
+    await send();
+    await fill("Refresh the pricing page", "Clarify the whole story.");
     await send();
     await fill("Refresh the pricing page", "Clarify the whole story.");
     await send();
 
-    const [first, resent, changed, afterSuccess] = keys();
+    const [first, resent, changed, restored, changedAgain, afterSuccess] =
+      keys();
     expect(first).toBeTruthy();
     expect(resent).toBe(first);
     expect(changed).not.toBe(first);
+    expect(restored).toBe(first);
+    expect(changedAgain).toBe(changed);
     expect(afterSuccess).not.toBe(changed);
     expect(new Set(keys()).size).toBe(3);
   });

@@ -809,12 +809,9 @@ async function submitNewContentFormAnswers(
           createdBy: sender.kind === "signed_in" ? sender.email : null,
           shareCreatedBy: database.ownerEmail,
           privateMediaActor: false,
+          assertNotSubmitted: (tx) =>
+            assertNoContentFormSubmission(tx, linked.identity, idempotencyKey),
           verifyLocked: async (tx) => {
-            await assertNoContentFormSubmission(
-              tx,
-              linked.identity,
-              idempotencyKey,
-            );
             await assertContentFormUnchanged(tx, linked.identity, {
               settings: linked.settings,
               canvas,

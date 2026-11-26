@@ -702,6 +702,7 @@ export async function writeCollectionFormRecord<TInserted>(input: {
   createdBy: string | null;
   shareCreatedBy: string;
   privateMediaActor: string | null | false;
+  assertNotSubmitted: (tx: ContentDb) => Promise<void>;
   verifyLocked: (tx: ContentDb) => Promise<void>;
   afterInsert: (
     tx: ContentDb,
@@ -724,12 +725,16 @@ export async function writeCollectionFormRecord<TInserted>(input: {
   const inserted = await db.transaction(async (tx) => {
     const lockedDb = tx as unknown as ContentDb;
     await lockContentDatabaseMutation(lockedDb, databaseId);
+    await input.assertNotSubmitted(lockedDb);
     const lockedDatabase = firstRow(
       await tx
         .select({
           viewConfigJson: schema.contentDatabases.viewConfigJson,
           deletedAt: schema.contentDatabases.deletedAt,
           naturalKeyPropertyId: schema.contentDatabases.naturalKeyPropertyId,
+          spaceId: schema.contentDatabases.spaceId,
+          orgId: schema.contentDatabases.orgId,
+          ownerEmail: schema.contentDatabases.ownerEmail,
         })
         .from(schema.contentDatabases)
         .where(eq(schema.contentDatabases.id, databaseId)),
@@ -737,7 +742,10 @@ export async function writeCollectionFormRecord<TInserted>(input: {
     if (
       !lockedDatabase ||
       lockedDatabase.deletedAt !== null ||
-      lockedDatabase.viewConfigJson !== database.viewConfigJson
+      lockedDatabase.viewConfigJson !== database.viewConfigJson ||
+      lockedDatabase.spaceId !== database.spaceId ||
+      lockedDatabase.orgId !== database.orgId ||
+      lockedDatabase.ownerEmail !== database.ownerEmail
     ) {
       fail("The database form changed before form submission completed.", {
         errorCode: "form_changed",
@@ -781,6 +789,17 @@ export async function writeCollectionFormRecord<TInserted>(input: {
       fail("Database properties changed before form submission completed.", {
         errorCode: "form_changed",
         statusCode: 409,
+      });
+    }
+    for (const [propertyId, value] of standardValues) {
+      const definition = lockedDefinitions.find(
+        (candidate) => candidate.id === propertyId,
+      );
+      if (definition?.type !== "relation" || value === null) continue;
+      await validateRelationWrite(lockedDb, {
+        definition,
+        nextValue: value,
+        previousValue: null,
       });
     }
     await ensureNaturalKeyClaim(
@@ -1097,20 +1116,6 @@ export default defineAction({
         "Database page and database belong to different Content spaces.",
       );
     }
-    await assertCollectionAcceptsNewRows(database.id, db);
-    const definitions = await db
-      .select()
-      .from(schema.documentPropertyDefinitions)
-      .where(
-        and(
-          eq(schema.documentPropertyDefinitions.databaseId, databaseId),
-          eq(
-            schema.documentPropertyDefinitions.ownerEmail,
-            database.ownerEmail,
-          ),
-        ),
-      );
-    const definitionsFingerprint = propertyDefinitionFingerprint(definitions);
     const viewConfig = parseDatabaseViewConfig(database.viewConfigJson);
     const formView = resolveFormView(
       viewConfig.views,
@@ -1118,14 +1123,6 @@ export default defineAction({
       viewId,
     );
     const form = { databaseId, viewId: formView.id };
-    const settings = await readContentFormRow(db, form);
-    const { questions, canvas } = await loadContentFormQuestions({
-      database,
-      view: formView,
-      definitions,
-      settings,
-      channel: "collection",
-    });
     const actor = documentAttributionActor();
     const sender: ContentFormSender = actor
       ? { kind: "signed_in", email: actor }
@@ -1152,6 +1149,29 @@ export default defineAction({
     };
     const existing = await findContentFormSubmission(db, form, submissionKey);
     if (existing) return replay(existing);
+
+    await assertCollectionAcceptsNewRows(database.id, db);
+    const definitions = await db
+      .select()
+      .from(schema.documentPropertyDefinitions)
+      .where(
+        and(
+          eq(schema.documentPropertyDefinitions.databaseId, databaseId),
+          eq(
+            schema.documentPropertyDefinitions.ownerEmail,
+            database.ownerEmail,
+          ),
+        ),
+      );
+    const definitionsFingerprint = propertyDefinitionFingerprint(definitions);
+    const settings = await readContentFormRow(db, form);
+    const { questions, canvas } = await loadContentFormQuestions({
+      database,
+      view: formView,
+      definitions,
+      settings,
+      channel: "collection",
+    });
 
     const prepared = await prepareCollectionFormRecord({
       definitions,
@@ -1182,8 +1202,9 @@ export default defineAction({
         createdBy: actor,
         shareCreatedBy: actor ?? database.ownerEmail,
         privateMediaActor: actor,
+        assertNotSubmitted: (tx) =>
+          assertNoContentFormSubmission(tx, form, submissionKey),
         verifyLocked: async (tx) => {
-          await assertNoContentFormSubmission(tx, form, submissionKey);
           await assertContentFormUnchanged(tx, form, { settings, canvas });
           await assertCollectionAcceptsNewRows(database.id, tx);
           const lockedAccess = firstRow(

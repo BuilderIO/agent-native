@@ -318,9 +318,7 @@ export function DatabaseFormView({
   const [createdDocumentId, setCreatedDocumentId] = useState<string | null>(
     null,
   );
-  const pendingSubmission = useRef<{ payload: string; key: string } | null>(
-    null,
-  );
+  const submissionKeys = useRef(new Map<string, string>());
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -333,17 +331,17 @@ export function DatabaseFormView({
     if (missing.length > 0) return;
 
     const payload = JSON.stringify([databaseId, view.id, title, values]);
-    if (pendingSubmission.current?.payload !== payload) {
-      pendingSubmission.current = { payload, key: crypto.randomUUID() };
-    }
+    const idempotencyKey =
+      submissionKeys.current.get(payload) ?? crypto.randomUUID();
+    submissionKeys.current.set(payload, idempotencyKey);
     const result = await submit.mutateAsync({
       databaseId,
       viewId: view.id,
       title,
       propertyValues: values,
-      idempotencyKey: pendingSubmission.current.key,
+      idempotencyKey,
     });
-    pendingSubmission.current = null;
+    submissionKeys.current.clear();
     setCreatedDocumentId(result.createdDocumentId);
     setTitle("");
     setValues({});

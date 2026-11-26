@@ -100,9 +100,9 @@ For a named intake workflow:
    from this skill.
 2. Once Content is selected, find the canonical collection by the instructed ID
    or exact title with `list-documents` or `search-documents`; inspect it with
-   `describe-content-database`, whose `viewConfig.views` include the Form
-   view's `formQuestions` (which properties it asks and which are required),
-   and `get-content-form-settings` for that view: when it has a
+   `describe-content-database`, whose `database.viewConfig.views` include the
+   Form view's `formQuestions` (which properties it asks and which are
+   required), and `get-content-form-settings` for that view: when it has a
    `canvasDocumentId`, the questions on that page replace the view's.
    Preserve its collection and document IDs. Never guess IDs or create a
    duplicate queue.

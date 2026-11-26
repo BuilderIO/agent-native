@@ -395,8 +395,9 @@ function answerValueSchema(
   const text = {
     ...base,
     type: "string",
-    ...(question.required ? { minLength: 1 } : {}),
+    ...(question.required ? { minLength: 1, pattern: "\\S" } : {}),
   };
+  const email = "\\s*[^\\s@]+@[^\\s@]+\\.[^\\s@]+\\s*";
   const list = {
     ...base,
     type: "array",
@@ -423,9 +424,13 @@ function answerValueSchema(
       };
     case "people":
       return { ...list, items: { type: "string" } };
+    case "email":
+      return {
+        ...text,
+        pattern: question.required ? `^${email}$` : `^(\\s*|${email})$`,
+      };
     case "text":
     case "long_text":
-    case "email":
     case "url":
     case "phone":
     case "place":
