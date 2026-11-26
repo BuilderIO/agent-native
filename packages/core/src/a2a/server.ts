@@ -41,7 +41,6 @@ import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { publicFrameworkPath } from "../server/framework-route-prefix.js";
 import { readBody } from "../server/h3-helpers.js";
-import { isLoopbackRequest } from "../server/loopback.js";
 import { hasSameOriginBrowserEvidence } from "../server/request-origin.js";
 import type { AgentProfileMetadata } from "../shared/agent-profile.js";
 import { generateAgentCard } from "./agent-card.js";
@@ -50,7 +49,8 @@ import { canonicalA2AAudience } from "./audience.js";
 import {
   hasConfiguredA2ASecret,
   isA2AProductionRuntime,
-  isTrustedLocalRuntime,
+  isTrustedLocalRequest,
+  UNSIGNED_REMOTE_REQUEST_REFUSED,
 } from "./auth-policy.js";
 import { handleJsonRpcH3, processA2ATaskFromQueue } from "./handlers.js";
 import {
@@ -1046,14 +1046,9 @@ export function mountA2A(
           error:
             "A2A processor not configured — set A2A_SECRET on this deployment to enable async A2A.",
         };
-      } else if (
-        !isTrustedLocalRuntime({ loopback: isLoopbackRequest(event) })
-      ) {
+      } else if (!isTrustedLocalRequest(event)) {
         setResponseStatus(event, 401);
-        return {
-          error:
-            "A2A processor requires A2A_SECRET for requests from other hosts — set A2A_SECRET on this app to enable async A2A.",
-        };
+        return { error: UNSIGNED_REMOTE_REQUEST_REFUSED };
       } else {
         warnA2AUnauthOnce();
       }
@@ -1248,7 +1243,7 @@ export function mountA2A(
             },
           };
         }
-        if (!isTrustedLocalRuntime({ loopback: isLoopbackRequest(event) })) {
+        if (!isTrustedLocalRequest(event)) {
           setResponseStatus(event, 401);
           return {
             jsonrpc: "2.0",
@@ -1257,7 +1252,7 @@ export function mountA2A(
               code: -32001,
               message: authConfigured
                 ? "Authentication required"
-                : "A2A authentication not configured. Set A2A_SECRET on this app to accept A2A requests from other hosts.",
+                : UNSIGNED_REMOTE_REQUEST_REFUSED,
             },
           };
         }

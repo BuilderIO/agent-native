@@ -23,6 +23,7 @@ vi.mock("../mcp/chat-turn-store.js", () => ({
 
 vi.mock("../server/self-dispatch.js", () => ({
   fireInternalDispatch: vi.fn(async () => {}),
+  resolveSelfDispatchBaseUrl: () => "http://localhost:3000",
 }));
 
 function makeEvent(input: {

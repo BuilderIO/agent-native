@@ -8,7 +8,6 @@ import {
   getMethod,
   getHeader,
   getRequestURL,
-  getRequestIP,
   readRawBody,
   getCookie,
   setCookie,
@@ -4304,11 +4303,8 @@ export function createCoreRoutesPlugin(
             return { error: "executionId required" };
           }
 
-          const {
-            hasConfiguredA2ASecret,
-            isLoopbackAddress,
-            isTrustedLocalRuntime,
-          } = await import("../a2a/auth-policy.js");
+          const { hasConfiguredA2ASecret, isTrustedLocalRequest } =
+            await import("../a2a/auth-policy.js");
           if (hasConfiguredA2ASecret()) {
             const { verifyInternalToken, extractBearerToken } =
               await import("../integrations/internal-token.js");
@@ -4317,17 +4313,12 @@ export function createCoreRoutesPlugin(
               setResponseStatus(event, 401);
               return { error: "Invalid or expired processor token" };
             }
-          } else {
-            const loopback = isLoopbackAddress(
-              getRequestIP(event, { xForwardedFor: false }),
-            );
-            if (!isTrustedLocalRuntime({ loopback })) {
-              setResponseStatus(event, 503);
-              return {
-                error:
-                  "Sandbox execution processor not configured — set A2A_SECRET on this deployment (or A2A_ALLOW_UNSIGNED_INTERNAL=1 for trusted local dev).",
-              };
-            }
+          } else if (!isTrustedLocalRequest(event)) {
+            setResponseStatus(event, 503);
+            return {
+              error:
+                "Sandbox execution processor not configured — set A2A_SECRET on this deployment (or A2A_ALLOW_UNSIGNED_INTERNAL=1 for trusted local dev).",
+            };
           }
 
           try {

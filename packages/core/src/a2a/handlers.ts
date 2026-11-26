@@ -50,7 +50,10 @@ import {
   markExplicitPersonalOrgScope,
   type RequestRunContext,
 } from "../server/request-context.js";
-import { fireInternalDispatch } from "../server/self-dispatch.js";
+import {
+  fireInternalDispatch,
+  resolveSelfDispatchBaseUrl,
+} from "../server/self-dispatch.js";
 import { agentChat } from "../shared/agent-chat.js";
 import {
   normalizeViewportMode,
@@ -58,6 +61,7 @@ import {
 } from "../shared/viewport-mode.js";
 import { track } from "../tracking/registry.js";
 import {
+  acceptsUnsignedSelfDispatch,
   hasConfiguredA2ASecret,
   isA2AProductionRuntime,
 } from "./auth-policy.js";
@@ -362,6 +366,18 @@ export function getA2ATaskRecoveryLimits() {
     processingStuckAfterMs: A2A_PROCESSING_STUCK_AFTER_MS,
     processingLifetimeMaxMs: a2aProcessingLifetimeMaxMs(),
   };
+}
+
+function unsignedProcessorHandoffAccepted(event: H3Event | undefined): boolean {
+  if (isA2AProductionRuntime()) return false;
+  let baseUrl: string;
+  try {
+    baseUrl = resolveSelfDispatchBaseUrl(event);
+  } catch {
+    // coercion-ok: no resolvable self-dispatch URL means the handoff cannot be sent, so async is refused.
+    return false;
+  }
+  return acceptsUnsignedSelfDispatch(baseUrl);
 }
 
 async function fireProcessTaskDispatch(
@@ -1234,14 +1250,13 @@ async function handleSend(
   if (!asyncMode) idempotencyKey = undefined;
 
   if (asyncMode) {
-    // Refuse async mode entirely without the shared secret in production.
     // The async dispatch path self-fires the `_process-task` route, which is
     // authenticated with an internal HMAC signed by A2A_SECRET. A legacy
     // apiKeyEnv can authenticate the JSON-RPC request, but it cannot
     // authenticate that internal handoff. Accepting it here would create a
     // working task that can never start and leaves the caller polling until
     // its timeout.
-    if (isA2AProductionRuntime() && !hasConfiguredA2ASecret()) {
+    if (!hasConfiguredA2ASecret() && !unsignedProcessorHandoffAccepted(event)) {
       return {
         ...jsonRpcError(
           0,

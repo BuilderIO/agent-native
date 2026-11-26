@@ -3496,7 +3496,40 @@ describe("handleJsonRpc", () => {
     expect(followup.result.status.message.parts[0].text).toBe("event-present");
   });
 
+  it("refuses async A2A without A2A_SECRET when the unsigned handoff would leave this machine", async () => {
+    vi.stubEnv("A2A_SECRET", "");
+    vi.stubEnv("FUSION_POD_UID", "");
+    vi.stubEnv("FUSION_ENVIRONMENT", "");
+    const fetchMock = vi.fn(async () => new Response("ok"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const event = mockEvent();
+    event.node.req = { headers: { host: "abc.tunnel.example" } };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          message: { role: "user", parts: [{ type: "text", text: "go" }] },
+        },
+      },
+      event,
+      customHandler,
+    );
+
+    expect(result.error).toEqual({
+      code: -32001,
+      message:
+        "A2A async mode requires A2A_SECRET for internal processor dispatch; apiKeyEnv only supports synchronous A2A.",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("self-dispatches async A2A tasks under APP_BASE_PATH", async () => {
+    vi.stubEnv("A2A_SECRET", "test-secret-at-least-32-characters-long");
     process.env.APP_BASE_PATH = "/docs";
     const fetchMock = vi.fn(async () => new Response("ok"));
     vi.stubGlobal("fetch", fetchMock);

@@ -1883,7 +1883,7 @@ describe("mountA2A auth", () => {
       error: {
         code: -32001,
         message:
-          "A2A authentication not configured. Set A2A_SECRET on this app to accept A2A requests from other hosts.",
+          "A2A_SECRET is not set, so this app accepts unsigned requests only from this machine. Set A2A_SECRET to accept requests from other hosts.",
       },
     };
 
@@ -1991,7 +1991,7 @@ describe("mountA2A auth", () => {
       expect(event._status).toBe(401);
       expect(response).toEqual({
         error:
-          "A2A processor requires A2A_SECRET for requests from other hosts — set A2A_SECRET on this app to enable async A2A.",
+          "A2A_SECRET is not set, so this app accepts unsigned requests only from this machine. Set A2A_SECRET to accept requests from other hosts.",
       });
       expect(processA2ATaskFromQueueMock).not.toHaveBeenCalled();
     });
