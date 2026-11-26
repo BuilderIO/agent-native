@@ -144,6 +144,9 @@ describe("reading a check's sentence", () => {
 
   it("reads a part that isn't a count as one to ask", () => {
     expect(
+      readPageCheckSentence("Under 120 words").parts.map((part) => part.kind),
+    ).toEqual(["count"]);
+    expect(
       readPageCheckSentence("Under 120 words. Be funny.").parts.map(
         (part) => part.kind,
       ),
