@@ -867,21 +867,6 @@ jobs:
               throw new Error("The stable package Version Packages PR was not created in time.");
             }
 
-            // Only auto-merge-version-packages.yml merges the release PR, and its
-            // concurrency group cancels older runs, so the newest pull_request
-            // run for the current head is the only merge still coming. Without
-            // this, a merge run that fails in minutes leaves this wait idle for
-            // its full window. Resolves null when no run exists yet.
-            function latestReleaseMergeRun(workflowRuns, headSha) {
-              const runs = workflowRuns?.workflow_runs;
-              if (!Array.isArray(runs)) {
-                throw new Error("GitHub returned no workflow runs for the release PR merge.");
-              }
-              return runs
-                .filter((run) => run.head_sha === headSha)
-                .sort((left, right) => right.id - left.id)[0] ?? null;
-            }
-
             async function releaseMergeRunFailureReason(run) {
               try {
                 const messages = [];
@@ -941,17 +926,11 @@ jobs:
                   pull_number: pr.number,
                 })).data,
               );
-              const readMergeRuns = toleratingBriefFailures(
+              const readMergeRun = toleratingBriefFailures(
                 `the merge run for stable release PR #${pr.number}`,
-                async (headSha) => (await github.rest.actions.listWorkflowRuns({
-                  owner,
-                  repo,
-                  workflow_id: "auto-merge-version-packages.yml",
-                  event: "pull_request",
-                  head_sha: headSha,
-                  per_page: 100,
-                })).data,
+                (runId) => getRun(runId),
               );
+              const mergeRuns = new Map();
 
               // Resolves the merge commit once the PR merges, otherwise null.
               async function pollReleaseMerge() {
@@ -970,9 +949,26 @@ jobs:
                 if (current.state === "closed") {
                   throw new Error(`Stable release PR #${pr.number} closed without merging: ${pr.html_url}`);
                 }
-                const mergeRuns = await readMergeRuns(current.head.sha);
-                if (mergeRuns === undefined) return null;
-                const mergeRun = latestReleaseMergeRun(mergeRuns, current.head.sha);
+                const head = current.head?.sha;
+                if (!/^[0-9a-f]{40}$/.test(head || "") ||
+                    !/^[0-9a-f]{40}$/.test(current.base?.sha || "") ||
+                    !Number.isFinite(Date.parse(current.updated_at))) {
+                  throw new Error(`Stable release PR #${pr.number} has no exact dispatch metadata.`);
+                }
+                let dispatchReceipt = mergeRuns.get(head);
+                if (!dispatchReceipt) {
+                  // This merge workflow runs on main so it never publishes a
+                  // pending check against the PR it is responsible for merging.
+                  dispatchReceipt = await dispatch("auto-merge-version-packages.yml", "main", {
+                    pull_request_number: String(current.number),
+                    base_sha: current.base.sha,
+                    head_sha: head,
+                    pr_updated_at: current.updated_at,
+                  });
+                  mergeRuns.set(head, dispatchReceipt);
+                }
+                const mergeRun = await readMergeRun(dispatchReceipt.id);
+                if (mergeRun === undefined) return null;
                 const mergeRunState = mergeRun
                   ? `${mergeRun.status}/${mergeRun.conclusion || "pending"}`
                   : "not started";
