@@ -10,6 +10,7 @@ import {
   CAPTURE_STARTUP_BUDGET_MS,
   assertCaptureTransition,
   isCaptureTerminal,
+  type MotionCaptureMarker,
   type MotionCaptureSession,
 } from "./motion-capture.js";
 
@@ -33,6 +34,7 @@ type Args = Record<string, unknown>;
 function fakeServer(
   options: {
     intercept?: (args: Args) => unknown;
+    markers?: () => MotionCaptureMarker[];
   } = {},
 ) {
   const server = {
@@ -64,7 +66,14 @@ function fakeServer(
       if (args.operation === "poll") {
         if (args.pendingOutcome)
           server.pendingOutcome = String(args.pendingOutcome);
-        return { session: server.active && take ? { ...take } : null };
+        return {
+          session: server.active && take ? { ...take } : null,
+          markers:
+            server.active && take?.state === "recording"
+              ? (options.markers?.() ?? [])
+              : [],
+          serverNowMs: Date.now(),
+        };
       }
       if (args.operation === "release") {
         if (server.active && take?.state === "queued") take.state = "cancelled";
@@ -76,6 +85,7 @@ function fakeServer(
         server.released = true;
         return { released: true };
       }
+      if (args.operation === "mark") return { acknowledged: true };
       if (!take || take.id !== args.sessionId) throw new Error("not found");
       const state = String(args.state);
       if (isCaptureTerminal(take.state)) {
@@ -593,6 +603,45 @@ it("counts the duration bound from READY, not from the start of the countdown", 
   expect(stop).not.toHaveBeenCalled();
   await vi.advanceTimersByTimeAsync(session.maxDurationMs);
   expect(stop).toHaveBeenCalledTimes(1);
+  await runner.disarm();
+});
+
+it("drops a marker the reachable server keeps refusing so the stop behind it is delivered", async () => {
+  vi.useFakeTimers();
+  const stop = vi.fn(async () => {});
+  const onError = vi.fn();
+  const { server, call } = fakeServer({
+    intercept: (args) => {
+      if (args.operation === "mark") throw new Error("Marker refused.");
+      return undefined;
+    },
+    markers: () => [
+      {
+        id: "marker",
+        label: "click",
+        kind: "action-intent",
+        requestedAt: new Date(0).toISOString(),
+        mediaTimeMs: null,
+        uncertaintyMs: null,
+      },
+    ],
+  });
+  server.queue({ maxDurationMs: 60_000 });
+  const runner = runnerFor(call, gatedStart(capture(stop)), { onError });
+  await runner.arm();
+  await vi.advanceTimersByTimeAsync(900);
+  expect(call.mock.calls.some(([, args]) => args.operation === "mark")).toBe(
+    true,
+  );
+  server.stop();
+  await vi.advanceTimersByTimeAsync(400 * 30);
+  expect(stop).toHaveBeenCalledTimes(1);
+  expect(server.take?.state).toBe("complete");
+  expect(onError).toHaveBeenCalledWith(
+    expect.objectContaining({
+      message: expect.stringContaining("refused mark"),
+    }),
+  );
   await runner.disarm();
 });
 

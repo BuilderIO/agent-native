@@ -392,6 +392,13 @@ const messages = {
     captureTrackReported: "La piste indique {{fps}} i/s",
     captureRateMeasured: "Mesurée : {{fps}} i/s",
     captureRateUnverified: "Fréquence d’images non vérifiée",
+    captureMarkers: "Repères de capture",
+    captureMarkerActionIntent: "Intention d’action",
+    captureMarkerObservedEndpoint: "Résultat observé",
+    captureMarkerNote: "Note",
+    captureMarkerUnmapped: "Non associé",
+    captureMarkerUncertainty: "±{{milliseconds}} ms",
+    seekToCaptureMarker: "Accéder à {{label}} à {{timestamp}}",
     storageStillDisconnected: "Le stockage n'est toujours pas connecté",
     finishBuilderOrS3:
       "Utilisez le stockage Builder.io ou configurez un stockage compatible S3, puis réessayez.",

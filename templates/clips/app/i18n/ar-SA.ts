@@ -366,6 +366,13 @@ const messages = {
     captureTrackReported: "أبلغ المسار عن {{fps}} إطارًا/ث",
     captureRateMeasured: "تم القياس: {{fps}} إطارًا/ث",
     captureRateUnverified: "لم يتم التحقق من معدل الإطارات",
+    captureMarkers: "علامات الالتقاط",
+    captureMarkerActionIntent: "نية الإجراء",
+    captureMarkerObservedEndpoint: "النتيجة المرصودة",
+    captureMarkerNote: "ملاحظة",
+    captureMarkerUnmapped: "غير معيّن",
+    captureMarkerUncertainty: "±{{milliseconds}} مللي ثانية",
+    seekToCaptureMarker: "الانتقال إلى {{label}} عند {{timestamp}}",
     storageStillDisconnected: "وحدة التخزين لا تزال غير متصلة",
     finishBuilderOrS3:
       "استخدم تخزين Builder.io أو كوّن تخزينًا متوافقًا مع S3، ثم حاول مرة أخرى.",

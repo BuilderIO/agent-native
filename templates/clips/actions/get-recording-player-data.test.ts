@@ -34,6 +34,21 @@ const mockTagsQuery = vi.hoisted(() => {
   query.orderBy.mockImplementation(() => mockTagRows());
   return query;
 });
+const mockMarkerLimit = vi.hoisted(() => vi.fn(async () => []));
+const mockMarkerQuery = vi.hoisted(() => {
+  const query = {
+    from: vi.fn(),
+    innerJoin: vi.fn(),
+    where: vi.fn(),
+    orderBy: vi.fn(),
+    limit: mockMarkerLimit,
+  };
+  query.from.mockReturnValue(query);
+  query.innerJoin.mockReturnValue(query);
+  query.where.mockReturnValue(query);
+  query.orderBy.mockReturnValue(query);
+  return query;
+});
 const mockPlayerQuery = vi.hoisted(() => ({
   build: null as null | (() => unknown),
 }));
@@ -42,6 +57,14 @@ const mockComments = vi.hoisted(() =>
 );
 const mockDb = vi.hoisted(() => ({
   select: vi.fn((selection?: unknown) => {
+    if (
+      selection &&
+      typeof selection === "object" &&
+      "id" in selection &&
+      selection.id === "captureMarkers.id"
+    ) {
+      return mockMarkerQuery;
+    }
     if (!selection) {
       if (!mockPlayerQuery.build) {
         throw new Error("player data query reached before share verification");
@@ -153,6 +176,20 @@ vi.mock("../server/db/index.js", () => ({
       title: "meetings.title",
       recordingId: "meetings.recordingId",
     },
+    captureSessions: {
+      id: "captureSessions.id",
+      recordingId: "captureSessions.recordingId",
+      ownerEmail: "captureSessions.ownerEmail",
+    },
+    captureMarkers: {
+      id: "captureMarkers.id",
+      sessionId: "captureMarkers.sessionId",
+      label: "captureMarkers.label",
+      kind: "captureMarkers.kind",
+      requestedAt: "captureMarkers.requestedAt",
+      mediaTimeMs: "captureMarkers.mediaTimeMs",
+      uncertaintyMs: "captureMarkers.uncertaintyMs",
+    },
   },
 }));
 
@@ -235,6 +272,17 @@ describe("get-recording-player-data direct public access", () => {
     );
     mockIsSeekableRepairPending.mockResolvedValue(false);
     mockShareLimit.mockResolvedValue([]);
+    mockMarkerLimit.mockResolvedValue([]);
+  });
+
+  it("does not query capture markers before recording access resolves", async () => {
+    mockResolveAccess.mockResolvedValue(null);
+
+    await expect(action.run({ recordingId: "rec-1" })).rejects.toThrow(
+      "No access to recording rec-1",
+    );
+
+    expect(mockMarkerQuery.from).not.toHaveBeenCalled();
   });
 
   it.each(["admin", "editor", "viewer"] as const)(
@@ -311,6 +359,7 @@ function emptyPlayerQuery() {
 
 describe("get-recording-player-data view count", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     mockPlayerQuery.build = emptyPlayerQuery;
     mockComments.mockResolvedValue([]);
     mockCountRecordingViews.mockClear();
@@ -319,6 +368,7 @@ describe("get-recording-player-data view count", () => {
     mockIsSeekableRepairPending.mockResolvedValue(false);
     mockResolvePlayerVideoUrl.mockClear();
     mockShareLimit.mockResolvedValue([]);
+    mockMarkerLimit.mockResolvedValue([]);
     mockResolveAccess.mockResolvedValue({
       role: "owner",
       resource: {
@@ -666,6 +716,87 @@ describe("get-recording-player-data view count", () => {
     const result = await action.run({ recordingId: "rec-1" });
 
     expect(result.recording.trashedAt).toBe(trashedAt);
+  });
+
+  it("returns only bounded marker presentation data for the authorized recording", async () => {
+    mockMarkerLimit.mockResolvedValueOnce([
+      {
+        id: "marker-1",
+        label: "Menu opened",
+        kind: "observed-endpoint",
+        requestedAt: "2026-09-07T12:00:00.000Z",
+        mediaTimeMs: 1250,
+        uncertaintyMs: 40,
+        ownerEmail: "owner@example.com",
+        secretHash: "do-not-expose",
+      },
+    ]);
+
+    const result = await action.run({ recordingId: "rec-1" });
+
+    expect(result.captureMarkers).toEqual([
+      {
+        id: "marker-1",
+        label: "Menu opened",
+        kind: "observed-endpoint",
+        requestedAt: "2026-09-07T12:00:00.000Z",
+        mediaTimeMs: 1250,
+        uncertaintyMs: 40,
+      },
+    ]);
+    expect(mockMarkerQuery.from).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "captureMarkers.id" }),
+    );
+    expect(mockMarkerQuery.where).toHaveBeenCalledWith({
+      kind: "and",
+      conditions: [
+        {
+          kind: "eq",
+          column: "captureSessions.recordingId",
+          value: "rec-1",
+        },
+        {
+          kind: "eq",
+          column: "captureSessions.ownerEmail",
+          value: "owner@example.com",
+        },
+      ],
+    });
+    expect(mockMarkerLimit).toHaveBeenCalledWith(200);
+    expect(JSON.stringify(result.captureMarkers)).not.toContain("ownerEmail");
+    expect(JSON.stringify(result.captureMarkers)).not.toContain("secretHash");
+  });
+
+  it("never returns capture markers to a viewer of a shared recording", async () => {
+    mockShareLimit.mockResolvedValue([{ id: "share-1" }]);
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        id: "rec-1",
+        ownerEmail: "owner@example.com",
+        visibility: "public",
+        password: null,
+        expiresAt: null,
+        status: "ready",
+        chaptersJson: "[]",
+        videoUrl: "https://cdn.example.com/rec-1.webm",
+      },
+    });
+    mockMarkerLimit.mockResolvedValue([
+      {
+        id: "marker-1",
+        label: "Opened the cut menu",
+        kind: "action-intent",
+        requestedAt: "2026-09-07T12:00:00.000Z",
+        mediaTimeMs: 1250,
+        uncertaintyMs: 40,
+      },
+    ]);
+
+    const result = await action.run({ recordingId: "rec-1" });
+
+    expect(result.captureMarkers).toEqual([]);
+    expect(mockMarkerQuery.from).not.toHaveBeenCalled();
   });
 
   it("exposes pending seekable repair state to the player", async () => {

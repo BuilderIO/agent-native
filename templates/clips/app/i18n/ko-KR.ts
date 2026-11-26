@@ -376,6 +376,13 @@ const messages = {
     captureTrackReported: "트랙 보고: {{fps}}fps",
     captureRateMeasured: "측정됨: {{fps}}fps",
     captureRateUnverified: "프레임 속도 미검증",
+    captureMarkers: "캡처 마커",
+    captureMarkerActionIntent: "동작 의도",
+    captureMarkerObservedEndpoint: "관찰된 결과",
+    captureMarkerNote: "메모",
+    captureMarkerUnmapped: "매핑되지 않음",
+    captureMarkerUncertainty: "±{{milliseconds}} ms",
+    seekToCaptureMarker: "{{timestamp}} 지점의 {{label}}로 이동",
     storageStillDisconnected: "저장소가 아직 연결되지 않았습니다.",
     finishBuilderOrS3:
       "Builder.io 스토리지를 사용하거나 S3 호환 스토리지를 구성한 다음 다시 시도하세요.",

@@ -314,6 +314,13 @@ const messages = {
     captureTrackReported: "Track reports {{fps}} fps",
     captureRateMeasured: "Measured {{fps}} fps",
     captureRateUnverified: "Frame rate unverified",
+    captureMarkers: "Capture markers",
+    captureMarkerActionIntent: "Action intent",
+    captureMarkerObservedEndpoint: "Observed endpoint",
+    captureMarkerNote: "Note",
+    captureMarkerUnmapped: "Unmapped",
+    captureMarkerUncertainty: "±{{milliseconds}} ms",
+    seekToCaptureMarker: "Seek to {{label}} at {{timestamp}}",
     storageStillDisconnected: "Storage still isn't connected",
     finishBuilderOrS3:
       "Use Builder.io storage or configure S3-compatible storage, then try again.",

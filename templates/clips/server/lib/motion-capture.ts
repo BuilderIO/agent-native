@@ -8,6 +8,7 @@ import {
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import {
   and,
+  asc,
   desc,
   eq,
   gt,
@@ -18,11 +19,13 @@ import {
   lte,
   ne,
   or,
+  sql,
 } from "drizzle-orm";
 
 import {
   CAPTURE_HOST_LEASE_MS,
   CAPTURE_STARTUP_BUDGET_MS,
+  MAX_CAPTURE_MARKERS,
   assertCaptureTransition,
   isCaptureTerminal,
   type CaptureOutcome,
@@ -31,6 +34,7 @@ import { getDb, schema } from "../db/index.js";
 
 const hosts = schema.captureHosts;
 const sessions = schema.captureSessions;
+const markers = schema.captureMarkers;
 const isoNow = () => new Date().toISOString();
 const CLOCK_SKEW_MS = 5_000;
 const earliestClipAt = (session: { createdAt: string }) =>
@@ -412,6 +416,12 @@ export async function getCaptureSession(id: string) {
     host = reconciliation.host;
     session = await requireCaptureSession(id);
   }
+  const entries = await getDb()
+    .select()
+    .from(markers)
+    .where(eq(markers.sessionId, id))
+    .orderBy(asc(markers.requestedAt), asc(markers.id))
+    .limit(MAX_CAPTURE_MARKERS);
   let mediaStatus: string | null = null;
   if (session.recordingId) {
     const recording = firstRow(
@@ -434,6 +444,9 @@ export async function getCaptureSession(id: string) {
       host.state === "armed" && Date.parse(host.expiresAt) > Date.now(),
     mediaStatus,
     mediaReady: mediaStatus === "ready",
+    markers: entries,
+    timingNote:
+      "Marker mediaTimeMs is the recorder receipt time. The request lies within [mediaTimeMs - uncertaintyMs, mediaTimeMs + uncertaintyMs]; this is intent/endpoint timing, never exact input-to-paint timing.",
   };
 }
 
@@ -459,6 +472,83 @@ export async function stopCapture(id: string) {
   return getCaptureSession(id);
 }
 
+export async function addCaptureMarker(args: {
+  sessionId: string;
+  requestId: string;
+  label: string;
+  kind: string;
+}) {
+  const ownerEmail = captureOwner();
+  return getDb().transaction(async (db) => {
+    const session = firstRow(
+      await db
+        .select()
+        .from(sessions)
+        .where(
+          and(
+            eq(sessions.id, args.sessionId),
+            eq(sessions.ownerEmail, ownerEmail),
+          ),
+        )
+        .limit(1)
+        .for("update"),
+    );
+    if (!session) throw new Error("Capture session not found.");
+
+    const id = hash(`${session.id}:${args.requestId}`);
+    const existing = firstRow(
+      await db.select().from(markers).where(eq(markers.id, id)).limit(1),
+    );
+    if (existing) {
+      if (existing.label !== args.label || existing.kind !== args.kind)
+        throw new Error(
+          "Marker request ID already used with different content.",
+        );
+      return existing;
+    }
+    if (session.state !== "recording")
+      throw new Error(
+        session.state === "queued" ||
+          session.state === "starting" ||
+          session.state === "beginning"
+          ? "Wait for recording READY before adding markers."
+          : `Markers can only be added while the capture is recording; this one is ${session.state}.`,
+      );
+    const count = firstRow(
+      await db
+        .select({ total: sql<number>`count(*)` })
+        .from(markers)
+        .where(eq(markers.sessionId, session.id)),
+    );
+    if (Number(count?.total ?? 0) >= MAX_CAPTURE_MARKERS)
+      throw new Error("Capture marker limit reached.");
+    const marker = firstRow(
+      await db
+        .insert(markers)
+        .values({
+          id,
+          sessionId: session.id,
+          label: args.label,
+          kind: args.kind,
+          requestedAt: isoNow(),
+        })
+        .onConflictDoNothing()
+        .returning(),
+    );
+    if (marker) return marker;
+    const concurrent = firstRow(
+      await db.select().from(markers).where(eq(markers.id, id)).limit(1),
+    );
+    if (
+      !concurrent ||
+      concurrent.label !== args.label ||
+      concurrent.kind !== args.kind
+    )
+      throw new Error("Concurrent marker request conflicted.");
+    return concurrent;
+  });
+}
+
 export async function pollCaptureHost(
   id: string,
   secret: string,
@@ -469,7 +559,11 @@ export async function pollCaptureHost(
     let host = await requireHost(id, secret);
     const reconciliation = await reconcileExpiredActiveHost(host);
     if (reconciliation.reconciled) {
-      return { session: reconciliation.session };
+      return {
+        session: reconciliation.session,
+        markers: [],
+        serverNowMs: Date.now(),
+      };
     }
     host = reconciliation.host;
     if (host.state !== "armed") {
@@ -495,7 +589,8 @@ export async function pollCaptureHost(
     const renewedHost = firstRow(renewed);
     if (!renewedHost) continue;
     host = renewedHost;
-    if (!host.activeSessionId) return { session: null };
+    if (!host.activeSessionId)
+      return { session: null, markers: [], serverNowMs: Date.now() };
     let session = await requireCaptureSession(host.activeSessionId);
     if (
       pending &&
@@ -518,7 +613,15 @@ export async function pollCaptureHost(
             .returning(),
         ) ?? session;
     }
-    return { session };
+    const pendingMarkers = await getDb()
+      .select()
+      .from(markers)
+      .where(
+        and(eq(markers.sessionId, session.id), isNull(markers.mediaTimeMs)),
+      )
+      .orderBy(asc(markers.requestedAt))
+      .limit(MAX_CAPTURE_MARKERS);
+    return { session, markers: pendingMarkers, serverNowMs: Date.now() };
   }
   throw new Error("Recorder host changed concurrently; poll again.");
 }
@@ -684,6 +787,32 @@ export async function reportCaptureHost(args: {
     );
   }
   return updated;
+}
+
+export async function acknowledgeCaptureMarker(args: {
+  hostId: string;
+  secret: string;
+  sessionId: string;
+  markerId: string;
+  mediaTimeMs: number;
+  uncertaintyMs: number;
+}) {
+  const host = await requireHost(args.hostId, args.secret);
+  const session = await requireCaptureSession(args.sessionId);
+  if (session.hostId !== host.id || host.activeSessionId !== session.id)
+    throw new Error("Recorder does not own marker session.");
+  const result = await getDb()
+    .update(markers)
+    .set({ mediaTimeMs: args.mediaTimeMs, uncertaintyMs: args.uncertaintyMs })
+    .where(
+      and(
+        eq(markers.id, args.markerId),
+        eq(markers.sessionId, session.id),
+        isNull(markers.mediaTimeMs),
+      ),
+    )
+    .returning();
+  return { acknowledged: result.length === 1 };
 }
 
 export async function releaseCaptureHost(id: string, secret: string) {

@@ -368,6 +368,13 @@ const messages = {
     captureTrackReported: "ट्रैक ने {{fps}} fps रिपोर्ट किया",
     captureRateMeasured: "मापा गया: {{fps}} fps",
     captureRateUnverified: "फ़्रेम दर सत्यापित नहीं है",
+    captureMarkers: "कैप्चर मार्कर",
+    captureMarkerActionIntent: "कार्रवाई का इरादा",
+    captureMarkerObservedEndpoint: "देखा गया नतीजा",
+    captureMarkerNote: "नोट",
+    captureMarkerUnmapped: "मैप नहीं किया गया",
+    captureMarkerUncertainty: "±{{milliseconds}} मि॰से॰",
+    seekToCaptureMarker: "‘{{label}}’ पर जाएँ ({{timestamp}})",
     storageStillDisconnected: "संग्रहण अभी भी कनेक्ट नहीं है",
     finishBuilderOrS3:
       "Builder.io स्टोरेज इस्तेमाल करें या S3-संगत स्टोरेज कॉन्फ़िगर करें, फिर दोबारा कोशिश करें।",

@@ -390,6 +390,13 @@ const messages = {
     captureTrackReported: "A faixa informa {{fps}} fps",
     captureRateMeasured: "Medida: {{fps}} fps",
     captureRateUnverified: "Taxa de quadros não verificada",
+    captureMarkers: "Marcadores de captura",
+    captureMarkerActionIntent: "Intenção da ação",
+    captureMarkerObservedEndpoint: "Resultado observado",
+    captureMarkerNote: "Nota",
+    captureMarkerUnmapped: "Não mapeado",
+    captureMarkerUncertainty: "±{{milliseconds}} ms",
+    seekToCaptureMarker: "Ir para {{label}} em {{timestamp}}",
     storageStillDisconnected: "O armazenamento ainda não está conectado",
     finishBuilderOrS3:
       "Use o armazenamento do Builder.io ou configure um armazenamento compatível com S3 e tente novamente.",

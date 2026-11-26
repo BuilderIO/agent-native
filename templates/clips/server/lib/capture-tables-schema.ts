@@ -15,3 +15,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS clips_capture_request_idx ON clips_capture_ses
 `;
 
 export const captureSessionPendingOutcomeMigration = `ALTER TABLE clips_capture_sessions ADD COLUMN IF NOT EXISTS pending_outcome TEXT`;
+
+export const captureMarkersMigration = `
+CREATE TABLE IF NOT EXISTS clips_capture_markers (
+  id TEXT PRIMARY KEY, session_id TEXT NOT NULL, label TEXT NOT NULL, kind TEXT NOT NULL,
+  requested_at TEXT NOT NULL, media_time_ms DOUBLE PRECISION, uncertainty_ms DOUBLE PRECISION
+);
+CREATE INDEX IF NOT EXISTS clips_capture_markers_session_idx ON clips_capture_markers (session_id, requested_at);
+`;

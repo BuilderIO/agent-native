@@ -9,7 +9,7 @@ import {
   recordingEmbedProvider,
 } from "@shared/embed-provider";
 import { isImageRecording, resolveRecordingKind } from "@shared/recording-kind";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { trimsRevisionOf } from "../app/lib/timestamp-mapping.js";
@@ -264,6 +264,35 @@ export default defineAction({
         ? await listRecordingComments(args.recordingId)
         : [];
     const hydratedComments = await hydrateCommentAuthorNames(comments);
+
+    const captureMarkerRows =
+      access.role === "owner"
+        ? await db
+            .select({
+              id: schema.captureMarkers.id,
+              label: schema.captureMarkers.label,
+              kind: schema.captureMarkers.kind,
+              requestedAt: schema.captureMarkers.requestedAt,
+              mediaTimeMs: schema.captureMarkers.mediaTimeMs,
+              uncertaintyMs: schema.captureMarkers.uncertaintyMs,
+            })
+            .from(schema.captureMarkers)
+            .innerJoin(
+              schema.captureSessions,
+              eq(schema.captureMarkers.sessionId, schema.captureSessions.id),
+            )
+            .where(
+              and(
+                eq(schema.captureSessions.recordingId, args.recordingId),
+                eq(schema.captureSessions.ownerEmail, rec.ownerEmail),
+              ),
+            )
+            .orderBy(
+              asc(schema.captureMarkers.requestedAt),
+              asc(schema.captureMarkers.id),
+            )
+            .limit(200)
+        : [];
 
     const reactions = await db
       .select()
@@ -544,6 +573,14 @@ export default defineAction({
           }
         : null,
       builderCredits,
+      captureMarkers: captureMarkerRows.map((marker) => ({
+        id: marker.id,
+        label: marker.label,
+        kind: marker.kind,
+        requestedAt: marker.requestedAt,
+        mediaTimeMs: marker.mediaTimeMs,
+        uncertaintyMs: marker.uncertaintyMs,
+      })),
       comments: hydratedComments.map((c) => ({
         id: c.id,
         recordingId: c.recordingId,

@@ -380,6 +380,13 @@ const messages = {
     captureTrackReported: "トラック報告: {{fps}} fps",
     captureRateMeasured: "測定値: {{fps}} fps",
     captureRateUnverified: "フレームレート未検証",
+    captureMarkers: "キャプチャマーカー",
+    captureMarkerActionIntent: "操作の意図",
+    captureMarkerObservedEndpoint: "観測された結果",
+    captureMarkerNote: "メモ",
+    captureMarkerUnmapped: "未割り当て",
+    captureMarkerUncertainty: "±{{milliseconds}} ms",
+    seekToCaptureMarker: "{{timestamp}} の「{{label}}」に移動",
     storageStillDisconnected: "ストレージがまだ接続されていません",
     finishBuilderOrS3:
       "Builder.io ストレージを使用するか、S3 互換ストレージを設定してから再試行してください。",
