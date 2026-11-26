@@ -783,6 +783,10 @@ export default {
     exportPreview: {
       rendering: "Rendering preview…",
       failed: "Preview unavailable",
+      noPreview: "No screen to preview",
+      externalPreview: "Preview needs the live app",
+      readOnlyPreview: "Preview unavailable in read-only mode",
+      selectionUnresolved: "Selection not found on this screen",
     },
     framePresets: {
       title: "Frame",
@@ -1854,6 +1858,7 @@ export default {
   layersPanel: {
     title: "Layers",
     screens: "Pages",
+    components: "Components",
     resizeScreens: "Resize pages section",
     thumbnail: "Thumbnail",
     addScreen: "Add page",

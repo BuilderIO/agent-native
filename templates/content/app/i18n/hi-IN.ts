@@ -1165,6 +1165,7 @@ const editor = {
     visibilityScope: "हर पंक्ति पर, सभी के लिए। कोई दृश्य फिर भी इसे छिपा सकता है।",
   },
   slash: {
+    ai: "एआई",
     audio: "ऑडियो",
     audioDescription: "ऑडियो अपलोड या एम्बेड करें",
     basicBlocks: "बुनियादी ब्लॉक",

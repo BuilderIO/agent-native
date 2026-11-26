@@ -11,7 +11,7 @@ import {
   resolveAccess,
 } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { asc, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -43,7 +43,13 @@ import {
 import { getDb, schema } from "./db/index.js";
 import { assertEditionsLabEnabled } from "./lib/editions-lab.js";
 import { resolvePlanAccessContext } from "./lib/local-identity.js";
-import { mirrorPlanComments } from "./lib/plan-comment-mirror.js";
+import { PLAN_REVIEW_RESOURCE } from "./lib/plan-comment-mirror.js";
+import {
+  completePlanCommentRow,
+  countPlanComments,
+  listPlanCommentRows,
+  writePlanCommentRows,
+} from "./lib/plan-comments.js";
 import {
   buildPlanContentHtml,
   parsePlanContent,
@@ -448,6 +454,7 @@ export function buildUpdatedPlanCommentRows(input: {
 const PLAN_COMMENT_INSERT_CHUNK_SIZE = 200;
 
 export async function withFreshIdsForKitHeldComments(
+  planId: string,
   rows: NewPlanCommentRow[],
 ): Promise<NewPlanCommentRow[]> {
   if (rows.length === 0) return rows;
@@ -457,16 +464,15 @@ export async function withFreshIdsForKitHeldComments(
   for (let i = 0; i < ids.length; i += PLAN_COMMENT_INSERT_CHUNK_SIZE) {
     const chunk = ids.slice(i, i + PLAN_COMMENT_INSERT_CHUNK_SIZE);
     const { rows: held } = await getDbExec().execute(
-      sql`SELECT id FROM agent_review_comments WHERE id IN ${sql.in(chunk)}`,
+      sql`SELECT id FROM agent_review_comments
+           WHERE id IN ${sql.in(chunk)}
+             AND NOT (resource_type = ${sql.value(PLAN_REVIEW_RESOURCE)}
+                      AND resource_id = ${sql.value(planId)}
+                      AND deleted_at IS NULL
+                      AND status <> 'deleted')`,
     );
     for (const row of held) heldByKit.add(String(row.id));
   }
-  if (heldByKit.size === 0) return rows;
-  const heldByPlan = await getDb()
-    .select({ id: schema.planComments.id })
-    .from(schema.planComments)
-    .where(inArray(schema.planComments.id, [...heldByKit]));
-  for (const row of heldByPlan) heldByKit.delete(row.id);
   if (heldByKit.size === 0) return rows;
   const fresh = new Map([...heldByKit].map((id) => [id, newId("cmt")]));
   return rows.map((row) => {
@@ -488,16 +494,12 @@ export async function insertInitialPlanComments(input: {
 }) {
   const built = buildInitialPlanCommentRows(input);
   if (built.length === 0) return;
-  const rows = await withFreshIdsForKitHeldComments(built);
+  const rows = await withFreshIdsForKitHeldComments(input.planId, built);
   await getDb().transaction(async (tx) => {
-    for (let i = 0; i < rows.length; i += PLAN_COMMENT_INSERT_CHUNK_SIZE) {
-      const chunk = rows.slice(i, i + PLAN_COMMENT_INSERT_CHUNK_SIZE);
-      await tx.insert(schema.planComments).values(chunk);
-    }
-    await mirrorPlanComments(
+    await writePlanCommentRows(
       tx,
       input.planId,
-      rows.map((row) => row.id),
+      rows.map(completePlanCommentRow),
     );
   });
 }
@@ -856,16 +858,7 @@ async function loadPlanBundleForAuthorizedPlan(
         asc(schema.planSections.order),
         asc(schema.planSections.createdAt),
       ),
-    db
-      .select()
-      .from(schema.planComments)
-      .where(
-        and(
-          eq(schema.planComments.planId, planId),
-          isNull(schema.planComments.deletedAt),
-        ),
-      )
-      .orderBy(asc(schema.planComments.createdAt)),
+    listPlanCommentRows(planId),
     db
       .select()
       .from(schema.planEvents)
@@ -976,7 +969,7 @@ export async function summarizePlans(
   if (plans.length === 0) return [];
   const ids = plans.map((plan) => plan.id);
   const db = getDb();
-  const [sectionRows, commentRows] = await Promise.all([
+  const [sectionRows, commentCounts] = await Promise.all([
     db
       .select({
         planId: schema.planSections.planId,
@@ -984,26 +977,13 @@ export async function summarizePlans(
       })
       .from(schema.planSections)
       .where(inArray(schema.planSections.planId, ids)),
-    db
-      .select({
-        planId: schema.planComments.planId,
-        status: schema.planComments.status,
-      })
-      .from(schema.planComments)
-      .where(
-        and(
-          inArray(schema.planComments.planId, ids),
-          isNull(schema.planComments.deletedAt),
-        ),
-      ),
+    countPlanComments(ids),
   ]);
   return plans.map((plan) => {
     const sections = sectionRows
       .filter((section) => section.planId === plan.id)
       .map((row) => ({ type: row.type }) as PlanSection);
-    const comments = commentRows
-      .filter((comment) => comment.planId === plan.id)
-      .map((row) => ({ status: row.status }) as PlanComment);
+    const comments = commentCounts.get(plan.id) ?? { comments: 0, open: 0 };
     return {
       id: plan.id,
       title: plan.title,
@@ -1028,7 +1008,9 @@ export async function summarizePlans(
         options.deleteOwnerEmail &&
         plan.ownerEmail === options.deleteOwnerEmail,
       ),
-      ...summarizePlan(sections, comments),
+      ...summarizePlan(sections, []),
+      commentCount: comments.comments,
+      openCommentCount: comments.open,
     };
   });
 }

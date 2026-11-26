@@ -850,6 +850,10 @@ export default {
     exportPreview: {
       rendering: "جارٍ إنشاء المعاينة…",
       failed: "المعاينة غير متوفرة",
+      noPreview: "لا توجد شاشة للمعاينة",
+      externalPreview: "تحتاج المعاينة إلى التطبيق المباشر",
+      readOnlyPreview: "المعاينة غير متاحة في وضع القراءة فقط",
+      selectionUnresolved: "العنصر المحدد غير موجود في هذه الشاشة",
     },
     framePresets: {
       title: "الإطار",
@@ -1908,6 +1912,7 @@ export default {
   layersPanel: {
     title: "الطبقات",
     screens: "الصفحات",
+    components: "المكوّنات",
     resizeScreens: "تغيير حجم قسم الصفحات",
     thumbnail: "الصورة المصغرة",
     addScreen: "إضافة صفحة",

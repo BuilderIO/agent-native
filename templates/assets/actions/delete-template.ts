@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -12,6 +12,8 @@ export default defineAction({
   description:
     "Delete an asset template when no handoff session references it.",
   schema: z.object({ id: z.string() }),
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async ({ id }) => {
     await resolveTemplateAccess(id, "editor");
     const templateFilter = await accessibleTemplateFilter();

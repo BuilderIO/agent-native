@@ -81,10 +81,12 @@ relying on ambient screen text.
 
 ## Moving the UI
 
-`navigate` accepts `view` (`inbox`, `starred`, `sent`, `drafts`, `scheduled`,
-`archive`, `trash`, `draft-queue`, `settings`), plus `tab` (an inbox tab id
+`navigate` accepts `view` (`inbox`, `starred`, `sent`, `drafts`, `archive`,
+`trash`, `draft-queue`, `settings`), plus `tab` (an inbox tab id
 from `list-inbox-threads`; `label`/`filter` are accepted aliases),
-`threadId`, `settingsSection`, `queuedDraftId`, or `composeDraftId`.
+`threadId`, `settingsSection`, `queuedDraftId`, or `composeDraftId`. Drafts
+lists requested drafts, then scheduled sends (soonest first), then the user's
+own drafts; `scheduled`, and `draft-queue` without `queuedDraftId`, open it.
 
 `settingsSection` opens Settings in the user's tab. `general`, `reading`,
 `drafting`, `snippets`, `rules`, `ai-filter`, `gmail-filters`, `aliases`, and

@@ -62,4 +62,21 @@ describe("get-mail-settings action", () => {
       expect.objectContaining({ readingPane: false }),
     );
   });
+
+  it("reports Notes and Recent on and Attachments off until changed", async () => {
+    await expect(action.run({})).resolves.toEqual(
+      expect.objectContaining({
+        contactPanelWidgets: { notes: true, attachments: false, recent: true },
+      }),
+    );
+
+    mocks.getUserSetting.mockResolvedValue({
+      contactPanelWidgets: { notes: false, attachments: true },
+    });
+    await expect(action.run({})).resolves.toEqual(
+      expect.objectContaining({
+        contactPanelWidgets: { notes: false, attachments: true, recent: true },
+      }),
+    );
+  });
 });

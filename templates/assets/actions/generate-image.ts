@@ -260,6 +260,7 @@ export default defineAction({
   agentInputSchema: imageGenerationAgentInputSchema,
   parallelSafe: true,
   timeoutMs: IMAGE_GENERATION_TOOL_TIMEOUT_MS,
+  mcpTool: "search",
   run: async (input, context?: ActionRunContext) => {
     const imageModelDefault = await readImageModelDefault();
     const libraryId = input.libraryId;

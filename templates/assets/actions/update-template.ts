@@ -21,6 +21,7 @@ export default defineAction({
   schema: templateFieldsSchema
     .omit({ libraryId: true })
     .extend({ id: z.string() }),
+  mcpTool: "search",
   run: async ({ id, ...args }) => {
     const template = (await resolveTemplateAccess(id, "editor")).resource;
     const templateFilter = await accessibleTemplateFilter();

@@ -19,10 +19,10 @@ export function reviewMentionLeafText(node: ProseMirrorNode): string {
  * quotes, code and formatting, each mention chip written as `@label`.
  */
 export function serializeReviewComposerDoc(doc: ProseMirrorNode): string {
-  return commentDocToMarkdown(withAgentMentionBoundaries(doc.toJSON()));
+  return commentDocToMarkdown(withMentionBoundaries(doc.toJSON()));
 }
 
-function withAgentMentionBoundaries(content: CommentDocNode): CommentDocNode {
+function withMentionBoundaries(content: CommentDocNode): CommentDocNode {
   const visit = (node: CommentDocNode) => {
     const children = node.content;
     if (!children) return;
@@ -30,9 +30,6 @@ function withAgentMentionBoundaries(content: CommentDocNode): CommentDocNode {
       const next = children.at(index + 1);
       if (
         child.type === REVIEW_MENTION_NODE_NAME &&
-        (child.attrs?.kind === "agent" ||
-          (typeof child.attrs?.id === "string" &&
-            child.attrs.id.startsWith("agent:"))) &&
         next?.type === "text" &&
         next.text !== undefined &&
         /^[\p{L}\p{M}\p{N}_]/u.test(next.text)

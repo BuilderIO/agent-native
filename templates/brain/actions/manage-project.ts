@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -24,6 +24,9 @@ export default defineAction({
     description: z.string().optional(),
     sourceIds: z.array(z.string().min(1)).optional(),
   }),
+  needsApproval: (args, ctx) =>
+    isOutsideAgentCall(ctx) && args.operation === "delete",
+  mcpTool: "search",
   run: async (args) => {
     const userEmail = getRequestUserEmail();
     if (!userEmail) throw new Error("Not authenticated");

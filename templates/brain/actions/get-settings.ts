@@ -9,5 +9,6 @@ export default defineAction({
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: "search",
   run: async () => readBrainAgentGuidance(),
 });

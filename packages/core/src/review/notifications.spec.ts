@@ -238,6 +238,78 @@ describe("notifyReviewCommentWithReceipt", () => {
   });
 });
 
+describe("an app's own comment emails", () => {
+  it("sends through the app's hook in place of the kit's emails", async () => {
+    const result = {
+      status: "delivered" as const,
+      sent: ["owner@example.com"],
+      failed: [],
+    };
+    const send = vi.fn(async () => result);
+    mocks.getReviewableResource.mockReturnValue({
+      type: "design",
+      displayName: "design",
+      email: { send },
+    });
+
+    expect(await notifyReviewComment(comment())).toEqual(result);
+    expect(send).toHaveBeenCalledWith(comment());
+    expect(mocks.notifyActivity).not.toHaveBeenCalled();
+  });
+
+  it("marks a keyed comment's emails sent before the app sends them", async () => {
+    const send = vi.fn(async () => null);
+    mocks.getReviewableResource.mockReturnValue({
+      type: "design",
+      displayName: "design",
+      email: { send },
+    });
+    mocks.markReviewCommentNotificationCompleted.mockResolvedValue(true);
+
+    expect(await notifyReviewCommentWithReceipt(comment())).toBeNull();
+    expect(mocks.markReviewCommentNotificationCompleted).toHaveBeenCalledWith(
+      "c1",
+    );
+    expect(send).toHaveBeenCalledWith(comment());
+  });
+
+  it("sends the kit's emails for a resource that keeps no emails of its own", async () => {
+    mocks.getReviewableResource.mockReturnValue({
+      type: "design",
+      displayName: "design",
+    });
+
+    expect((await notifyReviewCommentWithReceipt(comment()))?.status).toBe(
+      "delivered",
+    );
+    expect(mocks.notifyActivity).toHaveBeenCalledTimes(1);
+    expect(mocks.markReviewCommentNotificationCompleted).toHaveBeenCalledWith(
+      "c1",
+    );
+  });
+
+  it("calls the app once for a keyed comment, even when some emails failed", async () => {
+    const failed = {
+      status: "delivery-failed" as const,
+      sent: ["owner@example.com"],
+      failed: [{ email: "member@example.com", error: "offline" }],
+    };
+    const send = vi.fn(async () => failed);
+    mocks.getReviewableResource.mockReturnValue({
+      type: "design",
+      displayName: "design",
+      email: { send },
+    });
+    mocks.markReviewCommentNotificationCompleted
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+
+    expect(await notifyReviewCommentWithReceipt(comment())).toEqual(failed);
+    expect(await notifyReviewCommentWithReceipt(comment())).toBeNull();
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("notifyReviewComment", () => {
   it("honors thread mute for reply emails, including explicit mentions", async () => {
     mocks.filterUnmutedReviewThreadRecipients.mockResolvedValue([

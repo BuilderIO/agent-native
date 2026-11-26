@@ -70,6 +70,11 @@ export default defineAction({
   description: "List all bookings",
   schema: z.object({}),
   http: { method: "GET" },
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   run: async () => {
     const accessibleLinks = await getDb()
       .select({

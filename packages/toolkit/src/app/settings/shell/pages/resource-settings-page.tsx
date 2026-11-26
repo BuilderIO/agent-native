@@ -424,6 +424,7 @@ function CreateFileDialog({
         path,
         content: "",
         shared: scope === "shared",
+        uniquePath: true,
       });
       onOpenChange(false);
       onCreated(resource);

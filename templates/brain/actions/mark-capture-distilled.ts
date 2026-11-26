@@ -31,6 +31,7 @@ export default defineAction({
         });
       }
     }),
+  mcpTool: false,
   run: async ({ captureId, status, queueId, claimToken }) => {
     const access = await getAccessibleCapture(captureId);
     if (!access) throw new Error(`No access to capture ${captureId}`);

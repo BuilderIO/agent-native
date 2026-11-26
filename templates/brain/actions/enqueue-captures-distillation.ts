@@ -88,6 +88,7 @@ export default defineAction({
     instructions: z.string().optional(),
     payload: optionalJsonRecordSchema,
   }),
+  mcpTool: "search",
   run: async (args) => {
     const { guidance } = await readBrainAgentGuidance();
     const results: EnqueueCaptureResult[] = [];
