@@ -2662,6 +2662,16 @@ fi
       evaluateExactReleaseHead(head, checkPages, workflows(run), status).status,
       "passed",
     );
+    const neutral = [
+      {
+        total_count: 1,
+        check_runs: [{ ...check, name: "Review Agent", conclusion: "neutral" }],
+      },
+    ];
+    assert.equal(
+      evaluateExactReleaseHead(head, neutral, workflows(run), status).status,
+      "passed",
+    );
     assert.equal(
       evaluateExactReleaseHead(head, checkPages, workflows(run), {
         ...status,
@@ -2697,6 +2707,33 @@ fi
         ),
       /incomplete/,
     );
+  });
+
+  it("retries a shifting exact-head inventory before declaring release checks green", async () => {
+    const head = "b".repeat(40);
+    const check = {
+      id: 3,
+      name: "Fast tests",
+      head_sha: head,
+      status: "completed",
+      conclusion: "success",
+    };
+    const runs = [{ total_count: 0, workflow_runs: [] }];
+    const status = { sha: head, state: "pending", total_count: 0 };
+    let reads = 0;
+    await waitForRequiredChecks({
+      readRequiredContexts: async () => ["Fast tests"],
+      readStatuses: async () => [{ name: "Fast tests", bucket: "pass" }],
+      readExactHead: async () => {
+        reads += 1;
+        const checks = [{ total_count: 1, check_runs: [check] }];
+        if (reads === 1) checks.push({ total_count: 2, check_runs: [] });
+        return evaluateExactReleaseHead(head, checks, runs, status);
+      },
+      sleep: async () => undefined,
+      readRetryDelaysMs: [1],
+    });
+    assert.equal(reads, 2);
   });
 
   describe("force-merge step against a main that moved", () => {

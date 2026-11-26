@@ -96,11 +96,16 @@ export function requiredContextsFromRules(rules: unknown): string[] {
   return [...contexts].sort();
 }
 
+class UnstableExactHeadInventory extends Error {}
+
 function isGitHubCommandFailure(error: unknown): boolean {
   return (
     error !== null &&
     typeof error === "object" &&
-    ("status" in error || "stderr" in error || "code" in error)
+    ("status" in error ||
+      "stderr" in error ||
+      "code" in error ||
+      error instanceof UnstableExactHeadInventory)
   );
 }
 
@@ -346,10 +351,14 @@ function allHeadRows(pages: unknown, field: "check_runs" | "workflow_runs") {
     if (
       !Number.isSafeInteger(total) ||
       !isRecord(page) ||
-      page.total_count !== total ||
       !Array.isArray(page[field])
     ) {
       throw new Error(
+        `GitHub returned invalid exact release head ${field} pages.`,
+      );
+    }
+    if (page.total_count !== total) {
+      throw new UnstableExactHeadInventory(
         `GitHub returned unstable exact release head ${field} pages.`,
       );
     }
@@ -366,7 +375,9 @@ function allHeadRows(pages: unknown, field: "check_runs" | "workflow_runs") {
     rows.length !== total ||
     new Set(rows.map((row) => row.id)).size !== total
   ) {
-    throw new Error(`GitHub returned incomplete exact release head ${field}.`);
+    throw new UnstableExactHeadInventory(
+      `GitHub returned incomplete exact release head ${field}.`,
+    );
   }
   return rows;
 }
@@ -410,7 +421,11 @@ export function evaluateExactReleaseHead(
       );
     }
     if (row.status !== "completed") pending.push(row.name);
-    else if (row.conclusion !== "success" && row.conclusion !== "skipped")
+    else if (
+      row.conclusion !== "success" &&
+      row.conclusion !== "neutral" &&
+      row.conclusion !== "skipped"
+    )
       failed.push(row.name);
   }
   if (failed.length) {
@@ -437,7 +452,7 @@ function readExactReleaseHead(repo: string, head: string): RequiredCheckState {
     ghJson<unknown>(["api", "--paginate", "--slurp", path], token);
   return evaluateExactReleaseHead(
     head,
-    all(`repos/${repo}/commits/${head}/check-runs?filter=all&per_page=100`),
+    all(`repos/${repo}/commits/${head}/check-runs?filter=latest&per_page=100`),
     all(`repos/${repo}/actions/runs?head_sha=${head}&per_page=100`),
     ghJson(["api", `repos/${repo}/commits/${head}/status?per_page=1`], token),
   );
