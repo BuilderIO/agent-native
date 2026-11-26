@@ -45,6 +45,13 @@ vi.mock("@/hooks/use-content-database", async (importOriginal) => ({
   useCreateInlineContentDatabase: () => collections.inline,
   useCreateContentDatabase: () => collections.fullPage,
 }));
+const rollbackCreated = vi.hoisted(() =>
+  vi.fn(async (_input: { id: string; parentId: string }) => ({})),
+);
+vi.mock("@/hooks/use-documents", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/hooks/use-documents")>()),
+  useRollbackCreatedSlashDocument: () => ({ mutateAsync: rollbackCreated }),
+}));
 
 import {
   byLabel,
@@ -348,6 +355,7 @@ describe("generate command affordances", () => {
         composer = document.body.querySelector("[data-prompt-composer]");
       }
       if (!composer) throw new Error("The Generate popover did not open.");
+      expect(composer.closest('[role="dialog"]')).not.toBeNull();
 
       act(() => composer.click());
 
@@ -363,6 +371,35 @@ describe("generate command affordances", () => {
       queryClient.clear();
       container.remove();
     }
+  });
+
+  it("types a space at the start of an empty line instead of opening Generate", async () => {
+    const { editor } = await mountSlashMenu();
+    act(() => {
+      editor.commands.focus("end");
+      editor.view.dom.focus();
+    });
+    expect(editor.isFocused).toBe(true);
+
+    for (const key of " plan b") {
+      act(() => {
+        const typed = editor.view.dom.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key,
+            code: key === " " ? "Space" : `Key${key.toUpperCase()}`,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+        if (!typed) return;
+        const { from, to } = editor.state.selection;
+        editor.view.dispatch(editor.state.tr.insertText(key, from, to));
+      });
+    }
+    await act(async () => Promise.resolve());
+
+    expect(editor.getText()).toBe(" plan b");
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
   });
 });
 
@@ -1220,14 +1257,65 @@ describe("inline database slash command", () => {
     await waitFor(() => location() === "/page/collection-page");
 
     expect(collections.fullPage.mutateAsync).toHaveBeenCalledTimes(2);
-    expect(collections.fullPage.mutateAsync.mock.calls[0]?.[0]).toMatchObject({
-      parentId: "doc-1",
-      spaceId: "space-1",
-    });
+    const [[requested], [retried]] = collections.fullPage.mutateAsync.mock
+      .calls as [[{ newDocumentId: string }], [unknown]];
+    expect(requested).toMatchObject({ parentId: "doc-1", spaceId: "space-1" });
+    expect(retried).toEqual(requested);
     const body = onDraftPersisted.mock.calls[0]?.[0] ?? "";
     expect(body).toContain('id="collection-page"');
     expect(body).not.toContain("/database");
     expect(editor.getText()).not.toContain("/database");
+    expect(rollbackCreated).not.toHaveBeenCalled();
+  });
+
+  it("takes a full-page collection back and stays on the page when the page can't save the link to it", async () => {
+    collections.fullPage.mutateAsync.mockReset();
+    collections.fullPage.mutateAsync
+      .mockRejectedValueOnce(new Error("busy"))
+      .mockResolvedValueOnce({ database: { documentId: "collection-page" } });
+    rollbackCreated.mockClear();
+    const onDraftPersisted = vi.fn(async (_body: string) => false);
+    const { editor, location } = await mountSlashMenu({
+      contentSpaceId: "space-1",
+      onDraftPersisted,
+    });
+
+    await typeSlash(editor, "/database");
+    await click(menuItem("Full-page collection"));
+    await waitFor(() => rollbackCreated.mock.calls.length > 0);
+
+    expect(onDraftPersisted.mock.calls[0]?.[0]).toContain(
+      'id="collection-page"',
+    );
+    expect(rollbackCreated.mock.calls).toEqual([
+      [{ id: "collection-page", parentId: "doc-1" }],
+    ]);
+    expect(JSON.stringify(editor.getJSON())).not.toContain("collection-page");
+    expect(location()).toBe("/page/doc-1");
+  });
+
+  it("takes back the collection it asked for when neither create answers", async () => {
+    collections.fullPage.mutateAsync.mockReset();
+    collections.fullPage.mutateAsync.mockRejectedValue(new Error("timed out"));
+    rollbackCreated.mockClear();
+    const onDraftPersisted = vi.fn(async (_body: string) => true);
+    const { editor, location } = await mountSlashMenu({
+      contentSpaceId: "space-1",
+      onDraftPersisted,
+    });
+
+    await typeSlash(editor, "/database");
+    await click(menuItem("Full-page collection"));
+    await waitFor(() => rollbackCreated.mock.calls.length > 0);
+
+    const [[requested], [retried]] = collections.fullPage.mutateAsync.mock
+      .calls as [[{ newDocumentId: string }], [unknown]];
+    expect(retried).toEqual(requested);
+    expect(rollbackCreated.mock.calls).toEqual([
+      [{ id: requested.newDocumentId, parentId: "doc-1" }],
+    ]);
+    expect(onDraftPersisted).not.toHaveBeenCalled();
+    expect(location()).toBe("/page/doc-1");
   });
 });
 

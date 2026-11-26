@@ -302,7 +302,7 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain('useActionMutation("duplicate-page"');
   });
 
-  // oracle-change: the pointer-lock.ts grep became packages/toolkit/src/ui/pointer-lock.spec.ts; the rows' missing delete dialogs were absence checks for a removed design
+  // oracle-change: the pointer-lock.ts grep became packages/toolkit/src/ui/pointer-lock.spec.ts; the Page and Collection rows' dialog-absence greps became the rendered Delete and Move to Trash tests in DocumentTreeItem.test.tsx and editor/database/sidebar.test.tsx, which see each row hand the deletion to the sidebar without opening a dialog of its own
   it("keeps delete confirmation owned by the stable sidebar", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
 

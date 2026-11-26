@@ -257,36 +257,100 @@ describe("scheduleStartupMaintenance — lazy post-boot maintenance", () => {
     }
   }, 30_000);
 
-  it("holds the process open for the post-boot run but not for a retry wait", async () => {
+  it("starts each repair only after the step before it, and that step's retry, have finished", async () => {
     resetMaintenanceMemo();
+    additiveColumns.mockClear();
     blocksRepair.mockClear();
-    blocksRepair.mockRejectedValueOnce(new Error("repair exploded"));
-    const liveTimers = () =>
-      process.getActiveResourcesInfo().filter((type) => type === "Timeout")
-        .length;
-    let timersAtFailure = -1;
-    let timersWhileRetryWaits = -1;
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {
-      timersAtFailure = liveTimers();
-      queueMicrotask(() => {
-        timersWhileRetryWaits = liveTimers();
+    filesRepair.mockClear();
+    additiveColumns
+      .mockRejectedValueOnce(new Error("lock timeout"))
+      .mockResolvedValueOnce({
+        mode: "checked",
+        applied: [],
+        skipped: [],
+        errors: [],
       });
-    });
+    blocksRepair.mockResolvedValueOnce(undefined);
+    filesRepair.mockResolvedValueOnce(undefined);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
 
     try {
       const { scheduleStartupMaintenance } =
         await import("./startup-maintenance.js");
-      const timersBefore = liveTimers();
       const maintenance = scheduleStartupMaintenance();
-      expect(liveTimers()).toBe(timersBefore + 1);
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.waitFor(() => expect(errorSpy).toHaveBeenCalledOnce());
+
+      expect(additiveColumns).toHaveBeenCalledOnce();
+      expect(blocksRepair).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(2_000);
       await maintenance;
 
-      expect(blocksRepair).toHaveBeenCalledTimes(2);
-      expect(timersAtFailure).toBeGreaterThanOrEqual(0);
-      expect(timersWhileRetryWaits).toBe(timersAtFailure);
+      const [, retried] = additiveColumns.mock.invocationCallOrder;
+      const [blocks] = blocksRepair.mock.invocationCallOrder;
+      const [files] = filesRepair.mock.invocationCallOrder;
+      expect(additiveColumns).toHaveBeenCalledTimes(2);
+      expect(retried).toBeLessThan(blocks);
+      expect(blocks).toBeLessThan(files);
     } finally {
+      await vi.runOnlyPendingTimersAsync();
+      vi.useRealTimers();
       errorSpy.mockRestore();
+      additiveColumns.mockReset();
       blocksRepair.mockReset();
+      filesRepair.mockReset();
     }
-  }, 30_000);
+  });
+
+  it("holds the process open for the post-boot run but not for a retry wait", async () => {
+    resetMaintenanceMemo();
+    blocksRepair.mockClear();
+    blocksRepair
+      .mockRejectedValueOnce(new Error("repair exploded"))
+      .mockResolvedValueOnce(undefined);
+    additiveColumns.mockResolvedValueOnce({
+      mode: "checked",
+      applied: [],
+      skipped: [],
+      errors: [],
+    });
+    filesRepair.mockResolvedValueOnce(undefined);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    const timers = vi.spyOn(globalThis, "setTimeout");
+
+    try {
+      const { scheduleStartupMaintenance } =
+        await import("./startup-maintenance.js");
+      const maintenance = scheduleStartupMaintenance();
+      const [trigger] = timers.mock.results.map(
+        (result) => result.value as NodeJS.Timeout,
+      );
+      expect(trigger.hasRef()).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.waitFor(() => expect(errorSpy).toHaveBeenCalledOnce());
+      const retryIndex = timers.mock.calls.findIndex(
+        ([, delay]) => delay === 2_000,
+      );
+      const retry = timers.mock.results[retryIndex]?.value as
+        | NodeJS.Timeout
+        | undefined;
+      expect(retry?.hasRef()).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(2_000);
+      await maintenance;
+      expect(blocksRepair).toHaveBeenCalledTimes(2);
+    } finally {
+      timers.mockRestore();
+      await vi.runOnlyPendingTimersAsync();
+      vi.useRealTimers();
+      errorSpy.mockRestore();
+      additiveColumns.mockReset();
+      blocksRepair.mockReset();
+      filesRepair.mockReset();
+    }
+  });
 });

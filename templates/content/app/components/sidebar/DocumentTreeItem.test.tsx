@@ -9,7 +9,7 @@ import type {
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
@@ -68,6 +68,7 @@ async function render(node: ReactNode) {
   (
     globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = true;
+  onTestFinished(() => cleanup(root, container));
 
   await act(async () => {
     root.render(
@@ -99,13 +100,15 @@ async function render(node: ReactNode) {
     );
   });
 
-  return { container, root };
+  return { container };
 }
 
 function cleanup(root: Root, container: HTMLElement) {
   act(() => root.unmount());
   container.remove();
-  document.querySelectorAll("[role=menu]").forEach((menu) => menu.remove());
+  document
+    .querySelectorAll("[role=menu], [role=alertdialog]")
+    .forEach((layer) => layer.remove());
   (
     globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
   ).IS_REACT_ACT_ENVIRONMENT = false;
@@ -136,6 +139,7 @@ function treeItem(
   onToggleFavorite: (id: string, isFavorite: boolean) => void = () => {},
   onCreateChildPage: (id: string) => void = () => {},
   onCreateChildDatabase: (id: string) => void = () => {},
+  onDelete: (id: string, title: string) => void = () => {},
 ) {
   return (
     <DocumentTreeItem
@@ -147,7 +151,7 @@ function treeItem(
       onSelect={() => {}}
       onCreateChildPage={onCreateChildPage}
       onCreateChildDatabase={onCreateChildDatabase}
-      onDelete={() => {}}
+      onDelete={onDelete}
       onToggleFavorite={onToggleFavorite}
     />
   );
@@ -158,7 +162,7 @@ describe("sidebar document permission menus", () => {
     const onToggleFavorite = vi.fn();
     const onCreateChildPage = vi.fn();
     const onCreateChildDatabase = vi.fn();
-    const { container, root } = await render(
+    const { container } = await render(
       treeItem(
         documentForRole("viewer"),
         onToggleFavorite,
@@ -215,8 +219,6 @@ describe("sidebar document permission menus", () => {
     });
     expect(onToggleFavorite).toHaveBeenCalledOnce();
     expect(onToggleFavorite).toHaveBeenCalledWith("shared", true);
-
-    cleanup(root, container);
   });
 
   it.each([
@@ -226,7 +228,7 @@ describe("sidebar document permission menus", () => {
   ] as const)(
     "preserves the existing %s tree actions",
     async (role, expectedMenuItems, canManage) => {
-      const { container, root } = await render(treeItem(documentForRole(role)));
+      const { container } = await render(treeItem(documentForRole(role)));
 
       expect(
         container.querySelectorAll('button[aria-haspopup="menu"]'),
@@ -246,8 +248,6 @@ describe("sidebar document permission menus", () => {
       expect(menuItems.some((item) => item.textContent === "Delete")).toBe(
         canManage,
       );
-
-      cleanup(root, container);
     },
   );
 
@@ -259,7 +259,7 @@ describe("sidebar document permission menus", () => {
     async (choice, pages, collections) => {
       const onCreateChildPage = vi.fn();
       const onCreateChildDatabase = vi.fn();
-      const { container, root } = await render(
+      const { container } = await render(
         treeItem(
           documentForRole("editor"),
           undefined,
@@ -302,24 +302,42 @@ describe("sidebar document permission menus", () => {
         ...onCreateChildPage.mock.calls,
         ...onCreateChildDatabase.mock.calls,
       ]).toEqual([["shared"]]);
-
-      cleanup(root, container);
     },
   );
+
+  it("asks the sidebar to confirm a Delete instead of opening a dialog of its own", async () => {
+    const onDelete = vi.fn();
+    const { container } = await render(
+      treeItem(
+        documentForRole("owner"),
+        undefined,
+        undefined,
+        undefined,
+        onDelete,
+      ),
+    );
+
+    const menuItems = await openActions(container);
+    await act(async () => {
+      menuItems
+        .find((item) => item.textContent.trim() === "Delete")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(onDelete.mock.calls).toEqual([["shared", "Shared page"]]);
+    expect(document.querySelector("[role=alertdialog]")).toBeNull();
+  });
 
   it("omits Add to context when creative context lab is disabled", async () => {
     useCreativeContextLabMock.mockReturnValue(false);
     try {
-      const { container, root } = await render(
-        treeItem(documentForRole("editor")),
-      );
+      const { container } = await render(treeItem(documentForRole("editor")));
 
       const menuItems = await openActions(container);
       expect(
         menuItems.map((item) => item.textContent?.trim().replace(/[.…]+$/, "")),
       ).toEqual(["Pin to sidebar"]);
-
-      cleanup(root, container);
     } finally {
       useCreativeContextLabMock.mockReturnValue(true);
     }

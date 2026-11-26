@@ -67,6 +67,20 @@ const benignMutation = vi.hoisted(() => ({
   isPending: false,
 }));
 
+const rowMutations = vi.hoisted(() => {
+  const mutation = () => ({
+    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
+    isPending: false,
+  });
+  return {
+    removeItems: mutation(),
+    duplicateItems: mutation(),
+    duplicateItem: mutation(),
+    deleteDocument: mutation(),
+  };
+});
+
 const addItemMutation = vi.hoisted(() => ({
   mutate: vi.fn(),
   mutateAsync: vi.fn(),
@@ -256,9 +270,9 @@ vi.mock("@/hooks/use-content-database", async (importOriginal) => ({
   ],
   refreshAfterPersonalViewSave: vi.fn(),
   useUpdateContentDatabaseView: () => updateViewMutation,
-  useRemoveDatabaseItems: () => benignMutation,
-  useDuplicateDatabaseItem: () => benignMutation,
-  useDuplicateDatabaseItems: () => benignMutation,
+  useRemoveDatabaseItems: () => rowMutations.removeItems,
+  useDuplicateDatabaseItem: () => rowMutations.duplicateItem,
+  useDuplicateDatabaseItems: () => rowMutations.duplicateItems,
   useMoveDatabaseItem: () => benignMutation,
   useBuilderCmsModels: () => builderCmsModelsQuery,
   useMaterializeBuilderRequiredFields: () => benignMutation,
@@ -304,7 +318,7 @@ vi.mock("@/hooks/use-documents", async (importOriginal) => ({
   seedDatabaseItemDocumentCaches: vi.fn(),
   startDatabaseItemPreviewReads: vi.fn(),
   useCreateDocument: () => createDocumentMutation,
-  useDeleteDocument: () => benignMutation,
+  useDeleteDocument: () => rowMutations.deleteDocument,
   useUpdateDocument: () => benignMutation,
 }));
 
@@ -576,6 +590,13 @@ describe("DatabaseView UI regressions", () => {
       .mockResolvedValue(databaseResponse);
     processBuilderBodiesMutation.mutate.mockReset();
     benignMutation.mutateAsync.mockReset().mockResolvedValue(undefined);
+    for (const mutation of Object.values(rowMutations)) {
+      mutation.mutateAsync
+        .mockReset()
+        .mockImplementation((input: unknown) =>
+          benignMutation.mutateAsync(input),
+        );
+    }
     updateViewMutation.mutate.mockReset();
     updateViewMutation.mutateAsync
       .mockReset()
@@ -1724,10 +1745,12 @@ describe("DatabaseView UI regressions", () => {
       await Promise.resolve();
     });
 
-    expect(benignMutation.mutateAsync).toHaveBeenCalledWith({
-      documentId: "document-1",
-      itemIds: ["item-a"],
-    });
+    expect(rowMutations.removeItems.mutateAsync.mock.calls).toEqual([
+      [{ documentId: "document-1", itemIds: ["item-a"] }],
+    ]);
+    expect(rowMutations.deleteDocument.mutateAsync).not.toHaveBeenCalled();
+    expect(rowMutations.duplicateItems.mutateAsync).not.toHaveBeenCalled();
+    expect(rowMutations.duplicateItem.mutateAsync).not.toHaveBeenCalled();
     expect(container.textContent).toContain("1 selected");
     expect(
       container.querySelector<HTMLButtonElement>(
@@ -1759,11 +1782,12 @@ describe("DatabaseView UI regressions", () => {
       await Promise.resolve();
     });
 
-    expect(benignMutation.mutateAsync).toHaveBeenCalledTimes(1);
-    expect(benignMutation.mutateAsync).toHaveBeenCalledWith({
-      documentId: "document-1",
-      itemIds: ["item-a", "item-b"],
-    });
+    expect(rowMutations.duplicateItems.mutateAsync.mock.calls).toEqual([
+      [{ documentId: "document-1", itemIds: ["item-a", "item-b"] }],
+    ]);
+    expect(rowMutations.duplicateItem.mutateAsync).not.toHaveBeenCalled();
+    expect(rowMutations.removeItems.mutateAsync).not.toHaveBeenCalled();
+    expect(rowMutations.deleteDocument.mutateAsync).not.toHaveBeenCalled();
   });
 
   // Three rows filtered on a Status property, with that filter's chip.
@@ -2258,32 +2282,10 @@ describe("DatabaseView UI regressions", () => {
   });
 
   // oracle-change: DatabaseView.test.ts's PageEditorSurface source grep became this opened preview
-  it("opens a row's own page in the preview as a member of its collection", async () => {
+  it("keeps open the preview of the row's own page, in its collection, that a row's menu opened for a comment", async () => {
     databaseResponse.items = [commentableRow("a", "Alpha", true)];
     await renderDatabaseView();
     pageSurfaces.props.length = 0;
-    const trigger = container.querySelector(
-      '[aria-label="Row actions for Alpha"]',
-    );
-    if (!trigger) throw new Error("Alpha has no row menu.");
-
-    await mousePointerDown(trigger);
-    await selectMenuItem("editor.comment");
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-
-    expect(pageSurfaces.props[pageSurfaces.props.length - 1]).toMatchObject({
-      documentId: "document-a",
-      databaseId: "database-1",
-      databaseDocumentId: "document-1",
-      host: "preview",
-    });
-  });
-
-  it("keeps the preview a row's menu opened for a comment", async () => {
-    databaseResponse.items = [commentableRow("a", "Alpha", true)];
-    await renderDatabaseView();
     const trigger = container.querySelector(
       '[aria-label="Row actions for Alpha"]',
     );
@@ -2300,6 +2302,12 @@ describe("DatabaseView UI regressions", () => {
     expect(
       document.body.querySelector('[aria-label^="Preview actions for"]'),
     ).toBeTruthy();
+    expect(pageSurfaces.props[pageSurfaces.props.length - 1]).toMatchObject({
+      documentId: "document-a",
+      databaseId: "database-1",
+      databaseDocumentId: "document-1",
+      host: "preview",
+    });
   });
 
   it("offers a comment from a board card's menu", async () => {
