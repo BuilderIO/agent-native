@@ -69,10 +69,10 @@ export function writtenQuestions(
       if (written.status !== "ok") {
         throw new Error(`${check.name}: the reply was ${written.status}`);
       }
-      if (written.questions.length !== 1) {
+      const only = written.questions.find((_, index) => index === 0);
+      if (!only || written.questions.length > 1) {
         throw new Error(`${check.name}: expected one yes/no part`);
       }
-      const [only] = written.questions;
       return [check.name, { question: only.question, passes: only.passes }];
     }),
   );
@@ -106,13 +106,15 @@ export type CheckScore = {
 };
 
 function bestSetting(settings: readonly SettingScore[]): SettingScore {
-  if (settings.length === 0) throw new Error("No settings to choose from");
-  const [best] = [...settings].sort(
-    (left, right) =>
-      left.missed.length - right.missed.length ||
-      left.marked - right.marked ||
-      Number(right.sure === "balanced") - Number(left.sure === "balanced"),
-  );
+  const best = [...settings]
+    .sort(
+      (left, right) =>
+        left.missed.length - right.missed.length ||
+        left.marked - right.marked ||
+        Number(right.sure === "balanced") - Number(left.sure === "balanced"),
+    )
+    .find((_, index) => index === 0);
+  if (!best) throw new Error("No settings to choose from");
   return best;
 }
 
