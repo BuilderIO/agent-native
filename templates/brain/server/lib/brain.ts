@@ -853,12 +853,9 @@ export async function findManualSource(title = "Manual imports") {
       ? eq(schema.brainSources.orgId, orgId)
       : isNull(schema.brainSources.orgId),
   );
-  const [existing] = await db
-    .select()
-    .from(schema.brainSources)
-    .where(where)
-    .limit(1);
-  return existing;
+  return firstRow(
+    await db.select().from(schema.brainSources).where(where).limit(1),
+  );
 }
 
 export async function ensureManualSource(title = "Manual imports") {
