@@ -1105,6 +1105,8 @@ const editor = {
     remove: "删除",
     removeFileOrMedia: "删除 {{name}}",
     removeOption: "删除选项 {{name}}",
+    optionInUse: "{{name}} 仍在使用中。请先将相关行移到其他选项，并从视图筛选中移除，然后再删除。",
+    optionKeptByRule: "有规则依赖 {{name}}，在修改规则之前无法删除。",
     removePerson: "删除 {{name}}",
     renameOption: "重命名选项 {{name}}",
     reorderOption: "重新排序选项 {{name}}",

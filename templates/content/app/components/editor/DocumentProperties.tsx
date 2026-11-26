@@ -164,6 +164,7 @@ import {
   useSetBuilderEntryStatus,
   useSetDocumentProperty,
 } from "@/hooks/use-document-properties";
+import { optionRemovalErrorMessage } from "@/lib/content-action-errors";
 import { cn } from "@/lib/utils";
 
 import { ContentIcon } from "../icons/ContentIcon";
@@ -1960,7 +1961,14 @@ export function PropertyManagementPopover({
           options: restore(current.options.options ?? []),
         },
       }));
-      reportWriteFailure(error);
+      reportWriteFailure(error, {
+        label: optionRemovalErrorMessage(error, {
+          inUse: t("editor.properties.optionInUse", { name: removed.name }),
+          keptByRule: t("editor.properties.optionKeptByRule", {
+            name: removed.name,
+          }),
+        }),
+      });
     }
   }
 

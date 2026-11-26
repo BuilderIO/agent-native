@@ -1180,6 +1180,8 @@ const editor = {
     remove: "削除",
     removeFileOrMedia: "{{name}} を削除します",
     removeOption: "オプション{{name}}を削除",
+    optionInUse: "{{name}}はまだ使用されています。行を別のオプションに移動し、ビューのフィルターから外してから削除してください。",
+    optionKeptByRule: "ルールが{{name}}に依存しているため、ルールを変更するまで削除できません。",
     removePerson: "{{name}} を削除します",
     renameOption: "オプション{{name}}の名前を変更します",
     reorderOption: "オプション{{name}}を並べ替え",

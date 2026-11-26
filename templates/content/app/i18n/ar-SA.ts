@@ -1142,6 +1142,8 @@ const editor = {
     remove: "إزالة",
     removeFileOrMedia: "إزالة {{name}}",
     removeOption: "إزالة الخيار {{name}}",
+    optionInUse: "لا يزال {{name}} قيد الاستخدام. انقل صفوفه إلى خيار آخر وأزله من عوامل تصفية العرض، ثم احذفه.",
+    optionKeptByRule: "تعتمد قاعدة على {{name}}، لذا لا يمكن إزالته حتى تتغير القاعدة.",
     removePerson: "إزالة {{name}}",
     renameOption: "إعادة تسمية الخيار {{name}}",
     reorderOption: "إعادة ترتيب الخيار {{name}}",
