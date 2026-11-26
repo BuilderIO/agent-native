@@ -22,6 +22,7 @@ import {
   type LivePageChecks,
 } from "./page-check-body";
 import {
+  isEachPageCheck,
   PAGE_CHECK_SURE_LABELS,
   pageCheckScopeLabel,
   pageCheckSummaryText,
@@ -160,7 +161,7 @@ function PageCheckRow({
         answers.filter(
           (answer) => !(answer.writing && answer.answer === "changed"),
         ),
-        check.scope.kind === "each_paragraph",
+        isEachPageCheck(check),
       );
   const content = (
     <>

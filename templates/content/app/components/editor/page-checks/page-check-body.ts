@@ -86,14 +86,14 @@ function placeEnd(
   if (scope.kind === "page" || scope.kind === "each_paragraph") {
     return from + (doc.nodeAt(from)?.nodeSize ?? 0);
   }
-  const level =
-    scope.kind === "section"
-      ? Number(doc.nodeAt(from)?.attrs.level) || 1
-      : Number.POSITIVE_INFINITY;
+  const section = scope.kind === "section" || scope.kind === "each_section";
+  const level = section
+    ? Number(doc.nodeAt(from)?.attrs.level) || 1
+    : Number.POSITIVE_INFINITY;
   let stop = end;
   doc.forEach((child, offset) => {
     if (stop !== end || child.type.name !== "heading") return;
-    if (scope.kind === "section" && offset <= from) return;
+    if (section && offset <= from) return;
     if ((Number(child.attrs.level) || 1) <= level) stop = offset;
   });
   return stop;

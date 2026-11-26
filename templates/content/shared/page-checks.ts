@@ -14,6 +14,7 @@ export const PAGE_CHECK_MAX_PARTS = 3;
 export const PAGE_CHECK_TYPING_PAUSE_MS = 3_000;
 export const PAGE_CHECK_DAILY_QUESTIONS = 5_000;
 export const PAGE_CHECK_QUESTION_MAX_LENGTH = 600;
+export const PAGE_CHECK_HEADING_MAX_LENGTH = 500;
 const PAGE_CHECK_COUNT_MAX = 1_000_000;
 
 export type PageCheckUnit = "words" | "sentences" | "paragraphs";
@@ -75,6 +76,18 @@ export interface PageCheckUnreadPart {
   text: string;
 }
 
+export const PAGE_CHECK_HEADING_OPS = [
+  "contains",
+  "starts_with",
+  "is",
+] as const;
+
+export type PageCheckHeadingOp = (typeof PAGE_CHECK_HEADING_OPS)[number];
+
+export type PageCheckOnlyWhere =
+  | { field: "heading"; op: PageCheckHeadingOp; text: string }
+  | { field: "level"; level: number };
+
 export type PageCheckScope =
   | { kind: "page" }
   | { kind: "intro" }
@@ -84,7 +97,8 @@ export type PageCheckScope =
       heading: string;
       level: number;
     }
-  | { kind: "each_paragraph" };
+  | { kind: "each_section"; only?: PageCheckOnlyWhere | undefined }
+  | { kind: "each_paragraph"; only?: PageCheckOnlyWhere | undefined };
 
 export type PageCheckScopeKind = PageCheckScope["kind"];
 
@@ -629,6 +643,28 @@ function headingOf(
   };
 }
 
+export function pageCheckHeadingMatches(
+  only: PageCheckOnlyWhere,
+  heading: { text: string; level: number } | null,
+): boolean {
+  if (!heading) return false;
+  if (only.field === "level") return heading.level === only.level;
+  const text = heading.text.trim().toLowerCase();
+  const wanted = only.text.trim().toLowerCase();
+  if (only.op === "is") return text === wanted;
+  if (only.op === "starts_with") return text.startsWith(wanted);
+  return text.includes(wanted);
+}
+
+export function isEachPageCheckScope(
+  scope: PageCheckScope,
+): scope is Extract<
+  PageCheckScope,
+  { kind: "each_section" | "each_paragraph" }
+> {
+  return scope.kind === "each_section" || scope.kind === "each_paragraph";
+}
+
 export function pageCheckHeadings(
   markdown: string,
   idsByPath: Readonly<Record<string, string>> = {},
@@ -734,21 +770,62 @@ function findPageCheckPlaces(
         places: [placeOf("section", top.slice(start, end), idsByPath)],
       };
     }
-    case "each_paragraph": {
+    case "each_section": {
       const seen = new Map<string, number>();
-      return {
-        status: "ok",
-        places: paragraphs.map((block) => {
-          const id = idsByPath[block.path];
-          const place = placeOf("", [block], idsByPath);
-          const occurrence = seen.get(place.textHash) ?? 0;
-          seen.set(place.textHash, occurrence + 1);
-          return {
-            ...place,
-            key: id ? `block:${id}` : `text:${place.textHash}:${occurrence}`,
-          };
-        }),
-      };
+      const places: PageCheckPlace[] = [];
+      top.forEach((block, start) => {
+        const heading = headingOf(block);
+        if (!heading) return;
+        const key = `${heading.level}:${hashPageCheckText(heading.text)}`;
+        const occurrence = seen.get(key) ?? 0;
+        seen.set(key, occurrence + 1);
+        if (scope.only && !pageCheckHeadingMatches(scope.only, heading)) return;
+        let end = start + 1;
+        for (const next of top.slice(start + 1)) {
+          const below = headingOf(next);
+          if (below && below.level <= heading.level) break;
+          end++;
+        }
+        const id = idsByPath[block.path];
+        places.push(
+          placeOf(
+            id ? `section:${id}` : `heading:${key}:${occurrence}`,
+            top.slice(start, end),
+            idsByPath,
+          ),
+        );
+      });
+      return { status: "ok", places };
+    }
+    case "each_paragraph": {
+      const only = scope.only;
+      const headingAbove = new Map<string, { text: string; level: number }>();
+      let current: { text: string; level: number } | null = null;
+      for (const block of top) {
+        current = headingOf(block) ?? current;
+        if (current) headingAbove.set(block.path, current);
+      }
+      const seen = new Map<string, number>();
+      const places: PageCheckPlace[] = [];
+      for (const block of paragraphs) {
+        const id = idsByPath[block.path];
+        const place = placeOf("", [block], idsByPath);
+        const occurrence = seen.get(place.textHash) ?? 0;
+        seen.set(place.textHash, occurrence + 1);
+        const dot = block.path.indexOf(".");
+        const topPath = dot < 0 ? block.path : block.path.slice(0, dot);
+        if (
+          only &&
+          !pageCheckHeadingMatches(only, headingAbove.get(topPath) ?? null)
+        ) {
+          continue;
+        }
+        places.push({
+          ...place,
+          key: id ? `block:${id}` : `text:${place.textHash}:${occurrence}`,
+        });
+      }
+      return { status: "ok", places };
     }
   }
 }
