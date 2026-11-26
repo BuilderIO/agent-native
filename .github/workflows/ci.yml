@@ -355,7 +355,6 @@ jobs:
 
       - name: Restore Playwright browser cache
         id: pw_cache
-        if: matrix.coreShard != '' || contains(matrix.filters, 'creative-context') || contains(toJSON(matrix.packageShards), 'creative-context')
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
@@ -363,13 +362,12 @@ jobs:
           restore-keys: playwright-unit-v2-${{ runner.os }}-
 
       - name: Install Playwright Chromium for browser-backed unit tests
-        if: (matrix.coreShard != '' || contains(matrix.filters, 'creative-context') || contains(toJSON(matrix.packageShards), 'creative-context')) && steps.pw_cache.outputs.cache-hit != 'true'
+        if: steps.pw_cache.outputs.cache-hit != 'true'
         run: |
           pnpm exec playwright install --only-shell chromium
           pnpm --filter @agent-native/creative-context exec playwright install --only-shell chromium
 
       - name: Allow the downloaded Chromium sandbox
-        if: matrix.coreShard != '' || contains(matrix.filters, 'creative-context') || contains(toJSON(matrix.packageShards), 'creative-context')
         uses: ./.github/actions/allow-playwright-sandbox
 
       - name: Run core fast-test shard
@@ -476,7 +474,6 @@ jobs:
 
       - name: Restore Playwright browser cache
         id: pw_cache
-        if: matrix.coreShard != '' || contains(matrix.filters, 'creative-context') || contains(toJSON(matrix.packageShards), 'creative-context')
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
@@ -484,13 +481,12 @@ jobs:
           restore-keys: playwright-unit-v2-${{ runner.os }}-
 
       - name: Install Playwright Chromium for browser-backed unit tests
-        if: (matrix.coreShard != '' || contains(matrix.filters, 'creative-context') || contains(toJSON(matrix.packageShards), 'creative-context')) && steps.pw_cache.outputs.cache-hit != 'true'
+        if: steps.pw_cache.outputs.cache-hit != 'true'
         run: |
           pnpm exec playwright install --only-shell chromium
           pnpm --filter @agent-native/creative-context exec playwright install --only-shell chromium
 
       - name: Allow the downloaded Chromium sandbox
-        if: matrix.coreShard != '' || contains(matrix.filters, 'creative-context') || contains(toJSON(matrix.packageShards), 'creative-context')
         uses: ./.github/actions/allow-playwright-sandbox
 
       - name: Run core fast-test shard
