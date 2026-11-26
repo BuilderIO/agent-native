@@ -59,6 +59,7 @@ const en = {
   nothingMatches: "Nothing matches",
   ofTotal: "{{missing}} of {{total}}",
   commentText: "“{{check}}”: {{answer}}",
+  tabWithCount: "{{tab}}, {{lookAt}}",
 } as const;
 
 type PageCheckMessages = Record<keyof typeof en, string>;
@@ -131,6 +132,7 @@ const translations: Record<
     nothingMatches: "No hay coincidencias",
     ofTotal: "{{missing}} de {{total}}",
     commentText: "«{{check}}»: {{answer}}",
+    tabWithCount: "{{tab}}, {{lookAt}}",
   },
   "fr-FR": {
     title: "Vérifications",
@@ -196,6 +198,7 @@ const translations: Record<
     nothingMatches: "Aucune correspondance",
     ofTotal: "{{missing}} sur {{total}}",
     commentText: "« {{check}} » : {{answer}}",
+    tabWithCount: "{{tab}}, {{lookAt}}",
   },
   "de-DE": {
     title: "Prüfungen",
@@ -256,6 +259,7 @@ const translations: Record<
     nothingMatches: "Nichts passt",
     ofTotal: "{{missing}} von {{total}}",
     commentText: "„{{check}}“: {{answer}}",
+    tabWithCount: "{{tab}}, {{lookAt}}",
   },
   "pt-BR": {
     title: "Verificações",
@@ -321,6 +325,7 @@ const translations: Record<
     nothingMatches: "Nada corresponde",
     ofTotal: "{{missing}} de {{total}}",
     commentText: "“{{check}}”: {{answer}}",
+    tabWithCount: "{{tab}}, {{lookAt}}",
   },
   "zh-CN": {
     title: "检查",
@@ -376,6 +381,7 @@ const translations: Record<
     nothingMatches: "没有匹配项",
     ofTotal: "{{total}} 个中的 {{missing}} 个",
     commentText: "“{{check}}”：{{answer}}",
+    tabWithCount: "{{tab}}，{{lookAt}}",
   },
   "zh-TW": {
     title: "檢查",
@@ -431,6 +437,7 @@ const translations: Record<
     nothingMatches: "沒有符合的項目",
     ofTotal: "{{total}} 個中的 {{missing}} 個",
     commentText: "「{{check}}」：{{answer}}",
+    tabWithCount: "{{tab}}，{{lookAt}}",
   },
   "ja-JP": {
     title: "チェック",
@@ -486,6 +493,7 @@ const translations: Record<
     nothingMatches: "該当なし",
     ofTotal: "{{total}} 件中 {{missing}} 件",
     commentText: "「{{check}}」：{{answer}}",
+    tabWithCount: "{{tab}}、{{lookAt}}",
   },
   "ko-KR": {
     title: "검사",
@@ -541,6 +549,7 @@ const translations: Record<
     nothingMatches: "일치하는 항목 없음",
     ofTotal: "{{total}}개 중 {{missing}}개",
     commentText: "“{{check}}”: {{answer}}",
+    tabWithCount: "{{tab}}, {{lookAt}}",
   },
   "hi-IN": {
     title: "जाँचें",
@@ -601,6 +610,7 @@ const translations: Record<
     nothingMatches: "कुछ भी मेल नहीं खाता",
     ofTotal: "{{total}} में से {{missing}}",
     commentText: "“{{check}}”: {{answer}}",
+    tabWithCount: "{{tab}}, {{lookAt}}",
   },
   "ar-SA": {
     title: "الفحوص",
@@ -681,6 +691,7 @@ const translations: Record<
     nothingMatches: "لا شيء مطابق",
     ofTotal: "{{missing}} من {{total}}",
     commentText: "«{{check}}»: {{answer}}",
+    tabWithCount: "{{tab}}، {{lookAt}}",
   },
 };
 

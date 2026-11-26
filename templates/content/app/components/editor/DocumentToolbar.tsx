@@ -898,6 +898,7 @@ interface DocumentToolbarProps {
   onToggleFavorite?: (isFavorite: boolean) => void;
   utilityPanel: DocumentPagePanelTab | null;
   pageChecksCount?: ReactNode;
+  checksToLookAt?: number;
   /** Open comment threads on the Page, the count its Collection row shows. */
   openCommentCount?: number;
   onUtilityPanelChange: (panel: DocumentPagePanelTab | null) => void;
@@ -1004,6 +1005,7 @@ export function DocumentToolbar({
   onToggleFavorite,
   utilityPanel,
   pageChecksCount,
+  checksToLookAt = 0,
   openCommentCount = 0,
   onUtilityPanelChange,
   showAgentTab = false,
@@ -1920,13 +1922,14 @@ export function DocumentToolbar({
             </div>
           ) : null}
 
-          {pageChecksCount}
+          {phoneBar ? null : pageChecksCount}
           {panelTabs.length ? (
             <>
               <DocumentPanelTabs
                 tabs={panelTabs}
                 activeTab={utilityPanel}
                 openCommentCount={openCommentCount}
+                checksToLookAt={phoneBar ? checksToLookAt : 0}
                 plain={phoneBar}
                 panelId={panelId}
                 commentsTriggerRef={commentsTriggerRef}

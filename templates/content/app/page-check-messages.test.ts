@@ -51,6 +51,8 @@ describe("check messages", () => {
       expect(messages.markLabel).toContain("{{place}}");
       expect(messages.commentText).toContain("{{check}}");
       expect(messages.commentText).toContain("{{answer}}");
+      expect(messages.tabWithCount).toContain("{{tab}}");
+      expect(messages.tabWithCount).toContain("{{lookAt}}");
     }
   });
 });

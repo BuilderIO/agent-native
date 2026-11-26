@@ -363,6 +363,7 @@ import {
 import { PageCheckDialog } from "./page-checks/PageCheckDialog";
 import {
   PageChecksPill,
+  pageChecksToLookAt,
   PageChecksSection,
 } from "./page-checks/PageChecksSection";
 import {
@@ -11892,6 +11893,14 @@ function PageEditorSessionBody({
             onToggleFavorite={handleToggleFavorite}
             utilityPanel={openPanelTab}
             pageChecksCount={<PageChecksPill />}
+            checksToLookAt={
+              pageChecks.actions.enabled
+                ? pageChecksToLookAt(
+                    pageChecks.state.checks,
+                    pageChecks.state.live,
+                  )
+                : 0
+            }
             openCommentCount={openCommentCount}
             onUtilityPanelChange={handlePagePanelChange}
             showAgentTab={showAgentTab}
