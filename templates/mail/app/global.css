@@ -239,8 +239,26 @@
 .email-list-row.multi-selected.focused {
   --mail-row-background: hsl(var(--primary) / 0.12);
 }
+/* Hover is lighter than the current row: the pointer no longer moves the
+   current row, so the two must not look alike. */
 .email-list-row:hover:not(.focused):not(.selected):not(.multi-selected) {
-  --mail-row-background: hsl(var(--accent));
+  --mail-row-background: hsl(var(--accent) / 0.55);
+}
+
+/* While J and K drive the list, a row under a resting pointer stays plain. */
+[data-keyboard-nav]
+  .email-list-row:hover:not(.focused):not(.selected):not(.multi-selected) {
+  --mail-row-background: hsl(var(--background));
+}
+[data-keyboard-nav] .email-list-row:hover:not(.focused) .hover-actions {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* The current row is marked by its background, and keyboard focus always sits
+   on the current row, so the browser focus ring would be a second mark. */
+.email-list-row:focus-visible {
+  outline: none;
 }
 
 .compose-window {

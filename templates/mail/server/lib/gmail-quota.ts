@@ -279,6 +279,18 @@ export async function acquireGmailQuota(
   return reservation.quotaCooldownAttempts > 0;
 }
 
+export async function assertGmailTokenNotCoolingDown(
+  accessToken: string,
+): Promise<void> {
+  const { accountEmail } = await accountForToken(accessToken);
+  const now = Date.now();
+  const cooldown = await readGmailCooldown([accountEmail], now);
+  if (cooldown) {
+    countGmailCooldown("rejected_local");
+    throw new GmailQuotaRefusedError(cooldown.retryAfterMs, undefined, now);
+  }
+}
+
 export async function tripGmailQuotaCooldown(
   accessToken: string,
   retryAfterMs?: number,
