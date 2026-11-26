@@ -37,6 +37,7 @@ export default defineAction({
   schema: remediateLegacyCaptureAudiencesSchema,
   needsApproval: ({ dryRun }) => !dryRun,
   toolCallable: false,
+  mcpTool: false,
   run: async (args) => {
     await assertAccess("brain-source", args.sourceId, "editor");
     const db = getDb();

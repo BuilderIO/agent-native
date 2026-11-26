@@ -21,6 +21,7 @@ export default defineAction({
     body: z.string().trim().min(1).max(20000).optional(),
     rationale: z.string().trim().max(5000).optional(),
   }),
+  mcpTool: "search",
   run: async ({ proposalId, title, body, rationale }) => {
     const access = await assertAccess("brain-proposal", proposalId, "editor");
     const proposal = access.resource;

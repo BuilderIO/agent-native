@@ -21,6 +21,7 @@ export default defineAction({
         "When seeding fallback data, also publish selected canonical facts to workspace resources.",
       ),
   }),
+  mcpTool: false,
   run: async ({ seedIfMissing, publishCanonical }) => {
     const result = await runBrainRetrievalEval({
       seedIfMissing,
