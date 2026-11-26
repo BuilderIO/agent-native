@@ -375,7 +375,99 @@ describe("POST /builder/provision", () => {
     ]);
   });
 
-  it("reports an upstream failure as provision_failed without storing anything", async () => {
+  it("signs the request to the documented account endpoint", async () => {
+    await post({
+      provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN),
+    });
+    const [url, init] = upstream.mock.calls[0]!;
+    expect(String(url)).toBe(
+      "https://api.builder.io/api/v1/accounts/agent-native",
+    );
+    expect(init.headers).toMatchObject({
+      "Content-Type": "application/json",
+      "x-agent-native-account-version": "agent-native-account-v1",
+      "x-agent-native-account-timestamp": expect.stringMatching(/^\d+$/),
+      "x-agent-native-account-request-id": expect.any(String),
+      "x-agent-native-account-signature": expect.any(String),
+    });
+  });
+
+  it.each([
+    [401, { error: "bad signature" }, "provision_rejected", /rejected/],
+    [403, { error: "forbidden" }, "provision_rejected", /rejected/],
+    [429, { error: "slow down" }, "provision_rate_limited", /limiting/],
+    [400, { error: "bad email" }, "provision_invalid_request", /accept/],
+    [422, { error: "bad name" }, "provision_invalid_request", /accept/],
+    [500, { error: "boom" }, "provision_upstream_error", /trouble/],
+    [503, { error: "down" }, "provision_upstream_error", /trouble/],
+    [418, { error: "teapot" }, "provision_failed", /Couldn't create/],
+  ])(
+    "answers an upstream %i with its own typed code",
+    async (status, body, code, message) => {
+      upstreamAnswers(status, body);
+      const response = await post({
+        provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN),
+      });
+      expect(response.status).toBe(503);
+      const json = (await response.json()) as { code: string; message: string };
+      expect(json.code).toBe(code);
+      expect(json.message).toMatch(message);
+      expect(mocks.writeBuilderCredentials).not.toHaveBeenCalled();
+      expect(trackedEvents("builder connect failed")).toEqual([
+        expect.objectContaining({ reason: code, upstream_status: status }),
+      ]);
+    },
+  );
+
+  it("answers an unreachable Builder host as provision_unreachable", async () => {
+    upstream.mockRejectedValue(new TypeError("fetch failed"));
+    const response = await post({
+      provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN),
+    });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      ok: false,
+      code: "provision_unreachable",
+    });
+    expect(trackedEvents("builder connect failed")).toEqual([
+      expect.objectContaining({
+        reason: "provision_unreachable",
+        upstream_response_received: false,
+        upstream_status: null,
+      }),
+    ]);
+  });
+
+  it("answers a timed-out Builder request as provision_timeout", async () => {
+    upstream.mockRejectedValue(
+      Object.assign(new Error("aborted"), { name: "TimeoutError" }),
+    );
+    const response = await post({
+      provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN),
+    });
+    expect(await response.json()).toMatchObject({
+      ok: false,
+      code: "provision_timeout",
+    });
+  });
+
+  it("answers a non-JSON success body as provision_invalid_response", async () => {
+    upstream.mockResolvedValue(
+      new Response("<html>gateway</html>", {
+        status: 200,
+        headers: { "Content-Type": "text/html" },
+      }),
+    );
+    const response = await post({
+      provisioningToken: signBuilderProvisioningToken(OWNER, SESSION_TOKEN),
+    });
+    expect(await response.json()).toMatchObject({
+      ok: false,
+      code: "provision_invalid_response",
+    });
+  });
+
+  it("reports an upstream failure with its typed code without storing anything", async () => {
     upstreamAnswers(500, {
       code: "upstream_busy",
       error: "Could not provision steve@example.com",
@@ -391,12 +483,12 @@ describe("POST /builder/provision", () => {
     expect(response.status).toBe(503);
     expect(await response.json()).toMatchObject({
       ok: false,
-      code: "provision_failed",
+      code: "provision_upstream_error",
     });
     expect(mocks.writeBuilderCredentials).not.toHaveBeenCalled();
     expect(trackedEvents("builder connect failed")).toEqual([
       expect.objectContaining({
-        reason: "provision_failed",
+        reason: "provision_upstream_error",
         stage: "provision",
         upstream_response_received: true,
         upstream_status: 500,
@@ -439,12 +531,12 @@ describe("POST /builder/provision", () => {
     expect(response.status).toBe(503);
     expect(await response.json()).toMatchObject({
       ok: false,
-      code: "provision_failed",
+      code: "provision_invalid_response",
     });
     expect(mocks.writeBuilderCredentials).not.toHaveBeenCalled();
     expect(trackedEvents("builder connect failed")).toEqual([
       expect.objectContaining({
-        reason: "provision_failed",
+        reason: "provision_invalid_response",
         upstream_response_received: true,
         upstream_status: 200,
         upstream_body: JSON.stringify({ fields: "credentials" }),
