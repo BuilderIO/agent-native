@@ -120,6 +120,7 @@ import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
 import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
 import { Button } from "@/components/ui/button";
 import type { CommentThread } from "@/hooks/use-comments";
+import { useStableCallback } from "@/hooks/use-stable-callback";
 import {
   CONTENT_EDITABLE_MARK,
   markStartupMilestone,
@@ -3986,6 +3987,11 @@ export function VisualEditor({
     !directoryWidgetEditing
       ? pageCheckActions.openAdd
       : undefined;
+  const commentFromCheck = useStableCallback(
+    (...args: Parameters<NonNullable<VisualEditorProps["onComment"]>>) => {
+      onComment?.(...args);
+    },
+  );
   const tRef = useRef(t);
   tRef.current = t;
   const widgetBridgeActive = isEmbedMcpChatBridgeActive();
@@ -6473,7 +6479,7 @@ export function VisualEditor({
         <PageCheckMarks
           editor={editor}
           wrapperRef={wrapperRef}
-          onComment={onComment}
+          onComment={onComment ? commentFromCheck : undefined}
           suggesting={suggesting}
         />
       ) : null}

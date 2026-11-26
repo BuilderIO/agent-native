@@ -3,6 +3,7 @@ import { isChangeOrigin } from "@tiptap/extension-collaboration";
 import type { Transaction } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
 import {
+  memo,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -39,13 +40,29 @@ const MARK_BESIDE_HANDLE_PX = 50;
 const MARK_AFTER_TEXT_PX = 4;
 
 interface MarkGroup {
-  from: number;
+  key: string;
   marks: PageCheckMark[];
 }
 
 interface MarkLayout {
-  tops: ReadonlyMap<number, number>;
+  tops: ReadonlyMap<string, number>;
   inset: number;
+}
+
+interface MarkPlace {
+  from: number;
+  to: number;
+}
+
+const markKey = (mark: PageCheckMark) => `${mark.check.id}:${mark.answer.key}`;
+
+function sameLayout(a: MarkLayout, b: MarkLayout) {
+  if (a.inset !== b.inset || a.tops.size !== b.tops.size) return false;
+  for (const [key, top] of a.tops) {
+    const other = b.tops.get(key);
+    if (other === undefined || Math.abs(other - top) >= 0.5) return false;
+  }
+  return true;
 }
 
 function clipOf(element: HTMLElement): HTMLElement | null {
@@ -85,7 +102,7 @@ function markInset(wrapper: HTMLElement, text: HTMLElement, rtl: boolean) {
   return start + text.offsetWidth + Math.min(MARK_AFTER_TEXT_PX, after - width);
 }
 
-export function PageCheckMarks({
+export const PageCheckMarks = memo(function PageCheckMarks({
   editor,
   wrapperRef,
   onComment,
@@ -101,10 +118,11 @@ export function PageCheckMarks({
   const state = usePageChecksState();
   const checks = state?.checks;
   const [live, setLive] = useState<LivePageChecks | null>(null);
-  const [openFrom, setOpenFrom] = useState<number | null>(null);
+  const [openKey, setOpenKey] = useState<string | null>(null);
   const [layout, setLayout] = useState<MarkLayout | null>(null);
-  const [layoutTick, setLayoutTick] = useState(0);
 
+  const places = useRef(new Map<string, MarkPlace>());
+  const measure = useRef<() => void>(() => {});
   const lastRead = useRef<LivePageChecks | null>(null);
   const read = useRef<() => void>(() => {});
   read.current = () => {
@@ -126,20 +144,24 @@ export function PageCheckMarks({
   suggestingRef.current = suggesting;
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let frame = 0;
     const onTransaction = ({ transaction }: { transaction: Transaction }) => {
       if (!transaction.docChanged) return;
-      setLive((current) =>
-        current
-          ? {
-              ...current,
-              marks: current.marks.map((mark) => ({
-                ...mark,
-                from: transaction.mapping.map(mark.from),
-                to: transaction.mapping.map(mark.to, -1),
-              })),
-            }
-          : current,
+      places.current = new Map(
+        [...places.current].map(([key, place]) => [
+          key,
+          {
+            from: transaction.mapping.map(place.from),
+            to: transaction.mapping.map(place.to, -1),
+          },
+        ]),
       );
+      if (frame === 0) {
+        frame = requestAnimationFrame(() => {
+          frame = 0;
+          measure.current();
+        });
+      }
       if (
         !suggestingRef.current &&
         !isChangeOrigin(transaction) &&
@@ -154,6 +176,7 @@ export function PageCheckMarks({
     return () => {
       editor.off("transaction", onTransaction);
       if (timer) clearTimeout(timer);
+      cancelAnimationFrame(frame);
     };
   }, [actions, editor]);
 
@@ -164,13 +187,40 @@ export function PageCheckMarks({
     }
     return [...byFrom]
       .sort(([a], [b]) => a - b)
-      .map(([from, marks]) => ({ from, marks }));
+      .map(([, marks]) => ({ key: markKey(marks[0]), marks }));
   }, [live]);
+
+  measure.current = () => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper || editor.isDestroyed || groups.length === 0) {
+      setLayout(null);
+      return;
+    }
+    const view = editor.view;
+    const box = wrapper.getBoundingClientRect();
+    const rtl = getComputedStyle(wrapper).direction === "rtl";
+    const tops = new Map<string, number>();
+    const size = view.state.doc.content.size;
+    for (const group of groups) {
+      const place = places.current.get(group.key);
+      if (!place) continue;
+      try {
+        const coords = view.coordsAtPos(Math.min(place.from + 1, size));
+        tops.set(group.key, (coords.top + coords.bottom) / 2 - box.top);
+      } catch {
+        // coercion-ok: a position the mapping left behind waits for the next read.
+      }
+    }
+    const next = { tops, inset: markInset(wrapper, view.dom, rtl) };
+    setLayout((current) =>
+      current && sameLayout(current, next) ? current : next,
+    );
+  };
 
   useEffect(() => {
     const dom = editor.view.dom;
     const clip = clipOf(dom);
-    const observer = new ResizeObserver(() => setLayoutTick((n) => n + 1));
+    const observer = new ResizeObserver(() => measure.current());
     for (let node: HTMLElement | null = dom; node; node = node.parentElement) {
       observer.observe(node);
       if (node === clip) break;
@@ -179,27 +229,14 @@ export function PageCheckMarks({
   }, [editor]);
 
   useLayoutEffect(() => {
-    const wrapper = wrapperRef.current;
-    if (!wrapper || editor.isDestroyed || groups.length === 0) {
-      setLayout(null);
-      return;
-    }
-    const view = editor.view;
-    const box = wrapper.getBoundingClientRect();
-    const rtl = getComputedStyle(view.dom).direction === "rtl";
-    const tops = new Map<number, number>();
-    const size = view.state.doc.content.size;
-    for (const group of groups) {
-      try {
-        const inside = Math.min(group.from + 1, size);
-        const coords = view.coordsAtPos(inside);
-        tops.set(group.from, (coords.top + coords.bottom) / 2 - box.top);
-      } catch {
-        // coercion-ok: a position the mapping left behind waits for the next read.
-      }
-    }
-    setLayout({ tops, inset: markInset(wrapper, view.dom, rtl) });
-  }, [editor, groups, layoutTick, wrapperRef]);
+    places.current = new Map(
+      (live?.marks ?? []).map((mark) => [
+        markKey(mark),
+        { from: mark.from, to: mark.to },
+      ]),
+    );
+    measure.current();
+  }, [live]);
 
   const focusCheck = useCallback(
     (checkId: string) => {
@@ -207,11 +244,16 @@ export function PageCheckMarks({
         entry.marks.some((mark) => mark.check.id === checkId),
       );
       if (!group) return false;
-      const button = wrapperRef.current?.querySelector<HTMLElement>(
-        `[data-page-check-from="${group.from}"]`,
-      );
-      button?.scrollIntoView({ block: "center" });
-      setOpenFrom(group.from);
+      const buttons =
+        wrapperRef.current?.querySelectorAll<HTMLElement>(
+          "[data-page-check-mark]",
+        ) ?? [];
+      for (const button of buttons) {
+        if (button.dataset.pageCheckMark === group.key) {
+          button.scrollIntoView({ block: "center" });
+        }
+      }
+      setOpenKey(group.key);
       return true;
     },
     [groups, wrapperRef],
@@ -233,7 +275,7 @@ export function PageCheckMarks({
   if (!actions || !layout || groups.length === 0) return null;
 
   const skipHere = (mark: PageCheckMark, textHash: string) => () => {
-    setOpenFrom(null);
+    setOpenKey(null);
     void actions.skip({
       checkId: mark.check.id,
       placeKey: mark.answer.key,
@@ -244,9 +286,9 @@ export function PageCheckMarks({
   return (
     <div className="page-check-marks" data-page-check-marks>
       {groups.map((group) => {
-        const top = layout.tops.get(group.from);
-        const first = group.marks.at(0);
-        if (top === undefined || !first) return null;
+        const top = layout.tops.get(group.key);
+        if (top === undefined) return null;
+        const first = group.marks[0];
         const labels = group.marks.map((mark) =>
           t("pageChecks.markLabel", {
             answer: pageCheckAnswerText(t, mark.check.parts, mark.answer),
@@ -256,9 +298,9 @@ export function PageCheckMarks({
         );
         return (
           <Popover
-            key={group.from}
-            open={openFrom === group.from}
-            onOpenChange={(open) => setOpenFrom(open ? group.from : null)}
+            key={group.key}
+            open={openKey === group.key}
+            onOpenChange={(open) => setOpenKey(open ? group.key : null)}
           >
             <PopoverTrigger asChild>
               <button
@@ -266,7 +308,7 @@ export function PageCheckMarks({
                 className="page-check-mark"
                 style={{ top, insetInlineStart: layout.inset }}
                 aria-label={labels.join("; ")}
-                data-page-check-from={group.from}
+                data-page-check-mark={group.key}
               >
                 <span
                   aria-hidden="true"
@@ -287,17 +329,18 @@ export function PageCheckMarks({
             >
               {group.marks.map((mark) => (
                 <PageCheckCard
-                  key={`${mark.check.id}:${mark.answer.key}`}
+                  key={markKey(mark)}
                   mark={mark}
                   onComment={
                     onComment
                       ? () => {
-                          setOpenFrom(null);
+                          setOpenKey(null);
                           if (
-                            startCommentOnRange(editor, onComment, {
-                              from: mark.from,
-                              to: mark.to,
-                            })
+                            startCommentOnRange(
+                              editor,
+                              onComment,
+                              places.current.get(markKey(mark)) ?? mark,
+                            )
                           ) {
                             actions.prefillComment(
                               t("pageChecks.commentText", {
@@ -321,7 +364,7 @@ export function PageCheckMarks({
                   onEdit={
                     actions.canEdit
                       ? () => {
-                          setOpenFrom(null);
+                          setOpenKey(null);
                           actions.openEdit(mark.check.id);
                         }
                       : undefined
@@ -334,7 +377,7 @@ export function PageCheckMarks({
       })}
     </div>
   );
-}
+});
 
 function PageCheckCard({
   mark,
