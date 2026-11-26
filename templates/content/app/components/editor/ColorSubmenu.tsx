@@ -137,10 +137,12 @@ export function ColorSubmenu({
   value,
   onChange,
   onEscapeKeyDown,
+  collisionBoundary,
 }: {
   value: string | null;
   onChange: (color: string | null) => void;
   onEscapeKeyDown?: () => void;
+  collisionBoundary?: Element | null;
 }) {
   const t = useT();
   return (
@@ -151,6 +153,7 @@ export function ColorSubmenu({
           "max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto",
           instantCloseMenuClass,
         )}
+        collisionBoundary={collisionBoundary}
         collisionPadding={8}
         onEscapeKeyDown={onEscapeKeyDown}
       >

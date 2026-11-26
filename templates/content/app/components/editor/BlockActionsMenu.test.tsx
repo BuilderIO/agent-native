@@ -728,6 +728,22 @@ describe("BlockActionsMenu", () => {
     expect(request.onClose).not.toHaveBeenCalled();
   });
 
+  it("tints its block in the editor's wrapper while open", () => {
+    const target = mount();
+    const wrapper = page as HTMLElement;
+    wrapper.classList.add("visual-editor-wrapper");
+    const { close } = open(target, 0);
+    if (!close) throw new Error("The editor's menu didn't open");
+
+    expect(
+      wrapper.querySelectorAll(":scope > .content-block-menu-tint"),
+    ).toHaveLength(1);
+
+    act(() => close());
+
+    expect(wrapper.querySelector(".content-block-menu-tint")).toBeNull();
+  });
+
   it("tells the grip it closed when it goes while open", () => {
     const target = mount();
     const { request } = open(target, 1);

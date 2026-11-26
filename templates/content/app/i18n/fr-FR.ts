@@ -1235,6 +1235,7 @@ const editor = {
       "Sur chaque ligne, pour tout le monde. Une vue peut quand même la masquer.",
   },
   slash: {
+    ai: "IA",
     audio: "Audio [fr-FR]",
     audioDescription: "Télécharger ou intégrer de l'audio",
     basicBlocks: "Blocs de base",

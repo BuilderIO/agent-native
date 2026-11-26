@@ -1206,6 +1206,7 @@ const editor = {
       "すべての行、すべてのユーザーに適用されます。ビューで非表示にすることもできます。",
   },
   slash: {
+    ai: "AI",
     audio: "オーディオ",
     audioDescription: "音声をアップロードまたは埋め込む",
     basicBlocks: "基本ブロック",

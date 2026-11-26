@@ -1236,6 +1236,7 @@ const editor = {
       "In jeder Zeile, für alle. Eine Ansicht kann sie trotzdem ausblenden.",
   },
   slash: {
+    ai: "KI",
     audio: "Audio [de-DE]",
     audioDescription: "Audio hochladen oder einbetten",
     basicBlocks: "Grundblöcke",

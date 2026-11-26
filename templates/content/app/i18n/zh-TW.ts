@@ -1027,6 +1027,7 @@ const overrides = {
       visibilityScope: "套用於每一列和所有人。檢視仍可將其隱藏。",
     },
     slash: {
+      ai: "AI",
       audio: "音訊",
       audioDescription: "上傳或嵌入音訊",
       basicBlocks: "基本塊",
