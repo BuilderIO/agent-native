@@ -178,6 +178,8 @@ export function renderLeftSidebar({
     hoveredCodeLayerNode,
     handleOpenLibraryComponent,
     libraryComponents,
+    libraryComponentsLoading,
+    setLibraryComponentsOpen,
   } = editorContentAndComponents;
   const { designExtensionContext } = editorSelectionAndStyles;
   const { handleSidebarScreenSelect } = editorModes;
@@ -300,6 +302,8 @@ export function renderLeftSidebar({
                   searchQuery={layersSearchQuery}
                   onScreenSelect={handleSidebarScreenSelect}
                   components={libraryComponents}
+                  componentsLoading={libraryComponentsLoading}
+                  onComponentsExpandedChange={setLibraryComponentsOpen}
                   onComponentSelect={(component) =>
                     void handleOpenLibraryComponent({
                       fileId: component.sampleFileId,

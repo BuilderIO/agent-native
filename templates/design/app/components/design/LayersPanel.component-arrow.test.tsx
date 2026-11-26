@@ -76,6 +76,7 @@ describe("components section", () => {
         <LayersPanel
           layers={layers}
           components={[component]}
+          onComponentsExpandedChange={() => {}}
           onComponentSelect={onComponentSelect}
           selectedIds={[]}
           expandedIds={[]}
@@ -90,6 +91,10 @@ describe("components section", () => {
       await act(async () => root.unmount());
       host.remove();
     };
+    const header = host.querySelector<HTMLElement>(
+      "[data-components-section] button",
+    );
+    await act(async () => header?.click());
     const row = host.querySelector<HTMLElement>('[data-component-row="Card"]');
     expect(row?.textContent).toContain("Card");
     await act(async () => row?.click());

@@ -1105,11 +1105,13 @@ export function useEditorContentAndComponents({
   );
 
   const handleOpenLibraryComponent = selectLinkedComponentNode;
-  const { data: componentLibrary } = useActionQuery(
-    "list-design-components",
-    { designId: id ?? "" },
-    { enabled: Boolean(id) },
-  );
+  const [libraryComponentsOpen, setLibraryComponentsOpen] = useState(false);
+  const { data: componentLibrary, isLoading: libraryComponentsLoading } =
+    useActionQuery(
+      "list-design-components",
+      { designId: id ?? "" },
+      { enabled: Boolean(id) && libraryComponentsOpen },
+    );
   const libraryComponents = componentLibrary?.components;
 
   const handleGoToMainComponentMenuAction = useCallback(() => {
@@ -1278,6 +1280,8 @@ export function useEditorContentAndComponents({
     handleGoToMainComponentMenuAction,
     handleOpenLibraryComponent,
     libraryComponents,
+    libraryComponentsLoading,
+    setLibraryComponentsOpen,
     handleDetachInstanceMenuAction,
     handleSwapInstanceMenuAction,
     handleToggleMinimalUi,

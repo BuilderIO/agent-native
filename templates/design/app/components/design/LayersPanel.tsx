@@ -57,6 +57,7 @@ import {
   TreeGridSectionHead,
 } from "@/components/design/TreeGridRow";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
@@ -200,6 +201,8 @@ export interface LayersPanelProps {
   onSearchQueryChange: (query: string) => void;
   onScreenSelect?: (id: string) => void;
   components?: readonly LayersPanelComponent[];
+  componentsLoading?: boolean;
+  onComponentsExpandedChange?: (expanded: boolean) => void;
   onComponentSelect?: (component: LayersPanelComponent) => void;
   onAddScreen?: () => void;
   onExpandedIdsChange: (ids: string[]) => void;
@@ -917,6 +920,8 @@ function LayersPanelImpl(
     onSearchQueryChange,
     onScreenSelect,
     components,
+    componentsLoading,
+    onComponentsExpandedChange,
     onComponentSelect,
     onAddScreen,
     onExpandedIdsChange,
@@ -973,7 +978,7 @@ function LayersPanelImpl(
     useState<LayersPanelMoveIntent | null>(null);
   const [searchOpen, setSearchOpen] = useState(Boolean(searchQuery));
   const [screensExpanded, setScreensExpanded] = useState(true);
-  const [componentsExpanded, setComponentsExpanded] = useState(true);
+  const [componentsExpanded, setComponentsExpanded] = useState(false);
   const [layersExpanded, setLayersExpanded] = useState(true);
 
   const roots = useMemo(
@@ -1533,7 +1538,7 @@ function LayersPanelImpl(
           </div>
         ) : null}
 
-        {components && components.length > 0 ? (
+        {onComponentsExpandedChange || (components && components.length > 0) ? (
           <div
             data-components-section
             className="flex max-h-[25%] min-h-0 shrink-0 flex-col overflow-hidden border-b border-[var(--design-editor-panel-divider-color)] pb-1"
@@ -1542,11 +1547,17 @@ function LayersPanelImpl(
               headerId="components"
               label={labels.components}
               expanded={componentsExpanded}
-              onExpandedChange={setComponentsExpanded}
+              onExpandedChange={(expanded) => {
+                setComponentsExpanded(expanded);
+                onComponentsExpandedChange?.(expanded);
+              }}
             />
             {componentsExpanded ? (
               <div className="min-h-0 flex-1 overflow-auto">
-                {components.map((component) => (
+                {componentsLoading ? (
+                  <Skeleton className="mx-2 my-1 h-5" />
+                ) : null}
+                {(components ?? []).map((component) => (
                   <button
                     key={component.name}
                     type="button"
