@@ -48,7 +48,7 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "test": "vitest --run src",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo --noEmit",
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {

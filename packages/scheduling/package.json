@@ -53,7 +53,7 @@
   "scripts": {
     "build": "tsc && node scripts/build-llms-full.mjs",
     "dev": "tsc --watch",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo --noEmit",
     "test": "vitest --run",
     "prepublishOnly": "npm run build"
   },

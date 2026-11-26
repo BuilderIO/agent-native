@@ -658,8 +658,8 @@
   "scripts": {
     "build": "tsc && node scripts/finalize-build.mjs",
     "prepublishOnly": "npm run build",
-    "typecheck": "tsc --noEmit",
-    "typecheck:spec": "tsc -p tsconfig.spec.json",
+    "typecheck": "tsgo --noEmit",
+    "typecheck:spec": "tsgo -p tsconfig.spec.json",
     "storybook": "storybook dev --port 6006 --no-open",
     "storybook:build": "storybook build --output-dir ../../.tmp/storybook-static",
     "test:storybook": "vitest run --config vitest.storybook.config.ts",

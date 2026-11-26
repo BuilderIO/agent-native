@@ -53,7 +53,7 @@
     "props:check": "tsx scripts/build-prop-types.ts --check",
     "tokens:export": "tsx scripts/tokens.ts export",
     "tokens:import": "tsx scripts/tokens.ts import",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo --noEmit",
     "test": "vitest --run"
   },
   "dependencies": {
