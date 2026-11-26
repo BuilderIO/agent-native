@@ -11,6 +11,7 @@ import {
   type FilterState,
 } from "@agent-native/toolkit/app/filters";
 import type {
+  ContentTrashFilterOptionsResponse,
   ContentTrashItem,
   ContentTrashWhere,
   ContentTrashWhereCondition,
@@ -111,6 +112,33 @@ export function collectTrashFilterOptions(
         label: item.parentTitle,
       });
   }
+  return {
+    people: sortOptions(people.values()),
+    locations: sortOptions(locations.values()),
+  };
+}
+
+export function addTrashFilterOptions(
+  previous: Pick<TrashFilterOptions, "people" | "locations">,
+  response: ContentTrashFilterOptionsResponse,
+  untitled: string,
+): Pick<TrashFilterOptions, "people" | "locations"> {
+  const people = new Map(previous.people.map((option) => [option.id, option]));
+  const locations = new Map(
+    previous.locations.map((option) => [option.id, option]),
+  );
+  for (const person of response.people)
+    if (!people.has(person.email) || person.name)
+      people.set(person.email, {
+        id: person.email,
+        label: person.name || person.email,
+      });
+  for (const location of response.locations)
+    if (!locations.has(location.id))
+      locations.set(location.id, {
+        id: location.id,
+        label: location.title || untitled,
+      });
   return {
     people: sortOptions(people.values()),
     locations: sortOptions(locations.values()),

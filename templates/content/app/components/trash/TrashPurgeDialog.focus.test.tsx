@@ -1,20 +1,33 @@
 // @vitest-environment jsdom
 
+import type { ContentTrashPurgeSpace } from "@shared/content-trash";
 import { act, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   trashEmptyRequest,
+  upsertTrashPurgeStarts,
   type ContentTrashPurgeInput,
   type ContentTrashPurgeRequest,
+  type ContentTrashPurgeStart,
 } from "@/hooks/use-content-trash";
 
-import { TrashPurgeDialog } from "./EmptyTrashDialog";
+import {
+  PERSISTED_PURGE_RETRY_TOKEN,
+  TrashOperationSurface,
+  TrashPurgeDialog,
+} from "./EmptyTrashDialog";
 
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
+
+type ExecuteInput = {
+  planId: string;
+  scopeToken: string;
+  idempotencyKey: string;
+};
 
 const pendingPlans: Array<{
   resolve: (value: unknown) => void;
@@ -22,9 +35,11 @@ const pendingPlans: Array<{
 let resolvePlanImmediately = false;
 let planFor: ((input: ContentTrashPurgeInput) => Promise<unknown>) | null =
   null;
-let executeFor: ((planId: string) => Promise<{ operationId: string }>) | null =
-  null;
-const executedPlanIds: string[] = [];
+let executeFor:
+  | ((input: ExecuteInput) => Promise<{ operationId: string }>)
+  | null = null;
+const executed: ExecuteInput[] = [];
+const events: string[] = [];
 const toastError = vi.fn();
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -53,12 +68,33 @@ vi.mock("@/hooks/use-content-trash", async (importOriginal) => ({
   }),
   useExecuteContentTrashPurge: () => ({
     isPending: false,
-    mutateAsync: ({ planId }: { planId: string }) => {
-      executedPlanIds.push(planId);
+    mutateAsync: (input: ExecuteInput) => {
+      executed.push(input);
+      events.push(`execute:${input.planId}`);
       return executeFor
-        ? executeFor(planId)
+        ? executeFor(input)
         : Promise.resolve({ operationId: "operation-1" });
     },
+  }),
+  useContentTrashOperation: (operationId: string | null) => ({
+    data: operationId
+      ? {
+          pages: [
+            {
+              operationId,
+              planId: "plan",
+              idempotencyKey: "key",
+              status: "running",
+              deletedCount: 1,
+              blockedCount: 0,
+              conflictedCount: 0,
+              outcomes: [],
+            },
+          ],
+        }
+      : undefined,
+    isError: false,
+    hasNextPage: false,
   }),
 }));
 vi.mock("./TrashPurgeScope", () => ({
@@ -71,10 +107,23 @@ afterEach(() => {
   resolvePlanImmediately = false;
   planFor = null;
   executeFor = null;
-  executedPlanIds.length = 0;
+  executed.length = 0;
+  events.length = 0;
   toastError.mockReset();
   document.body.replaceChildren();
 });
+
+function space(spaceId: string, canPurge = true): ContentTrashPurgeSpace {
+  return { spaceId, name: spaceId, canPurge };
+}
+
+function deferred<T>() {
+  const handle: { resolve: (value: T) => void } = { resolve: () => {} };
+  const promise = new Promise<T>((resolve) => {
+    handle.resolve = resolve;
+  });
+  return { promise, resolve: (value: T) => handle.resolve(value) };
+}
 
 function buttonStartingWith(text: string) {
   return [...document.querySelectorAll<HTMLButtonElement>("button")].find(
@@ -82,20 +131,28 @@ function buttonStartingWith(text: string) {
   );
 }
 
+function pressEscape() {
+  (document.activeElement ?? document.body).dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+  );
+}
+
+const dialogOpen = () =>
+  document.querySelector('[role="alertdialog"]') !== null;
+
 describe("TrashPurgeDialog focus restoration", () => {
-  const cases: Array<[string, ContentTrashPurgeRequest]> = [
-    [
-      "Delete permanently",
+  const selectionRequest: ContentTrashPurgeRequest = {
+    kind: "delete",
+    targets: [
       {
-        kind: "delete",
-        targets: [
-          {
-            spaceId: "space-a",
-            input: { mode: "selection", documentIds: ["page-1"] },
-          },
-        ],
+        spaceId: "space-a",
+        input: { mode: "selection", documentIds: ["page-1"] },
       },
     ],
+    unavailableSpaceIds: [],
+  };
+  const cases: Array<[string, ContentTrashPurgeRequest]> = [
+    ["Delete permanently", selectionRequest],
     [
       "Delete all matching",
       {
@@ -109,9 +166,10 @@ describe("TrashPurgeDialog focus restoration", () => {
             },
           },
         ],
+        unavailableSpaceIds: [],
       },
     ],
-    ["Empty Trash", trashEmptyRequest([])],
+    ["Empty Trash", trashEmptyRequest([space("space-a")])],
   ];
   for (const [label, request] of cases) {
     it(`returns focus to ${label} after cancel during planning`, async () => {
@@ -138,6 +196,28 @@ describe("TrashPurgeDialog focus restoration", () => {
     });
   }
 
+  it("returns focus to the invoker when Escape closes a reviewed plan", async () => {
+    resolvePlanImmediately = true;
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(
+        <FocusHarness label="Row actions" request={selectionRequest} />,
+      );
+    });
+    const trigger = host.querySelector<HTMLButtonElement>("button");
+    trigger?.focus();
+    await act(async () => trigger?.click());
+    expect(buttonStartingWith("trash.deleteCount")?.disabled).toBe(false);
+
+    await act(async () => pressEscape());
+
+    expect(dialogOpen()).toBe(false);
+    expect(document.activeElement).toBe(trigger);
+    await act(async () => root.unmount());
+  });
+
   it("focuses the stable fallback when acknowledgment unmounts the invoker", async () => {
     resolvePlanImmediately = true;
     const host = document.createElement("div");
@@ -147,15 +227,7 @@ describe("TrashPurgeDialog focus restoration", () => {
       root.render(
         <FocusHarness
           label="Delete permanently"
-          request={{
-            kind: "delete",
-            targets: [
-              {
-                spaceId: "space-a",
-                input: { mode: "selection", documentIds: ["page-1"] },
-              },
-            ],
-          }}
+          request={selectionRequest}
           hideTriggerOnAcknowledge
         />,
       );
@@ -189,30 +261,61 @@ describe("Empty Trash across workspaces", () => {
     });
   }
 
-  async function openEmptyTrash(spaceIds: string[], onAcknowledged = vi.fn()) {
+  function acceptingServer(lose: Set<string>) {
+    const operations = new Map<string, string>();
+    executeFor = (input) => {
+      const operationId =
+        operations.get(input.idempotencyKey) ?? `op-${input.planId}`;
+      operations.set(input.idempotencyKey, operationId);
+      if (lose.delete(input.planId))
+        return Promise.reject(new TypeError("Failed to fetch"));
+      return Promise.resolve({ operationId });
+    };
+    return operations;
+  }
+
+  async function openEmptyTrash(
+    spaces: ContentTrashPurgeSpace[],
+    options: {
+      onAcknowledged?: () => void;
+      onStartsChange?: (starts: ContentTrashPurgeStart[]) => Promise<void>;
+    } = {},
+  ) {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
+    const onAcknowledged = options.onAcknowledged ?? vi.fn();
+    let saved: ContentTrashPurgeStart[] = [];
     await act(async () => {
       root.render(
         <FocusHarness
           label="Empty Trash"
-          request={trashEmptyRequest(spaceIds)}
+          request={trashEmptyRequest(spaces)}
           onAcknowledged={onAcknowledged}
+          onStartsChange={
+            options.onStartsChange ??
+            (async (starts) => {
+              events.push(
+                `save:${starts.map((start) => start.status).join(",")}`,
+              );
+              saved = upsertTrashPurgeStarts(saved, starts);
+            })
+          }
         />,
       );
     });
     await act(async () => host.querySelector("button")?.click());
-    return { root, onAcknowledged };
+    return { root, onAcknowledged, saved: () => saved };
   }
 
   it("says how many pages each workspace loses, then empties them all", async () => {
     planFor = planByWorkspace;
-    executeFor = (planId) => Promise.resolve({ operationId: `op-${planId}` });
-    const { root, onAcknowledged } = await openEmptyTrash([
-      "space-a",
-      "space-b",
-      "space-c",
+    executeFor = ({ planId }) =>
+      Promise.resolve({ operationId: `op-${planId}` });
+    const { root, onAcknowledged, saved } = await openEmptyTrash([
+      space("space-a"),
+      space("space-b"),
+      space("space-c"),
     ]);
     const text = document.body.textContent;
 
@@ -229,35 +332,151 @@ describe("Empty Trash across workspaces", () => {
 
     await act(async () => buttonStartingWith("trash.deleteCount")?.click());
 
-    expect(executedPlanIds).toEqual(["plan-space-a", "plan-space-b"]);
-    expect(onAcknowledged).toHaveBeenCalledWith([
-      "op-plan-space-a",
-      "op-plan-space-b",
+    expect(events.slice(0, 2)).toEqual([
+      "save:starting,starting",
+      "execute:plan-space-a",
     ]);
+    expect(executed.map((input) => input.planId)).toEqual([
+      "plan-space-a",
+      "plan-space-b",
+    ]);
+    expect(
+      saved().map(({ planId, status, operationId }) => [
+        planId,
+        status,
+        operationId,
+      ]),
+    ).toEqual([
+      ["plan-space-a", "started", "op-plan-space-a"],
+      ["plan-space-b", "started", "op-plan-space-b"],
+    ]);
+    expect(onAcknowledged).toHaveBeenCalledTimes(1);
     await act(async () => root.unmount());
   });
 
-  it("keeps the started purges when a later workspace fails to start", async () => {
+  it("keeps a workspace whose start response was lost unknown, and retries it with its original key", async () => {
     planFor = planByWorkspace;
-    executeFor = (planId) =>
-      planId === "plan-space-b"
-        ? Promise.reject(new Error("offline"))
-        : Promise.resolve({ operationId: `op-${planId}` });
-    const { root, onAcknowledged } = await openEmptyTrash([
-      "space-a",
-      "space-b",
+    const operations = acceptingServer(new Set(["plan-space-b"]));
+    const { root, onAcknowledged, saved } = await openEmptyTrash([
+      space("space-a"),
+      space("space-b"),
+      space("space-d"),
     ]);
 
     await act(async () => buttonStartingWith("trash.deleteCount")?.click());
 
-    expect(onAcknowledged).toHaveBeenCalledWith(["op-plan-space-a"]);
-    expect(toastError).toHaveBeenCalledTimes(1);
+    expect(executed.map((input) => input.planId)).toEqual([
+      "plan-space-a",
+      "plan-space-b",
+      "plan-space-d",
+    ]);
+    expect(saved().map(({ spaceId, status }) => [spaceId, status])).toEqual([
+      ["space-a", "started"],
+      ["space-b", "unknown"],
+      ["space-d", "started"],
+    ]);
+    const text = document.body.textContent;
+    expect(text).toContain(
+      'trash.startStarted {"workspace":"Workspace space-a"}',
+    );
+    expect(text).toContain(
+      'trash.startUnknown {"workspace":"Workspace space-b"}',
+    );
+    expect(onAcknowledged).not.toHaveBeenCalled();
+    expect(dialogOpen()).toBe(true);
+    const firstKey = executed[1]?.idempotencyKey;
+
+    await act(async () => buttonStartingWith("trash.retry")?.click());
+
+    expect(executed.slice(3)).toEqual([
+      {
+        planId: "plan-space-b",
+        scopeToken: "scope-space-b",
+        idempotencyKey: firstKey,
+      },
+    ]);
+    expect(operations.size).toBe(3);
+    expect(saved().map(({ status }) => status)).toEqual([
+      "started",
+      "started",
+      "started",
+    ]);
+    expect(onAcknowledged).toHaveBeenCalledTimes(1);
+    await act(async () => root.unmount());
+  });
+
+  it("can't be dismissed while purges are starting", async () => {
+    planFor = planByWorkspace;
+    const response = deferred<{ operationId: string }>();
+    executeFor = () => response.promise;
+    const { root, onAcknowledged } = await openEmptyTrash([space("space-a")]);
+
+    await act(async () => buttonStartingWith("trash.deleteCount")?.click());
+
+    expect(buttonStartingWith("trash.cancel")?.disabled).toBe(true);
+    await act(async () => pressEscape());
+    expect(dialogOpen()).toBe(true);
+
+    await act(async () => response.resolve({ operationId: "op-a" }));
+
+    expect(onAcknowledged).toHaveBeenCalledTimes(1);
+    await act(async () => root.unmount());
+  });
+
+  it("starts nothing when the start records can't be saved first", async () => {
+    planFor = planByWorkspace;
+    const onStartsChange = vi
+      .fn<(starts: ContentTrashPurgeStart[]) => Promise<void>>()
+      .mockRejectedValue(new Error("offline"));
+    const { root, onAcknowledged } = await openEmptyTrash(
+      [space("space-a"), space("space-b")],
+      { onStartsChange },
+    );
+
+    await act(async () => buttonStartingWith("trash.deleteCount")?.click());
+
+    expect(executed).toEqual([]);
+    expect(document.body.textContent).toContain("trash.startRecordFailed");
+    expect(onStartsChange.mock.lastCall?.[0]).toEqual([
+      expect.objectContaining({ spaceId: "space-a", status: "failed" }),
+      expect.objectContaining({ spaceId: "space-b", status: "failed" }),
+    ]);
+    expect(onAcknowledged).not.toHaveBeenCalled();
+    await act(async () => root.unmount());
+  });
+
+  it("names a viewer workspace as not purgeable instead of failing the rest", async () => {
+    planFor = planByWorkspace;
+    executeFor = ({ planId }) =>
+      Promise.resolve({ operationId: `op-${planId}` });
+    const { root, onAcknowledged } = await openEmptyTrash([
+      space("space-a"),
+      space("viewer-space", false),
+    ]);
+
+    expect(document.body.textContent).toContain(
+      'trash.cannotPurgeWorkspace {"workspace":"Workspace viewer-space"}',
+    );
+    await act(async () => buttonStartingWith("trash.deleteCount")?.click());
+
+    expect(executed.map((input) => input.planId)).toEqual(["plan-space-a"]);
+    expect(onAcknowledged).toHaveBeenCalledTimes(1);
+    await act(async () => root.unmount());
+  });
+
+  it("offers nothing to delete when every workspace is view-only", async () => {
+    const { root } = await openEmptyTrash([space("viewer-space", false)]);
+
+    expect(document.body.textContent).toContain(
+      'trash.cannotPurgeWorkspace {"workspace":"Workspace viewer-space"}',
+    );
+    expect(buttonStartingWith("trash.deleteCount")?.disabled).toBe(true);
     await act(async () => root.unmount());
   });
 
   it("reports an empty Trash instead of a failure when no workspace has pages", async () => {
     planFor = planByWorkspace;
-    const { root } = await openEmptyTrash(["space-c"]);
+    const { root } = await openEmptyTrash([space("space-c")]);
 
     expect(document.body.textContent).toContain("trash.empty");
     expect(buttonStartingWith("trash.deleteCount")?.disabled).toBe(true);
@@ -265,16 +484,120 @@ describe("Empty Trash across workspaces", () => {
   });
 });
 
+describe("Saved purge starts after a reload", () => {
+  const unknownStart: ContentTrashPurgeStart = {
+    spaceId: "space-b",
+    planId: "plan-b",
+    idempotencyKey: "key-b",
+    status: "unknown",
+    operationId: null,
+    error: "Failed to fetch",
+  };
+
+  async function renderSurface(starts: ContentTrashPurgeStart[]) {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const saves: ContentTrashPurgeStart[][] = [];
+    await act(async () => {
+      root.render(
+        <SurfaceHarness
+          initial={starts}
+          onSave={(update) => saves.push(update)}
+        />,
+      );
+    });
+    return { host, root, saves };
+  }
+
+  it("retries an unknown start with its saved plan and key, then follows the operation", async () => {
+    executeFor = () => Promise.resolve({ operationId: "op-b" });
+    const { host, root, saves } = await renderSurface([unknownStart]);
+
+    expect(host.textContent).toContain(
+      'trash.startUnknown {"workspace":"Workspace space-b"}',
+    );
+    await act(async () => buttonStartingWith("trash.retry")?.click());
+
+    expect(executed).toEqual([
+      {
+        planId: "plan-b",
+        scopeToken: PERSISTED_PURGE_RETRY_TOKEN,
+        idempotencyKey: "key-b",
+      },
+    ]);
+    expect(saves).toEqual([
+      [
+        {
+          ...unknownStart,
+          status: "started",
+          operationId: "op-b",
+          error: null,
+        },
+      ],
+    ]);
+    expect(host.textContent).toContain('trash.running {"count":1}');
+    await act(async () => root.unmount());
+  });
+
+  it("says the start expired when the server never accepted that key", async () => {
+    executeFor = () =>
+      Promise.reject(
+        Object.assign(new Error("Purge plan or scope token is invalid"), {
+          status: 404,
+          errorCode: "invalid_scope",
+        }),
+      );
+    const { host, root, saves } = await renderSurface([unknownStart]);
+
+    await act(async () => buttonStartingWith("trash.retry")?.click());
+
+    expect(saves).toEqual([
+      [{ ...unknownStart, status: "failed", error: "trash.startExpired" }],
+    ]);
+    expect(host.textContent).toContain(
+      'trash.startDidNotStart {"workspace":"Workspace space-b","error":"trash.startExpired"}',
+    );
+    expect(buttonStartingWith("trash.retry")).toBeUndefined();
+    await act(async () => root.unmount());
+  });
+});
+
+function SurfaceHarness({
+  initial,
+  onSave,
+}: {
+  initial: ContentTrashPurgeStart[];
+  onSave: (starts: ContentTrashPurgeStart[]) => void;
+}) {
+  const [starts, setStarts] = useState(initial);
+  return (
+    <TrashOperationSurface
+      starts={starts}
+      stateError={false}
+      spaceName={(spaceId) => `Workspace ${spaceId}`}
+      onRetryState={() => {}}
+      onStartsChange={async (updates) => {
+        onSave(updates);
+        setStarts((current) => upsertTrashPurgeStarts(current, updates));
+      }}
+      onDismiss={() => setStarts([])}
+    />
+  );
+}
+
 function FocusHarness({
   label,
   request,
   hideTriggerOnAcknowledge = false,
   onAcknowledged,
+  onStartsChange = async () => {},
 }: {
   label: string;
   request: ContentTrashPurgeRequest;
   hideTriggerOnAcknowledge?: boolean;
-  onAcknowledged?: (operationIds: string[]) => void;
+  onAcknowledged?: () => void;
+  onStartsChange?: (starts: ContentTrashPurgeStart[]) => Promise<void>;
 }) {
   const [active, setActive] = useState<ContentTrashPurgeRequest | null>(null);
   const [showTrigger, setShowTrigger] = useState(true);
@@ -298,8 +621,9 @@ function FocusHarness({
         request={active}
         spaceName={(spaceId) => `Workspace ${spaceId}`}
         onClose={() => setActive(null)}
-        onAcknowledged={(operationIds) => {
-          onAcknowledged?.(operationIds);
+        onStartsChange={onStartsChange}
+        onAcknowledged={() => {
+          onAcknowledged?.();
           setActive(null);
           if (hideTriggerOnAcknowledge) setShowTrigger(false);
         }}

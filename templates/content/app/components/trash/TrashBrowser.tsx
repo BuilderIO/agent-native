@@ -7,6 +7,7 @@ import {
 import type { DataGridColumn } from "@agent-native/toolkit/data-grid";
 import type {
   ContentTrashItem,
+  ContentTrashPurgeSpace,
   ContentTrashWhere,
 } from "@shared/content-trash";
 import {
@@ -26,6 +27,7 @@ import { TrashDocumentPreview } from "@/components/editor/TrashDocumentPreview";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useRestoreContentDatabase } from "@/hooks/use-content-database";
 import { useContentSpaces } from "@/hooks/use-content-spaces";
 import {
   useContentTrash,
@@ -33,9 +35,10 @@ import {
   loadedTrashSelection,
   extendTrashSelection,
   nearestVisibleTrashRow,
-  readTrashOperationIds,
+  readTrashPurgeStarts,
   reconcileTrashBrowseFilters,
   isRestoreBusyError,
+  isTrashRevisionConflict,
   restoredTrashItemIds,
   selectedTrashItems,
   trashActionError,
@@ -43,21 +46,28 @@ import {
   trashEmptyRequest,
   trashFilterMembershipKey,
   trashMatchingFilters,
+  trashRestoreCollectionId,
   trashRestoreTargets,
   trashSelectionState,
   toggleVisibleTrashSelection,
-  useRestoreTrashItem,
+  upsertTrashPurgeStarts,
+  useContentTrashFilterOptions,
+  useContentTrashPurgeSpaces,
+  useRestoreTrashPage,
   useTrashContext,
   uniqueTrashItems,
   visibleTrashItems,
+  writeTrashContext,
   type ContentTrashFilters,
   type ContentTrashPurgeRequest,
+  type ContentTrashPurgeStart,
   type ContentTrashSelection,
   changeTrashSort,
 } from "@/hooks/use-content-trash";
 
 import { TrashOperationSurface, TrashPurgeDialog } from "./EmptyTrashDialog";
 import {
+  addTrashFilterOptions,
   collectTrashFilterOptions,
   trashFilterFields,
   trashWhereFromFilterState,
@@ -115,6 +125,8 @@ export function TrashBrowser({
     () => contentSpaces.data?.spaces ?? [],
     [contentSpaces.data],
   );
+  const purgeSpaces = useContentTrashPurgeSpaces();
+  const serverFilterOptions = useContentTrashFilterOptions();
   const filterFields = useMemo(
     () =>
       trashFilterFields(
@@ -163,19 +175,22 @@ export function TrashBrowser({
   const emptyTrashRef = useRef<HTMLButtonElement>(null);
   const deleteSelectionRef = useRef<HTMLButtonElement>(null);
   const purgeInvokerRef = useRef<HTMLElement | null>(null);
+  const activePurgeId = useRef<string | null>(null);
   const previousVisibleOrder = useRef<string[]>([]);
   const [previewId, setPreviewId] = useState(initialPreviewId ?? null);
   const [purgeRequest, setPurgeRequest] = useState<{
     id: string;
     request: ContentTrashPurgeRequest;
   } | null>(null);
-  const [trashOperationIds, setTrashOperationIds] = useState<
-    string[] | undefined
+  const [purgeStarts, setPurgeStarts] = useState<
+    ContentTrashPurgeStart[] | undefined
   >(undefined);
+  const purgeStartsRef = useRef<ContentTrashPurgeStart[]>([]);
   const [trashOperationStateError, setTrashOperationStateError] =
     useState(false);
   const query = useContentTrash(deferredFilters);
-  const restore = useRestoreTrashItem();
+  const restorePage = useRestoreTrashPage();
+  const restoreCollection = useRestoreContentDatabase();
   const items = useMemo(
     () =>
       uniqueTrashItems(query.data?.pages.flatMap((page) => page.items) ?? []),
@@ -196,13 +211,11 @@ export function TrashBrowser({
   );
   const activeFocusedId = focusedId ?? visibleIds[0] ?? null;
   const selected = selectedTrashItems(loadedItems, selectedIds);
-  const spaceIds = spaces.map((space) => space.id);
-  useTrashContext({
-    filters: deferredFilters,
-    selection,
-    previewId,
-    operationIds: trashOperationIds,
-  });
+  const purgeSpaceList = purgeSpaces.data?.spaces ?? [];
+  const trashContext = { filters: deferredFilters, selection, previewId };
+  const trashContextRef = useRef(trashContext);
+  trashContextRef.current = trashContext;
+  useTrashContext({ ...trashContext, purgeStarts });
 
   useEffect(() => setSelection(clearTrashSelection()), [filterMembershipKey]);
   useEffect(() => setPreviewId(initialPreviewId ?? null), [initialPreviewId]);
@@ -213,6 +226,13 @@ export function TrashBrowser({
       ),
     [loadedItems],
   );
+  useEffect(() => {
+    const response = serverFilterOptions.data;
+    if (response)
+      setFilterOptions((current) =>
+        addTrashFilterOptions(current, response, t("sidebar.untitled")),
+      );
+  }, [serverFilterOptions.data, t]);
 
   const showsFullPagePreview = fullPagePreview && Boolean(previewId);
   useLayoutEffect(() => {
@@ -231,18 +251,36 @@ export function TrashBrowser({
     return () => observer.disconnect();
   }, [showsFullPagePreview]);
 
-  async function loadTrashOperationIds() {
+  async function loadTrashPurgeStarts() {
     setTrashOperationStateError(false);
     try {
-      setTrashOperationIds(await readTrashOperationIds());
+      const starts = await readTrashPurgeStarts();
+      purgeStartsRef.current = starts;
+      setPurgeStarts(starts);
     } catch {
       setTrashOperationStateError(true);
     }
   }
 
   useEffect(() => {
-    void loadTrashOperationIds();
+    void loadTrashPurgeStarts();
   }, []);
+
+  function savePurgeStarts(updates: readonly ContentTrashPurgeStart[]) {
+    const next = upsertTrashPurgeStarts(purgeStartsRef.current, updates);
+    purgeStartsRef.current = next;
+    setPurgeStarts(next);
+    return writeTrashContext({
+      ...trashContextRef.current,
+      purgeStarts: next,
+    }).then(() => undefined);
+  }
+
+  function dismissPurgeStarts() {
+    purgeStartsRef.current = [];
+    setTrashOperationStateError(false);
+    setPurgeStarts([]);
+  }
 
   useEffect(() => {
     const nextFocus = nearestVisibleTrashRow(
@@ -322,38 +360,57 @@ export function TrashBrowser({
     setNestedItems({});
   }
 
+  async function restoreItem(item: ContentTrashItem) {
+    const databaseId = trashRestoreCollectionId(item);
+    if (databaseId) {
+      await restoreCollection.mutateAsync({ databaseId });
+      return {
+        restored: true,
+        ids: restoredTrashItemIds(item, loadedItems, null),
+      };
+    }
+    const result = await restorePage.mutateAsync({
+      id: item.documentId,
+      expectedTrashedAt: item.trashedAt,
+      idempotencyKey: crypto.randomUUID(),
+    });
+    return {
+      restored: result.receipt.outcome === "restored",
+      ids: restoredTrashItemIds(item, loadedItems, result),
+    };
+  }
+
   async function restoreItems(targets: ContentTrashItem[]) {
     if (!targets.length) return;
-    const targetIds = targets.map((item) => item.documentId);
-    setRestoringIds((current) => new Set([...current, ...targetIds]));
-    const restoredIds = new Set<string>();
+    setRestoringIds(
+      (current) =>
+        new Set([...current, ...targets.map((item) => item.documentId)]),
+    );
     let restoredCount = 0;
     let failure: unknown = null;
     for (const target of targets) {
       try {
-        await restore.mutateAsync({ id: target.documentId });
-        restoredCount += 1;
-        for (const id of restoredTrashItemIds(loadedItems, target.documentId))
-          restoredIds.add(id);
+        const { restored, ids } = await restoreItem(target);
+        if (restored) restoredCount += 1;
+        setSelection((current) =>
+          current.mode === "loaded"
+            ? loadedTrashSelection(
+                current.documentIds.filter((id) => !ids.has(id)),
+              )
+            : current,
+        );
+        if (previewId && ids.has(previewId)) {
+          setPreviewId(null);
+          void navigate("/trash");
+        }
       } catch (error) {
         failure ??= error;
       }
-    }
-    setRestoringIds((current) => {
-      const next = new Set(current);
-      for (const id of targetIds) next.delete(id);
-      return next;
-    });
-    setSelection((current) =>
-      current.mode === "loaded"
-        ? loadedTrashSelection(
-            current.documentIds.filter((id) => !restoredIds.has(id)),
-          )
-        : current,
-    );
-    if (previewId && restoredIds.has(previewId)) {
-      setPreviewId(null);
-      void navigate("/trash");
+      setRestoringIds((current) => {
+        const next = new Set(current);
+        next.delete(target.documentId);
+        return next;
+      });
     }
     if (restoredCount)
       toast.success(
@@ -365,29 +422,56 @@ export function TrashBrowser({
       toast.error(t("trash.restoreFailed"), {
         description: isRestoreBusyError(failure)
           ? t("trash.restoreBusy")
-          : trashActionError(failure, t("trash.restoreFailed")),
+          : isTrashRevisionConflict(failure)
+            ? t("trash.restoreConflict")
+            : trashActionError(failure, t("trash.restoreFailed")),
       });
   }
 
-  function openPurge(
-    request: ContentTrashPurgeRequest,
+  const purgeEmptyPending = purgeSpaces.isFetching && !purgeSpaces.data;
+
+  async function openPurgeWithSpaces(
+    build: (spaces: ContentTrashPurgeSpace[]) => ContentTrashPurgeRequest,
     invoker: HTMLElement | null,
   ) {
+    const loaded =
+      purgeSpaces.data?.spaces ?? (await purgeSpaces.refetch()).data?.spaces;
+    if (!loaded) {
+      toast.error(t("trash.workspacesFailed"));
+      return;
+    }
+    const id = crypto.randomUUID();
+    activePurgeId.current = id;
     purgeInvokerRef.current = invoker;
-    setPurgeRequest({ id: crypto.randomUUID(), request });
+    setPurgeRequest({ id, request: build(loaded) });
+  }
+
+  function closePurge(id: string | null) {
+    if (!id || activePurgeId.current !== id) return;
+    activePurgeId.current = null;
+    setPurgeRequest(null);
+  }
+
+  function spaceName(spaceId: string | null) {
+    return (
+      purgeSpaceList.find((space) => space.spaceId === spaceId)?.name ??
+      spaces.find((space) => space.id === spaceId)?.name ??
+      t("trash.unknownLocation")
+    );
   }
 
   function rowHandlers(item: ContentTrashItem) {
     return {
       onRestore: () => void restoreItems([item]),
-      onDelete: () =>
-        openPurge(
-          trashDeleteRequest(
-            loadedTrashSelection([item.documentId]),
-            loadedItems,
-            spaceIds,
-          ),
-          rowRefs.current.get(item.documentId) ?? null,
+      onDelete: (invoker: HTMLElement | null) =>
+        void openPurgeWithSpaces(
+          (loaded) =>
+            trashDeleteRequest(
+              loadedTrashSelection([item.documentId]),
+              loadedItems,
+              loaded,
+            ),
+          invoker,
         ),
       restoring: restoringIds.has(item.documentId),
     };
@@ -395,6 +479,8 @@ export function TrashBrowser({
 
   if (showsFullPagePreview && previewId)
     return <TrashDocumentPreview documentId={previewId} fullPage />;
+
+  const purgeRequestId = purgeRequest?.id ?? null;
 
   return (
     <div className="relative flex min-h-0 flex-1 overflow-hidden bg-background">
@@ -406,8 +492,9 @@ export function TrashBrowser({
           fields={filterFields}
           filterState={filterState}
           onFilterStateChange={updateFilterState}
+          emptyTrashPending={purgeEmptyPending}
           onEmptyTrash={() =>
-            openPurge(trashEmptyRequest(spaceIds), emptyTrashRef.current)
+            void openPurgeWithSpaces(trashEmptyRequest, emptyTrashRef.current)
           }
         />
         <div
@@ -429,8 +516,9 @@ export function TrashBrowser({
               }
               onClear={() => setSelection(clearTrashSelection())}
               onDelete={() =>
-                openPurge(
-                  trashDeleteRequest(selection, loadedItems, spaceIds),
+                void openPurgeWithSpaces(
+                  (loaded) =>
+                    trashDeleteRequest(selection, loadedItems, loaded),
                   deleteSelectionRef.current,
                 )
               }
@@ -552,6 +640,14 @@ export function TrashBrowser({
             )}
           />
         </div>
+        <TrashOperationSurface
+          starts={purgeStarts}
+          stateError={trashOperationStateError}
+          spaceName={spaceName}
+          onRetryState={() => void loadTrashPurgeStarts()}
+          onStartsChange={savePurgeStarts}
+          onDismiss={dismissPurgeStarts}
+        />
       </main>
       {previewId ? (
         <aside className="hidden min-w-0 flex-[0_0_48%] border-s lg:flex">
@@ -572,27 +668,19 @@ export function TrashBrowser({
       <TrashPurgeDialog
         key={purgeRequest?.id ?? "closed"}
         request={purgeRequest?.request ?? null}
-        spaceName={(spaceId) =>
-          spaces.find((space) => space.id === spaceId)?.name ??
-          t("trash.unknownLocation")
-        }
-        onClose={() => setPurgeRequest(null)}
+        spaceName={spaceName}
+        onClose={() => closePurge(purgeRequestId)}
+        onStartsChange={savePurgeStarts}
         returnFocus={() =>
           purgeInvokerRef.current?.isConnected
             ? purgeInvokerRef.current
-            : (rowRefs.current.get(focusedId ?? "") ?? emptyTrashRef.current)
+            : emptyTrashRef.current
         }
-        onAcknowledged={(operationIds) => {
-          setTrashOperationIds(operationIds);
-          setPurgeRequest(null);
+        onAcknowledged={() => {
+          if (activePurgeId.current !== purgeRequestId) return;
+          closePurge(purgeRequestId);
           setSelection(clearTrashSelection());
         }}
-      />
-      <TrashOperationSurface
-        operationIds={trashOperationIds}
-        stateError={trashOperationStateError}
-        onRetryState={() => void loadTrashOperationIds()}
-        onDismiss={() => setTrashOperationIds([])}
       />
     </div>
   );
@@ -600,7 +688,7 @@ export function TrashBrowser({
 
 type TrashRowHandlers = (item: ContentTrashItem) => {
   onRestore: () => void;
-  onDelete: () => void;
+  onDelete: (invoker: HTMLElement | null) => void;
   restoring: boolean;
 };
 

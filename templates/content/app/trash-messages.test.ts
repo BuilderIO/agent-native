@@ -44,12 +44,18 @@ describe("trash messages", () => {
       expect(messages.workspaceScopeCounts).toContain("{{blocked}}");
       expect(messages.workspaceError).toContain("{{workspace}}");
       expect(messages.workspaceError).toContain("{{error}}");
-      expect(messages.completedWithRemaining).toContain("{{deleted}}");
-      expect(messages.completedWithRemaining).toContain("{{remains}}");
       expect(messages.partiallyCompleted).toContain("{{deleted}}");
-      expect(messages.partiallyCompleted).toContain("{{remains}}");
+      expect(messages.partiallyCompleted).toContain("{{blocked}}");
       expect(messages.conflicted).toContain("{{deleted}}");
-      expect(messages.conflicted).toContain("{{remains}}");
+      expect(messages.conflicted).toContain("{{conflicted}}");
+      for (const key of [
+        "cannotPurgeWorkspace",
+        "startStarted",
+        "startUnknown",
+        "startDidNotStart",
+      ])
+        expect(messages[key]).toContain("{{workspace}}");
+      expect(messages.startDidNotStart).toContain("{{error}}");
       expect(messages.blockedItem).toContain("{{reason}}");
       expect(messages.survivorEffect).toContain("{{effect}}");
       expect(messages.outcome).toContain("{{outcome}}");

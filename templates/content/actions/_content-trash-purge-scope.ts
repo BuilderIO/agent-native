@@ -1,8 +1,11 @@
-import { fail } from "@agent-native/core/action";
-import { eq, inArray } from "drizzle-orm";
+import { fail, isActionContractError } from "@agent-native/core/action";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
-import { resolveContentSpaceAccess } from "./_content-space-access.js";
+import {
+  listContentOrganizationMemberships,
+  resolveContentSpaceAccess,
+} from "./_content-space-access.js";
 
 type ScopeResource = {
   ownerEmail: string;
@@ -57,6 +60,46 @@ export async function resolveTrashPurgeProvenance(
     orgId: spaces[0]!.orgId,
     spaceId: spaces.length === 1 ? spaces[0]!.id : null,
   };
+}
+
+export async function listTrashPurgeSpaces(email: string) {
+  const memberships = await listContentOrganizationMemberships(email);
+  const space = schema.contentSpaces;
+  const spaces = await getDb()
+    .select({ id: space.id, name: space.name })
+    .from(space)
+    .where(
+      and(
+        isNull(space.archivedAt),
+        or(
+          and(
+            isNull(space.orgId),
+            sql`lower(${space.ownerEmail}) = ${email.toLowerCase()}`,
+          ),
+          memberships.length
+            ? inArray(
+                space.orgId,
+                memberships.map((item) => item.orgId),
+              )
+            : sql`false`,
+        ),
+      ),
+    )
+    .orderBy(asc(space.name), asc(space.id));
+  const result: Array<{ spaceId: string; name: string; canPurge: boolean }> =
+    [];
+  for (const { id, name } of spaces) {
+    let canPurge = true;
+    try {
+      await resolveContentSpaceAccess(id, "editor");
+    } catch (error) {
+      if (!isActionContractError(error) || error.errorCode !== "FORBIDDEN")
+        throw error;
+      canPurge = false;
+    }
+    result.push({ spaceId: id, name, canPurge });
+  }
+  return result;
 }
 
 export async function assertTrashPurgePlanAuthority(planId: string) {

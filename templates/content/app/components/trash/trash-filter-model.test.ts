@@ -6,6 +6,7 @@ import type { ContentTrashItem } from "@shared/content-trash";
 import { describe, expect, it } from "vitest";
 
 import {
+  addTrashFilterOptions,
   collectTrashFilterOptions,
   trashFilterFields,
   trashWhereFromFilterState,
@@ -176,5 +177,38 @@ describe("Trash filter chips", () => {
       { id: "bo@example.com", label: "Bo" },
     ]);
     expect(next.locations).toEqual([{ id: "parent-1", label: "Roadmap" }]);
+  });
+
+  it("adds people and locations from rows that are not loaded", () => {
+    const loaded = {
+      people: [{ id: "ana@example.com", label: "Ana" }],
+      locations: [{ id: "parent-1", label: "Roadmap" }],
+    };
+
+    const next = addTrashFilterOptions(
+      loaded,
+      {
+        people: [
+          { email: "ana@example.com", name: null },
+          { email: "cy@example.com", name: "Cy" },
+          { email: "di@example.com", name: null },
+        ],
+        locations: [
+          { id: "parent-1", title: "Renamed" },
+          { id: "nested-parent", title: "" },
+        ],
+      },
+      "Untitled",
+    );
+
+    expect(next.people).toEqual([
+      { id: "ana@example.com", label: "Ana" },
+      { id: "cy@example.com", label: "Cy" },
+      { id: "di@example.com", label: "di@example.com" },
+    ]);
+    expect(next.locations).toEqual([
+      { id: "parent-1", label: "Roadmap" },
+      { id: "nested-parent", label: "Untitled" },
+    ]);
   });
 });

@@ -24,6 +24,7 @@ let getPlan: typeof import("./get-content-trash-purge-plan.js").default;
 let getOperation: typeof import("./get-content-trash-operation.js").default;
 let executePurge: typeof import("./execute-content-trash-purge.js").default;
 let permanentlyDeleteDocument: typeof import("./permanently-delete-document.js").default;
+let listPurgeSpaces: typeof import("./list-content-trash-purge-spaces.js").default;
 
 const asOwner = <T>(run: () => Promise<T>) =>
   runWithRequestContext({ userEmail: OWNER }, run);
@@ -42,6 +43,8 @@ beforeAll(async () => {
   getOperation = (await import("./get-content-trash-operation.js")).default;
   executePurge = (await import("./execute-content-trash-purge.js")).default;
   permanentlyDeleteDocument = (await import("./permanently-delete-document.js"))
+    .default;
+  listPurgeSpaces = (await import("./list-content-trash-purge-spaces.js"))
     .default;
   await (await import("../server/plugins/db.js")).default(undefined as any);
   const now = new Date().toISOString();
@@ -916,5 +919,158 @@ describe("Content Trash purge", () => {
           idempotencyKey: "second",
         }),
     ).rejects.toThrow();
+  });
+});
+
+describe("Content Trash purge across workspaces", () => {
+  const VIEWER_ORG_ID = "purge-viewer-org";
+  const VIEWER_SPACE_ID = "purge-viewer-space";
+  const VIEWER_ADMIN = "viewer-admin@example.test";
+
+  const planItemIds = async (planId: string) =>
+    (
+      await getDb()
+        .select({ documentId: schema.contentTrashPurgePlanItems.documentId })
+        .from(schema.contentTrashPurgePlanItems)
+        .where(eq(schema.contentTrashPurgePlanItems.planId, planId))
+    )
+      .map((item: { documentId: string }) => item.documentId)
+      .sort();
+
+  beforeAll(async () => {
+    await getDbExec().execute({
+      sql: "DELETE FROM org_members WHERE id = $1",
+      args: ["purge-org-owner"],
+    });
+    await getDbExec().execute({
+      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
+      args: ["purge-org-owner", ORG_ID, OWNER, "owner", Date.now()],
+    });
+    await getDbExec().execute({
+      sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES ($1, $2, $3, $4)",
+      args: [VIEWER_ORG_ID, "Viewer Org", VIEWER_ADMIN, Date.now()],
+    });
+    for (const [id, email, role] of [
+      ["viewer-org-admin", VIEWER_ADMIN, "owner"],
+      ["viewer-org-member", OWNER, "member"],
+    ]) {
+      await getDbExec().execute({
+        sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES ($1, $2, $3, $4, $5)",
+        args: [id, VIEWER_ORG_ID, email, role, Date.now()],
+      });
+    }
+    const now = new Date().toISOString();
+    await getDb().insert(schema.contentSpaces).values({
+      id: VIEWER_SPACE_ID,
+      name: "Viewer Org",
+      kind: "organization",
+      ownerEmail: VIEWER_ADMIN,
+      orgId: VIEWER_ORG_ID,
+      filesDatabaseId: "purge-viewer-files",
+      createdBy: VIEWER_ADMIN,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await insertTrashed("viewer-owned-page", "viewer-owned-page", {
+      spaceId: VIEWER_SPACE_ID,
+      orgId: VIEWER_ORG_ID,
+    });
+    await insertTrashed("editor-workspace-page", "editor-workspace-page", {
+      spaceId: ORG_SPACE_ID,
+      orgId: ORG_ID,
+    });
+  });
+
+  it("says which workspaces the caller can empty, and scope plans succeed only there", async () => {
+    const { spaces } = await asOwner(() => listPurgeSpaces.run({}));
+    expect(spaces).toHaveLength(3);
+    expect(spaces).toEqual(
+      expect.arrayContaining([
+        { spaceId: SPACE_ID, name: "Purge", canPurge: true },
+        { spaceId: ORG_SPACE_ID, name: "Purge Org", canPurge: true },
+        { spaceId: VIEWER_SPACE_ID, name: "Viewer Org", canPurge: false },
+      ]),
+    );
+
+    const personal = await asOwner(() =>
+      planPurge.run({ mode: "scope", spaceId: SPACE_ID }),
+    );
+    expect(personal.eligibleCount).toBeGreaterThan(0);
+    const editor = await asOwner(() =>
+      planPurge.run({ mode: "scope", spaceId: ORG_SPACE_ID }),
+    );
+    expect(await planItemIds(editor.planId)).toContain("editor-workspace-page");
+    await expect(
+      asOwner(() => planPurge.run({ mode: "scope", spaceId: VIEWER_SPACE_ID })),
+    ).rejects.toMatchObject({ errorCode: "invalid_scope" });
+  });
+
+  it("reads back a scope plan and its running operation from a workspace that is not the active one", async () => {
+    const inViewerOrg = <T>(run: () => Promise<T>) =>
+      runWithRequestContext({ userEmail: OWNER, orgId: VIEWER_ORG_ID }, run);
+    const plan = await inViewerOrg(() =>
+      planPurge.run({ mode: "scope", spaceId: ORG_SPACE_ID }),
+    );
+
+    const read = await inViewerOrg(() =>
+      getPlan.run({ planId: plan.planId, limit: 100 }),
+    );
+    expect(read.items.map((item) => item.documentId)).toContain(
+      "editor-workspace-page",
+    );
+
+    const operationId = crypto.randomUUID();
+    await getDb().insert(schema.contentTrashPurgeOperations).values({
+      id: operationId,
+      planId: plan.planId,
+      actorEmail: OWNER,
+      orgId: ORG_ID,
+      idempotencyKey: "cross-workspace-running",
+      status: "running",
+      eligibleCount: plan.eligibleCount,
+    });
+    await expect(
+      inViewerOrg(() => getOperation.run({ operationId, limit: 100 })),
+    ).resolves.toEqual(expect.objectContaining({ operationId }));
+  });
+
+  it("ignores where in a scope plan and applies it in a matching plan", async () => {
+    for (const [id, createdBy] of [
+      ["where-kept", "where-creator@example.test"],
+      ["where-other", "someone-else@example.test"],
+    ]) {
+      await insertTrashed(id, id, {
+        spaceId: ORG_SPACE_ID,
+        orgId: ORG_ID,
+        createdBy,
+      });
+    }
+    const where = {
+      mode: "and",
+      items: [{ field: "createdBy", values: ["where-creator@example.test"] }],
+    };
+
+    const matching = await asOwner(() =>
+      planPurge.run(
+        planPurge.schema.parse({
+          mode: "matching",
+          filters: { spaceId: ORG_SPACE_ID, where },
+        }),
+      ),
+    );
+    expect(await planItemIds(matching.planId)).toEqual(["where-kept"]);
+
+    const scope = await asOwner(() =>
+      planPurge.run(
+        planPurge.schema.parse({
+          mode: "scope",
+          spaceId: ORG_SPACE_ID,
+          filters: { where },
+        }),
+      ),
+    );
+    expect(await planItemIds(scope.planId)).toEqual(
+      expect.arrayContaining(["where-kept", "where-other"]),
+    );
   });
 });

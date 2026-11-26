@@ -378,12 +378,19 @@ Permanent deletion requires the exact `planId` and `scopeToken` returned by
 `plan-content-trash-purge`. Inspect the plan's affected and blocked items before
 executing it; if Trash changes after review, create and inspect a new plan.
 
-`list-content-trash` and a scope-mode plan take the Trash page's filter chips as
-`where`: people, workspace, location, type, and a deleted date range, combined
-with `and` or `or`. One plan holds one workspace's pages, so emptying Trash or
-deleting a selection that spans workspaces plans once per workspace. The
-`content-trash` application state stores the chips as `where` and one purge
-operation id per workspace.
+`list-content-trash` and a matching-mode plan (`filters.where`) take the Trash
+page's filter chips as `where`: people, workspace, location, type, and a deleted
+date range, combined with `and` or `or`. A scope-mode plan ignores filters,
+`where` included, and covers the workspace's whole Trash. One plan holds one
+workspace's pages, so emptying Trash or deleting a selection that spans
+workspaces plans once per workspace. A plan fails with `invalid_scope` in a
+workspace where you are only a viewer, even for pages you own there.
+
+The `content-trash` application state stores the chips as `where` and one
+`purgeStarts` record per planned workspace: plan id, idempotency key, status
+(`started`, `failed`, or `unknown`), and operation id once known. `unknown`
+means the start request may have been accepted. Executing the same plan with
+the same key returns the original operation instead of starting another.
 
 ## Comments
 

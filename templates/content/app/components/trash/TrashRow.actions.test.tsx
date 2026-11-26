@@ -164,6 +164,17 @@ describe("Trash row actions", () => {
     expect(document.activeElement).toBe(dialogButton);
   });
 
+  it("hands its ⋯ trigger to Delete permanently, so the dialog can give focus back to it", async () => {
+    const { host, handlers } = await renderRow();
+
+    await chooseMenuItem(host, "trash.deletePermanently");
+    await vi.waitFor(() => expect(handlers.onDelete).toHaveBeenCalledTimes(1));
+
+    expect(handlers.onDelete).toHaveBeenCalledWith(
+      host.querySelector('button[aria-label="trash.rowActions"]'),
+    );
+  });
+
   it("disables what the row does not allow", async () => {
     const { host } = await renderRow({
       ...item,

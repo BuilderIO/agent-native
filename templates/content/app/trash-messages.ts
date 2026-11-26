@@ -55,6 +55,8 @@ const en = {
   previewUnavailable: "Preview unavailable",
   restoreFailed: "Could not restore Page",
   restoreBusy: "A Collection kept changing while restoring. Try again.",
+  restoreConflict:
+    "This Page changed in Trash after it loaded. Refresh and try again.",
   deleteFailed: "Could not permanently delete Page",
   restored: "Page restored",
   restoredCount_one: "{{count}} Page restored",
@@ -65,7 +67,19 @@ const en = {
     "This permanently deletes every Page you can manage in Trash, in all your workspaces. Search and filters do not limit it. This cannot be undone.",
   planning: "Preparing exact scope...",
   planFailed: "Could not prepare Empty Trash",
-  startFailed: "The purge was not started. Retry to check its saved state.",
+  startFailed: "Permanent deletion could not start.",
+  cannotPurgeWorkspace:
+    "{{workspace}}: You cannot permanently delete Pages in this workspace",
+  startStarted: "{{workspace}}: Deletion started",
+  startUnknown:
+    "{{workspace}}: Could not confirm the deletion started. Retry to check.",
+  startDidNotStart: "{{workspace}}: Not started. {{error}}",
+  startExpired: "This review expired. Review the deletion again.",
+  startRecordFailed:
+    "Could not save deletion progress, so nothing was started.",
+  startProgressUnsaved:
+    "Could not save deletion progress. Keep this page open to follow it.",
+  workspacesFailed: "Could not load your workspaces",
   statusFailed: "Could not load purge progress",
   operationStateFailed: "Could not restore the saved purge state",
   scopeCounts: "{{eligible}} eligible, {{blocked}} blocked",
@@ -79,15 +93,15 @@ const en = {
   completed_other: "{{count}} Pages permanently deleted",
   retryable: "The saved purge is paused and can be retried.",
   failed: "The purge failed. Trash was not reported as empty.",
-  completedWithRemaining: "{{deleted}} deleted, {{remains}} remain in Trash",
   partiallyCompleted:
-    "Partially completed: {{deleted}} deleted, {{remains}} remain",
-  conflicted: "Scope changed: {{deleted}} deleted, {{remains}} remain",
+    "{{deleted}} deleted; {{blocked}} blocked and kept in Trash",
+  conflicted:
+    "{{deleted}} deleted; {{conflicted}} changed after review and kept in Trash",
   moreAffected: "More affected pages are not shown",
   loadingScope: "Loading deletion scope",
   scopeFailed: "Could not load deletion scope",
   scopeTooLarge:
-    "This deletion plan is too large to review safely. Close this dialog and empty a smaller scope.",
+    "This plan has more Pages than can be reviewed here. Filter Trash and delete the matching Pages in smaller batches.",
   loadMoreScope: "Load more scope",
   loadingMore: "Loading more...",
   blockedItem: "Blocked: {{reason}}",
@@ -172,6 +186,8 @@ const translations: Record<
     restoreFailed: "No se pudo restaurar la página",
     restoreBusy:
       "Una colección siguió cambiando durante la restauración. Inténtalo de nuevo.",
+    restoreConflict:
+      "Esta página cambió en la papelera después de cargarse. Actualiza e inténtalo de nuevo.",
     deleteFailed: "No se pudo eliminar la página permanentemente",
     restored: "Página restaurada",
     restoredCount_one: "{{count}} página restaurada",
@@ -183,7 +199,19 @@ const translations: Record<
       "Se eliminarán permanentemente todas las páginas que puedes administrar en la papelera, en todos tus espacios de trabajo. La búsqueda y los filtros no la limitan. Esta acción no se puede deshacer.",
     planning: "Preparando el alcance exacto...",
     planFailed: "No se pudo preparar el vaciado",
-    startFailed: "No se inicio el vaciado. Reintenta para comprobarlo.",
+    startFailed: "No se pudo iniciar la eliminación permanente.",
+    cannotPurgeWorkspace:
+      "{{workspace}}: No puedes eliminar páginas permanentemente en este espacio de trabajo",
+    startStarted: "{{workspace}}: Eliminación iniciada",
+    startUnknown:
+      "{{workspace}}: No se pudo confirmar que la eliminación empezara. Reintenta para comprobarlo.",
+    startDidNotStart: "{{workspace}}: No se inició. {{error}}",
+    startExpired: "Esta revisión caducó. Vuelve a revisar la eliminación.",
+    startRecordFailed:
+      "No se pudo guardar el progreso de la eliminación, así que no se inició nada.",
+    startProgressUnsaved:
+      "No se pudo guardar el progreso de la eliminación. Mantén esta página abierta para seguirlo.",
+    workspacesFailed: "No se pudieron cargar tus espacios de trabajo",
     statusFailed: "No se pudo cargar el progreso",
     operationStateFailed: "No se pudo recuperar el estado guardado",
     scopeCounts: "{{eligible}} aptas, {{blocked}} bloqueadas",
@@ -199,17 +227,15 @@ const translations: Record<
     completed_other: "{{count}} páginas eliminadas permanentemente",
     retryable: "El vaciado guardado esta en pausa y se puede reintentar.",
     failed: "El vaciado fallo. La papelera no se marco como vacia.",
-    completedWithRemaining:
-      "{{deleted}} eliminadas, {{remains}} siguen en la papelera",
     partiallyCompleted:
-      "Completado parcialmente: {{deleted}} eliminadas, {{remains}} restantes",
+      "{{deleted}} eliminadas; {{blocked}} bloqueadas y conservadas en la papelera",
     conflicted:
-      "El alcance cambio: {{deleted}} eliminadas, {{remains}} restantes",
+      "{{deleted}} eliminadas; {{conflicted}} cambiaron tras la revisión y siguen en la papelera",
     moreAffected: "No se muestran mas paginas afectadas",
     loadingScope: "Cargando el alcance de eliminación",
     scopeFailed: "No se pudo cargar el alcance de eliminación",
     scopeTooLarge:
-      "Este plan de eliminación es demasiado grande para revisarlo de forma segura. Cierra este diálogo y vacía un ámbito más pequeño.",
+      "Este plan tiene más páginas de las que se pueden revisar aquí. Filtra la papelera y elimina las páginas coincidentes en lotes más pequeños.",
     loadMoreScope: "Cargar más alcance",
     loadingMore: "Cargando más...",
     blockedItem: "Bloqueada: {{reason}}",
@@ -289,6 +315,8 @@ const translations: Record<
     restoreFailed: "Impossible de restaurer la page",
     restoreBusy:
       "Une collection a continué de changer pendant la restauration. Réessayez.",
+    restoreConflict:
+      "Cette page a changé dans la corbeille après son chargement. Actualisez et réessayez.",
     deleteFailed: "Impossible de supprimer définitivement la page",
     restored: "Page restaurée",
     restoredCount_one: "{{count}} page restaurée",
@@ -300,7 +328,20 @@ const translations: Record<
       "Supprime définitivement toutes les pages que vous pouvez gérer dans la corbeille, dans tous vos espaces de travail. La recherche et les filtres ne la limitent pas. Cette action est irréversible.",
     planning: "Préparation de la portée exacte...",
     planFailed: "Impossible de preparer le vidage",
-    startFailed: "Le vidage n'a pas demarre. Reessayez pour le verifier.",
+    startFailed: "La suppression définitive n'a pas pu démarrer.",
+    cannotPurgeWorkspace:
+      "{{workspace}} : vous ne pouvez pas supprimer définitivement de pages dans cet espace de travail",
+    startStarted: "{{workspace}} : suppression lancée",
+    startUnknown:
+      "{{workspace}} : impossible de confirmer le lancement de la suppression. Réessayez pour vérifier.",
+    startDidNotStart: "{{workspace}} : non lancée. {{error}}",
+    startExpired:
+      "Cette vérification a expiré. Vérifiez à nouveau la suppression.",
+    startRecordFailed:
+      "Impossible d'enregistrer la progression de la suppression : rien n'a été lancé.",
+    startProgressUnsaved:
+      "Impossible d'enregistrer la progression de la suppression. Gardez cette page ouverte pour la suivre.",
+    workspacesFailed: "Impossible de charger vos espaces de travail",
     statusFailed: "Impossible de charger la progression",
     operationStateFailed: "Impossible de restaurer l'etat enregistre",
     scopeCounts: "{{eligible}} eligibles, {{blocked}} bloquees",
@@ -316,17 +357,15 @@ const translations: Record<
     completed_other: "{{count}} pages supprimées définitivement",
     retryable: "Le vidage enregistre est en pause et peut etre relance.",
     failed: "Le vidage a echoue. La corbeille n'est pas declaree vide.",
-    completedWithRemaining:
-      "{{deleted}} supprimees, {{remains}} restent dans la corbeille",
     partiallyCompleted:
-      "Partiellement termine: {{deleted}} supprimees, {{remains}} restantes",
+      "{{deleted}} supprimées ; {{blocked}} bloquées et conservées dans la corbeille",
     conflicted:
-      "Le perimetre a change: {{deleted}} supprimees, {{remains}} restantes",
+      "{{deleted}} supprimées ; {{conflicted}} modifiées après vérification et conservées dans la corbeille",
     moreAffected: "D'autres pages affectees ne sont pas affichees",
     loadingScope: "Chargement du périmètre de suppression",
     scopeFailed: "Impossible de charger le périmètre de suppression",
     scopeTooLarge:
-      "Ce plan de suppression est trop volumineux pour être vérifié en toute sécurité. Fermez cette boîte de dialogue et videz un périmètre plus restreint.",
+      "Ce plan contient plus de pages que ce qui peut être vérifié ici. Filtrez la corbeille et supprimez les pages correspondantes par lots plus petits.",
     loadMoreScope: "Charger plus d'éléments",
     loadingMore: "Chargement...",
     blockedItem: "Bloqué : {{reason}}",
@@ -404,6 +443,8 @@ const translations: Record<
     restoreFailed: "Seite konnte nicht wiederhergestellt werden",
     restoreBusy:
       "Eine Sammlung hat sich während der Wiederherstellung weiter geändert. Erneut versuchen.",
+    restoreConflict:
+      "Diese Seite hat sich nach dem Laden im Papierkorb geändert. Aktualisieren und erneut versuchen.",
     deleteFailed: "Seite konnte nicht endgültig gelöscht werden",
     restored: "Seite wiederhergestellt",
     restoredCount_one: "{{count}} Seite wiederhergestellt",
@@ -414,8 +455,19 @@ const translations: Record<
       "Alle verwaltbaren Seiten im Papierkorb werden in allen Arbeitsbereichen endgültig gelöscht. Suche und Filter schränken diesen Vorgang nicht ein. Dies kann nicht rückgängig gemacht werden.",
     planning: "Genauer Umfang wird vorbereitet...",
     planFailed: "Leeren konnte nicht vorbereitet werden",
-    startFailed:
-      "Leeren wurde nicht gestartet. Erneut versuchen, um den Status zu prufen.",
+    startFailed: "Endgültiges Löschen konnte nicht gestartet werden.",
+    cannotPurgeWorkspace:
+      "{{workspace}}: Keine Berechtigung, in diesem Arbeitsbereich Seiten endgültig zu löschen",
+    startStarted: "{{workspace}}: Löschen gestartet",
+    startUnknown:
+      "{{workspace}}: Nicht bestätigt, ob das Löschen begonnen hat. Zum Prüfen erneut versuchen.",
+    startDidNotStart: "{{workspace}}: Nicht gestartet. {{error}}",
+    startExpired: "Diese Prüfung ist abgelaufen. Löschen erneut prüfen.",
+    startRecordFailed:
+      "Der Löschfortschritt konnte nicht gespeichert werden, daher wurde nichts gestartet.",
+    startProgressUnsaved:
+      "Der Löschfortschritt konnte nicht gespeichert werden. Diese Seite geöffnet lassen, um ihn zu verfolgen.",
+    workspacesFailed: "Arbeitsbereiche konnten nicht geladen werden",
     statusFailed: "Fortschritt konnte nicht geladen werden",
     operationStateFailed: "Der gespeicherte Status konnte nicht geladen werden",
     scopeCounts: "{{eligible}} loschbar, {{blocked}} blockiert",
@@ -430,16 +482,15 @@ const translations: Record<
     retryable:
       "Der gespeicherte Loschvorgang pausiert und kann wiederholt werden.",
     failed: "Loschen fehlgeschlagen. Der Papierkorb gilt nicht als leer.",
-    completedWithRemaining:
-      "{{deleted}} geloscht, {{remains}} verbleiben im Papierkorb",
     partiallyCompleted:
-      "Teilweise abgeschlossen: {{deleted}} geloscht, {{remains}} verbleiben",
-    conflicted: "Umfang geandert: {{deleted}} geloscht, {{remains}} verbleiben",
+      "{{deleted}} gelöscht; {{blocked}} blockiert und im Papierkorb behalten",
+    conflicted:
+      "{{deleted}} gelöscht; {{conflicted}} nach der Prüfung geändert und im Papierkorb behalten",
     moreAffected: "Weitere betroffene Seiten werden nicht angezeigt",
     loadingScope: "Löschumfang wird geladen",
     scopeFailed: "Löschumfang konnte nicht geladen werden",
     scopeTooLarge:
-      "Dieser Löschplan ist zu groß, um ihn sicher zu prüfen. Schließen Sie diesen Dialog und leeren Sie einen kleineren Bereich.",
+      "Dieser Plan enthält mehr Seiten, als hier geprüft werden können. Papierkorb filtern und die passenden Seiten in kleineren Gruppen löschen.",
     loadMoreScope: "Mehr Umfang laden",
     loadingMore: "Weitere werden geladen...",
     blockedItem: "Blockiert: {{reason}}",
@@ -518,6 +569,8 @@ const translations: Record<
     restoreFailed: "Não foi possível restaurar a página",
     restoreBusy:
       "Uma coleção continuou mudando durante a restauração. Tente novamente.",
+    restoreConflict:
+      "Esta página mudou na lixeira depois de carregar. Atualize e tente novamente.",
     deleteFailed: "Não foi possível excluir a página permanentemente",
     restored: "Página restaurada",
     restoredCount_one: "{{count}} página restaurada",
@@ -529,7 +582,19 @@ const translations: Record<
       "Exclui permanentemente todas as páginas gerenciáveis da lixeira, em todos os seus espaços de trabalho. A busca e os filtros não limitam esta operação. Não é possível desfazer.",
     planning: "Preparando o escopo exato...",
     planFailed: "Nao foi possivel preparar o esvaziamento",
-    startFailed: "O esvaziamento nao iniciou. Tente novamente para verificar.",
+    startFailed: "Não foi possível iniciar a exclusão permanente.",
+    cannotPurgeWorkspace:
+      "{{workspace}}: Você não pode excluir páginas permanentemente neste espaço de trabalho",
+    startStarted: "{{workspace}}: Exclusão iniciada",
+    startUnknown:
+      "{{workspace}}: Não foi possível confirmar se a exclusão começou. Tente novamente para verificar.",
+    startDidNotStart: "{{workspace}}: Não iniciada. {{error}}",
+    startExpired: "Esta revisão expirou. Revise a exclusão novamente.",
+    startRecordFailed:
+      "Não foi possível salvar o progresso da exclusão, então nada foi iniciado.",
+    startProgressUnsaved:
+      "Não foi possível salvar o progresso da exclusão. Mantenha esta página aberta para acompanhá-lo.",
+    workspacesFailed: "Não foi possível carregar seus espaços de trabalho",
     statusFailed: "Nao foi possivel carregar o progresso",
     operationStateFailed: "Nao foi possivel restaurar o estado salvo",
     scopeCounts: "{{eligible}} elegiveis, {{blocked}} bloqueadas",
@@ -545,16 +610,15 @@ const translations: Record<
     completed_other: "{{count}} páginas excluídas permanentemente",
     retryable: "O esvaziamento salvo esta pausado e pode ser retomado.",
     failed: "O esvaziamento falhou. A lixeira nao foi indicada como vazia.",
-    completedWithRemaining:
-      "{{deleted}} excluidas, {{remains}} permanecem na lixeira",
     partiallyCompleted:
-      "Parcialmente concluido: {{deleted}} excluidas, {{remains}} restantes",
-    conflicted: "O escopo mudou: {{deleted}} excluidas, {{remains}} restantes",
+      "{{deleted}} excluídas; {{blocked}} bloqueadas e mantidas na lixeira",
+    conflicted:
+      "{{deleted}} excluídas; {{conflicted}} mudaram após a revisão e foram mantidas na lixeira",
     moreAffected: "Outras paginas afetadas nao sao exibidas",
     loadingScope: "Carregando o escopo da exclusão",
     scopeFailed: "Não foi possível carregar o escopo da exclusão",
     scopeTooLarge:
-      "Este plano de exclusão é grande demais para uma revisão segura. Feche esta caixa de diálogo e esvazie um escopo menor.",
+      "Este plano tem mais páginas do que é possível revisar aqui. Filtre a lixeira e exclua as páginas correspondentes em lotes menores.",
     loadMoreScope: "Carregar mais itens do escopo",
     loadingMore: "Carregando mais...",
     blockedItem: "Bloqueada: {{reason}}",
@@ -629,6 +693,7 @@ const translations: Record<
     previewUnavailable: "无法预览",
     restoreFailed: "无法恢复页面",
     restoreBusy: "恢复期间集合仍在变化。请重试。",
+    restoreConflict: "此页面加载后在回收站中发生了变化。请刷新后重试。",
     deleteFailed: "无法永久删除页面",
     restored: "页面已恢复",
     restoredCount_other: "已恢复 {{count}} 个页面",
@@ -638,7 +703,15 @@ const translations: Record<
       "这会永久删除你所有工作区回收站中可管理的页面。搜索和筛选不会限制此操作。此操作无法撤销。",
     planning: "正在准备准确范围...",
     planFailed: "无法准备清空回收站",
-    startFailed: "清空操作未启动。请重试以检查保存的状态。",
+    startFailed: "无法开始永久删除。",
+    cannotPurgeWorkspace: "{{workspace}}：你无法在此工作区永久删除页面",
+    startStarted: "{{workspace}}：已开始删除",
+    startUnknown: "{{workspace}}：无法确认删除是否已开始。请重试以检查。",
+    startDidNotStart: "{{workspace}}：未开始。{{error}}",
+    startExpired: "此次审核已过期。请重新审核删除。",
+    startRecordFailed: "无法保存删除进度，因此未开始任何操作。",
+    startProgressUnsaved: "无法保存删除进度。请保持此页面打开以跟踪进度。",
+    workspacesFailed: "无法加载你的工作区",
     statusFailed: "无法加载清空进度",
     operationStateFailed: "无法恢复已保存的清空状态",
     scopeCounts: "{{eligible}} 项可删除，{{blocked}} 项受阻",
@@ -650,14 +723,15 @@ const translations: Record<
     completed_other: "已永久删除 {{count}} 个页面",
     retryable: "已保存的清空操作已暂停，可以重试。",
     failed: "清空失败。回收站不会显示为空。",
-    completedWithRemaining: "已删除 {{deleted}} 项，回收站仍有 {{remains}} 项",
-    partiallyCompleted: "部分完成：已删除 {{deleted}} 项，剩余 {{remains}} 项",
-    conflicted: "范围已变化：已删除 {{deleted}} 项，剩余 {{remains}} 项",
+    partiallyCompleted:
+      "已删除 {{deleted}} 项；{{blocked}} 项受阻，仍保留在回收站",
+    conflicted:
+      "已删除 {{deleted}} 项；{{conflicted}} 项在审核后发生变化，仍保留在回收站",
     moreAffected: "未显示其他受影响页面",
     loadingScope: "正在加载删除范围",
     scopeFailed: "无法加载删除范围",
     scopeTooLarge:
-      "此删除计划过大，无法安全审查。请关闭此对话框并清空较小的范围。",
+      "此计划包含的页面超出此处可审核的数量。请筛选回收站，并分小批删除匹配的页面。",
     loadMoreScope: "加载更多范围",
     loadingMore: "正在加载更多...",
     blockedItem: "已阻止：{{reason}}",
@@ -729,6 +803,7 @@ const translations: Record<
     previewUnavailable: "無法預覽",
     restoreFailed: "無法還原頁面",
     restoreBusy: "還原期間集合仍在變動。請重試。",
+    restoreConflict: "此頁面載入後已在垃圾桶中變更。請重新整理後再試一次。",
     deleteFailed: "無法永久刪除頁面",
     restored: "頁面已還原",
     restoredCount_other: "已還原 {{count}} 個頁面",
@@ -738,7 +813,15 @@ const translations: Record<
       "這會永久刪除你所有工作區垃圾桶中可管理的頁面。搜尋和篩選不會限制此操作。此操作無法復原。",
     planning: "正在準備確切範圍...",
     planFailed: "無法準備清空垃圾桶",
-    startFailed: "清空操作未啟動。請重試以檢查已儲存狀態。",
+    startFailed: "無法開始永久刪除。",
+    cannotPurgeWorkspace: "{{workspace}}：你無法在此工作區永久刪除頁面",
+    startStarted: "{{workspace}}：已開始刪除",
+    startUnknown: "{{workspace}}：無法確認刪除是否已開始。請重試以檢查。",
+    startDidNotStart: "{{workspace}}：未開始。{{error}}",
+    startExpired: "此次審查已過期。請重新審查刪除。",
+    startRecordFailed: "無法儲存刪除進度，因此未開始任何操作。",
+    startProgressUnsaved: "無法儲存刪除進度。請保持此頁面開啟以追蹤進度。",
+    workspacesFailed: "無法載入你的工作區",
     statusFailed: "無法載入清空進度",
     operationStateFailed: "無法還原已儲存的清空狀態",
     scopeCounts: "{{eligible}} 項可刪除，{{blocked}} 項受阻",
@@ -750,14 +833,15 @@ const translations: Record<
     completed_other: "已永久刪除 {{count}} 個頁面",
     retryable: "已儲存的清空操作已暫停，可以重試。",
     failed: "清空失敗。垃圾桶不會顯示為空。",
-    completedWithRemaining: "已刪除 {{deleted}} 項，垃圾桶仍有 {{remains}} 項",
-    partiallyCompleted: "部分完成：已刪除 {{deleted}} 項，剩餘 {{remains}} 項",
-    conflicted: "範圍已變更：已刪除 {{deleted}} 項，剩餘 {{remains}} 項",
+    partiallyCompleted:
+      "已刪除 {{deleted}} 項；{{blocked}} 項受阻，仍保留在垃圾桶",
+    conflicted:
+      "已刪除 {{deleted}} 項；{{conflicted}} 項在審查後變更，仍保留在垃圾桶",
     moreAffected: "未顯示其他受影響頁面",
     loadingScope: "正在載入刪除範圍",
     scopeFailed: "無法載入刪除範圍",
     scopeTooLarge:
-      "此刪除計畫過大，無法安全審查。請關閉此對話框並清空較小的範圍。",
+      "此計畫包含的頁面超出此處可審查的數量。請篩選垃圾桶，並分小批刪除符合的頁面。",
     loadMoreScope: "載入更多範圍",
     loadingMore: "正在載入更多...",
     blockedItem: "已封鎖：{{reason}}",
@@ -830,6 +914,8 @@ const translations: Record<
     restoreFailed: "ページを復元できませんでした",
     restoreBusy:
       "復元中にコレクションが変更され続けました。再試行してください。",
+    restoreConflict:
+      "このページは読み込み後にゴミ箱で変更されました。更新してもう一度お試しください。",
     deleteFailed: "ページを完全に削除できませんでした",
     restored: "ページを復元しました",
     restoredCount_other: "{{count}} ページを復元しました",
@@ -839,8 +925,19 @@ const translations: Record<
       "すべてのワークスペースのゴミ箱にある、管理可能なページをすべて完全に削除します。検索とフィルターはこの操作を制限しません。この操作は元に戻せません。",
     planning: "正確な範囲を準備中...",
     planFailed: "ゴミ箱を空にする準備ができませんでした",
-    startFailed:
-      "削除を開始できませんでした。再試行して保存状態を確認してください。",
+    startFailed: "完全削除を開始できませんでした。",
+    cannotPurgeWorkspace:
+      "{{workspace}}：このワークスペースではページを完全に削除できません",
+    startStarted: "{{workspace}}：削除を開始しました",
+    startUnknown:
+      "{{workspace}}：削除が開始されたか確認できませんでした。再試行して確認してください。",
+    startDidNotStart: "{{workspace}}：開始されませんでした。{{error}}",
+    startExpired: "この確認は期限切れです。削除をもう一度確認してください。",
+    startRecordFailed:
+      "削除の進行状況を保存できなかったため、何も開始されませんでした。",
+    startProgressUnsaved:
+      "削除の進行状況を保存できませんでした。進行を確認するにはこのページを開いたままにしてください。",
+    workspacesFailed: "ワークスペースを読み込めませんでした",
     statusFailed: "削除の進行状況を読み込めませんでした",
     operationStateFailed: "保存された削除状態を復元できませんでした",
     scopeCounts: "削除可能 {{eligible}} 件、ブロック {{blocked}} 件",
@@ -852,17 +949,15 @@ const translations: Record<
     completed_other: "{{count}} ページを完全に削除しました",
     retryable: "保存された削除は一時停止中です。再試行できます。",
     failed: "削除に失敗しました。ゴミ箱は空とは表示されません。",
-    completedWithRemaining:
-      "{{deleted}} 件削除、ゴミ箱に {{remains}} 件残っています",
     partiallyCompleted:
-      "一部完了: {{deleted}} 件削除、{{remains}} 件残っています",
+      "{{deleted}} 件を削除しました。{{blocked}} 件はブロックされ、ゴミ箱に残っています",
     conflicted:
-      "範囲が変更されました: {{deleted}} 件削除、{{remains}} 件残っています",
+      "{{deleted}} 件を削除しました。{{conflicted}} 件は確認後に変更されたため、ゴミ箱に残っています",
     moreAffected: "影響する他のページは表示されていません",
     loadingScope: "削除範囲を読み込み中",
     scopeFailed: "削除範囲を読み込めませんでした",
     scopeTooLarge:
-      "この削除プランは大きすぎるため、安全に確認できません。このダイアログを閉じ、より小さい範囲を空にしてください。",
+      "この計画には、ここで確認できる数を超えるページが含まれています。ゴミ箱を絞り込み、一致するページを小分けにして削除してください。",
     loadMoreScope: "範囲をさらに読み込む",
     loadingMore: "さらに読み込み中...",
     blockedItem: "ブロック: {{reason}}",
@@ -934,6 +1029,8 @@ const translations: Record<
     previewUnavailable: "미리보기를 사용할 수 없음",
     restoreFailed: "페이지를 복원할 수 없음",
     restoreBusy: "복원하는 동안 컬렉션이 계속 변경되었습니다. 다시 시도하세요.",
+    restoreConflict:
+      "이 페이지는 불러온 후 휴지통에서 변경되었습니다. 새로고침한 후 다시 시도하세요.",
     deleteFailed: "페이지를 영구 삭제할 수 없음",
     restored: "페이지가 복원됨",
     restoredCount_other: "페이지 {{count}}개가 복원됨",
@@ -943,8 +1040,19 @@ const translations: Record<
       "모든 워크스페이스의 휴지통에서 관리 가능한 모든 페이지를 영구 삭제합니다. 검색과 필터는 이 작업을 제한하지 않습니다. 이 작업은 되돌릴 수 없습니다.",
     planning: "정확한 범위 준비 중...",
     planFailed: "휴지통 비우기를 준비할 수 없습니다",
-    startFailed:
-      "삭제가 시작되지 않았습니다. 다시 시도해 저장 상태를 확인하세요.",
+    startFailed: "영구 삭제를 시작할 수 없습니다.",
+    cannotPurgeWorkspace:
+      "{{workspace}}: 이 워크스페이스에서는 페이지를 영구 삭제할 수 없습니다",
+    startStarted: "{{workspace}}: 삭제가 시작됨",
+    startUnknown:
+      "{{workspace}}: 삭제가 시작되었는지 확인할 수 없습니다. 다시 시도하여 확인하세요.",
+    startDidNotStart: "{{workspace}}: 시작되지 않음. {{error}}",
+    startExpired: "이 검토가 만료되었습니다. 삭제를 다시 검토하세요.",
+    startRecordFailed:
+      "삭제 진행 상황을 저장할 수 없어 아무것도 시작하지 않았습니다.",
+    startProgressUnsaved:
+      "삭제 진행 상황을 저장할 수 없습니다. 진행 상황을 보려면 이 페이지를 열어 두세요.",
+    workspacesFailed: "워크스페이스를 불러올 수 없음",
     statusFailed: "삭제 진행 상황을 불러올 수 없습니다",
     operationStateFailed: "저장된 삭제 상태를 복원할 수 없습니다",
     scopeCounts: "삭제 가능 {{eligible}}개, 차단 {{blocked}}개",
@@ -956,14 +1064,15 @@ const translations: Record<
     completed_other: "페이지 {{count}}개가 영구 삭제됨",
     retryable: "저장된 삭제가 일시 중지되었습니다. 다시 시도할 수 있습니다.",
     failed: "삭제에 실패했습니다. 휴지통이 비었다고 표시하지 않습니다.",
-    completedWithRemaining: "{{deleted}}개 삭제, 휴지통에 {{remains}}개 남음",
-    partiallyCompleted: "일부 완료: {{deleted}}개 삭제, {{remains}}개 남음",
-    conflicted: "범위 변경됨: {{deleted}}개 삭제, {{remains}}개 남음",
+    partiallyCompleted:
+      "{{deleted}}개 삭제됨, {{blocked}}개는 차단되어 휴지통에 남음",
+    conflicted:
+      "{{deleted}}개 삭제됨, {{conflicted}}개는 검토 후 변경되어 휴지통에 남음",
     moreAffected: "영향받는 다른 페이지는 표시되지 않음",
     loadingScope: "삭제 범위 불러오는 중",
     scopeFailed: "삭제 범위를 불러올 수 없음",
     scopeTooLarge:
-      "이 삭제 계획은 안전하게 검토하기에 너무 큽니다. 대화 상자를 닫고 더 작은 범위를 비워 주세요.",
+      "이 계획에는 여기서 검토할 수 있는 것보다 많은 페이지가 있습니다. 휴지통을 필터링하고 일치하는 페이지를 더 작은 단위로 나누어 삭제하세요.",
     loadMoreScope: "범위 더 불러오기",
     loadingMore: "더 불러오는 중...",
     blockedItem: "차단됨: {{reason}}",
@@ -1037,6 +1146,8 @@ const translations: Record<
     previewUnavailable: "पूर्वावलोकन उपलब्ध नहीं है",
     restoreFailed: "पेज बहाल नहीं हो सका",
     restoreBusy: "बहाल करते समय कलेक्शन बदलता रहा। फिर कोशिश करें।",
+    restoreConflict:
+      "लोड होने के बाद यह पेज ट्रैश में बदल गया। रीफ़्रेश करके फिर कोशिश करें।",
     deleteFailed: "पेज हमेशा के लिए नहीं हट सका",
     restored: "पेज बहाल किया गया",
     restoredCount_one: "{{count}} पेज बहाल किया गया",
@@ -1047,7 +1158,18 @@ const translations: Record<
       "आपके सभी कार्यस्थानों के ट्रैश में मौजूद सभी प्रबंधनीय पेज हमेशा के लिए हट जाएंगे। खोज और फ़िल्टर इस कार्रवाई को सीमित नहीं करते। इसे वापस नहीं किया जा सकता।",
     planning: "सटीक दायरा तैयार हो रहा है...",
     planFailed: "ट्रैश खाली करने की तैयारी नहीं हो सकी",
-    startFailed: "हटाना शुरू नहीं हुआ। सहेजी स्थिति जांचने के लिए फिर कोशिश करें।",
+    startFailed: "स्थायी हटाना शुरू नहीं हो सका।",
+    cannotPurgeWorkspace:
+      "{{workspace}}: आप इस कार्यस्थान में पेज हमेशा के लिए नहीं हटा सकते",
+    startStarted: "{{workspace}}: हटाना शुरू हुआ",
+    startUnknown:
+      "{{workspace}}: पुष्टि नहीं हो सकी कि हटाना शुरू हुआ। जांचने के लिए फिर कोशिश करें।",
+    startDidNotStart: "{{workspace}}: शुरू नहीं हुआ। {{error}}",
+    startExpired: "यह समीक्षा समाप्त हो गई। हटाने की फिर से समीक्षा करें।",
+    startRecordFailed: "हटाने की प्रगति सहेजी नहीं जा सकी, इसलिए कुछ भी शुरू नहीं हुआ।",
+    startProgressUnsaved:
+      "हटाने की प्रगति सहेजी नहीं जा सकी। इसे देखते रहने के लिए यह पेज खुला रखें।",
+    workspacesFailed: "आपके कार्यस्थान लोड नहीं हो सके",
     statusFailed: "हटाने की प्रगति लोड नहीं हो सकी",
     operationStateFailed: "सहेजी गई हटाने की स्थिति बहाल नहीं हो सकी",
     scopeCounts: "{{eligible}} योग्य, {{blocked}} अवरुद्ध",
@@ -1060,14 +1182,15 @@ const translations: Record<
     completed_other: "{{count}} पेज हमेशा के लिए हटाए गए",
     retryable: "सहेजा गया हटाना रुका है और फिर चलाया जा सकता है।",
     failed: "हटाना विफल रहा। ट्रैश को खाली नहीं बताया गया।",
-    completedWithRemaining: "{{deleted}} हटाए गए, ट्रैश में {{remains}} बाकी",
-    partiallyCompleted: "आंशिक रूप से पूरा: {{deleted}} हटाए गए, {{remains}} बाकी",
-    conflicted: "दायरा बदला: {{deleted}} हटाए गए, {{remains}} बाकी",
+    partiallyCompleted:
+      "{{deleted}} हटाए गए; {{blocked}} अवरुद्ध रहे और ट्रैश में रखे गए",
+    conflicted:
+      "{{deleted}} हटाए गए; {{conflicted}} समीक्षा के बाद बदले और ट्रैश में रखे गए",
     moreAffected: "अन्य प्रभावित पेज नहीं दिखाए गए",
     loadingScope: "हटाने का दायरा लोड हो रहा है",
     scopeFailed: "हटाने का दायरा लोड नहीं हो सका",
     scopeTooLarge:
-      "यह मिटाने की योजना सुरक्षित रूप से जाँचने के लिए बहुत बड़ी है। यह संवाद बंद करें और छोटा दायरा खाली करें।",
+      "इस योजना में यहां समीक्षा हो सकने से ज़्यादा पेज हैं। ट्रैश को फ़िल्टर करें और मेल खाने वाले पेज छोटे बैचों में हटाएं।",
     loadMoreScope: "और दायरा लोड करें",
     loadingMore: "और लोड हो रहा है...",
     blockedItem: "अवरुद्ध: {{reason}}",
@@ -1150,6 +1273,8 @@ const translations: Record<
     previewUnavailable: "المعاينة غير متاحة",
     restoreFailed: "تعذرت استعادة الصفحة",
     restoreBusy: "استمرت المجموعة في التغيّر أثناء الاستعادة. أعد المحاولة.",
+    restoreConflict:
+      "تغيرت هذه الصفحة في المهملات بعد تحميلها. حدّث الصفحة وأعد المحاولة.",
     deleteFailed: "تعذر حذف الصفحة نهائيا",
     restored: "تمت استعادة الصفحة",
     restoredCount_zero: "لم تستعد أي صفحة ({{count}})",
@@ -1164,7 +1289,18 @@ const translations: Record<
       "يحذف نهائيا كل الصفحات القابلة للإدارة في المهملات، في كل مساحات العمل. لا يحد البحث أو التصفية من هذا الإجراء. لا يمكن التراجع عن ذلك.",
     planning: "جار تحضير النطاق الدقيق...",
     planFailed: "تعذر تحضير إفراغ المهملات",
-    startFailed: "لم يبدأ الحذف. أعد المحاولة للتحقق من الحالة المحفوظة.",
+    startFailed: "تعذر بدء الحذف النهائي.",
+    cannotPurgeWorkspace:
+      "{{workspace}}: لا يمكنك حذف الصفحات نهائيا في مساحة العمل هذه",
+    startStarted: "{{workspace}}: بدأ الحذف",
+    startUnknown:
+      "{{workspace}}: تعذر التأكد من بدء الحذف. أعد المحاولة للتحقق.",
+    startDidNotStart: "{{workspace}}: لم يبدأ. {{error}}",
+    startExpired: "انتهت صلاحية هذه المراجعة. راجع الحذف مرة أخرى.",
+    startRecordFailed: "تعذر حفظ تقدم الحذف، لذلك لم يبدأ أي شيء.",
+    startProgressUnsaved:
+      "تعذر حفظ تقدم الحذف. أبق هذه الصفحة مفتوحة لمتابعته.",
+    workspacesFailed: "تعذر تحميل مساحات العمل",
     statusFailed: "تعذر تحميل تقدم الحذف",
     operationStateFailed: "تعذرت استعادة حالة الحذف المحفوظة",
     scopeCounts: "{{eligible}} مؤهلة، {{blocked}} محظورة",
@@ -1186,14 +1322,14 @@ const translations: Record<
     completed_other: "حذفت {{count}} صفحة نهائيا",
     retryable: "الحذف المحفوظ متوقف مؤقتا ويمكن إعادة محاولته.",
     failed: "فشل الحذف. لن تظهر المهملات فارغة.",
-    completedWithRemaining: "حذفت {{deleted}}، وبقي {{remains}} في المهملات",
-    partiallyCompleted: "اكتمل جزئيا: حذفت {{deleted}}، وبقي {{remains}}",
-    conflicted: "تغير النطاق: حذفت {{deleted}}، وبقي {{remains}}",
+    partiallyCompleted: "حذفت {{deleted}}؛ وحظرت {{blocked}} وبقيت في المهملات",
+    conflicted:
+      "حذفت {{deleted}}؛ وتغيرت {{conflicted}} بعد المراجعة وبقيت في المهملات",
     moreAffected: "لا تظهر صفحات متأثرة أخرى",
     loadingScope: "جار تحميل نطاق الحذف",
     scopeFailed: "تعذر تحميل نطاق الحذف",
     scopeTooLarge:
-      "خطة الحذف هذه كبيرة جدًا بحيث لا يمكن مراجعتها بأمان. أغلق مربع الحوار هذا وأفرغ نطاقًا أصغر.",
+      "تحتوي هذه الخطة على صفحات أكثر مما يمكن مراجعته هنا. صفِّ المهملات واحذف الصفحات المطابقة على دفعات أصغر.",
     loadMoreScope: "تحميل المزيد من النطاق",
     loadingMore: "جار تحميل المزيد...",
     blockedItem: "محظور: {{reason}}",

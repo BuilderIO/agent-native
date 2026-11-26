@@ -9,7 +9,9 @@ import {
 import {
   acceptTrashPlanSettlement,
   isEmptyTrashScopeError,
+  trashOperationStatusText,
   trashPlansToExecute,
+  trashStartsToRun,
   type TrashPurgePlanState,
 } from "./EmptyTrashDialog";
 
@@ -37,6 +39,7 @@ describe("Trash purge confirmation planning", () => {
           input: { mode: "selection", documentIds: ["first"] },
         },
       ],
+      unavailableSpaceIds: [],
     };
     const second: ContentTrashPurgeRequest = {
       kind: "delete",
@@ -46,6 +49,7 @@ describe("Trash purge confirmation planning", () => {
           input: { mode: "selection", documentIds: ["second"] },
         },
       ],
+      unavailableSpaceIds: [],
     };
 
     expect(acceptTrashPlanSettlement(null, first)).toBe(false);
@@ -53,11 +57,15 @@ describe("Trash purge confirmation planning", () => {
     expect(acceptTrashPlanSettlement(second, second)).toBe(true);
   });
 
-  it("plans Empty Trash once per workspace", () => {
-    expect(trashEmptyRequest(["a", "b"]).targets).toEqual([
-      target("a"),
-      target("b"),
+  it("plans Empty Trash once per purgeable workspace", () => {
+    const request = trashEmptyRequest([
+      { spaceId: "a", name: "A", canPurge: true },
+      { spaceId: "viewer", name: "Viewer", canPurge: false },
+      { spaceId: "b", name: "B", canPurge: true },
     ]);
+
+    expect(request.targets).toEqual([target("a"), target("b")]);
+    expect(request.unavailableSpaceIds).toEqual(["viewer"]);
   });
 
   it("treats a workspace with nothing to purge as empty, not failed", () => {
@@ -76,9 +84,48 @@ describe("Trash purge confirmation planning", () => {
 
     expect(
       trashPlansToExecute(plans, new Set(["plan-a", "plan-c", "plan-d"]))?.map(
-        (entry) => entry.planId,
+        (entry) => entry.plan.planId,
       ),
     ).toEqual(["plan-a", "plan-d"]);
+  });
+
+  it("retries each unresolved start with its original plan and key, skipping started ones", () => {
+    const toExecute = [
+      { spaceId: "a", plan: plan("plan-a", 2) },
+      { spaceId: "b", plan: plan("plan-b", 1) },
+      { spaceId: "c", plan: plan("plan-c", 3) },
+    ];
+    let keys = 0;
+    const first = trashStartsToRun(toExecute, [], () => `key-${++keys}`);
+
+    expect(
+      first.map(({ idempotencyKey, status }) => [idempotencyKey, status]),
+    ).toEqual([
+      ["key-1", "starting"],
+      ["key-2", "starting"],
+      ["key-3", "starting"],
+    ]);
+
+    const outcomes = [
+      { status: "started", operationId: "operation-a" },
+      { status: "unknown", error: "offline" },
+      { status: "failed", error: "refused" },
+    ] as const;
+    const previous = first.map((start, index) => ({
+      ...start,
+      ...outcomes[index],
+    }));
+    const retried = trashStartsToRun(
+      toExecute,
+      previous,
+      () => `key-${++keys}`,
+    );
+
+    expect(retried).toEqual([
+      previous[0],
+      { ...first[1], status: "starting" },
+      { ...first[2], status: "starting" },
+    ]);
   });
 
   it("waits while any workspace is planning, unreviewed, or failed", () => {
@@ -105,5 +152,26 @@ describe("Trash purge confirmation planning", () => {
     expect(
       trashPlansToExecute([{ status: "empty", target: target("b") }], ready),
     ).toBeNull();
+  });
+
+  it("says what a partial or conflicted purge kept in Trash", () => {
+    const t = ((key: string, values?: Record<string, unknown>) =>
+      `${key} ${JSON.stringify(values ?? {})}`) as Parameters<
+      typeof trashOperationStatusText
+    >[0];
+    const progress = { deletedCount: 3, blockedCount: 2, conflictedCount: 1 };
+
+    expect(
+      trashOperationStatusText(t, {
+        ...progress,
+        status: "partially_completed",
+      }),
+    ).toBe('trash.partiallyCompleted {"deleted":3,"blocked":2}');
+    expect(
+      trashOperationStatusText(t, { ...progress, status: "conflicted" }),
+    ).toBe('trash.conflicted {"deleted":3,"conflicted":1}');
+    expect(
+      trashOperationStatusText(t, { ...progress, status: "succeeded" }),
+    ).toBe('trash.completed {"count":3}');
   });
 });

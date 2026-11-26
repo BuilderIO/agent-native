@@ -5,13 +5,20 @@ import {
   setClientAppState,
 } from "@agent-native/core/client/hooks";
 import type {
+  ContentTrashFilterOptionsResponse,
   ContentTrashItem,
   ContentTrashPurgePlanResponse,
+  ContentTrashPurgeSpace,
   ContentTrashPurgeStatus,
   ContentTrashWhere,
+  ListContentTrashPurgeSpacesResponse,
   ListContentTrashResponse,
 } from "@shared/content-trash";
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
 import { useContentActionMutation } from "./use-content-action-mutation";
@@ -109,38 +116,59 @@ export interface ContentTrashPurgeTarget {
 export interface ContentTrashPurgeRequest {
   kind: "empty" | "delete";
   targets: ContentTrashPurgeTarget[];
+  unavailableSpaceIds: string[];
+}
+
+function splitPurgeSpaces(
+  spaces: readonly ContentTrashPurgeSpace[],
+  spaceIds: readonly string[],
+) {
+  const unavailable = new Set(
+    spaces.filter((space) => !space.canPurge).map((space) => space.spaceId),
+  );
+  return {
+    purgeable: spaceIds.filter((spaceId) => !unavailable.has(spaceId)),
+    unavailable: spaceIds.filter((spaceId) => unavailable.has(spaceId)),
+  };
 }
 
 export function trashEmptyRequest(
-  spaceIds: string[],
+  spaces: readonly ContentTrashPurgeSpace[],
 ): ContentTrashPurgeRequest {
+  const { purgeable, unavailable } = splitPurgeSpaces(
+    spaces,
+    spaces.map((space) => space.spaceId),
+  );
   return {
     kind: "empty",
-    targets: spaceIds.length
-      ? spaceIds.map((spaceId) => ({
-          spaceId,
-          input: { mode: "scope", spaceId },
-        }))
-      : [{ spaceId: null, input: { mode: "scope" } }],
+    targets: purgeable.map((spaceId) => ({
+      spaceId,
+      input: { mode: "scope", spaceId },
+    })),
+    unavailableSpaceIds: unavailable,
   };
 }
 
 export function trashDeleteRequest(
   selection: ContentTrashSelection,
   loadedItems: ContentTrashItem[],
-  spaceIds: string[],
+  spaces: readonly ContentTrashPurgeSpace[],
 ): ContentTrashPurgeRequest {
   if (selection.mode === "matching") {
     const filters = trashMatchingFilters(selection.filters);
-    const scopedSpaceIds = filters.spaceId ? [filters.spaceId] : spaceIds;
+    const { purgeable, unavailable } = splitPurgeSpaces(
+      spaces,
+      filters.spaceId
+        ? [filters.spaceId]
+        : spaces.map((space) => space.spaceId),
+    );
     return {
       kind: "delete",
-      targets: scopedSpaceIds.length
-        ? scopedSpaceIds.map((spaceId) => ({
-            spaceId,
-            input: { mode: "matching", filters: { ...filters, spaceId } },
-          }))
-        : [{ spaceId: null, input: { mode: "matching", filters } }],
+      targets: purgeable.map((spaceId) => ({
+        spaceId,
+        input: { mode: "matching", filters: { ...filters, spaceId } },
+      })),
+      unavailableSpaceIds: unavailable,
     };
   }
   const spaceByDocument = new Map(
@@ -154,13 +182,50 @@ export function trashDeleteRequest(
       documentId,
     ]);
   }
+  const unavailable = new Set(
+    splitPurgeSpaces(
+      spaces,
+      [...documentsBySpace.keys()].filter(
+        (spaceId): spaceId is string => spaceId !== null,
+      ),
+    ).unavailable,
+  );
   return {
     kind: "delete",
-    targets: [...documentsBySpace].map(([spaceId, documentIds]) => ({
-      spaceId,
-      input: { mode: "selection", documentIds },
-    })),
+    targets: [...documentsBySpace]
+      .filter(([spaceId]) => spaceId === null || !unavailable.has(spaceId))
+      .map(([spaceId, documentIds]) => ({
+        spaceId,
+        input: { mode: "selection", documentIds },
+      })),
+    unavailableSpaceIds: [...unavailable],
   };
+}
+
+export function useContentTrashPurgeSpaces() {
+  return useQuery({
+    queryKey: ["action", "list-content-trash-purge-spaces"],
+    queryFn: ({ signal }) =>
+      callAction<ListContentTrashPurgeSpacesResponse>(
+        "list-content-trash-purge-spaces",
+        {},
+        { method: "GET", signal },
+      ),
+    retry: false,
+  });
+}
+
+export function useContentTrashFilterOptions() {
+  return useQuery({
+    queryKey: ["action", "list-content-trash-filter-options"],
+    queryFn: ({ signal }) =>
+      callAction<ContentTrashFilterOptionsResponse>(
+        "list-content-trash-filter-options",
+        {},
+        { method: "GET", signal },
+      ),
+    retry: false,
+  });
 }
 
 export function contentTrashQueryKey(
@@ -194,32 +259,156 @@ export function useContentTrash(
   });
 }
 
-export function useTrashContext(args: {
+export interface ContentTrashPurgeStart {
+  spaceId: string | null;
+  planId: string | null;
+  idempotencyKey: string | null;
+  status: "starting" | "started" | "failed" | "unknown";
+  operationId: string | null;
+  error: string | null;
+}
+
+export interface TrashContextState {
   filters: ContentTrashFilters;
   selection: ContentTrashSelection;
   previewId: string | null;
-  operationIds?: string[] | null;
-}) {
+  purgeStarts: ContentTrashPurgeStart[];
+}
+
+export function writeTrashContext(state: TrashContextState) {
+  const operationIds = trashPurgeOperationIds(state.purgeStarts);
+  return setClientAppState(
+    "content-trash",
+    {
+      filters: state.filters,
+      selectionMode: state.selection.mode,
+      selectedIds:
+        state.selection.mode === "loaded"
+          ? state.selection.documentIds.slice(0, 100)
+          : [],
+      matchingFilters:
+        state.selection.mode === "matching" ? state.selection.filters : null,
+      previewId: state.previewId,
+      operationId: operationIds[0] ?? null,
+      operationIds,
+      purgeStarts: state.purgeStarts,
+    },
+    { requestSource: "content-trash" },
+  );
+}
+
+export function useTrashContext(
+  state: Omit<TrashContextState, "purgeStarts"> & {
+    purgeStarts: ContentTrashPurgeStart[] | undefined;
+  },
+) {
+  const { filters, selection, previewId, purgeStarts } = state;
   useEffect(() => {
-    if (args.operationIds === undefined) return;
-    void setClientAppState(
-      "content-trash",
-      {
-        filters: args.filters,
-        selectionMode: args.selection.mode,
-        selectedIds:
-          args.selection.mode === "loaded"
-            ? args.selection.documentIds.slice(0, 100)
-            : [],
-        matchingFilters:
-          args.selection.mode === "matching" ? args.selection.filters : null,
-        previewId: args.previewId,
-        operationId: args.operationIds?.[0] ?? null,
-        operationIds: args.operationIds ?? [],
-      },
-      { requestSource: "content-trash" },
+    if (purgeStarts === undefined) return;
+    void writeTrashContext({ filters, selection, previewId, purgeStarts });
+  }, [filters, purgeStarts, previewId, selection]);
+}
+
+function trashPurgeStartKey(start: ContentTrashPurgeStart) {
+  return start.planId ?? `operation:${start.operationId}`;
+}
+
+export function upsertTrashPurgeStarts(
+  current: readonly ContentTrashPurgeStart[],
+  updates: readonly ContentTrashPurgeStart[],
+) {
+  const next = [...current];
+  for (const update of updates) {
+    const index = next.findIndex(
+      (start) => trashPurgeStartKey(start) === trashPurgeStartKey(update),
     );
-  }, [args.filters, args.operationIds, args.previewId, args.selection]);
+    if (index < 0) next.push(update);
+    else next[index] = update;
+  }
+  return next;
+}
+
+export function trashPurgeOperationIds(
+  starts: readonly ContentTrashPurgeStart[],
+) {
+  return starts.flatMap((start) =>
+    start.status === "started" && start.operationId ? [start.operationId] : [],
+  );
+}
+
+export function trashPurgeStartAfterError<T extends ContentTrashPurgeStart>(
+  start: T,
+  error: unknown,
+  fallback: string,
+): T {
+  const operationId = trashOperationIdFromError(error);
+  if (operationId)
+    return { ...start, status: "started", operationId, error: null };
+  const status = (error as { status?: unknown } | undefined)?.status;
+  return {
+    ...start,
+    status:
+      typeof status === "number" && status >= 400 && status < 500
+        ? "failed"
+        : "unknown",
+    error: trashActionError(error, fallback),
+  };
+}
+
+const PURGE_START_STATUSES = new Set<ContentTrashPurgeStart["status"]>([
+  "starting",
+  "started",
+  "failed",
+  "unknown",
+]);
+
+function parseTrashPurgeStart(value: unknown): ContentTrashPurgeStart {
+  if (typeof value !== "object" || value === null)
+    throw new Error("Saved Trash purge state is malformed");
+  const start = value as Partial<Record<keyof ContentTrashPurgeStart, unknown>>;
+  const text = (field: unknown) =>
+    typeof field === "string" ? field : field === null ? null : undefined;
+  const parsed = {
+    spaceId: text(start.spaceId),
+    planId: text(start.planId),
+    idempotencyKey: text(start.idempotencyKey),
+    status: start.status,
+    operationId: text(start.operationId),
+    error: text(start.error),
+  };
+  if (
+    Object.values(parsed).some((field) => field === undefined) ||
+    !PURGE_START_STATUSES.has(parsed.status as ContentTrashPurgeStart["status"])
+  )
+    throw new Error("Saved Trash purge state is malformed");
+  const known = parsed as ContentTrashPurgeStart;
+  return known.status === "starting" ? { ...known, status: "unknown" } : known;
+}
+
+export async function readTrashPurgeStarts(): Promise<
+  ContentTrashPurgeStart[]
+> {
+  const state = await readClientAppState<{
+    operationId?: unknown;
+    operationIds?: unknown;
+    purgeStarts?: unknown;
+  }>("content-trash");
+  if (Array.isArray(state?.purgeStarts))
+    return state.purgeStarts.map(parseTrashPurgeStart);
+  const operationIds =
+    Array.isArray(state?.operationIds) && state.operationIds.length
+      ? state.operationIds.filter((id): id is string => typeof id === "string")
+      : typeof state?.operationId === "string"
+        ? [state.operationId]
+        : [];
+  return operationIds.map((operationId) => ({
+    spaceId: null,
+    planId: null,
+    idempotencyKey: null,
+    status: "started",
+    operationId,
+    error: null,
+  }));
 }
 
 export interface ContentTrashOperation {
@@ -328,18 +517,6 @@ export function useContentTrashOperation(operationId: string | null) {
   return query;
 }
 
-export async function readTrashOperationIds() {
-  const state = await readClientAppState<{
-    operationId?: unknown;
-    operationIds?: unknown;
-  }>("content-trash");
-  if (Array.isArray(state?.operationIds) && state.operationIds.length)
-    return state.operationIds.filter(
-      (id): id is string => typeof id === "string",
-    );
-  return typeof state?.operationId === "string" ? [state.operationId] : [];
-}
-
 export function isTerminalTrashOperation(status: ContentTrashPurgeStatus) {
   return status !== "queued" && status !== "running";
 }
@@ -356,31 +533,60 @@ export function isRestoreBusyError(error: unknown) {
   );
 }
 
+export function isTrashRevisionConflict(error: unknown) {
+  return (
+    (error as { errorCode?: unknown } | undefined)?.errorCode ===
+    "TRASH_REVISION_CONFLICT"
+  );
+}
+
 export function trashOperationIdFromError(error: unknown) {
   const details = (error as { details?: { operationId?: unknown } } | undefined)
     ?.details;
   return typeof details?.operationId === "string" ? details.operationId : null;
 }
 
-export function useRestoreTrashItem() {
+export interface RestoreTrashPageResult {
+  success: boolean;
+  documentId: string;
+  affectedDocumentIds: string[];
+  affectedDocumentIdsComplete: boolean;
+  receipt: { outcome: "restored" | "unchanged" };
+}
+
+export function useRestoreTrashPage() {
   return useContentActionMutation<
-    { success: boolean; restored: number; documentId: string },
-    { id: string }
+    RestoreTrashPageResult,
+    { id: string; expectedTrashedAt: string; idempotencyKey: string }
   >("restore-document", {
     invalidates: (_data, { id }) => restoredDocumentTargets(id),
   });
 }
 
+export function trashRestoreCollectionId(item: ContentTrashItem) {
+  return item.legacyRestoreDatabaseId ?? item.databaseId;
+}
+
 export function restoredTrashItemIds(
-  loadedItems: ContentTrashItem[],
-  documentId: string,
+  item: Pick<ContentTrashItem, "documentId" | "trashedAt">,
+  loadedItems: readonly ContentTrashItem[],
+  receipt: Pick<
+    RestoreTrashPageResult,
+    "affectedDocumentIds" | "affectedDocumentIdsComplete"
+  > | null,
 ) {
-  return new Set([
-    documentId,
-    ...loadedItems
-      .filter((item) => item.trashRootId === documentId)
-      .map((item) => item.documentId),
+  const ids = new Set([
+    item.documentId,
+    ...(receipt?.affectedDocumentIds ?? []),
   ]);
+  if (!receipt?.affectedDocumentIdsComplete)
+    for (const loaded of loadedItems)
+      if (
+        loaded.trashRootId === item.documentId &&
+        loaded.trashedAt === item.trashedAt
+      )
+        ids.add(loaded.documentId);
+  return ids;
 }
 
 export function trashRestoreTargets(selectedItems: ContentTrashItem[]) {
@@ -412,6 +618,9 @@ export async function invalidateTrashQueries(
     }),
     queryClient.invalidateQueries({
       queryKey: ["action", "list-trashed-content-databases"],
+    }),
+    queryClient.invalidateQueries({
+      queryKey: ["action", "list-content-trash-filter-options"],
     }),
   ]);
 }

@@ -154,7 +154,7 @@ export const parityMatrix: ParityRow[] = [
     durableEffect:
       "Authorized Trash metadata and Page bodies are read; reviewed purge plans, operations, and item outcomes are persisted before bounded permanent deletion runs.",
     uiImplementation:
-      "The dedicated Trash route calls the same list, preview, restore, permanent-delete, purge-plan, purge-plan-detail, purge-execute, and operation-progress actions available to agents. Filter chips become list-content-trash's `where` filter. A row restores from its arrow or menu, and ticked rows restore one restore-document call at a time. Selection supports loaded rows or a server-backed matching scope; deleting a selection plans once per workspace it spans. Empty Trash plans scope mode once per workspace and ignores search and filters.",
+      "The dedicated Trash route calls the same list, preview, restore, permanent-delete, purge-plan, purge-plan-detail, purge-execute, and operation-progress actions available to agents, plus two read-only page helpers kept off MCP: list-content-trash-purge-spaces says which workspaces the caller may purge, and list-content-trash-filter-options fills the people and location pickers from the whole Trash. Filter chips become list-content-trash's `where` filter. A row restores from its arrow or menu, and ticked rows restore one at a time: Pages through guarded restore-document with their trashedAt and a new idempotency key, Collections and legacy Collection rows through restore-content-database. Selection supports loaded rows or a server-backed matching scope; deleting a selection plans once per purgeable workspace it spans. Empty Trash plans scope mode once per purgeable workspace, lists the others as not purgeable, and ignores search and filters. Each workspace's plan id, idempotency key, and start status are saved to application state before its purge starts, so a lost response or a reload retries with the original key.",
     status: "action-backed",
     actions: [
       "execute-content-trash-purge",
@@ -162,8 +162,11 @@ export const parityMatrix: ParityRow[] = [
       "get-content-trash-operation",
       "get-trashed-document",
       "list-content-trash",
+      "list-content-trash-filter-options",
+      "list-content-trash-purge-spaces",
       "permanently-delete-document",
       "plan-content-trash-purge",
+      "restore-content-database",
       "restore-document",
     ],
     exception:
@@ -179,6 +182,7 @@ export const parityMatrix: ParityRow[] = [
       "app/components/editor/trash-preview-content.test.ts",
       "app/hooks/content-action-refresh.trash.test.ts",
       "app/hooks/use-content-trash.test.ts",
+      "app/components/trash/EmptyTrashDialog.test.ts",
       "app/components/trash/TrashBrowser.selection.test.tsx",
       "app/components/trash/TrashPurgeDialog.focus.test.tsx",
       "app/components/trash/TrashRow.actions.test.tsx",

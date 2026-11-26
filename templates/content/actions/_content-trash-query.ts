@@ -68,6 +68,8 @@ const contentTrashConditionSchema = z.union([
 
 const contentTrashMatchModeSchema = z.enum(["and", "or"]);
 
+export const CONTENT_TRASH_WHERE_BUDGET = { conditions: 50, values: 200 };
+
 export const contentTrashWhereSchema = z.preprocess(
   (value) => {
     if (typeof value !== "string") return value;
@@ -97,7 +99,25 @@ export const contentTrashWhereSchema = z.preprocess(
         )
         .max(50),
     })
-    .strict(),
+    .strict()
+    .superRefine((where, context) => {
+      const conditions = where.items.flatMap((item) =>
+        "conditions" in item ? item.conditions : [item],
+      );
+      const values = conditions.reduce(
+        (total, condition) =>
+          total + ("values" in condition ? condition.values.length : 1),
+        0,
+      );
+      if (
+        conditions.length > CONTENT_TRASH_WHERE_BUDGET.conditions ||
+        values > CONTENT_TRASH_WHERE_BUDGET.values
+      )
+        context.addIssue({
+          code: "custom",
+          message: `A Trash filter allows at most ${CONTENT_TRASH_WHERE_BUDGET.conditions} conditions and ${CONTENT_TRASH_WHERE_BUDGET.values} values in total`,
+        });
+    }),
 );
 
 export type ContentTrashWhere = z.infer<typeof contentTrashWhereSchema>;

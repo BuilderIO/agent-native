@@ -1,12 +1,24 @@
-import type { ContentTrashItem } from "@shared/content-trash";
-import { describe, expect, it } from "vitest";
+import type {
+  ContentTrashItem,
+  ContentTrashPurgeSpace,
+} from "@shared/content-trash";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const appState = vi.hoisted(() => ({ value: null as unknown }));
+
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+  readClientAppState: vi.fn(async () => appState.value),
+}));
 
 import {
+  type ContentTrashPurgeStart,
   clearTrashSelection,
   changeTrashSort,
   extendTrashSelection,
   loadedTrashSelection,
   nearestVisibleTrashRow,
+  readTrashPurgeStarts,
   reconcileTrashBrowseFilters,
   restoredTrashItemIds,
   selectedTrashItems,
@@ -18,9 +30,34 @@ import {
   trashMatchingFilters,
   trashFilterMembershipKey,
   trashOperationIdFromError,
+  trashPurgeStartAfterError,
+  trashRestoreCollectionId,
   toggleVisibleTrashSelection,
+  upsertTrashPurgeStarts,
   visibleTrashItems,
 } from "./use-content-trash";
+
+function purgeSpace(spaceId: string, canPurge = true): ContentTrashPurgeSpace {
+  return { spaceId, name: spaceId, canPurge };
+}
+
+function purgeStart(
+  fields: Partial<ContentTrashPurgeStart> = {},
+): ContentTrashPurgeStart {
+  return {
+    spaceId: "space-a",
+    planId: "plan-a",
+    idempotencyKey: "key-a",
+    status: "starting",
+    operationId: null,
+    error: null,
+    ...fields,
+  };
+}
+
+beforeEach(() => {
+  appState.value = null;
+});
 
 function trashItem(
   documentId: string,
@@ -45,7 +82,12 @@ describe("Trash selection", () => {
     ];
 
     expect(trashSelectionCount(selection)).toBe(3);
-    expect(trashDeleteRequest(selection, items, ["space-a"])).toEqual({
+    expect(
+      trashDeleteRequest(selection, items, [
+        purgeSpace("space-a"),
+        purgeSpace("space-b"),
+      ]),
+    ).toEqual({
       kind: "delete",
       targets: [
         {
@@ -57,6 +99,31 @@ describe("Trash selection", () => {
           input: { mode: "selection", documentIds: ["b"] },
         },
       ],
+      unavailableSpaceIds: [],
+    });
+  });
+
+  it("never plans a selected row in a workspace the caller can't purge", () => {
+    const items = [
+      trashItem("mine"),
+      trashItem("viewer-owned", { spaceId: "viewer-space" }),
+    ];
+
+    expect(
+      trashDeleteRequest(
+        loadedTrashSelection(["mine", "viewer-owned"]),
+        items,
+        [purgeSpace("space-a"), purgeSpace("viewer-space", false)],
+      ),
+    ).toEqual({
+      kind: "delete",
+      targets: [
+        {
+          spaceId: "space-a",
+          input: { mode: "selection", documentIds: ["mine"] },
+        },
+      ],
+      unavailableSpaceIds: ["viewer-space"],
     });
   });
 
@@ -64,8 +131,14 @@ describe("Trash selection", () => {
     const filters = { query: "draft", kind: "page" as const };
     const selection = { mode: "matching" as const, filters };
 
+    const spaces = [
+      purgeSpace("space-a"),
+      purgeSpace("space-b"),
+      purgeSpace("viewer-space", false),
+    ];
+
     expect(trashSelectionCount(selection)).toBeNull();
-    expect(trashDeleteRequest(selection, [], ["space-a", "space-b"])).toEqual({
+    expect(trashDeleteRequest(selection, [], spaces)).toEqual({
       kind: "delete",
       targets: [
         {
@@ -83,12 +156,13 @@ describe("Trash selection", () => {
           },
         },
       ],
+      unavailableSpaceIds: ["viewer-space"],
     });
     expect(
       trashDeleteRequest(
         { mode: "matching", filters: { ...filters, spaceId: "space-b" } },
         [],
-        ["space-a", "space-b"],
+        spaces,
       ).targets,
     ).toEqual([
       {
@@ -138,34 +212,87 @@ describe("Trash selection", () => {
     expect(clearTrashSelection()).toEqual({ mode: "loaded", documentIds: [] });
   });
 
-  it("empties every workspace, one plan each, independent of filters", () => {
-    expect(trashEmptyRequest(["space-a", "space-b"])).toEqual({
+  it("empties only purgeable workspaces, one plan each, independent of filters", () => {
+    expect(
+      trashEmptyRequest([
+        purgeSpace("space-a"),
+        purgeSpace("viewer-space", false),
+        purgeSpace("space-b"),
+      ]),
+    ).toEqual({
       kind: "empty",
       targets: [
         { spaceId: "space-a", input: { mode: "scope", spaceId: "space-a" } },
         { spaceId: "space-b", input: { mode: "scope", spaceId: "space-b" } },
       ],
+      unavailableSpaceIds: ["viewer-space"],
     });
     expect(trashEmptyRequest([])).toEqual({
       kind: "empty",
-      targets: [{ spaceId: null, input: { mode: "scope" } }],
+      targets: [],
+      unavailableSpaceIds: [],
     });
   });
 
-  it("restores a root together with the rows trashed with it", () => {
+  it("clears the rows a restore receipt names, and loaded rows of that deletion when it is capped", () => {
+    const at = "2026-11-01T00:00:00.000Z";
+    const root = trashItem("root", { trashedAt: at });
     const items = [
-      trashItem("grandchild", { trashRootId: "root" }),
-      trashItem("own-root"),
-      trashItem("child", { trashRootId: "root" }),
-      trashItem("root"),
+      trashItem("grandchild", { trashRootId: "root", trashedAt: at }),
+      trashItem("own-root", { trashedAt: at }),
+      trashItem("child", { trashRootId: "root", trashedAt: at }),
+      trashItem("newer-child", {
+        trashRootId: "root",
+        trashedAt: "2026-11-02T00:00:00.000Z",
+      }),
+      root,
     ];
 
-    expect([...restoredTrashItemIds(items, "root")].sort()).toEqual([
+    expect([...restoredTrashItemIds(root, items, null)].sort()).toEqual([
       "child",
       "grandchild",
       "root",
     ]);
-    expect([...restoredTrashItemIds(items, "own-root")]).toEqual(["own-root"]);
+    expect(
+      [
+        ...restoredTrashItemIds(root, items, {
+          affectedDocumentIds: ["root", "unloaded"],
+          affectedDocumentIdsComplete: true,
+        }),
+      ].sort(),
+    ).toEqual(["root", "unloaded"]);
+    expect(
+      [
+        ...restoredTrashItemIds(root, items, {
+          affectedDocumentIds: ["root", "unloaded"],
+          affectedDocumentIdsComplete: false,
+        }),
+      ].sort(),
+    ).toEqual(["child", "grandchild", "root", "unloaded"]);
+  });
+
+  it("restores Collections, legacy rows included, through the Collection path", () => {
+    expect(
+      trashRestoreCollectionId(
+        trashItem("legacy-row", {
+          databaseId: null,
+          legacyRestoreDatabaseId: "legacy-db",
+        }),
+      ),
+    ).toBe("legacy-db");
+    expect(
+      trashRestoreCollectionId(
+        trashItem("collection", {
+          databaseId: "db-1",
+          legacyRestoreDatabaseId: null,
+        }),
+      ),
+    ).toBe("db-1");
+    expect(
+      trashRestoreCollectionId(
+        trashItem("page", { databaseId: null, legacyRestoreDatabaseId: null }),
+      ),
+    ).toBeNull();
   });
 
   it("restores each selected root once and skips rows it brings back", () => {
@@ -186,6 +313,82 @@ describe("Trash selection", () => {
       trashOperationIdFromError({ details: { operationId: "operation-1" } }),
     ).toBe("operation-1");
     expect(trashOperationIdFromError(new Error("network"))).toBeNull();
+  });
+
+  it("calls a start failed only when the server refused it", () => {
+    const start = purgeStart();
+
+    expect(
+      trashPurgeStartAfterError(
+        start,
+        { status: 500, details: { operationId: "operation-1" } },
+        "fallback",
+      ),
+    ).toMatchObject({ status: "started", operationId: "operation-1" });
+    expect(
+      trashPurgeStartAfterError(start, { status: 409 }, "fallback"),
+    ).toMatchObject({ status: "failed", error: "fallback" });
+    expect(
+      trashPurgeStartAfterError(start, new TypeError("Failed to fetch"), "x"),
+    ).toMatchObject({ status: "unknown", idempotencyKey: "key-a" });
+    expect(
+      trashPurgeStartAfterError(start, { status: 502 }, "fallback"),
+    ).toMatchObject({ status: "unknown" });
+  });
+
+  it("updates a start by plan, so an older request can't drop a newer one's", () => {
+    const a = purgeStart({ status: "started", operationId: "operation-a" });
+    const b = purgeStart({ spaceId: "space-b", planId: "plan-b" });
+    const legacy = purgeStart({
+      planId: null,
+      idempotencyKey: null,
+      status: "started",
+      operationId: "operation-old",
+    });
+
+    expect(
+      upsertTrashPurgeStarts([legacy, a, b], [{ ...b, status: "unknown" }]),
+    ).toEqual([legacy, a, { ...b, status: "unknown" }]);
+    expect(
+      upsertTrashPurgeStarts([a], [purgeStart({ planId: "plan-c" })]),
+    ).toHaveLength(2);
+  });
+
+  it("reloads saved starts, turning an interrupted one into unknown with its original key", async () => {
+    appState.value = {
+      purgeStarts: [
+        purgeStart({ status: "starting" }),
+        purgeStart({
+          planId: "plan-b",
+          status: "started",
+          operationId: "operation-b",
+        }),
+      ],
+    };
+
+    await expect(readTrashPurgeStarts()).resolves.toEqual([
+      purgeStart({ status: "unknown" }),
+      purgeStart({
+        planId: "plan-b",
+        status: "started",
+        operationId: "operation-b",
+      }),
+    ]);
+
+    appState.value = { operationIds: ["operation-old"] };
+    await expect(readTrashPurgeStarts()).resolves.toEqual([
+      {
+        spaceId: null,
+        planId: null,
+        idempotencyKey: null,
+        status: "started",
+        operationId: "operation-old",
+        error: null,
+      },
+    ]);
+
+    appState.value = { purgeStarts: [{ planId: "plan-a", status: "done" }] };
+    await expect(readTrashPurgeStarts()).rejects.toThrow(/malformed/);
   });
 
   it("resolves nested-only selected rows from all visible item metadata", () => {

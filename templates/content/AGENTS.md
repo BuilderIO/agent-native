@@ -21,7 +21,7 @@ Use local docs only (no web research): `pnpm action docs-search --query "<topic>
 
 - `navigation` is UI-owned and overwritten; do not write it. Use `navigate` for `{ view: "list" | "editor", documentId }` and selected block/comment/media/Notion context. `list` is the document tree; `editor` is one open doc.
 - `creative-context`: `contextMode`, `selectedContextId`, `currentPackId`, `pinnedPackId`; follow its reuse ladder and respect `contextMode: "off"`.
-- `content-last-location-v1` is owned by the UI/landing resolver. `content-trash` stores filters, selected/preview Page ids, and purge operation ids; it is context, not deletion authority.
+- `content-last-location-v1` is owned by the UI/landing resolver. `content-trash` stores filters, selected/preview Page ids, and purge start records; it is context, not deletion authority.
 - `content-import`: Import dialog progress, no file contents.
 - Use actions for full document bodies and comment context.
 

@@ -152,9 +152,9 @@ export default defineAction({
           args.updatedBy?.toLowerCase() ?? null,
           args.deletedFrom ?? null,
           args.deletedTo ?? null,
-          args.where ?? null,
           args.sort,
           args.direction,
+          ...(args.where?.items.length ? [args.where] : []),
         ]),
       )
       .digest("hex");

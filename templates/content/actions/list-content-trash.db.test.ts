@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,6 +18,7 @@ const SPACE_ID = "trash-query-space";
 let getDb: () => any;
 let schema: typeof import("../server/db/schema.js");
 let listTrash: typeof import("./list-content-trash.js").default;
+let listFilterOptions: typeof import("./list-content-trash-filter-options.js").default;
 
 const asOwner = <T>(run: () => Promise<T>) =>
   runWithRequestContext({ userEmail: OWNER }, run);
@@ -27,6 +29,8 @@ beforeAll(async () => {
   getDb = dbModule.getDb;
   schema = dbModule.schema;
   listTrash = (await import("./list-content-trash.js")).default;
+  listFilterOptions = (await import("./list-content-trash-filter-options.js"))
+    .default;
   await (await import("../server/plugins/db.js")).default(undefined as any);
 
   const now = new Date().toISOString();
@@ -72,7 +76,7 @@ beforeAll(async () => {
         trashedAt: "2026-09-14T02:00:00.000Z",
         trashRootId: "trash-root",
         trashedBy: OWNER,
-        createdBy: OWNER,
+        createdBy: "nested-creator@example.test",
         updatedBy: "editor-two@example.test",
         trashOrigin: "ui",
         createdAt: now,
@@ -361,6 +365,133 @@ describe("list-content-trash", () => {
         expect(paged).toEqual(expected.items.map((item) => item.documentId));
         expect(new Set(paged).size).toBe(paged.length);
       }
+    }
+  });
+
+  it("offers the creator and original parent of a nested row the root view has not loaded", async () => {
+    const roots = await asOwner(() => listTrash.run({ limit: 50 }));
+    expect(roots.items.map((item) => item.documentId)).not.toContain(
+      "trash-child",
+    );
+
+    const options = await asOwner(() => listFilterOptions.run({ limit: 500 }));
+    expect(options.people.map((person) => person.email)).toContain(
+      "nested-creator@example.test",
+    );
+    expect(options.locations).toContainEqual({
+      id: "trash-root",
+      title: "Duplicate title",
+    });
+    expect(options.locations.map((location) => location.id)).not.toContain(
+      "trash-root-two",
+    );
+    expect(JSON.stringify(options)).not.toContain(DENIED);
+    expect(options).toMatchObject({
+      peopleComplete: true,
+      locationsComplete: true,
+    });
+
+    const picked = await asOwner(() =>
+      listTrash.run(
+        listTrash.schema.parse({
+          where: {
+            mode: "and",
+            items: [
+              { field: "createdBy", values: ["nested-creator@example.test"] },
+              { field: "parentId", values: ["trash-root"] },
+            ],
+          },
+          limit: 50,
+        }),
+      ),
+    );
+    expect(picked.items.map((item) => item.documentId)).toEqual([
+      "trash-child",
+    ]);
+  });
+
+  it("rejects a where over the total condition or value budget before querying", () => {
+    const emails = (prefix: string) =>
+      Array.from(
+        { length: 100 },
+        (_, index) => `${prefix}-${index}@example.test`,
+      );
+    const kindGroup = {
+      mode: "and",
+      conditions: Array.from({ length: 30 }, () => ({
+        field: "kind",
+        operator: "is",
+        values: ["page"],
+      })),
+    };
+    const valueConditions = ["createdBy", "updatedBy", "deletedBy"].map(
+      (field) => ({ field, operator: "is", values: emails(field) }),
+    );
+    for (const where of [
+      { mode: "or", items: valueConditions },
+      { mode: "or", items: [kindGroup, kindGroup] },
+    ]) {
+      const parsed = listTrash.schema.safeParse({ where, limit: 50 });
+      expect(parsed.success).toBe(false);
+      expect(parsed.error?.issues.map((issue) => issue.message)).toContain(
+        "A Trash filter allows at most 50 conditions and 200 values in total",
+      );
+    }
+    expect(
+      listTrash.schema.safeParse({
+        where: { mode: "or", items: valueConditions.slice(0, 2) },
+        limit: 50,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("continues a cursor issued before where filters existed", async () => {
+    const first = await asOwner(() =>
+      listTrash.run({ sort: "deletedAt", direction: "desc", limit: 1 }),
+    );
+    const decoded = JSON.parse(
+      Buffer.from(first.nextCursor ?? "", "base64url").toString("utf8"),
+    );
+    const baseFilter = createHash("sha256")
+      .update(
+        JSON.stringify([
+          OWNER,
+          "",
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          "deletedAt",
+          "desc",
+        ]),
+      )
+      .digest("hex");
+    expect(decoded.filter).toBe(baseFilter);
+
+    const baseCursor = Buffer.from(
+      JSON.stringify({
+        version: 2,
+        filter: baseFilter,
+        value: decoded.value,
+        id: decoded.id,
+      }),
+    ).toString("base64url");
+    for (const where of [undefined, { mode: "and" as const, items: [] }]) {
+      const next = await asOwner(() =>
+        listTrash.run({
+          sort: "deletedAt",
+          direction: "desc",
+          limit: 1,
+          cursor: baseCursor,
+          ...(where ? { where } : {}),
+        }),
+      );
+      expect(next.items[0]?.documentId).toBe("trash-root-two");
     }
   });
 

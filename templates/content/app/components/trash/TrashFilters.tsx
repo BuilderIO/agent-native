@@ -47,6 +47,7 @@ export function TrashFilters({
   filterState,
   onFilterStateChange,
   onEmptyTrash,
+  emptyTrashPending = false,
   emptyTrashRef,
 }: {
   filters: ContentTrashFilters;
@@ -55,6 +56,7 @@ export function TrashFilters({
   filterState: FilterState;
   onFilterStateChange: (state: FilterState) => void;
   onEmptyTrash: () => void;
+  emptyTrashPending?: boolean;
   emptyTrashRef?: Ref<HTMLButtonElement>;
 }) {
   const t = useT();
@@ -130,8 +132,12 @@ export function TrashFilters({
           ref={emptyTrashRef}
           variant="ghost"
           size="sm"
-          className="h-7 gap-1.5 px-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
-          onClick={onEmptyTrash}
+          className="h-7 gap-1.5 px-2 text-destructive hover:bg-destructive/10 hover:text-destructive aria-disabled:cursor-default aria-disabled:opacity-50"
+          onClick={() => {
+            if (!emptyTrashPending) onEmptyTrash();
+          }}
+          aria-disabled={emptyTrashPending || undefined}
+          aria-busy={emptyTrashPending || undefined}
           aria-label={t("trash.emptyTrash")}
         >
           <IconTrash className="size-3.5" />

@@ -85,3 +85,18 @@ export interface ContentTrashPurgePlanResponse {
   affectedPreview: ContentTrashPurgePreviewItem[];
   filtersIgnored: boolean;
 }
+
+export interface ContentTrashPurgeSpace {
+  spaceId: string;
+  name: string;
+  canPurge: boolean;
+}
+
+export interface ListContentTrashPurgeSpacesResponse {
+  spaces: ContentTrashPurgeSpace[];
+}
+
+export interface ContentTrashFilterOptionsResponse {
+  people: Array<{ email: string; name: string | null }>;
+  locations: Array<{ id: string; title: string }>;
+}

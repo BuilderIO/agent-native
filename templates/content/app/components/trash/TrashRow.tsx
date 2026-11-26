@@ -251,7 +251,7 @@ export function TrashRow({
   onToggle: () => void;
   onOpen: () => void;
   onRestore: () => void;
-  onDelete: () => void;
+  onDelete: (invoker: HTMLElement | null) => void;
   restoring?: boolean;
   focused: boolean;
   rowRef: RefCallback<HTMLDivElement>;
@@ -263,6 +263,7 @@ export function TrashRow({
   const t = useT();
   const { formatDate } = useFormatters();
   const deleteOnMenuCloseRef = useRef(false);
+  const menuTriggerRef = useRef<HTMLButtonElement>(null);
   const title = item.title || t("sidebar.untitled");
   const previewHref = `/trash?preview=${encodeURIComponent(item.documentId)}`;
   const location =
@@ -398,6 +399,7 @@ export function TrashRow({
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <ContentTableRowActionButton
+                  ref={menuTriggerRef}
                   label={t("trash.rowActions", { title })}
                   className="group-focus-within/trash-row:opacity-100"
                 />
@@ -409,7 +411,7 @@ export function TrashRow({
                   if (!deleteOnMenuCloseRef.current) return;
                   deleteOnMenuCloseRef.current = false;
                   event.preventDefault();
-                  onDelete();
+                  onDelete(menuTriggerRef.current);
                 }}
               >
                 <DropdownMenuItem

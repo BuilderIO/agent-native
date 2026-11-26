@@ -14,7 +14,7 @@ export async function assertContentTrashPurgeReadAccess(planId: string) {
     .from(schema.contentTrashPurgePlanItems)
     .where(eq(schema.contentTrashPurgePlanItems.planId, planId));
   const documentIds = items.map(({ documentId }) => documentId);
-  const document = alias(schema.documents, "purge_read_document");
+  const document = schema.documents;
   const database = alias(schema.contentDatabases, "purge_read_database");
   const host = alias(schema.documents, "purge_read_host");
   const canonicalDatabaseId = sql<string>`(select min(${schema.contentDatabases.id}) from ${schema.contentDatabases} where ${schema.contentDatabases.documentId} = ${document.id})`;
