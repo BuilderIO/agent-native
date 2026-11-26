@@ -439,18 +439,12 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
   const scopedAppIds = catalogContractAppIdsFromEnv();
 
   it("builds a catalog that includes the framework tools for every app", () => {
-    if (!scopedAppIds) {
-      expect(apps.map((app) => app.appId)).toEqual(
-        expect.arrayContaining([
-          "content",
-          "design",
-          "forms",
-          "mail",
-          "plan",
-          "slides",
-        ]),
-      );
-    }
+    const requiredApps = scopedAppIds
+      ? apps.map((app) => app.appId)
+      : ["content", "design", "forms", "mail", "plan", "slides"];
+    expect(apps.map((app) => app.appId)).toEqual(
+      expect.arrayContaining(requiredApps),
+    );
     for (const app of apps) {
       const [production] = app.surfaces;
       expect(
@@ -490,12 +484,13 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
   });
 
   it("advertises exactly the reviewed hints of every server-provided tool", () => {
+    const minMatches = scopedAppIds ? 0 : 1;
     for (const [name, hints] of Object.entries(SERVER_DECIDED_TOOLS)) {
       const tools = apps.flatMap((app) =>
         advertisements(app).filter(({ tool }) => tool.name === name),
       );
 
-      if (!scopedAppIds) expect(tools.length, name).toBeGreaterThan(0);
+      expect(tools.length).toBeGreaterThanOrEqual(minMatches);
       for (const { tool } of tools) {
         expect(tool.annotations, name).toEqual(hints);
       }
@@ -503,12 +498,13 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
   });
 
   it("advertises read-only actions that still write as writes", () => {
+    const minMatches = scopedAppIds ? 0 : 1;
     for (const name of READ_ONLY_ACTIONS_THAT_WRITE) {
       const served = apps.flatMap((app) =>
         advertisements(app).filter(({ tool }) => tool.name === name),
       );
 
-      if (!scopedAppIds) expect(served.length, name).toBeGreaterThan(0);
+      expect(served.length).toBeGreaterThanOrEqual(minMatches);
       for (const { tool, entry } of served) {
         expect(entry?.readOnly, name).toBe(true);
         expect(tool.annotations.readOnlyHint, name).toBe(false);
@@ -557,12 +553,7 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
       }),
     );
     expect(problems).toEqual([]);
-    if (!scopedAppIds) {
-      expect(
-        checked,
-        "No dev-discovered tool advertised the defaults, so nothing was checked.",
-      ).toBeGreaterThan(0);
-    }
+    expect(checked).toBeGreaterThanOrEqual(scopedAppIds ? 0 : 1);
   });
 
   it("classifies mutating actions from metadata independent of MCP hints", () => {
@@ -664,15 +655,15 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
   });
 
   it("has a legacy section for every app, plus core, and nothing else", () => {
-    if (scopedAppIds) {
-      for (const app of apps) {
-        expect(LEGACY_UNREVIEWED).toHaveProperty(app.appId);
-      }
-      return;
-    }
-    expect(Object.keys(LEGACY_UNREVIEWED).sort()).toEqual(
-      [...apps.map((app) => app.appId), "core"].sort(),
-    );
+    const expectedSections = scopedAppIds
+      ? apps.map((app) => app.appId)
+      : [...apps.map((app) => app.appId), "core"].sort();
+    const actualSections = scopedAppIds
+      ? Object.keys(LEGACY_UNREVIEWED).filter((k) =>
+          expectedSections.includes(k),
+        )
+      : Object.keys(LEGACY_UNREVIEWED).sort();
+    expect(actualSections.sort()).toEqual([...expectedSections].sort());
   });
 
   it("requires every mutating tool outside the legacy baseline to declare destructiveHint", () => {

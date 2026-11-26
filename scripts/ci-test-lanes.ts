@@ -336,7 +336,7 @@ export function catalogContractAppsForChangedPaths(
     }
     if (normalized.startsWith("packages/")) return "";
     const match = /^templates\/([^/]+)\//u.exec(normalized);
-    if (match) templateSlugs.add(match[1]!);
+    if (match?.[1]) templateSlugs.add(match[1]);
   }
   return [...templateSlugs].sort().join(",");
 }

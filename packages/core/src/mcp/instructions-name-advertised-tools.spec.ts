@@ -365,9 +365,11 @@ describe("static MCP instructions name only advertised tools", () => {
   }, LOAD_TIMEOUT_MS);
 
   it("covers every app that sets instructions", () => {
-    if (scopedAppIds) return;
+    const requiredApps = scopedAppIds
+      ? apps.map((app) => app.appId)
+      : ["content", "design", "forms", "plan", "slides"];
     expect(apps.map((app) => app.appId)).toEqual(
-      expect.arrayContaining(["content", "design", "forms", "plan", "slides"]),
+      expect.arrayContaining(requiredApps),
     );
   });
 

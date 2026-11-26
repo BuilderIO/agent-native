@@ -456,7 +456,7 @@ function devDiscoveredTools(
 }
 
 export function catalogContractAppIdsFromEnv(): string[] | undefined {
-  const raw = process.env.CATALOG_CONTRACT_APPS?.trim();
+  const raw = process.env.CATALOG_CONTRACT_APPS?.trim(); // config-ok: CI test harness filter, not application runtime config
   if (!raw) return undefined;
   const ids = raw
     .split(",")
