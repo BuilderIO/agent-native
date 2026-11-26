@@ -81,8 +81,8 @@ describe("the page check eval", () => {
   });
 
   it("refuses to score answers recorded for another question or text", () => {
-    const paragraph = heldOut.paragraphs.at(0);
-    if (!paragraph) throw new Error("Expected a held-out paragraph");
+    expect(heldOut.paragraphs.length).toBeGreaterThan(0);
+    const [paragraph] = heldOut.paragraphs;
     const one = { ...heldOut, paragraphs: [paragraph] };
     expect(() =>
       scoreChecks(

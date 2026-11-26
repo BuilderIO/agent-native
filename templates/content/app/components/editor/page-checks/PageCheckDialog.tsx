@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client/i18n";
+import { useOptionalLocale, useT } from "@agent-native/core/client/i18n";
 import {
   evaluatePageCheckPart,
   PAGE_CHECK_QUESTION_MAX_LENGTH,
@@ -117,6 +117,7 @@ function PageCheckForm({
   initialScope: PageCheckScope;
 }) {
   const t = useT();
+  const dir = useOptionalLocale()?.dir;
   const sentenceId = useId();
   const whereId = useId();
   const sureId = useId();
@@ -333,6 +334,7 @@ function PageCheckForm({
           <div className="grid gap-1.5">
             <Label id={sureId}>{t("pageChecks.howSure")}</Label>
             <RadioGroup
+              dir={dir}
               value={sure}
               onValueChange={(value) => setSure(value as PageCheckSure)}
               aria-labelledby={sureId}
@@ -606,6 +608,7 @@ function QuestionLine({
   onChange: (question: Omit<PageCheckQuestionInput, "text">) => void;
 }) {
   const t = useT();
+  const dir = useOptionalLocale()?.dir;
   const questionId = useId();
   const [open, setOpen] = useState(startEditing);
   const [draft, setDraft] = useState(question?.question ?? "");
@@ -627,7 +630,7 @@ function QuestionLine({
           type="button"
           variant="link"
           size="xs"
-          className="h-auto"
+          className="h-auto p-0"
           onClick={() => {
             setDraft(question.question);
             setPasses(question.passes);
@@ -657,6 +660,7 @@ function QuestionLine({
         onBlur={commit}
       />
       <RadioGroup
+        dir={dir}
         value={passes}
         onValueChange={(value) => {
           const next = value === "no" ? "no" : "yes";

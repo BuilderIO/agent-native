@@ -51,7 +51,7 @@ type ResultRow = typeof schema.contentPageCheckResults.$inferSelect;
 export type PageCheckScopeInput =
   | Exclude<PageCheckScope, { kind: "section" }>
   | (Omit<Extract<PageCheckScope, { kind: "section" }>, "headingId"> & {
-      headingId?: string | null;
+      headingId?: string | null | undefined;
     });
 
 function nowIso() {
@@ -575,8 +575,8 @@ async function checkStalePlaces(args: {
 
 export async function runPageChecks(args: {
   documentId: string;
-  checkIds?: string[];
-  editorSaved?: boolean;
+  checkIds?: string[] | undefined;
+  editorSaved?: boolean | undefined;
 }) {
   const checkedBy = currentUserEmail();
   const { markdown, idsByPath } = await savedBody(args.documentId, {
@@ -701,11 +701,11 @@ export async function addPageCheck(args: {
 export async function updatePageCheck(args: {
   documentId: string;
   checkId: string;
-  sentence?: string;
-  scope?: PageCheckScopeInput;
+  sentence?: string | undefined;
+  scope?: PageCheckScopeInput | undefined;
   questions?: readonly PageCheckQuestionInput[] | undefined;
   sure?: PageCheckSure | undefined;
-  paused?: boolean;
+  paused?: boolean | undefined;
 }) {
   const ownerEmail = currentUserEmail();
   const { markdown, idsByPath } = await savedBody(args.documentId, {
@@ -773,8 +773,8 @@ export async function skipPageCheckPlace(args: {
   documentId: string;
   checkId: string;
   placeKey: string;
-  textHash?: string;
-  undo?: boolean;
+  textHash?: string | undefined;
+  undo?: boolean | undefined;
 }) {
   const skippedBy = currentUserEmail();
   await pageCheckAccess(args.documentId, "editor");
