@@ -92,7 +92,24 @@ export interface ChangeSelectedZIndexArgs {
   invalidateRenderedElementInfo?: () => void;
   renderedElementInfoByLayerKeyRef?: RefObject<Map<string, ElementInfo>>;
   reportRefusal?: (reason: ZOrderRefusal) => void;
+  /**
+   * Overview selections can live in a screen other than the focused one. When
+   * the selection's owner is such a screen, the edit is read from and written
+   * to that screen through this resolver instead of the focused file.
+   */
+  resolveScreen?: (fileId: string) =>
+    | {
+        file: DesignFile;
+        getContent: () => string;
+        applyContent: (
+          nextContent: string,
+          options: { forcePreviewFullDocument: true },
+        ) => ApplyLocalContentUpdateResult | { status: "deferred" };
+      }
+    | undefined;
   responsiveEditScopeRef?: RefObject<ResponsiveEditScope>;
+  /** Set by the redirect above: style commits would hit the focused screen. */
+  unfocusedScreen?: boolean;
   selectedElement: ElementInfo | null;
   selectedLayerIdsState: string[];
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
@@ -524,6 +541,36 @@ export function runChangeSelectedZIndex(
   args: ChangeSelectedZIndexArgs,
   mode: ChangeSelectedZIndexMode,
 ): ChangeSelectedZIndexResult {
+  const ownerFileId = args.codeLayerOwnerByNodeIdRef.current.get(
+    args.selectedLayerIdsState[0] ?? "",
+  )?.fileId;
+  if (
+    ownerFileId !== undefined &&
+    ownerFileId !== args.activeFile?.id &&
+    args.canEditDesign
+  ) {
+    const screen = args.resolveScreen?.(ownerFileId);
+    if (screen) {
+      return runChangeSelectedZIndex(
+        {
+          ...args,
+          activeFile: screen.file,
+          getFreshActiveContent: screen.getContent,
+          applyLocalContentUpdate: (nextContent) => {
+            const result = screen.applyContent(nextContent, {
+              forcePreviewFullDocument: true,
+            });
+            return result.status === "accepted"
+              ? result
+              : { status: "refused" };
+          },
+          resolveScreen: undefined,
+          unfocusedScreen: true,
+        },
+        mode,
+      );
+    }
+  }
   const {
     activeBreakpointUpperBoundPx = null,
     activeBreakpointWidthStateRef,
@@ -696,6 +743,7 @@ export function runChangeSelectedZIndex(
       return refuse("linked-component");
     }
     if (
+      !args.unfocusedScreen &&
       selectedElement &&
       selectedElementMatchesNode(selectedElement, targets[0]!.node)
     ) {
@@ -726,6 +774,7 @@ export function runChangeSelectedZIndex(
     );
     if (
       !parentIsolation &&
+      !args.unfocusedScreen &&
       selectedElementMatchesNode(selectedElement, target.node)
     ) {
       commitVisualStyles(
