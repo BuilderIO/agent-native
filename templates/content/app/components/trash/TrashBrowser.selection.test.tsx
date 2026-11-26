@@ -170,6 +170,9 @@ vi.mock("@/hooks/use-content-trash", async (importOriginal) => ({
 vi.mock("@/components/editor/TrashDocumentPreview", () => ({
   TrashDocumentPreview: () => null,
 }));
+vi.mock("./TrashRetentionNotice", () => ({
+  TrashRetentionNotice: () => null,
+}));
 vi.mock("./EmptyTrashDialog", () => ({
   TrashPurgeDialog: (props: ComponentProps<typeof TrashPurgeDialog>) => {
     latestDialogProps = props;
