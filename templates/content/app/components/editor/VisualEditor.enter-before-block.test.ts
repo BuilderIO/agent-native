@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type { ResourceSuggestion } from "@agent-native/core/review";
 import { docToNfm, nfmToDoc } from "@shared/nfm";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Editor } from "@tiptap/core";
@@ -24,6 +25,7 @@ import {
   createSuggestionDraftSession,
   previewSuggestionDraft,
 } from "./suggestions/draft-session";
+import { markdownSuggestionOperation } from "./suggestions/markdown-operation";
 import {
   createVisualEditorExtensions,
   suggestionHighlightSpec,
@@ -375,37 +377,50 @@ describe("a numbered item added in the middle of a list", () => {
     "That is everything.",
   ].join("\n");
 
+  function addItemAfter(editor: Editor, item: string, text: string) {
+    let end = -1;
+    editor.state.doc.descendants((node, pos) => {
+      if (end < 0 && node.isTextblock && node.textContent === item)
+        end = pos + node.nodeSize - 1;
+      return end < 0;
+    });
+    editor.commands.setTextSelection(end);
+    expect(editor.commands.splitListItem("listItem")).toBe(true);
+    editor.view.dispatch(editor.state.tr.insertText(text));
+  }
+
+  function required<T>(value: T | null | undefined): T {
+    if (value === null || value === undefined)
+      throw new Error("Expected a value");
+    return value;
+  }
+
+  function draftPreview(draft: string) {
+    const preview = previewSuggestionDraft(
+      createSuggestionDraftSession({
+        id: "list-item",
+        baseContent: fixture,
+        baseRevision: "one",
+        startedAt: "2026-11-26T00:00:00.000Z",
+      }),
+      draft,
+      null,
+    );
+    if (preview.status !== "ready")
+      throw new Error(`Expected a ready draft, got ${preview.status}`);
+    return preview;
+  }
+
   it("is one suggestion, drawn as its own item where it was added", () => {
     const source = mountedEditor(fixture);
     let presentation: VisualEditorSuggestion | null = null;
     try {
-      let end = -1;
-      source.editor.state.doc.descendants((node, pos) => {
-        if (end < 0 && node.isTextblock && node.textContent === "Stove")
-          end = pos + node.nodeSize - 1;
-        return end < 0;
-      });
-      source.editor.commands.setTextSelection(end);
-      expect(source.editor.commands.splitListItem("listItem")).toBe(true);
-      source.editor.view.dispatch(
-        source.editor.state.tr.insertText("Rain jacket"),
-      );
+      addItemAfter(source.editor, "Stove", "Rain jacket");
       const draft = docToNfm(source.editor.getJSON());
       expect(draft).toContain("3. Rain jacket\n4. Water filter\n5. Headlamp");
-      const preview = previewSuggestionDraft(
-        createSuggestionDraftSession({
-          id: "list-item",
-          baseContent: fixture,
-          baseRevision: "one",
-          startedAt: "2026-11-26T00:00:00.000Z",
-        }),
-        draft,
-        null,
-      );
-      if (preview.status !== "ready")
-        throw new Error(`Expected a ready draft, got ${preview.status}`);
+      const preview = draftPreview(draft);
       expect(preview.suggestions).toHaveLength(1);
-      const { operations } = preview.suggestions[0]!;
+      const { operations } = required(preview.suggestions[0]);
       expect(operations).toMatchObject([
         {
           kind: "add_text_block",
@@ -425,11 +440,15 @@ describe("a numbered item added in the middle of a list", () => {
       });
       const draftSpec = suggestionHighlightSpec(
         source.editor.state.doc,
-        drafted!,
+        required(drafted),
       );
       expect(draftSpec).not.toBeNull();
-      setSuggestionHighlights(source.editor.view, { specs: [draftSpec!] });
-      expect(highlightedText(source.editor, drafted!.id)).toBe("Rain jacket");
+      setSuggestionHighlights(source.editor.view, {
+        specs: [required(draftSpec)],
+      });
+      expect(highlightedText(source.editor, required(drafted).id)).toBe(
+        "Rain jacket",
+      );
 
       presentation = suggestionPresentation(
         { id: "saved", status: "pending", operations },
@@ -441,10 +460,13 @@ describe("a numbered item added in the middle of a list", () => {
     expect(presentation).not.toBeNull();
     const { editor, dispose } = mountedEditor(fixture);
     try {
-      const spec = suggestionHighlightSpec(editor.state.doc, presentation!);
+      const spec = suggestionHighlightSpec(
+        editor.state.doc,
+        required(presentation),
+      );
       expect(spec).toMatchObject({ kind: "add_block" });
-      setSuggestionHighlights(editor.view, { specs: [spec!] });
-      const list = editor.view.dom.querySelector("ol")!;
+      setSuggestionHighlights(editor.view, { specs: [required(spec)] });
+      const list = required(editor.view.dom.querySelector("ol"));
       expect(Array.from(list.children, (item) => item.textContent)).toEqual([
         "Tent",
         "Stove",
@@ -453,6 +475,114 @@ describe("a numbered item added in the middle of a list", () => {
         "Headlamp",
       ]);
       expect(docToNfm(editor.getJSON())).toBe(fixture);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("keeps two items added in different places as two suggestions", () => {
+    const source = mountedEditor(fixture);
+    let saved: Array<VisualEditorSuggestion | null> = [];
+    try {
+      addItemAfter(source.editor, "Tent", "Rain jacket");
+      addItemAfter(source.editor, "Stove", "Sunscreen");
+      const draft = docToNfm(source.editor.getJSON());
+      expect(draft).toContain(
+        "2. Rain jacket\n3. Stove\n4. Sunscreen\n5. Water filter",
+      );
+      const preview = draftPreview(draft);
+      expect(
+        preview.suggestions.flatMap(({ operations }) =>
+          operations.map(({ kind }) => kind),
+        ),
+      ).toEqual(["add_text_block", "add_text_block"]);
+      const drafted = documentEditorSuggestionPresentations({
+        savedSuggestions: [],
+        drafts: preview.suggestions,
+        currentMarkdown: draft,
+        editingSuggestionId: null,
+        pendingSuggestionId: null,
+        transitions: new Map(),
+      });
+      const specs = drafted.map((presentation) =>
+        suggestionHighlightSpec(source.editor.state.doc, presentation),
+      );
+      expect(specs.every((spec) => spec !== null)).toBe(true);
+      setSuggestionHighlights(source.editor.view, {
+        specs: specs.map(required),
+      });
+      expect(
+        preview.suggestions.map(({ id }) => highlightedText(source.editor, id)),
+      ).toEqual(["Rain jacket", "Sunscreen"]);
+      saved = preview.suggestions.map(({ id, operations }) =>
+        suggestionPresentation({ id, status: "pending", operations }, fixture),
+      );
+    } finally {
+      source.dispose();
+    }
+    const { editor, dispose } = mountedEditor(fixture);
+    try {
+      const specs = saved.map((presentation) =>
+        suggestionHighlightSpec(editor.state.doc, required(presentation)),
+      );
+      expect(specs).toMatchObject([
+        { kind: "add_block" },
+        { kind: "add_block" },
+      ]);
+      setSuggestionHighlights(editor.view, { specs: specs.map(required) });
+      const list = required(editor.view.dom.querySelector("ol"));
+      expect(Array.from(list.children, (item) => item.textContent)).toEqual([
+        "Tent",
+        "Rain jacket",
+        "Stove",
+        "Sunscreen",
+        "Water filter",
+        "Headlamp",
+      ]);
+    } finally {
+      dispose();
+    }
+  });
+
+  it("keeps showing a saved edit to a later item while items are drafted", () => {
+    const saved = {
+      id: "saved",
+      status: "pending",
+      operations: [
+        required(
+          markdownSuggestionOperation(
+            fixture,
+            fixture.replace("Water filter", "Water filter and spare cartridge"),
+          ),
+        ),
+      ],
+    } as ResourceSuggestion;
+    const { editor, dispose } = mountedEditor(fixture);
+    try {
+      addItemAfter(editor, "Tent", "Rain jacket");
+      addItemAfter(editor, "Stove", "Sunscreen");
+      const draft = docToNfm(editor.getJSON());
+      const preview = draftPreview(draft);
+      const presentations = documentEditorSuggestionPresentations({
+        savedSuggestions: [saved],
+        drafts: preview.suggestions,
+        currentMarkdown: draft,
+        editingSuggestionId: null,
+        pendingSuggestionId: null,
+        transitions: new Map(),
+      });
+      expect(presentations.map(({ id }) => id)).toContain(saved.id);
+      const specs = presentations.map((presentation) =>
+        suggestionHighlightSpec(editor.state.doc, presentation),
+      );
+      expect(specs.every((spec) => spec !== null)).toBe(true);
+      setSuggestionHighlights(editor.view, {
+        specs: specs.map(required),
+      });
+      expect(highlightedText(editor, saved.id)).toContain("spare cartridge");
+      expect(
+        preview.suggestions.map(({ id }) => highlightedText(editor, id)),
+      ).toEqual(["Rain jacket", "Sunscreen"]);
     } finally {
       dispose();
     }

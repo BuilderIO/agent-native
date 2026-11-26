@@ -3,6 +3,7 @@ import { canonicalizeNfm } from "@shared/nfm";
 import { operationOnText } from "@shared/suggestion-apply";
 import {
   joinRewrittenParagraphs,
+  listNumberDifferences,
   markdownSuggestionOperations,
   type MarkdownSuggestionOperation,
 } from "@shared/suggestion-diff";
@@ -306,12 +307,85 @@ export function createDraftSuggestionPresentationTransition(
     });
   }
   changes.sort((left, right) => left.from - right.from || left.to - right.to);
+  const numbered = withListNumberChanges(
+    alignment.canonical,
+    changes,
+    draftMarkdown,
+  );
+  if (!numbered) return null;
   const transition = {
     before: alignment.canonical,
     after: draftMarkdown,
-    changes,
+    changes: numbered,
   };
   return verifiedTransition(transition) ? transition : null;
+}
+
+function withListNumberChanges(
+  before: string,
+  changes: Change[],
+  after: string,
+): Change[] | null {
+  const proposed = reconstruct(before, changes);
+  if (proposed === null) return null;
+  if (proposed === after) return changes;
+  const numbers = listNumberDifferences(proposed, after);
+  if (!numbers) return null;
+  const edits = changes.map((change) => ({ ...change }));
+  const numberChanges: Change[] = [];
+  const numbersInsideEdits = new Map<
+    Change,
+    Array<{ from: number; to: number; number: string }>
+  >();
+  let index = 0;
+  let delta = 0;
+  for (const number of numbers) {
+    for (; index < edits.length; index += 1) {
+      const edit = edits[index];
+      if (edit.from + delta + edit.afterText.length > number.from) break;
+      delta += edit.afterText.length - (edit.to - edit.from);
+    }
+    if (index < edits.length && edits[index].from + delta < number.to) {
+      const edit = edits[index];
+      const offset = number.from - edit.from - delta;
+      const end = offset + number.to - number.from;
+      if (offset < 0 || end > edit.afterText.length) return null;
+      const inside = numbersInsideEdits.get(edit) ?? [];
+      inside.push({ from: offset, to: end, number: number.number });
+      numbersInsideEdits.set(edit, inside);
+      continue;
+    }
+    const from = number.from - delta;
+    const to = number.to - delta;
+    numberChanges.push({
+      from,
+      to,
+      beforeText: before.slice(from, to),
+      afterText: number.number,
+    });
+  }
+  for (const [edit, inside] of numbersInsideEdits)
+    for (const number of inside.reverse())
+      edit.afterText =
+        edit.afterText.slice(0, number.from) +
+        number.number +
+        edit.afterText.slice(number.to);
+  const merged: Change[] = [];
+  for (const change of [...edits, ...numberChanges].sort(
+    (left, right) => left.from - right.from || left.to - right.to,
+  )) {
+    const previous = merged.length > 0 ? merged[merged.length - 1] : null;
+    if (!previous || !intersects(previous, change)) {
+      merged.push(change);
+      continue;
+    }
+    if (change.from < previous.to) return null;
+    previous.afterText +=
+      before.slice(previous.to, change.from) + change.afterText;
+    previous.to = change.to;
+    previous.beforeText = before.slice(previous.from, previous.to);
+  }
+  return merged;
 }
 
 function dependentOperation(
