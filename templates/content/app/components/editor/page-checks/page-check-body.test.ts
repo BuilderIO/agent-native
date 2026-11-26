@@ -120,6 +120,23 @@ describe("checks in the editor's text", () => {
     expect(mark.to).toBe(laterAt);
   });
 
+  it("marks each section that doesn't pass across its whole range", () => {
+    const doc = editorDoc(markdown);
+    const check = listed(
+      "At least 5 words",
+      { kind: "each_section" },
+      markdown,
+    );
+    const marks = readLivePageChecks(doc, [check]).marks;
+
+    const offsets = new Map<string, number>();
+    doc.forEach((child, offset) => offsets.set(child.textContent, offset));
+    expect(marks.map((mark) => [mark.from, mark.to])).toEqual([
+      [offsets.get("Deeper"), offsets.get("Later")],
+      [offsets.get("Later"), doc.content.size],
+    ]);
+  });
+
   it("marks each paragraph that doesn't pass, and only those", () => {
     const doc = editorDoc(markdown);
     const check = listed(

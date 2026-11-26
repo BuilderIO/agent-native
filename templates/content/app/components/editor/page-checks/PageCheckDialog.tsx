@@ -1,6 +1,9 @@
 import { useOptionalLocale, useT } from "@agent-native/core/client/i18n";
 import {
   evaluatePageCheckPart,
+  isEachPageCheckScope,
+  PAGE_CHECK_HEADING_MAX_LENGTH,
+  PAGE_CHECK_HEADING_OPS,
   PAGE_CHECK_QUESTION_MAX_LENGTH,
   PAGE_CHECK_SENTENCE_MAX_LENGTH,
   PAGE_CHECK_SURE_SETTINGS,
@@ -11,6 +14,8 @@ import {
   readPageCheckBody,
   readPageCheckSentence,
   type PageCheckCountPart,
+  type PageCheckHeadingOp,
+  type PageCheckOnlyWhere,
   type PageCheckPartResult,
   type PageCheckPlaces,
   type PageCheckProblem,
@@ -31,11 +36,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 
 import {
+  PAGE_CHECK_OP_LABELS,
   PAGE_CHECK_SURE_LABELS,
   pageCheckCouldntText,
   pageCheckMissText,
@@ -49,6 +56,9 @@ import {
 } from "./page-checks-context";
 
 const TRY_PAUSE_MS = 700;
+const HEADING_LEVELS = [1, 2, 3, 4, 5, 6] as const;
+const SELECT_CLASS =
+  "h-9 rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 type Questions = Partial<Record<string, Omit<PageCheckQuestionInput, "text">>>;
 
@@ -154,6 +164,13 @@ function PageCheckForm({
   }, [headings, scope]);
   const reading = useMemo(() => readPageCheckSentence(sentence), [sentence]);
   const places = useMemo(() => pageCheckPlacesIn(body, scope), [body, scope]);
+  const everyPlace = useMemo(
+    () =>
+      isEachPageCheckScope(scope) && scope.only
+        ? pageCheckPlacesIn(body, { kind: scope.kind })
+        : null,
+    [body, scope],
+  );
 
   const trimmed = sentence.trim();
   const asks =
@@ -305,13 +322,19 @@ function PageCheckForm({
           <select
             id={whereId}
             value={selected}
-            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className={`${SELECT_CLASS} w-full`}
             onChange={(event) => {
               const value = event.currentTarget.value;
               if (value.startsWith("section:")) {
                 const index = Number(value.slice(8));
                 const section = sections.find((_, at) => at === index);
                 if (section) setScope(section);
+              } else if (
+                (value === "each_section" || value === "each_paragraph") &&
+                isEachPageCheckScope(scope) &&
+                scope.only
+              ) {
+                setScope({ kind: value, only: scope.only });
               } else {
                 setScope({ kind: value } as PageCheckScope);
               }
@@ -327,11 +350,27 @@ function PageCheckForm({
                 {pageCheckScopeLabel(t, section)}
               </option>
             ))}
+            <option value="each_section">
+              {t("pageChecks.scopeEachSection")}
+            </option>
             <option value="each_paragraph">
               {t("pageChecks.scopeEachParagraph")}
             </option>
           </select>
         </div>
+        {isEachPageCheckScope(scope) ? (
+          <OnlyWhere
+            only={scope.only}
+            paragraphs={scope.kind === "each_paragraph"}
+            matching={places.status === "ok" ? places.places.length : 0}
+            total={
+              everyPlace?.status === "ok" ? everyPlace.places.length : null
+            }
+            onChange={(only) =>
+              setScope(only ? { kind: scope.kind, only } : { kind: scope.kind })
+            }
+          />
+        ) : null}
         {showSure ? (
           <div className="grid gap-1.5">
             <Label id={sureId}>{t("pageChecks.howSure")}</Label>
@@ -370,7 +409,7 @@ function PageCheckForm({
           <PageCheckTryLines
             reading={reading}
             places={places}
-            each={scope.kind === "each_paragraph"}
+            each={isEachPageCheckScope(scope)}
             sure={sure}
             trying={trying}
             failed={triedNow?.status === "failed"}
@@ -436,6 +475,138 @@ function PageCheckForm({
         </DialogFooter>
       </form>
     </DialogContent>
+  );
+}
+
+type OnlyField = "all" | PageCheckOnlyWhere["field"];
+
+function onlyWhereOf(
+  field: OnlyField,
+  op: PageCheckHeadingOp,
+  text: string,
+  level: number,
+): PageCheckOnlyWhere | undefined {
+  if (field === "level") return { field: "level", level };
+  const trimmed = text.trim();
+  return field === "heading" && trimmed
+    ? { field: "heading", op, text: trimmed }
+    : undefined;
+}
+
+function OnlyWhere({
+  only,
+  paragraphs,
+  matching,
+  total,
+  onChange,
+}: {
+  only: PageCheckOnlyWhere | undefined;
+  paragraphs: boolean;
+  matching: number;
+  total: number | null;
+  onChange: (only: PageCheckOnlyWhere | undefined) => void;
+}) {
+  const t = useT();
+  const id = useId();
+  const [field, setField] = useState<OnlyField>(only?.field ?? "all");
+  const [op, setOp] = useState<PageCheckHeadingOp>(
+    only?.field === "heading" ? only.op : "contains",
+  );
+  const [text, setText] = useState(only?.field === "heading" ? only.text : "");
+  const [level, setLevel] = useState(only?.field === "level" ? only.level : 2);
+  const change = (next: {
+    field?: OnlyField;
+    op?: PageCheckHeadingOp;
+    text?: string;
+    level?: number;
+  }) => {
+    const nextField = next.field ?? field;
+    const nextOp = next.op ?? op;
+    const nextText = next.text ?? text;
+    const nextLevel = next.level ?? level;
+    setField(nextField);
+    setOp(nextOp);
+    setText(nextText);
+    setLevel(nextLevel);
+    onChange(onlyWhereOf(nextField, nextOp, nextText, nextLevel));
+  };
+  return (
+    <div className="grid gap-1.5" data-page-check-only>
+      <Label htmlFor={id}>{t("pageChecks.onlyWhere")}</Label>
+      <div className="flex flex-wrap gap-2">
+        <select
+          id={id}
+          value={field}
+          className={SELECT_CLASS}
+          onChange={(event) =>
+            change({ field: event.currentTarget.value as OnlyField })
+          }
+        >
+          <option value="all">{t("pageChecks.onlyAll")}</option>
+          <option value="heading">{t("pageChecks.onlyHeading")}</option>
+          <option value="level">{t("pageChecks.onlyLevel")}</option>
+        </select>
+        {field === "heading" ? (
+          <>
+            <select
+              aria-label={t("pageChecks.onlyMatch")}
+              value={op}
+              className={SELECT_CLASS}
+              onChange={(event) =>
+                change({
+                  op: event.currentTarget.value as PageCheckHeadingOp,
+                })
+              }
+            >
+              {PAGE_CHECK_HEADING_OPS.map((value) => (
+                <option key={value} value={value}>
+                  {t(PAGE_CHECK_OP_LABELS[value])}
+                </option>
+              ))}
+            </select>
+            <Input
+              aria-label={t("pageChecks.onlyText")}
+              value={text}
+              maxLength={PAGE_CHECK_HEADING_MAX_LENGTH}
+              className="h-9 min-w-32 flex-1"
+              onChange={(event) => change({ text: event.currentTarget.value })}
+            />
+          </>
+        ) : null}
+        {field === "level" ? (
+          <select
+            aria-label={t("pageChecks.onlyLevel")}
+            value={level}
+            className={SELECT_CLASS}
+            onChange={(event) =>
+              change({ level: Number(event.currentTarget.value) })
+            }
+          >
+            {HEADING_LEVELS.map((value) => (
+              <option key={value} value={value}>
+                {t("pageChecks.headingLevel", { level: value })}
+              </option>
+            ))}
+          </select>
+        ) : null}
+      </div>
+      {total !== null ? (
+        <p
+          className="text-xs text-muted-foreground"
+          aria-live="polite"
+          data-page-check-match-count
+        >
+          {matching === 0
+            ? t("pageChecks.nothingMatches")
+            : t("pageChecks.matchCount", { count: matching, total })}
+        </p>
+      ) : null}
+      {paragraphs && field !== "all" ? (
+        <p className="text-xs text-muted-foreground">
+          {t("pageChecks.onlyParagraphHelp")}
+        </p>
+      ) : null}
+    </div>
   );
 }
 

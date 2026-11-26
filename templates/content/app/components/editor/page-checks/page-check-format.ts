@@ -1,9 +1,12 @@
 import type { useT } from "@agent-native/core/client/i18n";
 import {
+  isEachPageCheckScope,
   pageCheckCountDistance,
   pageCheckPartFinding,
   type PageCheck,
   type PageCheckCouldntReason,
+  type PageCheckHeadingOp,
+  type PageCheckOnlyWhere,
   type PageCheckPartResult,
   type PageCheckPlaceAnswer,
   type PageCheckScope,
@@ -21,9 +24,40 @@ export function pageCheckScopeLabel(t: T, scope: PageCheckScope): string {
       return t("pageChecks.scopeIntro");
     case "section":
       return t("pageChecks.scopeSection", { heading: scope.heading });
-    case "each_paragraph":
-      return t("pageChecks.scopeEachParagraph");
+    case "each_section":
+    case "each_paragraph": {
+      const each = t(
+        scope.kind === "each_section"
+          ? "pageChecks.scopeEachSection"
+          : "pageChecks.scopeEachParagraph",
+      );
+      return scope.only ? pageCheckOnlyWhereLabel(t, each, scope.only) : each;
+    }
   }
+}
+
+export const PAGE_CHECK_OP_LABELS: Record<PageCheckHeadingOp, string> = {
+  contains: "pageChecks.opContains",
+  starts_with: "pageChecks.opStartsWith",
+  is: "pageChecks.opIs",
+};
+
+function pageCheckOnlyWhereLabel(
+  t: T,
+  scope: string,
+  only: PageCheckOnlyWhere,
+): string {
+  return only.field === "level"
+    ? t("pageChecks.whereLevel", { scope, level: only.level })
+    : t("pageChecks.whereHeading", {
+        scope,
+        op: t(PAGE_CHECK_OP_LABELS[only.op]),
+        text: only.text,
+      });
+}
+
+export function isEachPageCheck(check: Pick<PageCheck, "scope">): boolean {
+  return isEachPageCheckScope(check.scope);
 }
 
 export function pageCheckMissText(

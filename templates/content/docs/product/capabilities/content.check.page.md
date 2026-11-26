@@ -15,7 +15,9 @@ roadmap_boundary: "feature"
 acceptance_summary: "Editors add, change, pause, run and skip count and yes/no checks on a page; commenters see each check's answer as a dot beside the text and in the page's Checks list; viewers and public readers receive nothing; every answer is fine, not fine, skipped, changed since the last check, or couldn't check with its reason; and a yes/no check names the model that reads the text before it runs."
 proof_requirements:
   [
-    "A count check (words, sentences, paragraphs) on the page, the intro, a section or each paragraph answers from the saved text, and the add box shows the same answer before the check is saved.",
+    "A count check (words, sentences, paragraphs) on the page, the intro, a section, each section or each paragraph answers from the saved text, and the add box shows the same answer before the check is saved.",
+    "Only where narrows each section or each paragraph by heading text (contains, starts with or is, ignoring case) or heading level, a paragraph going by the heading it sits under; the add box says how many places match, and when none do it says nothing matches, never fine.",
+    "On a page without block IDs, a renamed heading counts as a deleted section and a new one; a heading with a block ID keeps its answers through a rename.",
     "Text edited after the last check shows as changed since the last check, keeps its last answer while someone is still typing, and is rechecked a few seconds after typing stops once the page has saved; opening or reading a page runs nothing.",
     "Skip here hides one place until its text changes, and Undo brings it back.",
     "A failed or unavailable check is never shown as fine or as empty: it says couldn't check, with the reason.",
@@ -28,7 +30,7 @@ proof_requirements:
   ]
 evidence: []
 superseded_by: null
-last_reviewed: "2026-11-25"
+last_reviewed: "2026-11-26"
 ---
 
 # Checks
@@ -45,7 +47,8 @@ Then she adds "Opens with something that happened to a developer" to the intro. 
 
 ## Product contract
 
-- A check is one sentence of at most three parts and a place: the page, the intro, a section, or each paragraph. It is called a check, never a Rule; a Rule is a check plus _when_ and _then_.
+- A check is one sentence of at most three parts and a place: the page, the intro, a section, each section, or each paragraph. It is called a check, never a Rule; a Rule is a check plus _when_ and _then_.
+- Each section is every heading with everything under it, down to the next heading at its level or higher. Only where narrows each section or each paragraph by heading text or heading level, with the words Collection filters use ("contains", "starts with", "is"). A paragraph goes by the heading it sits under, and paragraphs above the first heading match no condition.
 - A check never changes the page's text and never posts a comment by itself. Comment opens the ordinary comment box with the reason filled in, and nothing posts until a person sends it.
 - Each place has exactly one of five answers, which never look alike: fine, not fine, skipped, changed since the last check, and couldn't check with its reason.
 - Results are stored per check wording and per place text, so unchanged text is never checked twice.
@@ -61,7 +64,7 @@ Then she adds "Opens with something that happened to a developer" to the intro. 
 
 - Validation, which refuses a value, stays with `content.property.constraints`; a check only points.
 - Event-driven Rules stay with `content.rule.deterministic`; a check runs from the open editor or on request, not from committed Events.
-- Counting needs no AI: a check made only of counts runs without any model. Each section and Only where are a later increment.
+- Counting needs no AI: a check made only of counts runs without any model.
 - Checks on Collection rows are a later increment that will use the conditions a Collection's View uses.
 
 ## Acceptance stories
@@ -78,6 +81,10 @@ Given a check marking the intro, when the editor cuts it to 118 words and stops 
 
 Given a page with checks, when a commenter opens it, then they see the dots and the Checks list but cannot add, change, run or skip a check; when a viewer or a public reader opens it, then the server sends them no checks at all.
 
+### Check only the sections a heading names
+
+Given a page whose sections are "Step one", "Step two" and "Notes", when an editor adds "At most 300 words" to each section, only where the heading starts with "step", then the add box says "2 of 3 match" and the check marks only the step sections; changing the condition to one no heading meets says "Nothing matches", not fine.
+
 ### Never turn a failure into fine
 
 Given a check that couldn't run, when anyone reads the page, then the place says couldn't check with its reason, not fine and not blank.
@@ -88,9 +95,11 @@ The first increment adds the check, result and skip tables, the shared counting 
 
 The second increment adds yes/no parts: writing and reading questions in `templates/content/shared/page-check-questions.ts`; asking the decision model, the daily limit and naming the model in `templates/content/server/lib/page-check-questions.ts`; and How sure, the question editor and the model notice in the add box. `actions/page-check-questions.db.test.ts` covers writing a question once, editing it, vague parts, How sure without asking again, a missing model, the daily limit and text that gives orders. `scripts/page-checks-eval/` holds 150 made-up labeled paragraphs for three checks, half of them unseen until the question writer's prompt was settled, with recorded answers its test scores against the bar.
 
+The third increment adds each section and Only where: finding and narrowing places in `templates/content/shared/page-checks.ts`, the `only` condition in the Actions' scope, and the Where choice, the Only where controls and the match count in the add box. `shared/page-checks.spec.ts` covers section ranges, repeated and renamed headings, every condition and keys that stay put when a condition narrows the list.
+
 ## Proof plan
 
-1. Run the Action tests for counting, answers, skips, access by role and the 20-check limit, and for writing questions, How sure, a missing model and the daily limit.
+1. Run the Action tests for counting, answers, skips, access by role and the 20-check limit, for each section and Only where, and for writing questions, How sure, a missing model and the daily limit.
 2. Score the eval's recorded answers, and record a fresh run whenever the question writer's prompt or the decision model changes.
 3. In the editor, reproduce the 183-to-118-word example at desktop, tablet and phone widths, in light and dark, and in a right-to-left locale.
 4. Edit a checked place and confirm it shows changed, keeps its last answer while typing, and is rechecked after the pause.

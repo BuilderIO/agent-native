@@ -619,6 +619,11 @@ function resolveScope(
   markdown: string,
   idsByPath: Record<string, string>,
 ): PageCheckScope {
+  if (scope.kind === "each_section" || scope.kind === "each_paragraph") {
+    return scope.only
+      ? { kind: scope.kind, only: scope.only }
+      : { kind: scope.kind };
+  }
   if (scope.kind !== "section") return { kind: scope.kind };
   const headings = pageCheckHeadings(markdown, idsByPath);
   const heading = scope.headingId

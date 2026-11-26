@@ -168,13 +168,26 @@ function required<T>(value: T | null | undefined): T {
   return value;
 }
 
-function setText(control: HTMLTextAreaElement, value: string) {
+function setText(
+  control: HTMLTextAreaElement | HTMLInputElement,
+  value: string,
+) {
   act(() => {
     Object.getOwnPropertyDescriptor(
-      HTMLTextAreaElement.prototype,
+      Object.getPrototypeOf(control),
       "value",
     )?.set?.call(control, value);
     control.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+function choose(control: HTMLSelectElement, value: string) {
+  act(() => {
+    Object.getOwnPropertyDescriptor(
+      HTMLSelectElement.prototype,
+      "value",
+    )?.set?.call(control, value);
+    control.dispatchEvent(new Event("change", { bubbles: true }));
   });
 }
 
@@ -335,6 +348,104 @@ describe("page checks", () => {
       sure: "balanced",
     });
     expect(page.closeDialog).toHaveBeenCalled();
+  });
+
+  it("narrows each section or paragraph by its heading, saying how many match", async () => {
+    const page = actions({
+      bodyMarkdown: () =>
+        "Intro.\n\n## Step one\n\nOne two three.\n\n## Step two\n\nFour.\n\n## Notes\n\nFive.",
+    });
+    render({
+      actions: page,
+      state: state({ dialog: { mode: "add", scope: { kind: "intro" } } }),
+    });
+    const dialog = required(
+      document.querySelector<HTMLElement>("[data-page-check-dialog]"),
+    );
+    const tryText = () =>
+      dialog.querySelector("[data-page-check-try]")?.textContent;
+    const matchCount = () =>
+      dialog.querySelector("[data-page-check-match-count]")?.textContent;
+    const where = required(dialog.querySelector("select"));
+    setText(required(dialog.querySelector("textarea")), "At most 3 words");
+
+    choose(where, "each_section");
+    expect(tryText()).toContain("At most 3 words: 1 of 3");
+    const field = required(
+      dialog.querySelector<HTMLSelectElement>("[data-page-check-only] select"),
+    );
+    expect(matchCount()).toBeUndefined();
+
+    choose(field, "heading");
+    expect(matchCount()).toBeUndefined();
+    setText(byLabel<HTMLInputElement>("Heading text", dialog), "STEP");
+    expect(matchCount()).toBe("2 of 3 match");
+    expect(tryText()).toContain("At most 3 words: 1 of 2");
+
+    const match = byLabel<HTMLSelectElement>("How the heading matches", dialog);
+    choose(match, "is");
+    expect(matchCount()).toBe("Nothing matches");
+    expect(tryText()).toContain("At most 3 words: Nothing matches");
+    expect(tryText()).not.toContain("Fine");
+    choose(match, "starts_with");
+    expect(matchCount()).toBe("2 of 3 match");
+
+    choose(where, "each_paragraph");
+    expect(matchCount()).toBe("2 of 4 match");
+    expect(dialog.textContent).toContain(
+      "A paragraph goes by the heading it sits under.",
+    );
+
+    choose(field, "level");
+    const level = byLabel<HTMLSelectElement>("Heading level", dialog);
+    expect(level.selectedOptions[0]?.textContent).toBe("Heading 2");
+    expect(matchCount()).toBe("3 of 4 match");
+    choose(level, "3");
+    expect(matchCount()).toBe("Nothing matches");
+    choose(level, "2");
+
+    await click(
+      required(
+        Array.from(dialog.querySelectorAll("button")).find(
+          (button) => button.textContent === "Add check",
+        ),
+      ),
+    );
+    expect(page.save).toHaveBeenCalledWith({
+      checkId: undefined,
+      sentence: "At most 3 words",
+      scope: { kind: "each_paragraph", only: { field: "level", level: 2 } },
+      sure: "balanced",
+    });
+  });
+
+  it("names a check's heading condition in its row", () => {
+    render({
+      actions: actions(),
+      state: state({
+        checks: [
+          check({
+            scope: {
+              kind: "each_section",
+              only: { field: "heading", op: "starts_with", text: "Step" },
+            },
+          }),
+          check({
+            id: "check-2",
+            scope: {
+              kind: "each_paragraph",
+              only: { field: "level", level: 3 },
+            },
+          }),
+        ],
+      }),
+    });
+    expect(document.body.textContent).toContain(
+      "Each section where the heading starts with “Step”",
+    );
+    expect(document.body.textContent).toContain(
+      "Each paragraph where the heading level is 3",
+    );
   });
 
   it("won't save a sentence it can't read", () => {

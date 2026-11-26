@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 import {
+  PAGE_CHECK_HEADING_MAX_LENGTH,
+  PAGE_CHECK_HEADING_OPS,
   PAGE_CHECK_MAX_PARTS,
   PAGE_CHECK_QUESTION_MAX_LENGTH,
   PAGE_CHECK_SENTENCE_MAX_LENGTH,
@@ -14,6 +16,34 @@ export const pageCheckSentenceSchema = z
   .describe(
     'The check as one sentence of up to three parts, like "At most 120 words" or "At most 12 sentences. Opens with a question." A count of words, sentences or paragraphs is read as a count; any other part becomes a yes/no question a decision model answers about the text.',
   );
+
+const onlyWhereSchema = z
+  .discriminatedUnion("field", [
+    z.object({
+      field: z.literal("heading"),
+      op: z.enum(PAGE_CHECK_HEADING_OPS),
+      text: z.string().trim().min(1).max(PAGE_CHECK_HEADING_MAX_LENGTH),
+    }),
+    z.object({
+      field: z.literal("level"),
+      level: z.number().int().min(1).max(6),
+    }),
+  ])
+  .optional()
+  .describe(
+    "Narrows the places to those whose heading matches, ignoring case: a section's own heading, or for a paragraph the heading it sits under. Leave it out to check every one.",
+  );
+
+const storedOnlyWhereSchema = z
+  .discriminatedUnion("field", [
+    z.object({
+      field: z.literal("heading"),
+      op: z.enum(PAGE_CHECK_HEADING_OPS),
+      text: z.string(),
+    }),
+    z.object({ field: z.literal("level"), level: z.number() }),
+  ])
+  .optional();
 
 export const pageCheckScopeSchema = z
   .discriminatedUnion("kind", [
@@ -29,13 +59,19 @@ export const pageCheckScopeSchema = z
         .describe(
           "The heading's block ID, when known; otherwise the heading is found by its text and level",
         ),
-      heading: z.string().trim().min(1).max(500).describe("Heading text"),
+      heading: z
+        .string()
+        .trim()
+        .min(1)
+        .max(PAGE_CHECK_HEADING_MAX_LENGTH)
+        .describe("Heading text"),
       level: z.number().int().min(1).max(6).describe("Heading level, 1-6"),
     }),
-    z.object({ kind: z.literal("each_paragraph") }),
+    z.object({ kind: z.literal("each_section"), only: onlyWhereSchema }),
+    z.object({ kind: z.literal("each_paragraph"), only: onlyWhereSchema }),
   ])
   .describe(
-    "Where the check looks: the whole page, the intro (the text before the first heading), one section (a heading and everything below it), or every block of body text on its own",
+    "Where the check looks: the whole page, the intro (the text before the first heading), one section (a heading and everything below it), each section on its own, or every block of body text on its own. Each section and each paragraph can be narrowed with only.",
   );
 
 const unitSchema = z.enum(["words", "sentences", "paragraphs"]);
@@ -80,7 +116,8 @@ const storedScopeSchema = z.discriminatedUnion("kind", [
     heading: z.string(),
     level: z.number(),
   }),
-  z.object({ kind: z.literal("each_paragraph") }),
+  z.object({ kind: z.literal("each_section"), only: storedOnlyWhereSchema }),
+  z.object({ kind: z.literal("each_paragraph"), only: storedOnlyWhereSchema }),
 ]);
 
 const couldntReasonSchema = z.enum([

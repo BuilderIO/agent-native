@@ -331,6 +331,62 @@ describe("running checks", () => {
     expect(await resultRows(added.checkId)).toHaveLength(1);
   });
 
+  it("checks only the sections a heading names, and finds none when nothing matches", async () => {
+    const documentId = await newPage(
+      "## Step one\n\nOne two three.\n\n## Step two\n\nFour.\n\n## Notes\n\nFive six seven.",
+    );
+    const added = await as(editor, () =>
+      actions.add.run(
+        {
+          documentId,
+          sentence: "At most 3 words",
+          scope: {
+            kind: "each_section",
+            only: { field: "heading", op: "starts_with", text: " step " },
+          },
+        },
+        ctxFor(editor),
+      ),
+    );
+    expect(added.checks[0]?.scope).toEqual({
+      kind: "each_section",
+      only: { field: "heading", op: "starts_with", text: "step" },
+    });
+    expect(added.checks[0]?.answers.map((answer) => answer.answer)).toEqual([
+      "not_fine",
+      "fine",
+    ]);
+
+    const updated = await as(editor, () =>
+      actions.update.run(
+        {
+          documentId,
+          checkId: added.checkId,
+          scope: { kind: "each_section", only: { field: "level", level: 3 } },
+        },
+        ctxFor(editor),
+      ),
+    );
+    expect(updated.checks[0]?.answers).toEqual([]);
+    expect(await resultRows(added.checkId)).toHaveLength(0);
+
+    await expect(
+      as(editor, () =>
+        actions.add.run(
+          {
+            documentId,
+            sentence: "At most 3 words",
+            scope: {
+              kind: "each_paragraph",
+              only: { field: "heading", op: "is", text: "  " },
+            },
+          },
+          ctxFor(editor),
+        ),
+      ),
+    ).rejects.toThrow();
+  });
+
   it("keeps a paused check's answers and doesn't run it", async () => {
     const documentId = await newPage();
     const { checkId } = await addIntroCheck(documentId);

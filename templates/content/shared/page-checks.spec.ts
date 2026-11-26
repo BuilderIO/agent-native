@@ -14,6 +14,7 @@ import {
   readPageCheckPart,
   readPageCheckSentence,
   type PageCheckCountPart,
+  type PageCheckOnlyWhere,
   type PageCheckPlace,
   type PageCheckResult,
   type PageCheckView,
@@ -261,6 +262,92 @@ describe("places on a page", () => {
     ]);
   });
 
+  it("takes each section as its heading and everything under it", () => {
+    const places = placesOf(PAGE, { kind: "each_section" }, { "6": "h-next" });
+    expect(places.map((place) => place.key)).toEqual([
+      expect.stringMatching(/^heading:2:[0-9a-f]{16}:0$/),
+      expect.stringMatching(/^heading:3:[0-9a-f]{16}:0$/),
+      "section:h-next",
+    ]);
+    expect(places.map((place) => place.path)).toEqual(["2", "4", "6"]);
+    expect(places[0]?.markdown).toContain("Deeper para.");
+    expect(places[0]?.markdown).not.toContain("Next para.");
+    expect(places[1]?.markdown).not.toContain("Queue para one.");
+    expect(places[2]?.markdown).toContain("- a list item");
+  });
+
+  it("tells repeated headings apart by order", () => {
+    const twice = "## Notes\n\nOne.\n\n## Notes\n\nTwo.";
+    expect(
+      placesOf(twice, { kind: "each_section" }).map((place) => place.key),
+    ).toEqual([
+      expect.stringMatching(/^heading:2:[0-9a-f]{16}:0$/),
+      expect.stringMatching(/^heading:2:[0-9a-f]{16}:1$/),
+    ]);
+  });
+
+  it("treats a renamed heading as a new section unless it has a block ID", () => {
+    const renamed = PAGE.replace("## Next", "## Later");
+    const lastKey = (markdown: string, ids: Record<string, string> = {}) =>
+      placesOf(markdown, { kind: "each_section" }, ids)[2]?.key;
+    expect(lastKey(renamed)).not.toBe(lastKey(PAGE));
+    expect(lastKey(renamed, { "6": "h-next" })).toBe(
+      lastKey(PAGE, { "6": "h-next" }),
+    );
+  });
+
+  it("narrows each section by its heading's text or level, ignoring case", () => {
+    const paths = (only: PageCheckOnlyWhere) =>
+      placesOf(PAGE, { kind: "each_section", only }).map((place) => place.path);
+    expect(paths({ field: "heading", op: "contains", text: "REVIEW" })).toEqual(
+      ["2"],
+    );
+    expect(paths({ field: "heading", op: "starts_with", text: "the" })).toEqual(
+      ["2"],
+    );
+    expect(
+      paths({ field: "heading", op: "starts_with", text: "review" }),
+    ).toEqual([]);
+    expect(paths({ field: "heading", op: "is", text: "next" })).toEqual(["6"]);
+    expect(paths({ field: "heading", op: "is", text: "nex" })).toEqual([]);
+    expect(paths({ field: "level", level: 2 })).toEqual(["2", "6"]);
+    expect(paths({ field: "level", level: 1 })).toEqual([]);
+  });
+
+  it("narrows each paragraph by the heading it sits under", () => {
+    const excerpts = (only: PageCheckOnlyWhere) =>
+      placesOf(PAGE, { kind: "each_paragraph", only }).map(
+        (place) => place.excerpt,
+      );
+    expect(
+      excerpts({ field: "heading", op: "is", text: "The review queue" }),
+    ).toEqual(["Queue para one."]);
+    expect(excerpts({ field: "level", level: 3 })).toEqual(["Deeper para."]);
+    expect(excerpts({ field: "level", level: 2 })).toEqual([
+      "Queue para one.",
+      "Next para.",
+    ]);
+    expect(
+      excerpts({ field: "heading", op: "contains", text: "intro" }),
+    ).toEqual([]);
+  });
+
+  it("keeps each place's key when only narrows the list", () => {
+    const twice = "## One\n\nSame.\n\n## Two\n\nSame.";
+    const every = placesOf(twice, { kind: "each_paragraph" });
+    const second = placesOf(twice, {
+      kind: "each_paragraph",
+      only: { field: "heading", op: "is", text: "Two" },
+    });
+    expect(second.map((place) => place.key)).toEqual([every[1]?.key]);
+    const sections = placesOf(twice, { kind: "each_section" });
+    const two = placesOf(twice, {
+      kind: "each_section",
+      only: { field: "heading", op: "is", text: "two" },
+    });
+    expect(two.map((place) => place.key)).toEqual([sections[1]?.key]);
+  });
+
   it("keeps a paragraph's key while its text stays, wherever it moves", () => {
     const before = placesOf(PAGE, { kind: "each_paragraph" });
     const after = placesOf(`New first.\n\n${PAGE}`, { kind: "each_paragraph" });
@@ -296,6 +383,7 @@ describe("places on a page", () => {
     const intro = placeOf("", { kind: "intro" });
     expect(countPageCheckUnit("words", intro.markdown)).toBe(0);
     expect(placesOf("", { kind: "each_paragraph" })).toEqual([]);
+    expect(placesOf("", { kind: "each_section" })).toEqual([]);
   });
 });
 
