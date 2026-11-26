@@ -336,6 +336,16 @@ function decodeInventoryCursor(
   return cursor;
 }
 
+function inventoryOrder(
+  a: Pick<InventoryCursor, "start" | "key">,
+  b: Pick<InventoryCursor, "start" | "key">,
+) {
+  return (
+    Date.parse(a.start) - Date.parse(b.start) ||
+    (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)
+  );
+}
+
 function compactInventoryEvent(event: CalendarEvent): CalendarInventoryItem {
   const attendees = event.attendees ?? [];
   const attendeeStatusCounts = getCalendarAttendeeStatusCounts(attendees);
@@ -1011,21 +1021,12 @@ export default defineAction({
       const compact = result.events.map(compactInventoryEvent);
       const unique = Array.from(
         new Map(
-          compact
-            .sort(
-              (a, b) =>
-                a.start.localeCompare(b.start) || a.key.localeCompare(b.key),
-            )
-            .map((item) => [item.key, item]),
+          compact.sort(inventoryOrder).map((item) => [item.key, item]),
         ).values(),
       );
       const cursor = preparedCursor;
       const afterCursor = cursor
-        ? unique.filter(
-            (item) =>
-              item.start > cursor.start ||
-              (item.start === cursor.start && item.key > cursor.key),
-          )
+        ? unique.filter((item) => inventoryOrder(item, cursor) > 0)
         : unique;
       const pageSize = args.pageSize ?? INVENTORY_PAGE_SIZE;
       const items: CalendarInventoryItem[] = [];
@@ -1052,35 +1053,57 @@ export default defineAction({
       const accountDescriptions = owner
         ? await getAccountDescriptions(owner)
         : {};
-      const accounts = result.queriedAccounts.map((accountEmail) => {
-        const error = result.errors.find(
-          (entry) =>
-            entry.email.trim().toLowerCase() ===
-            accountEmail.trim().toLowerCase(),
-        );
-        const description = accountDescriptionFor(
-          accountDescriptions,
-          accountEmail,
-        );
-        return {
-          accountEmail,
-          ...(description ? { description } : {}),
-          status: error ? ("error" as const) : ("ok" as const),
-          count: compact.filter(
-            (item) => item.accountEmail?.trim().toLowerCase() === accountEmail,
-          ).length,
-          exhausted: !error,
-          ...(error
-            ? {
-                error: {
-                  code: "PROVIDER_READ_FAILED",
-                  message: sanitizeError(error.error, "Calendar read failed"),
-                  retryable: true,
-                },
-              }
-            : {}),
-        };
-      });
+      const queried = new Set(
+        result.queriedAccounts.map((accountEmail) =>
+          accountEmail.trim().toLowerCase(),
+        ),
+      );
+      const unlistedErrors = result.errors.filter(
+        (entry) => !queried.has(entry.email.trim().toLowerCase()),
+      );
+      const accounts = [
+        ...result.queriedAccounts.map((accountEmail) => {
+          const error = result.errors.find(
+            (entry) =>
+              entry.email.trim().toLowerCase() ===
+              accountEmail.trim().toLowerCase(),
+          );
+          const description = accountDescriptionFor(
+            accountDescriptions,
+            accountEmail,
+          );
+          return {
+            accountEmail,
+            ...(description ? { description } : {}),
+            status: error ? ("error" as const) : ("ok" as const),
+            count: compact.filter(
+              (item) =>
+                item.accountEmail?.trim().toLowerCase() === accountEmail,
+            ).length,
+            exhausted: !error,
+            ...(error
+              ? {
+                  error: {
+                    code: "PROVIDER_READ_FAILED",
+                    message: sanitizeError(error.error, "Calendar read failed"),
+                    retryable: true,
+                  },
+                }
+              : {}),
+          };
+        }),
+        ...unlistedErrors.map((entry) => ({
+          accountEmail: entry.email,
+          status: "error" as const,
+          count: 0,
+          exhausted: false,
+          error: {
+            code: "PROVIDER_READ_FAILED",
+            message: sanitizeError(entry.error, "Calendar read failed"),
+            retryable: true,
+          },
+        })),
+      ];
       const sourceCoverage = [
         ...(result.sources.includes("google") && !result.googleConnected
           ? [
