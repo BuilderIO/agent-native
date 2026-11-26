@@ -330,14 +330,10 @@ const messages = {
       close: "Fechar",
     },
     integrations: {
-      addIntegration: "Adicionar integração",
       checking: "Verificando...",
       connect: "Conectar",
       disconnect: "Desconectar",
       getApiKey: "Para obter sua chave API:",
-      newIntegration: "Nova integração",
-      newIntegrationPlaceholder:
-        "ex.: Salesforce CRM — mostrar estágio do negócio e atividade recente do contato",
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "Enriquecimento de contatos e dados da empresa",
       hubspotDescription: "Contatos, negócios e tickets de CRM",
@@ -353,8 +349,6 @@ const messages = {
       experience: "Experiência",
       tickets: "Tickets",
       save: "Salvar",
-      submit: "Submit",
-      submitShortcut: "Submit ({{shortcut}})",
       updateKey: "Atualizar chave",
     },
     recipients: {
@@ -881,6 +875,39 @@ const messages = {
     },
     contacts: {
       noContactSelected: "Nenhum contato selecionado",
+    },
+    contactPanel: {
+      addToPanel: "Adicionar a este painel",
+      builtIn: "Integrados",
+      connections: "Conexões",
+      yourWidgets: "Seus widgets",
+      notes: "Notas",
+      attachments: "Anexos",
+      recent: "Recentes",
+      connected: "Ativado",
+      buildYourOwn: "Criar o seu…",
+      buildYourOwnTitle: "Criar o seu",
+      back: "Voltar",
+      widgetSees:
+        "Um widget vê o nome e o e-mail desta pessoa e a conversa que você tem aberta.",
+      widgetDoes:
+        "Ele pode mostrar seus dados do Mail, chamar outros serviços com as chaves que você salvar e manter as próprias notas.",
+      examplePrompt:
+        'Crie um widget para o painel ao lado de um e-mail aberto (espaço "{{slotId}}") e adicione-o ao meu painel: {{idea}}',
+      exampleDeals: "Mostrar os negócios abertos desta pessoa no Salesforce",
+      exampleLinks:
+        "Criar links para o site da empresa e a página do LinkedIn desta pessoa",
+      addNote: "Adicionar uma nota",
+      notesLoadError: "Não foi possível carregar as notas.",
+      notesContentUnreachable: "Não foi possível acessar o Content.",
+      olderNotesInContent: "As notas mais antigas estão na página do Content.",
+      noteSaveError: "Não foi possível salvar a nota.",
+      savedToMailNotes: "Salvo em Notas do Mail",
+      open: "Abrir",
+      openInContent: "Abrir no Content",
+      attachmentsLoadError: "Não foi possível carregar os arquivos.",
+      noAttachments: "Nenhum arquivo ainda",
+      moreAttachments: "Mais {{count}}",
     },
     readingPane: {
       empty: "Nenhum e-mail selecionado",

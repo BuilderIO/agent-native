@@ -140,7 +140,13 @@ function ContactPanel({
           );
         })
         .slice(0, 4)
-        .map((e) => ({ id: e.id, subject: e.subject }))
+        .map((e) => ({
+          id: e.id,
+          threadId: e.threadId || e.id,
+          subject: e.subject,
+          date: e.date,
+          accountEmail: e.accountEmail,
+        }))
     : [];
 
   useEffect(() => {
@@ -188,6 +194,7 @@ function ContactPanel({
       recentEmails={recentFromContact}
       recentEmailsError={allEmailsError}
       threadId={email?.threadId}
+      subject={email?.subject}
       focusedEmailId={email?.id ?? emailId}
     />
   );

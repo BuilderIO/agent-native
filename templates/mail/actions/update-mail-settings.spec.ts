@@ -128,4 +128,29 @@ describe("update-mail-settings action", () => {
     );
     expect(split).toEqual(expect.objectContaining({ splitInbox: true }));
   });
+
+  it("switches one built-in panel widget and keeps the others", async () => {
+    mocks.getUserSetting.mockResolvedValue({
+      writingStyle: "Keep it concise.",
+      contactPanelWidgets: { notes: false, attachments: false, recent: true },
+    });
+
+    const result = await action.run({
+      contactPanelWidgets: { attachments: true },
+    });
+
+    expect(mocks.putUserSetting).toHaveBeenLastCalledWith(
+      "owner@example.com",
+      "mail-settings",
+      expect.objectContaining({
+        writingStyle: "Keep it concise.",
+        contactPanelWidgets: { notes: false, attachments: true, recent: true },
+      }),
+    );
+    expect(result.contactPanelWidgets).toEqual({
+      notes: false,
+      attachments: true,
+      recent: true,
+    });
+  });
 });

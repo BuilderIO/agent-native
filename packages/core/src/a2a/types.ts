@@ -252,6 +252,10 @@ export interface A2AConfig {
     approval: A2AApprovalExecution,
     options: { signal: AbortSignal; threadId: string; turnId: string },
   ) => Promise<A2AActionExecutionResult>;
+  /**
+   * Runs one direct action call from a verified user: an exposed read, or a
+   * write whose action sets `publicAgent.directWrite`.
+   */
   executeReadOnlyAction?: (
     invocation: A2AReadOnlyActionInvocation,
   ) => Promise<A2AActionExecutionResult>;

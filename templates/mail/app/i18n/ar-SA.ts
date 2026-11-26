@@ -322,14 +322,10 @@ const messages = {
       close: "إغلاق",
     },
     integrations: {
-      addIntegration: "إضافة تكامل",
       checking: "جار التحقق...",
       connect: "اتصال",
       disconnect: "قطع الاتصال",
       getApiKey: "للحصول على مفتاح API:",
-      newIntegration: "تكامل جديد",
-      newIntegrationPlaceholder:
-        "مثلا Salesforce CRM — عرض مرحلة الصفقة والنشاط الأخير لجهة الاتصال",
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "إثراء جهات الاتصال وبيانات الشركة",
       hubspotDescription: "جهات اتصال CRM والصفقات والتذاكر",
@@ -343,8 +339,6 @@ const messages = {
       experience: "الخبرة",
       tickets: "التذاكر",
       save: "حفظ",
-      submit: "Submit",
-      submitShortcut: "Submit ({{shortcut}})",
       updateKey: "تحديث المفتاح",
     },
     recipients: {
@@ -846,6 +840,38 @@ const messages = {
     },
     contacts: {
       noContactSelected: "لم يتم تحديد جهة اتصال",
+    },
+    contactPanel: {
+      addToPanel: "إضافة إلى هذه اللوحة",
+      builtIn: "مدمجة",
+      connections: "الاتصالات",
+      yourWidgets: "الويدجت الخاصة بك",
+      notes: "ملاحظات",
+      attachments: "المرفقات",
+      recent: "الأحدث",
+      connected: "مفعّل",
+      buildYourOwn: "أنشئ ويدجت خاصة بك…",
+      buildYourOwnTitle: "أنشئ ويدجت خاصة بك",
+      back: "رجوع",
+      widgetSees:
+        "ترى الويدجت اسم هذا الشخص وبريده الإلكتروني والمحادثة المفتوحة لديك.",
+      widgetDoes:
+        "يمكنها عرض بيانات Mail، واستدعاء خدمات أخرى بالمفاتيح التي تحفظها، والاحتفاظ بملاحظاتها الخاصة.",
+      examplePrompt:
+        'أنشئ ويدجت للوحة المجاورة للبريد المفتوح (الموضع "{{slotId}}") وأضفها إلى لوحتي: {{idea}}',
+      exampleDeals: "اعرض الصفقات المفتوحة لهذا الشخص من Salesforce",
+      exampleLinks: "اربط بموقع شركة هذا الشخص وصفحته على LinkedIn",
+      addNote: "إضافة ملاحظة",
+      notesLoadError: "تعذّر تحميل الملاحظات.",
+      notesContentUnreachable: "تعذّر الوصول إلى Content.",
+      olderNotesInContent: "الملاحظات الأقدم موجودة في الصفحة على Content.",
+      noteSaveError: "تعذّر حفظ الملاحظة.",
+      savedToMailNotes: "حُفظت في ملاحظات Mail",
+      open: "فتح",
+      openInContent: "فتح في Content",
+      attachmentsLoadError: "تعذّر تحميل الملفات.",
+      noAttachments: "لا توجد ملفات بعد",
+      moreAttachments: "{{count}} أخرى",
     },
     readingPane: {
       empty: "لم يتم تحديد أي رسالة",

@@ -322,14 +322,10 @@ const messages = {
       close: "閉じる",
     },
     integrations: {
-      addIntegration: "連携を追加",
       checking: "確認中...",
       connect: "接続",
       disconnect: "切断",
       getApiKey: "API キーを取得するには:",
-      newIntegration: "新しい連携",
-      newIntegrationPlaceholder:
-        "例: Salesforce CRM — 連絡先の商談ステージと最近のアクティビティを表示",
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "連絡先の補強と会社データ",
       hubspotDescription: "CRM 連絡先、商談、チケット",
@@ -344,8 +340,6 @@ const messages = {
       experience: "経歴",
       tickets: "チケット",
       save: "保存",
-      submit: "Submit",
-      submitShortcut: "Submit ({{shortcut}})",
       updateKey: "キーを更新",
     },
     recipients: {
@@ -862,6 +856,39 @@ const messages = {
     },
     contacts: {
       noContactSelected: "連絡先が選択されていません",
+    },
+    contactPanel: {
+      addToPanel: "このパネルに追加",
+      builtIn: "組み込み",
+      connections: "接続",
+      yourWidgets: "自分のウィジェット",
+      notes: "メモ",
+      attachments: "添付ファイル",
+      recent: "最近",
+      connected: "オン",
+      buildYourOwn: "自分で作成…",
+      buildYourOwnTitle: "自分で作成",
+      back: "戻る",
+      widgetSees:
+        "ウィジェットは、この人の名前とメールアドレス、開いている会話を参照できます。",
+      widgetDoes:
+        "Mail のデータを表示したり、保存したキーで他のサービスを呼び出したり、独自のメモを保存したりできます。",
+      examplePrompt:
+        '開いているメールの横のパネル（スロット "{{slotId}}"）用のウィジェットを作成して、パネルに追加して: {{idea}}',
+      exampleDeals: "Salesforce でこの人の進行中の商談を表示",
+      exampleLinks:
+        "この人の会社のウェブサイトと LinkedIn ページへのリンクを表示",
+      addNote: "メモを追加",
+      notesLoadError: "メモを読み込めませんでした。",
+      notesContentUnreachable: "Content に接続できませんでした。",
+      olderNotesInContent: "以前のメモは Content のページにあります。",
+      noteSaveError: "メモを保存できませんでした。",
+      savedToMailNotes: "Mail のメモに保存しました",
+      open: "開く",
+      openInContent: "Content で開く",
+      attachmentsLoadError: "ファイルを読み込めませんでした。",
+      noAttachments: "ファイルはまだありません",
+      moreAttachments: "他 {{count}} 件",
     },
     readingPane: {
       empty: "メールが選択されていません",

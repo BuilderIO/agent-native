@@ -779,6 +779,25 @@ export const parityMatrix: ParityRow[] = [
     coverageRefs: ["actions/read-link-summary.db.test.ts"],
   },
   {
+    id: "sharing.mail-notes",
+    surface: "sharing",
+    label: "Keep notes about people from Mail",
+    uiEntrypoints: ["app/routes/_app.page.$id.tsx"],
+    durableEffect:
+      "Each note is a dated line on that person's page in a private Mail notes collection in the user's Personal space, one row per email address. Mail stores no copy.",
+    uiImplementation:
+      "Mail's Notes widget reads a person's page with get-mail-note and adds a line with add-mail-note, over A2A as the signed-in user. The collection and its pages open and edit here like any other.",
+    status: "action-backed",
+    actions: ["add-mail-note", "get-mail-note"],
+    exception:
+      "get-mail-note and add-mail-note are for Mail only (agentTool: false, mcpTool: true), under the caller's own access. add-mail-note opts in to direct A2A writes (publicAgent.directWrite), the one Content write Mail can make; it only creates the caller's own Mail notes collection, a row in it and a line at the end of that row's page. Content's own agent and UI use the ordinary collection and page actions on the same pages.",
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/_mail-notes.db.test.ts"],
+  },
+  {
     id: "sharing.agent-text-lock",
     surface: "sharing",
     label: "Set what agents can do on a page",

@@ -333,14 +333,10 @@ const messages = {
       close: "Fermer",
     },
     integrations: {
-      addIntegration: "Ajouter une intégration",
       checking: "Vérification...",
       connect: "Connecter",
       disconnect: "Déconnecter",
       getApiKey: "Pour obtenir votre clé API :",
-      newIntegration: "Nouvelle intégration",
-      newIntegrationPlaceholder:
-        "p. ex. Salesforce CRM — afficher l’étape du deal et l’activité récente du contact",
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "Enrichissement des contacts et données d’entreprise",
       hubspotDescription: "Contacts CRM, affaires et tickets",
@@ -356,8 +352,6 @@ const messages = {
       experience: "Expérience",
       tickets: "Tickets",
       save: "Enregistrer",
-      submit: "Submit",
-      submitShortcut: "Submit ({{shortcut}})",
       updateKey: "Mettre à jour la clé",
     },
     recipients: {
@@ -891,6 +885,41 @@ const messages = {
     },
     contacts: {
       noContactSelected: "Aucun contact sélectionné",
+    },
+    contactPanel: {
+      addToPanel: "Ajouter à ce panneau",
+      builtIn: "Intégrés",
+      connections: "Connexions",
+      yourWidgets: "Vos widgets",
+      notes: "Notes",
+      attachments: "Pièces jointes",
+      recent: "Récents",
+      connected: "Activé",
+      buildYourOwn: "Créer le vôtre…",
+      buildYourOwnTitle: "Créer le vôtre",
+      back: "Retour",
+      widgetSees:
+        "Un widget voit le nom et l’adresse e-mail de cette personne, ainsi que la conversation ouverte.",
+      widgetDoes:
+        "Il peut afficher vos données Mail, appeler d’autres services avec les clés que vous enregistrez et tenir ses propres notes.",
+      examplePrompt:
+        'Crée un widget pour le panneau à côté d’un e-mail ouvert (emplacement "{{slotId}}") et ajoute-le à mon panneau : {{idea}}',
+      exampleDeals:
+        "Afficher les affaires en cours de cette personne dans Salesforce",
+      exampleLinks:
+        "Lier le site web de l’entreprise de cette personne et sa page LinkedIn",
+      addNote: "Ajouter une note",
+      notesLoadError: "Impossible de charger les notes.",
+      notesContentUnreachable: "Impossible de joindre Content.",
+      olderNotesInContent:
+        "Les notes plus anciennes sont sur la page dans Content.",
+      noteSaveError: "Impossible d’enregistrer la note.",
+      savedToMailNotes: "Enregistré dans les notes Mail",
+      open: "Ouvrir",
+      openInContent: "Ouvrir dans Content",
+      attachmentsLoadError: "Impossible de charger les fichiers.",
+      noAttachments: "Aucun fichier pour l’instant",
+      moreAttachments: "{{count}} de plus",
     },
     readingPane: {
       empty: "Aucun e-mail sélectionné",

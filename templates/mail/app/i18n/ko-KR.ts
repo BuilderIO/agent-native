@@ -318,14 +318,10 @@ const messages = {
       close: "닫기",
     },
     integrations: {
-      addIntegration: "통합 추가",
       checking: "확인 중...",
       connect: "연결",
       disconnect: "연결 해제",
       getApiKey: "API 키를 받으려면:",
-      newIntegration: "새 통합",
-      newIntegrationPlaceholder:
-        "예: Salesforce CRM — 연락처의 거래 단계와 최근 활동 표시",
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "연락처 보강 및 회사 데이터",
       hubspotDescription: "CRM 연락처, 거래 및 티켓",
@@ -340,8 +336,6 @@ const messages = {
       experience: "경력",
       tickets: "티켓",
       save: "저장",
-      submit: "Submit",
-      submitShortcut: "Submit ({{shortcut}})",
       updateKey: "키 업데이트",
     },
     recipients: {
@@ -851,6 +845,38 @@ const messages = {
     },
     contacts: {
       noContactSelected: "선택한 연락처가 없습니다",
+    },
+    contactPanel: {
+      addToPanel: "이 패널에 추가",
+      builtIn: "기본 제공",
+      connections: "연결",
+      yourWidgets: "내 위젯",
+      notes: "메모",
+      attachments: "첨부파일",
+      recent: "최근",
+      connected: "켜짐",
+      buildYourOwn: "직접 만들기…",
+      buildYourOwnTitle: "직접 만들기",
+      back: "뒤로",
+      widgetSees:
+        "위젯은 이 사람의 이름과 이메일, 열려 있는 대화를 볼 수 있습니다.",
+      widgetDoes:
+        "Mail 데이터를 표시하고, 저장한 키로 다른 서비스를 호출하고, 자체 메모를 보관할 수 있습니다.",
+      examplePrompt:
+        '열린 이메일 옆 패널(슬롯 "{{slotId}}")용 위젯을 만들어 내 패널에 추가해 줘: {{idea}}',
+      exampleDeals: "Salesforce에서 이 사람의 진행 중인 거래 표시",
+      exampleLinks: "이 사람의 회사 웹사이트와 LinkedIn 페이지 링크 표시",
+      addNote: "메모 추가",
+      notesLoadError: "메모를 불러오지 못했습니다.",
+      notesContentUnreachable: "Content에 연결하지 못했습니다.",
+      olderNotesInContent: "이전 메모는 Content 페이지에 있습니다.",
+      noteSaveError: "메모를 저장하지 못했습니다.",
+      savedToMailNotes: "Mail 메모에 저장됨",
+      open: "열기",
+      openInContent: "Content에서 열기",
+      attachmentsLoadError: "파일을 불러오지 못했습니다.",
+      noAttachments: "아직 파일 없음",
+      moreAttachments: "{{count}}개 더 보기",
     },
     readingPane: {
       empty: "선택한 이메일이 없습니다",

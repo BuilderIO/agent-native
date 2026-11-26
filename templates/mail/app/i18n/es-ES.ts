@@ -330,14 +330,10 @@ const messages = {
       close: "Cerrar",
     },
     integrations: {
-      addIntegration: "Añadir integración",
       checking: "Comprobando...",
       connect: "Conectar",
       disconnect: "Desconectar",
       getApiKey: "Para obtener tu clave API:",
-      newIntegration: "Nueva integración",
-      newIntegrationPlaceholder:
-        "p. ej. Salesforce CRM — mostrar etapa del trato y actividad reciente del contacto",
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "Enriquecimiento de contactos y datos de empresa",
       hubspotDescription: "Contactos, negocios y tickets de CRM",
@@ -353,8 +349,6 @@ const messages = {
       experience: "Experiencia",
       tickets: "Tickets",
       save: "Guardar",
-      submit: "Submit",
-      submitShortcut: "Submit ({{shortcut}})",
       updateKey: "Actualizar clave",
     },
     recipients: {
@@ -883,6 +877,41 @@ const messages = {
     },
     contacts: {
       noContactSelected: "No hay contacto seleccionado",
+    },
+    contactPanel: {
+      addToPanel: "Añadir a este panel",
+      builtIn: "Integrados",
+      connections: "Conexiones",
+      yourWidgets: "Tus widgets",
+      notes: "Notas",
+      attachments: "Adjuntos",
+      recent: "Recientes",
+      connected: "Activado",
+      buildYourOwn: "Crea el tuyo…",
+      buildYourOwnTitle: "Crea el tuyo",
+      back: "Atrás",
+      widgetSees:
+        "Un widget ve el nombre y el correo de esta persona y la conversación que tienes abierta.",
+      widgetDoes:
+        "Puede mostrar tus datos de Mail, llamar a otros servicios con las claves que guardes y llevar sus propias notas.",
+      examplePrompt:
+        'Crea un widget para el panel junto a un correo abierto (espacio "{{slotId}}") y añádelo a mi panel: {{idea}}',
+      exampleDeals:
+        "Mostrar los acuerdos abiertos de esta persona en Salesforce",
+      exampleLinks:
+        "Enlazar al sitio web de la empresa y a la página de LinkedIn de esta persona",
+      addNote: "Añadir una nota",
+      notesLoadError: "No se pudieron cargar las notas.",
+      notesContentUnreachable: "No se pudo conectar con Content.",
+      olderNotesInContent:
+        "Las notas anteriores están en la página de Content.",
+      noteSaveError: "No se pudo guardar la nota.",
+      savedToMailNotes: "Guardado en Notas de Mail",
+      open: "Abrir",
+      openInContent: "Abrir en Content",
+      attachmentsLoadError: "No se pudieron cargar los archivos.",
+      noAttachments: "Aún no hay archivos",
+      moreAttachments: "{{count}} más",
     },
     readingPane: {
       empty: "Ningún correo seleccionado",
