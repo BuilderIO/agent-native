@@ -397,7 +397,11 @@ describe("listContactMeetings", () => {
   it("follows Google's pages in Mail's own lookup", async () => {
     calendarNotConnected();
     mocks.calendarListEvents.mockImplementation(
-      async (_token: string, _calendar: string, params: { pageToken?: string }) =>
+      async (
+        _token: string,
+        _calendar: string,
+        params: { pageToken?: string },
+      ) =>
         params.pageToken
           ? googlePage([googleEvent("g-next", "2026-11-27T15:00:00Z", [PRIYA])])
           : googlePage(

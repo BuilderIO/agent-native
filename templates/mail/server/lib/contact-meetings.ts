@@ -385,9 +385,7 @@ async function readFromCalendar(
       for (const [account, message] of window.failed) {
         failed.set(account, message);
       }
-      const settled = splitMeetings(toMeetings(items), clock)[
-        direction
-      ].filter(
+      const settled = splitMeetings(toMeetings(items), clock)[direction].filter(
         (meeting) =>
           direction === "upcoming" ||
           Date.parse(meeting.start) >= from.getTime(),
