@@ -5560,7 +5560,7 @@ function ThreadView({
   return (
     <div
       ref={cardRef}
-      tabIndex={0}
+      tabIndex={canExpand ? -1 : 0}
       onKeyDown={(event) => {
         if (
           !isSubmitting &&
@@ -5749,8 +5749,8 @@ function ThreadView({
                 actions={
                   renderCommentActions || (index === 0 && firstRowActions) ? (
                     <>
-                      {renderCommentActions?.(c.id)}
                       {index === 0 ? firstRowActions : null}
+                      {renderCommentActions?.(c.id)}
                     </>
                   ) : null
                 }
