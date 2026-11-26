@@ -438,13 +438,16 @@ describe("Builder account provisioning", () => {
     });
 
     async function failure(): Promise<BuilderAccountProvisioningError> {
-      try {
-        await provisionBuilderAccount({ email: "owner@example.com" });
-      } catch (error) {
-        expect(error).toBeInstanceOf(BuilderAccountProvisioningError);
-        return error as BuilderAccountProvisioningError;
+      const error = await provisionBuilderAccount({
+        email: "owner@example.com",
+      }).then(
+        () => null,
+        (rejection: unknown) => rejection,
+      );
+      if (!(error instanceof BuilderAccountProvisioningError)) {
+        throw new Error("expected a BuilderAccountProvisioningError");
       }
-      throw new Error("provisionBuilderAccount did not throw");
+      return error;
     }
 
     it("marks a timed-out request as a timeout", async () => {
