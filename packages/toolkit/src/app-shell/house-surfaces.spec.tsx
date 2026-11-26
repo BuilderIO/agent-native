@@ -312,10 +312,12 @@ afterEach(async () => {
   vi.useRealTimers();
   mobile = false;
 });
-describe("generated house surface invariants", () => {
-  it("keeps IDs unique and ARIA references singular across fixtures, states, presentations and themes", async () => {
-    for (const kind of houseFixtureKinds)
-      for (const surface of surfaces)
+describe.each(houseFixtureKinds)(
+  "generated house surface invariants: %s",
+  (kind) => {
+    it.each(surfaces)(
+      "keeps IDs unique and ARIA references singular across states, presentations and themes: %s",
+      async (surface) => {
         for (const state of states)
           for (const presentation of presentations)
             for (const theme of ["light", "dark"]) {
@@ -358,10 +360,12 @@ describe("generated house surface invariants", () => {
                 assertIds();
               }
             }
-  }, 600000);
-  it("returns focus for every surface × dismissal path × opener state", async () => {
-    for (const kind of houseFixtureKinds)
-      for (const surface of surfaces)
+      },
+      120000,
+    );
+    it.each(surfaces)(
+      "returns focus for every dismissal path × opener state: %s",
+      async (surface) => {
         for (const nested of surface === "drawer" ? [false] : [false, true])
           for (const path of [
             "escape",
@@ -482,5 +486,8 @@ describe("generated house surface invariants", () => {
               ).toBe(expected);
               assertIds();
             }
-  }, 600000);
-});
+      },
+      120000,
+    );
+  },
+);
