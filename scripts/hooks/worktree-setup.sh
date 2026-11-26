@@ -33,7 +33,8 @@ done
 
 lock="$git_dir/worktree-setup.lock" # a symlink to the owner's pid, created atomically
 lock_owner() { readlink "$lock" 2>/dev/null; }
-until ln -s "$$" "$lock" 2>/dev/null; do
+until err=$(ln -s "$$" "$lock" 2>&1); do
+  case "$err" in *"File exists"*) ;; *) fail "can't take the setup lock: $err" ;; esac
   owner=$(lock_owner) || continue
   if kill -0 "$owner" 2>/dev/null; then
     echo "worktree-setup: waiting for the setup already running in this worktree (see $log)"
