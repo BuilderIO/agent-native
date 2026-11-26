@@ -59,15 +59,14 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           REPO: ${{ github.repository }}
           DISPATCH_ACTOR: ${{ github.triggering_actor }}
-          ORIGINAL_ACTOR: ${{ github.actor }}
-          COORDINATOR: ${{ inputs.coordinator_run_id }}
           PR_UPDATED_AT: ${{ inputs.pr_updated_at }}
         run: |
           set -euo pipefail
-          if [ "$ORIGINAL_ACTOR" = 'github-actions[bot]' ] || [ -n "$COORDINATOR" ] || [ -n "$PR_UPDATED_AT" ]; then
-            if [ "$ORIGINAL_ACTOR" != 'github-actions[bot]' ] || [ "$DISPATCH_ACTOR" != 'github-actions[bot]' ] ||
+          coordinator=$(jq -r '.inputs.coordinator_run_id // ""' "$GITHUB_EVENT_PATH")
+          if [ "$GITHUB_ACTOR" = 'github-actions[bot]' ] || [ -n "$coordinator" ] || [ -n "$PR_UPDATED_AT" ]; then
+            if [ "$GITHUB_ACTOR" != 'github-actions[bot]' ] || [ "$DISPATCH_ACTOR" != 'github-actions[bot]' ] ||
                 ! [[ "$PR_UPDATED_AT" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] ||
-                ! [[ "$COORDINATOR" =~ ^([1-9][0-9]*)-[1-9][0-9]*-prepare-[1-9][0-9]*$ ]]; then
+                ! [[ "$coordinator" =~ ^([1-9][0-9]*)-[1-9][0-9]*-prepare-[1-9][0-9]*$ ]]; then
               echo "::error::Automated release merge dispatch requires an Actions dispatcher and exact coordination metadata." >&2
               exit 1
             fi

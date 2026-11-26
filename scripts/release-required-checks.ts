@@ -331,33 +331,40 @@ function readStatuses(prNumber: string, repo: string): RequiredCheckStatus[] {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
 function allHeadRows(pages: unknown, field: "check_runs" | "workflow_runs") {
   if (!Array.isArray(pages) || pages.length === 0) {
     throw new Error(`GitHub returned no exact release head ${field} pages.`);
   }
-  const rows: {
-    id: number;
-    name: string;
-    head_sha: string;
-    status: string;
-    conclusion: string | null;
-  }[] = [];
-  const total = pages[0]?.total_count;
-  for (const page of pages) {
+  const rows: Record<string, unknown>[] = [];
+  const first: unknown = pages[0];
+  const total = isRecord(first) ? first.total_count : undefined;
+  for (const page of pages as unknown[]) {
     if (
       !Number.isSafeInteger(total) ||
-      page?.total_count !== total ||
+      !isRecord(page) ||
+      page.total_count !== total ||
       !Array.isArray(page[field])
     ) {
       throw new Error(
         `GitHub returned unstable exact release head ${field} pages.`,
       );
     }
-    rows.push(...page[field]);
+    for (const row of page[field] as unknown[]) {
+      if (!isRecord(row) || !Number.isSafeInteger(row.id)) {
+        throw new Error(
+          `GitHub returned an invalid exact release head ${field} row.`,
+        );
+      }
+      rows.push(row);
+    }
   }
   if (
     rows.length !== total ||
-    new Set(rows.map((row) => row?.id)).size !== total
+    new Set(rows.map((row) => row.id)).size !== total
   ) {
     throw new Error(`GitHub returned incomplete exact release head ${field}.`);
   }
@@ -368,7 +375,7 @@ export function evaluateExactReleaseHead(
   head: string,
   checks: unknown,
   runs: unknown,
-  combinedStatus: { sha: string; state: string; total_count: number },
+  combinedStatus: unknown,
 ): RequiredCheckState {
   const rows = [
     ...allHeadRows(checks, "check_runs"),
@@ -377,9 +384,12 @@ export function evaluateExactReleaseHead(
   const pending: string[] = [];
   const failed: string[] = [];
   if (
-    combinedStatus?.sha !== head ||
+    !isRecord(combinedStatus) ||
+    combinedStatus.sha !== head ||
+    typeof combinedStatus.total_count !== "number" ||
     !Number.isSafeInteger(combinedStatus.total_count) ||
     combinedStatus.total_count < 0 ||
+    typeof combinedStatus.state !== "string" ||
     !["pending", "success", "failure"].includes(combinedStatus.state)
   ) {
     throw new Error("GitHub returned an invalid combined release head status.");
@@ -390,8 +400,8 @@ export function evaluateExactReleaseHead(
     pending.push("commit status");
   for (const row of rows) {
     if (
-      !Number.isSafeInteger(row?.id) ||
-      !row.name ||
+      typeof row.name !== "string" ||
+      row.name.length === 0 ||
       row.head_sha !== head ||
       typeof row.status !== "string"
     ) {
