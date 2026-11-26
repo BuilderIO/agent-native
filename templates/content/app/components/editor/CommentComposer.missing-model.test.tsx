@@ -2,7 +2,7 @@
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import type { TiptapComposerHandle } from "@agent-native/toolkit/composer";
-import { act, type ReactElement, useState } from "react";
+import { act, type ReactElement, useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -112,6 +112,7 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
   let container: HTMLDivElement;
   let root: Root;
   let handle: TiptapComposerHandle | null = null;
+  let savedValue = "";
 
   function Owner({
     initialAi = null,
@@ -122,6 +123,9 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
   }) {
     const [value, setValue] = useState(initialValue);
     const [aiDraft, setAiDraft] = useState<CommentAiDraft | null>(initialAi);
+    useEffect(() => {
+      savedValue = value;
+    }, [value]);
     return (
       <AgentNativeI18nProvider
         initialLocale="en-US"
@@ -563,7 +567,11 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
       ],
     };
     const opened: unknown[] = [];
-    const listen = (event: Event) => opened.push((event as CustomEvent).detail);
+    const savedAtOpen: string[] = [];
+    const listen = (event: Event) => {
+      opened.push((event as CustomEvent).detail);
+      savedAtOpen.push(savedValue);
+    };
     window.addEventListener("agent-panel:open-settings", listen);
     await render(<Owner />);
 
@@ -591,11 +599,34 @@ describe("CommentComposer with a saved AI model that is no longer connected", ()
     window.removeEventListener("agent-panel:open-settings", listen);
 
     expect(opened).toEqual([{ section: "llm" }]);
+    expect(savedAtOpen).toEqual([savedValue]);
+    expect(savedValue).not.toContain("@");
     expect(onModelChange).not.toHaveBeenCalled();
     expect(
       container.querySelector(
         '[data-mention-ref-type="content-comment-ai-sign-in"]',
       ),
     ).toBeNull();
+  });
+
+  it("offers sign-in for the engine of a saved pick that is no longer connected", async () => {
+    staleSavedPick([]);
+    models.current = {
+      ...models.current,
+      availableModels: [
+        { ...builderGroup, configured: false },
+        { ...claudeGroup, configured: false, models: ["claude-opus-5"] },
+      ],
+    };
+    await render(<Owner />);
+
+    await typeRichEditorText(editor(), "@");
+    await settle();
+    const rows = [...document.querySelectorAll('[role="option"]')].map(
+      (row) => row.textContent,
+    );
+    expect(rows).toEqual([
+      expect.stringMatching(/Claude Opus 5.*Sign in to use/),
+    ]);
   });
 });

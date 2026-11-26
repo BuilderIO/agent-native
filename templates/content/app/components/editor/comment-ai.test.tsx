@@ -258,6 +258,9 @@ describe("comment AI controls", () => {
     expect(commentAiFailureReason("no_progress", t)).toBe(
       "comments.aiStoppedEarly",
     );
+    expect(commentAiFailureReason("error:gateway_timeout", t)).toBe(
+      "comments.aiStoppedEarly",
+    );
     expect(commentAiFailureReason("constructor", t)).toBe(
       "comments.aiFailedNoReason",
     );

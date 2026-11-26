@@ -44,6 +44,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { flushSync } from "react-dom";
 
 import {
   Popover,
@@ -588,17 +589,18 @@ export const CommentComposer = forwardRef<
       const available =
         (models.availableModels as typeof models.availableModels | undefined) ??
         [];
+      const savedPick = {
+        model: models.unavailableSelection?.model ?? models.selectedModel,
+        engine: models.unavailableSelection?.engine ?? models.selectedEngine,
+      };
       const selectedGroups = available.filter(
-        (group) => group.engine === models.selectedEngine,
+        (group) => group.engine === savedPick.engine,
       );
       return [
         ...memberItems,
         ...commentAiSelections(
           selectedGroups.length > 0 ? selectedGroups : available,
-          {
-            model: models.selectedModel,
-            engine: models.selectedEngine,
-          },
+          savedPick,
         ).map((selection) => ({
           id: `ai-sign-in:${commentAiSelectionKey(selection)}`,
           label: modelDisplayName(selection.model),
@@ -721,7 +723,12 @@ export const CommentComposer = forwardRef<
       )
     ) {
       setTimeout(() => {
-        composerRef.current?.replaceReference(AI_SIGN_IN_REFERENCE_TYPE, null);
+        flushSync(() =>
+          composerRef.current?.replaceReference(
+            AI_SIGN_IN_REFERENCE_TYPE,
+            null,
+          ),
+        );
         window.dispatchEvent(
           new CustomEvent("agent-panel:open-settings", {
             detail: { section: "llm" },

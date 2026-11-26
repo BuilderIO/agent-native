@@ -2,6 +2,7 @@
 
 import { nfmToDoc } from "@shared/nfm";
 import { Editor } from "@tiptap/core";
+import { TextSelection } from "@tiptap/pm/state";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -83,10 +84,37 @@ describe("commenting on suggested text", () => {
       content: nfmToDoc("Keep that."),
     });
     const selection = found(document.getSelection());
+    const select = (
+      [anchorNode, anchorOffset]: readonly [Node, number],
+      [focusNode, focusOffset]: readonly [Node, number],
+      anchor: number,
+      head: number,
+    ) => {
+      editor.view.dispatch(
+        editor.state.tr.setSelection(
+          TextSelection.create(editor.state.doc, anchor, head),
+        ),
+      );
+      selection.setBaseAndExtent(
+        anchorNode,
+        anchorOffset,
+        focusNode,
+        focusOffset,
+      );
+      return selectedSuggestionWidgetId(editor.view);
+    };
     try {
       const at = 1 + "Keep ".length;
+      const end = 1 + "Keep that".length;
       setSuggestionHighlights(editor.view, {
         specs: [
+          {
+            suggestionId: "d1",
+            kind: "delete",
+            from: 1,
+            to: 1,
+            deletedText: "Gone ",
+          },
           {
             suggestionId: "s1",
             kind: "insert",
@@ -94,29 +122,40 @@ describe("commenting on suggested text", () => {
             to: at,
             insertedText: "very sleepy ",
           },
+          {
+            suggestionId: "s2",
+            kind: "insert",
+            from: end,
+            to: end,
+            insertedText: " now",
+          },
         ],
       });
-      const widget = found(
-        element.querySelector<HTMLElement>('[data-suggestion-id="s1"]'),
-      );
-      const inserted = found(
-        document.createTreeWalker(widget, NodeFilter.SHOW_TEXT).nextNode(),
-      );
-      const after = found(widget.nextSibling);
-      const before = found(widget.previousSibling);
-      const around = { from: at, to: at + 2 };
+      const widget = (id: string) =>
+        found(
+          element.querySelector<HTMLElement>(`[data-suggestion-id="${id}"]`),
+        );
+      const textIn = (id: string) =>
+        found(
+          document
+            .createTreeWalker(widget(id), NodeFilter.SHOW_TEXT)
+            .nextNode(),
+        );
+      const inserted = [textIn("s1"), 5] as const;
+      const after = [found(widget("s1").nextSibling), 2] as const;
+      const before = found(widget("s1").previousSibling);
 
-      selection.setBaseAndExtent(inserted, 5, after, 2);
-      expect(selectedSuggestionWidgetId(editor.view, around)).toBe("s1");
-      selection.setBaseAndExtent(after, 2, inserted, 0);
-      expect(selectedSuggestionWidgetId(editor.view, around)).toBe("s1");
+      expect(select(inserted, after, at, at + 2)).toBe("s1");
+      expect(select(after, inserted, at + 2, at)).toBe("s1");
+      expect(select(inserted, after, 1, 3)).toBeUndefined();
+      expect(select([before, 0], [before, 4], 1, 5)).toBeUndefined();
       expect(
-        selectedSuggestionWidgetId(editor.view, { from: 1, to: 3 }),
+        select(inserted, [found(outside.firstChild), 4], at, at),
       ).toBeUndefined();
-      selection.setBaseAndExtent(before, 0, before, 4);
-      expect(selectedSuggestionWidgetId(editor.view, around)).toBeUndefined();
-      selection.setBaseAndExtent(inserted, 0, found(outside.firstChild), 4);
-      expect(selectedSuggestionWidgetId(editor.view, around)).toBeUndefined();
+      expect(select([textIn("d1"), 2], inserted, 1, at)).toBe("s1");
+      expect(select(inserted, [textIn("d1"), 2], at, 1)).toBe("s1");
+      expect(select([textIn("d1"), 2], [before, 2], 1, 3)).toBeUndefined();
+      expect(select(inserted, [textIn("s2"), 2], at, end)).toBeUndefined();
     } finally {
       selection.removeAllRanges();
       editor.destroy();

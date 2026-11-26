@@ -1441,8 +1441,8 @@ const BARE_FAILURE_REASON = /^(?:(?:error|aborted):)?([a-z0-9_.-]+)$/i;
 
 const STOP_REASON_KEYS: ReadonlyMap<string, string> = new Map([
   ["run_timeout", "comments.aiStoppedTimeLimit"],
-  ["gateway_timeout", "comments.aiStoppedTimeLimit"],
-  ["run_budget_exhausted", "comments.aiStoppedTimeLimit"],
+  ["gateway_timeout", "comments.aiStoppedEarly"],
+  ["run_budget_exhausted", "comments.aiStoppedEarly"],
   ["rate_limited", "comments.aiStoppedRateLimited"],
   ["loop_limit", "comments.aiStoppedEarly"],
   ["no_progress", "comments.aiStoppedEarly"],

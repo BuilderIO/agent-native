@@ -15,6 +15,7 @@ import {
   NodeSelection,
   Plugin,
   PluginKey,
+  Selection,
   type EditorState,
 } from "@tiptap/pm/state";
 import { CellSelection } from "@tiptap/pm/tables";
@@ -323,29 +324,33 @@ export function shouldShowBubbleToolbar({
   return !selectionIncludesBubbleToolbarExcludedNode(state, from, to);
 }
 
-export function selectedSuggestionWidgetId(
-  view: EditorView,
-  range: CommentRange,
-) {
+export function selectedSuggestionWidgetId(view: EditorView) {
   const selection = view.dom.ownerDocument.getSelection();
   if (!selection || selection.isCollapsed) return undefined;
-  const { anchorNode, focusNode } = selection;
-  if (
-    !anchorNode ||
-    !focusNode ||
-    !view.dom.contains(anchorNode) ||
-    !view.dom.contains(focusNode)
-  )
-    return undefined;
-  for (const node of [anchorNode, focusNode]) {
+  const { anchor, head } = view.state.selection;
+  const ids = new Set<string>();
+  const ends = [
+    [selection.anchorNode, anchor],
+    [selection.focusNode, head],
+  ] as const;
+  for (const [node, position] of ends) {
+    if (!node || !view.dom.contains(node)) return undefined;
     const widget = (
       node instanceof Element ? node : node.parentElement
-    )?.closest<HTMLElement>("[data-suggestion-widget][data-suggestion-id]");
+    )?.closest<HTMLElement>(
+      ".suggestion-proposed-text[data-suggestion-widget][data-suggestion-id]",
+    );
     if (!widget) continue;
-    const at = view.posAtDOM(widget, 0);
-    if (at >= range.from && at <= range.to) return widget.dataset.suggestionId;
+    const at = view.state.doc.resolve(view.posAtDOM(widget, 0));
+    const placed = [
+      at.pos,
+      Selection.near(at, 1).head,
+      Selection.near(at, -1).head,
+    ];
+    if (!placed.includes(position)) return undefined;
+    if (widget.dataset.suggestionId) ids.add(widget.dataset.suggestionId);
   }
-  return undefined;
+  return ids.size === 1 ? [...ids][0] : undefined;
 }
 
 /** Starts a comment on the text in `range`; false when there's nothing to quote. */
@@ -392,7 +397,7 @@ function useCommentFromSelection(
         editor,
         onComment,
         editor.state.selection,
-        selectedSuggestionWidgetId(editor.view, editor.state.selection),
+        selectedSuggestionWidgetId(editor.view),
       ),
     [editor, onComment],
   );
