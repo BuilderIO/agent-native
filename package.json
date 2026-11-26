@@ -283,7 +283,7 @@
     "micromark-extension-gfm": "3.0.0",
     "oxfmt": "0.56.0",
     "oxlint": "1.94.0",
-    "parse5": "8.0.1",
+    "parse5": "8.1.1",
     "prettier": "^3.6.2",
     "tsrs": "0.25.0-ts7.1.0-beta",
     "tsx": "^4.20.3",
