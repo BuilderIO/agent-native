@@ -9,6 +9,7 @@ import { beforeAll, afterAll, expect, it, vi } from "vitest";
 import { CAPTURE_STARTUP_BUDGET_MS } from "../../shared/motion-capture.js";
 import * as schema from "../db/schema.js";
 import {
+  captureMarkersMigration,
   captureSessionPendingOutcomeMigration,
   captureTablesMigration,
 } from "./capture-tables-schema.js";
@@ -26,6 +27,7 @@ import {
   CAPTURE_DISARMED_BEFORE_START_ERROR,
   CAPTURE_OUTCOME_UNCONFIRMED_ERROR,
   CAPTURE_RECOVERY_GRACE_MS,
+  addCaptureMarker,
   getCaptureSession,
   listCaptureHosts,
   pollCaptureHost,
@@ -39,6 +41,7 @@ const client = new PGlite();
 beforeAll(async () => {
   await client.exec(captureTablesMigration);
   await client.exec(captureSessionPendingOutcomeMigration);
+  await client.exec(captureMarkersMigration);
   await client.exec(
     "CREATE TABLE recordings (id TEXT PRIMARY KEY, owner_email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'uploading', made_by TEXT, made_by_agent TEXT, created_at TEXT NOT NULL, trashed_at TEXT, updated_at TEXT NOT NULL)",
   );
@@ -108,6 +111,14 @@ it("preserves a stop that races the starting acknowledgement and releases on can
   expect((await reportCaptureHost({ ...auth, state: "starting" })).state).toBe(
     "stop-requested",
   );
+  await expect(
+    addCaptureMarker({
+      sessionId: session.id,
+      requestId: "early",
+      label: "click",
+      kind: "action-intent",
+    }),
+  ).rejects.toThrow("this one is stop-requested");
   await reportCaptureHost({ ...auth, state: "complete" });
   await reportCaptureHost({ ...auth, state: "complete" });
   expect((await releaseCaptureHost(host.id, host.secret)).released).toBe(true);
@@ -246,6 +257,59 @@ it("serializes a start claim against releasing the same armed host", async () =>
         ]
       : [],
   );
+});
+
+it("serializes marker count checks at the per-session limit", async () => {
+  const host = await registerCaptureHost({
+    kind: "desktop",
+    label: "marker-limit",
+    surface: "display",
+  });
+  const session = await startCapture({
+    hostId: host.id,
+    requestId: "marker-limit",
+    captureMode: "motion",
+    maxDurationMs: 10_000,
+  });
+  await database
+    .update(schema.captureSessions)
+    .set({ state: "recording" })
+    .where(eq(schema.captureSessions.id, session.id));
+  await database.insert(schema.captureMarkers).values(
+    Array.from({ length: 199 }, (_, index) => ({
+      id: `marker-limit-${session.id}-${index}`,
+      sessionId: session.id,
+      label: `marker ${index}`,
+      kind: "note",
+      requestedAt: new Date().toISOString(),
+    })),
+  );
+
+  const results = await Promise.allSettled([
+    addCaptureMarker({
+      sessionId: session.id,
+      requestId: "last-a",
+      label: "last a",
+      kind: "note",
+    }),
+    addCaptureMarker({
+      sessionId: session.id,
+      requestId: "last-b",
+      label: "last b",
+      kind: "note",
+    }),
+  ]);
+  expect(
+    results.filter((result) => result.status === "fulfilled"),
+  ).toHaveLength(1);
+  expect(results.filter((result) => result.status === "rejected")).toHaveLength(
+    1,
+  );
+  const rows = await database
+    .select()
+    .from(schema.captureMarkers)
+    .where(eq(schema.captureMarkers.sessionId, session.id));
+  expect(rows).toHaveLength(200);
 });
 
 async function prepareExpiredCapture(suffix: string) {
@@ -411,6 +475,16 @@ it("returns only the requested session after its host moved on to another take",
   });
   await stopCapture(first.id);
   await reportCaptureHost({ ...auth, sessionId: first.id, state: "complete" });
+  const marker = await database
+    .insert(schema.captureMarkers)
+    .values({
+      id: "a".repeat(64),
+      sessionId: first.id,
+      label: "take a marker",
+      kind: "note",
+      requestedAt: new Date().toISOString(),
+    })
+    .returning();
   const second = await startCapture({
     hostId: host.id,
     requestId: "take-b",
@@ -439,6 +513,9 @@ it("returns only the requested session after its host moved on to another take",
 
   expect(status.id).toBe(first.id);
   expect(status.state).toBe("complete");
+  expect(status.markers.map((entry) => entry.id)).toEqual(
+    marker.map((entry) => entry.id),
+  );
   const untouched = await database
     .select()
     .from(schema.captureSessions)
@@ -725,6 +802,14 @@ it("keeps a take stopped after READY and saves it as complete", async () => {
     }),
   );
   expect(await trashedAt("ready-save-recording")).toBeNull();
+  await expect(
+    addCaptureMarker({
+      sessionId: session.id,
+      requestId: "late",
+      label: "endpoint",
+      kind: "observed-endpoint",
+    }),
+  ).rejects.toThrow("this one is complete");
 });
 
 it("shows an outcome the recorder has not delivered and clears it once delivered", async () => {

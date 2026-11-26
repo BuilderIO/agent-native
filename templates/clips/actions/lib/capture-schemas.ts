@@ -18,6 +18,16 @@ export const captureSessionSchema = z.object({
   updatedAt: z.string(),
 });
 
+export const captureMarkerSchema = z.object({
+  id: z.string(),
+  sessionId: z.string(),
+  label: z.string(),
+  kind: z.string(),
+  requestedAt: z.string(),
+  mediaTimeMs: z.number().nullable(),
+  uncertaintyMs: z.number().nullable(),
+});
+
 export const captureHostSchema = z.object({
   id: z.string(),
   kind: z.string(),
@@ -36,11 +46,18 @@ export const captureSessionStatusSchema = captureSessionSchema.extend({
   recorderConnected: z.boolean(),
   mediaStatus: z.string().nullable(),
   mediaReady: z.boolean(),
+  markers: z.array(captureMarkerSchema),
+  timingNote: z.string(),
 });
 
 export const captureHostTransportSchema = z.union([
   z.object({ id: z.string(), secret: z.string(), leaseMs: z.number() }),
-  z.object({ session: captureSessionSchema.nullable() }),
+  z.object({
+    session: captureSessionSchema.nullable(),
+    markers: z.array(captureMarkerSchema),
+    serverNowMs: z.number(),
+  }),
   z.object({ released: z.literal(true) }),
+  z.object({ acknowledged: z.boolean() }),
   captureSessionSchema,
 ]);

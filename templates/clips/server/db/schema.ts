@@ -1015,3 +1015,13 @@ export const captureSessions = table("clips_capture_sessions", {
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
+
+export const captureMarkers = table("clips_capture_markers", {
+  id: text("id").primaryKey(),
+  sessionId: text("session_id").notNull(),
+  label: text("label").notNull(),
+  kind: text("kind").notNull(),
+  requestedAt: text("requested_at").notNull(),
+  mediaTimeMs: real("media_time_ms"),
+  uncertaintyMs: real("uncertainty_ms"),
+});

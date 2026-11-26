@@ -11,6 +11,7 @@ const { PGlite } = createRequire(
 import * as mediaCleanupTables from "../db/media-cleanup-tables.js";
 import * as schema from "../db/schema";
 import {
+  captureMarkersMigration,
   captureSessionPendingOutcomeMigration,
   captureTablesMigration,
 } from "../lib/capture-tables-schema.js";
@@ -68,7 +69,11 @@ function columnsOf(table: DrizzleTable): DrizzleColumn[] {
 
 const KNOWN_COVERAGE_DRIFT = new Set<string>([]);
 
-const captureTables: unknown[] = [schema.captureHosts, schema.captureSessions];
+const captureTables: unknown[] = [
+  schema.captureHosts,
+  schema.captureSessions,
+  schema.captureMarkers,
+];
 
 describe("clips db migrations cover every schema.ts column", () => {
   for (const [exportName, exported] of Object.entries(schema)) {
@@ -123,6 +128,7 @@ describe("clips db migrations cover every schema.ts column", () => {
             for (const migration of [
               captureTablesMigration,
               captureSessionPendingOutcomeMigration,
+              captureMarkersMigration,
             ])
               for (const statement of splitSqlStatements(migration))
                 await database.exec(statement);

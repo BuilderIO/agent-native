@@ -13,6 +13,7 @@ import { z } from "zod";
 import "../db/index.js";
 import * as schema from "../db/schema.js";
 import {
+  captureMarkersMigration,
   captureSessionPendingOutcomeMigration,
   captureTablesMigration,
 } from "../lib/capture-tables-schema.js";
@@ -231,6 +232,12 @@ const captureSessionPendingOutcomeEntry = {
   version: 112,
   name: "clips-capture-session-pending-outcome",
   sql: captureSessionPendingOutcomeMigration,
+}; // raw-sql-ok: fixed additive DDL with no runtime interpolation; db.spec.ts and motion-capture.test.ts apply it on PGlite.
+
+const captureMarkersMigrationEntry = {
+  version: 113,
+  name: "clips-capture-markers",
+  sql: captureMarkersMigration,
 }; // raw-sql-ok: fixed additive DDL with no runtime interpolation; db.spec.ts and motion-capture.test.ts apply it on PGlite.
 
 export const migrations = runMigrations(
@@ -1509,6 +1516,7 @@ export const migrations = runMigrations(
     },
     captureTablesMigrationEntry,
     captureSessionPendingOutcomeEntry,
+    captureMarkersMigrationEntry,
   ]),
   { table: "clips_migrations" },
 );

@@ -142,6 +142,7 @@ import {
   ViewerTabsTrigger,
 } from "@/components/player/viewer-controls";
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
+import { formatTranscriptTimestamp } from "@/components/transcript/transcript-segment-row";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -646,6 +647,123 @@ function nativeSaveFailureMessage(reason: string | null | undefined): string {
     return "Clips tried to compress this desktop recording, but it is still too large to upload. The original is saved locally and can be retried from the Clips menu.";
   }
   return "The desktop recorder finished and saved a local copy, but Clips could not upload it. You can retry from the Clips menu without recording again.";
+}
+
+interface CaptureMarker {
+  id: string;
+  label: string;
+  kind: "action-intent" | "observed-endpoint" | "note";
+  requestedAt: string;
+  mediaTimeMs: number | null;
+  uncertaintyMs: number | null;
+}
+
+function CaptureMarkerList({
+  markers,
+  onSeek,
+}: {
+  markers: CaptureMarker[];
+  onSeek: (mediaTimeMs: number) => void;
+}) {
+  const t = useT();
+  if (markers.length === 0) return null;
+
+  const kindLabel = (kind: CaptureMarker["kind"]) => {
+    if (kind === "action-intent") {
+      return t("recordingPage.captureMarkerActionIntent");
+    }
+    if (kind === "observed-endpoint") {
+      return t("recordingPage.captureMarkerObservedEndpoint");
+    }
+    return t("recordingPage.captureMarkerNote");
+  };
+
+  return (
+    <section
+      aria-labelledby="capture-markers-heading"
+      className="max-h-52 shrink-0 overflow-y-auto border-b border-border px-4 py-3"
+    >
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <h3
+          id="capture-markers-heading"
+          className="text-xs font-semibold text-foreground"
+        >
+          {t("recordingPage.captureMarkers")}
+        </h3>
+        <span className="text-xs tabular-nums text-muted-foreground">
+          {markers.length}
+        </span>
+      </div>
+      <ul className="space-y-1">
+        {markers.map((marker) => {
+          const mappedTime =
+            typeof marker.mediaTimeMs === "number" &&
+            Number.isFinite(marker.mediaTimeMs) &&
+            marker.mediaTimeMs >= 0
+              ? marker.mediaTimeMs
+              : null;
+          const uncertainty =
+            typeof marker.uncertaintyMs === "number" &&
+            Number.isFinite(marker.uncertaintyMs) &&
+            marker.uncertaintyMs >= 0
+              ? marker.uncertaintyMs
+              : null;
+          const content = (
+            <>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium text-foreground">
+                  {marker.label}
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  {kindLabel(marker.kind)}
+                </span>
+              </span>
+              <span className="shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+                {mappedTime === null ? (
+                  t("recordingPage.captureMarkerUnmapped")
+                ) : (
+                  <>
+                    <span className="block font-medium text-foreground">
+                      {formatTranscriptTimestamp(mappedTime)}
+                    </span>
+                    {uncertainty !== null ? (
+                      <span className="block">
+                        {t("recordingPage.captureMarkerUncertainty", {
+                          milliseconds: Math.round(uncertainty),
+                        })}
+                      </span>
+                    ) : null}
+                  </>
+                )}
+              </span>
+            </>
+          );
+
+          return (
+            <li key={marker.id}>
+              {mappedTime === null ? (
+                <div className="flex items-center gap-3 rounded-md px-2 py-1.5">
+                  {content}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onSeek(mappedTime)}
+                  className="flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                  aria-label={t("recordingPage.seekToCaptureMarker", {
+                    label: marker.label,
+                    timestamp: formatTranscriptTimestamp(mappedTime),
+                  })}
+                >
+                  {content}
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
 }
 
 export default function RecordingPage() {
@@ -3151,6 +3269,10 @@ export default function RecordingPage() {
           className="mt-0 flex min-h-0 flex-1 flex-col overflow-y-auto"
           ref={agentPanelContentRef}
         >
+          <CaptureMarkerList
+            markers={playerDataQ.data?.captureMarkers ?? []}
+            onSeek={(ms) => playerRef.current?.seek(ms)}
+          />
           <AgentPanel
             composerContextProvider={ClipsComposerContextProvider}
             emptyStateText={t("recordingPage.askAboutClip")}

@@ -2,6 +2,7 @@ import {
   CAPTURE_STARTUP_BUDGET_MS,
   isCaptureReadyAccepted,
   isCaptureTerminal,
+  type MotionCaptureMarker,
   type MotionCaptureSession,
 } from "./motion-capture.js";
 
@@ -42,9 +43,11 @@ interface Options {
 }
 interface PollResult {
   session: MotionCaptureSession | null;
+  markers: MotionCaptureMarker[];
+  serverNowMs: number;
 }
 interface Report extends Record<string, unknown> {
-  operation: "report";
+  operation: "report" | "mark";
   sessionId: string;
 }
 interface PendingReport {
@@ -101,7 +104,9 @@ function reportedState(reply: unknown): string | null {
 
 function isTerminalReport(item: PendingReport) {
   return (
-    typeof item.args.state === "string" && isCaptureTerminal(item.args.state)
+    item.args.operation === "report" &&
+    typeof item.args.state === "string" &&
+    isCaptureTerminal(item.args.state)
   );
 }
 
@@ -566,6 +571,7 @@ export function createCaptureHostRunner(options: Options) {
     running = true;
     try {
       await flush().catch(() => undefined);
+      const pollStartedAt = performance.now();
       const result = await poll();
       const session = result.session;
       settlePending(session);
@@ -619,6 +625,33 @@ export function createCaptureHostRunner(options: Options) {
             "Recorder session recovery required; this host does not own the live capture.",
           ),
         );
+      }
+      if (
+        session?.state === "recording" &&
+        owned?.sessionId === session.id &&
+        !owned.stopping
+      ) {
+        for (const marker of result.markers) {
+          if (
+            pending.some(
+              (item) =>
+                item.args.operation === "mark" &&
+                item.args.markerId === marker.id,
+            )
+          )
+            continue;
+          const time = owned.capture.readMediaTime();
+          const deliveryBound =
+            Math.max(0, result.serverNowMs - Date.parse(marker.requestedAt)) +
+            Math.max(0, performance.now() - pollStartedAt);
+          enqueue({
+            operation: "mark",
+            sessionId: session.id,
+            markerId: marker.id,
+            mediaTimeMs: time.mediaTimeMs,
+            uncertaintyMs: time.uncertaintyMs + deliveryBound,
+          });
+        }
       }
       await flush().catch(() => undefined);
       if (!stillAccepting() && !owned && !startupTask && hostArmed()) {

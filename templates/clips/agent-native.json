@@ -8,7 +8,8 @@
   },
   "doctor": {
     "dbToolScopingDenylist": {
-      "recording_agent_views": "Agent telemetry is scoped through authorized parent recordings."
+      "recording_agent_views": "Agent telemetry is scoped through authorized parent recordings.",
+      "clips_capture_markers": "Capture markers are scoped through their owner-scoped capture session."
     },
     "failOnBuild": false
   }

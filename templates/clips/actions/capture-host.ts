@@ -2,6 +2,7 @@ import { defineAction, defineActionErrors } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
+  acknowledgeCaptureMarker,
   pollCaptureHost,
   registerCaptureHost,
   releaseCaptureHost,
@@ -17,11 +18,11 @@ function missing(message: string): never {
 
 export default defineAction({
   description:
-    "Recorder-only authenticated transport for registering an armed capture host, heartbeats, and recording state (including the begin gate).",
+    "Recorder-only authenticated transport for registering an armed capture host, heartbeats, recording state (including the begin gate) and marker acknowledgements.",
   agentTool: false,
   toolCallable: false,
   schema: z.object({
-    operation: z.enum(["register", "poll", "report", "release"]),
+    operation: z.enum(["register", "poll", "report", "mark", "release"]),
     hostId: z.string().uuid().optional(),
     secret: z.string().length(64).optional(),
     kind: z.enum(["desktop", "chrome-extension", "browser"]).optional(),
@@ -45,6 +46,9 @@ export default defineAction({
     startUncertaintyMs: z.number().finite().nonnegative().optional(),
     observedFrameRate: z.number().finite().positive().max(240).optional(),
     error: z.string().max(500).optional(),
+    markerId: z.string().length(64).optional(),
+    mediaTimeMs: z.number().finite().nonnegative().max(130000).optional(),
+    uncertaintyMs: z.number().finite().nonnegative().optional(),
   }),
   outputSchema: captureHostTransportSchema,
   errors,
@@ -71,17 +75,33 @@ export default defineAction({
     if (args.operation === "release")
       return releaseCaptureHost(args.hostId, args.secret);
     if (!args.sessionId) return missing("Capture session required.");
-    if (!args.state) return missing("Recorder state required.");
-    return reportCaptureHost({
+    if (args.operation === "report") {
+      if (!args.state) return missing("Recorder state required.");
+      return reportCaptureHost({
+        hostId: args.hostId,
+        secret: args.secret,
+        sessionId: args.sessionId,
+        state: args.state,
+        recordingId: args.recordingId,
+        startedAtMs: args.startedAtMs,
+        startUncertaintyMs: args.startUncertaintyMs,
+        observedFrameRate: args.observedFrameRate,
+        error: args.error,
+      });
+    }
+    if (
+      !args.markerId ||
+      args.mediaTimeMs === undefined ||
+      args.uncertaintyMs === undefined
+    )
+      return missing("Marker ID, media time and uncertainty required.");
+    return acknowledgeCaptureMarker({
       hostId: args.hostId,
       secret: args.secret,
       sessionId: args.sessionId,
-      state: args.state,
-      recordingId: args.recordingId,
-      startedAtMs: args.startedAtMs,
-      startUncertaintyMs: args.startUncertaintyMs,
-      observedFrameRate: args.observedFrameRate,
-      error: args.error,
+      markerId: args.markerId,
+      mediaTimeMs: args.mediaTimeMs,
+      uncertaintyMs: args.uncertaintyMs,
     });
   },
 });

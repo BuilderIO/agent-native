@@ -1,6 +1,7 @@
 export const CAPTURE_HOST_LEASE_MS = 10_000;
 export const MAX_CAPTURE_DURATION_MS = 120_000;
 export const CAPTURE_STARTUP_BUDGET_MS = 30_000;
+export const MAX_CAPTURE_MARKERS = 200;
 
 export type CaptureState =
   | "queued"
@@ -26,6 +27,15 @@ export interface MotionCaptureSession {
   startUncertaintyMs: number | null;
   observedFrameRate: number | null;
   error: string | null;
+}
+
+export interface MotionCaptureMarker {
+  id: string;
+  label: string;
+  kind: "action-intent" | "observed-endpoint" | "note";
+  requestedAt: string;
+  mediaTimeMs: number | null;
+  uncertaintyMs: number | null;
 }
 
 export function isCaptureTerminal(state: string): boolean {

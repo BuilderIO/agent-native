@@ -393,6 +393,13 @@ const messages = {
     captureTrackReported: "Spur meldet {{fps}} fps",
     captureRateMeasured: "Gemessen: {{fps}} fps",
     captureRateUnverified: "Bildrate nicht verifiziert",
+    captureMarkers: "Aufnahmemarkierungen",
+    captureMarkerActionIntent: "Aktionsabsicht",
+    captureMarkerObservedEndpoint: "Beobachteter Endpunkt",
+    captureMarkerNote: "Notiz",
+    captureMarkerUnmapped: "Nicht zugeordnet",
+    captureMarkerUncertainty: "±{{milliseconds}} ms",
+    seekToCaptureMarker: "Zu {{label}} bei {{timestamp}} springen",
     storageStillDisconnected: "Der Speicher ist immer noch nicht verbunden",
     finishBuilderOrS3:
       "Nutze Builder.io-Speicher oder konfiguriere S3-kompatiblen Speicher und versuche es erneut.",

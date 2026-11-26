@@ -353,6 +353,13 @@ const messages = {
     captureTrackReported: "軌道回報 {{fps}} fps",
     captureRateMeasured: "實測 {{fps}} fps",
     captureRateUnverified: "影格率未驗證",
+    captureMarkers: "錄製標記",
+    captureMarkerActionIntent: "操作意圖",
+    captureMarkerObservedEndpoint: "觀察到的結果",
+    captureMarkerNote: "備註",
+    captureMarkerUnmapped: "未對應",
+    captureMarkerUncertainty: "±{{milliseconds}} 毫秒",
+    seekToCaptureMarker: "跳至 {{timestamp}} 的「{{label}}」",
     storageStillDisconnected: "儲存仍未連線",
     finishBuilderOrS3:
       "使用 Builder.io 儲存空間，或設定 S3 相容儲存空間，然後重試。",
