@@ -1,23 +1,42 @@
 ---
 name: an
 description: >-
-  Open and operate Agent-Native workspace apps through Dispatch MCP, with
-  inline app surfaces, browser-session authentication, and current screen state.
+  Create and edit decks, docs, designs, email, calendar events, forms,
+  dashboards and screen recordings in Agent-Native apps through one Dispatch
+  connection. Use when the user asks for any of these, names an Agent-Native
+  app or /an, or needs to sign in or reconnect.
 metadata:
   visibility: exported
 ---
 
 # Agent-Native Apps
 
-Use `/an <app>` to open an Agent-Native app beside the conversation and keep
-the app's live UI and the agent's actions in the same workflow. The first
-argument is the Dispatch app id. For example, `/an slides` opens the Slides
-editor. After it opens, the user can sign in in that browser surface and ask
-for new decks or focused edits in ordinary language.
+Open an Agent-Native app beside the conversation and keep the app's live UI
+and the agent's actions in the same workflow. The user can ask in plain words,
+such as "make a five-slide deck about our Q4 launch", without naming an app or
+typing `/an`. When they do use `/an <app>`, the first argument is the Dispatch
+app id: `/an slides` opens the Slides editor.
+
+## Pick the app
+
+Use the app the user names. Otherwise call `list_apps` and pick the granted app
+whose name fits the request, and whose description fits too when the result
+shows one. Use its exact id. When a request fits more than one app or none, ask
+one short question rather than guessing.
+
+If the app you need is not listed and `degradedSources` is not empty, call
+`list_apps` once more. If the app is still not listed, or `degradedSources` was
+empty to begin with, say which reasons could apply:
+
+- It needs a grant in Dispatch's Agents access settings.
+- The organization hides Agent-Native's hosted apps.
+- Dispatch could not check every app, when `degradedSources` is not empty.
+
+Do not invent a URL, use a localhost URL, or route around the Dispatch grant.
 
 ## Open the app
 
-For a known app, call Dispatch's `open_app` with an inline surface:
+Call Dispatch's `open_app` with an inline surface:
 
 ```json
 {
@@ -33,11 +52,6 @@ Claude Cowork, ChatGPT, ChatGPT desktop, Codex, and other compatible hosts. Keep
 the returned open link as the fallback for a host that cannot render MCP Apps
 inline. Do not claim that a browser opened unless the host rendered the inline
 surface or its browser tool confirmed the returned URL.
-
-If the app name is missing or uncertain, call `list_apps` first and use the
-exact granted app id. If the requested app is not listed, explain that it must
-be granted in Dispatch's Agents access settings. Do not invent a URL, use a
-localhost URL, or route around the Dispatch grant.
 
 ## Work in the opened app
 
@@ -105,12 +119,22 @@ app's data the next time it is read.
   actions. Sending, deleting or moving happens only when the user asks, and an
   approval the host or app asks for is the user's to give.
 
-## Authentication and host behavior
+## First run and sign-in
 
 The Dispatch MCP connector identifies the calling agent, while the embedded app
-uses the user's browser session. Let the user complete sign-in in the rendered
-Agent-Native browser surface. Never request, copy, or store passwords, OAuth
-codes, cookies, or access tokens.
+uses the user's browser session. On a user's first request, tell them what to
+expect:
+
+- One authorization covers every app. The host asks them once to authorize the
+  Agent-Native connector; after that, every app granted to them works with no
+  new authorization in the host.
+- Each app's inline view signs in on its own the first time it opens. When its
+  sign-in page offers **Continue with Agent-Native**, that uses their Dispatch
+  account instead of a new password. Without an active Dispatch session,
+  Dispatch asks them to sign in there first.
+
+Let the user complete sign-in in the rendered Agent-Native browser surface.
+Never request, copy, or store passwords, OAuth codes, cookies, or access tokens.
 
 The generic Agent-Native plugin registers Dispatch at
 `https://dispatch.agent-native.com/mcp` for hosts that support plugin MCP
@@ -118,17 +142,36 @@ configuration. ChatGPT custom connectors use the same URL with OAuth. After
 installing or changing a connector, reload Claude/Cowork/ChatGPT or reconnect
 and rescan the MCP server if the new tools or inline surface are not visible.
 
+## Reconnect a dropped connection
+
+Authorization normally persists. If Dispatch tools that worked before return
+401 or an authorization error, or disappear, give the user the one reconnect
+step for their host:
+
+- Claude Code: run `/mcp` and choose **Authenticate** or **Reconnect** for the
+  `agent-native-dispatch` connector.
+- Codex, Cursor and other local clients: run
+  `npx -y @agent-native/core@latest reconnect https://dispatch.agent-native.com`
+  and reload the client. Codex needs a new session before the tools return. If
+  it reports no existing entry, as it can for a plugin install, authenticate the
+  connector from the client's own MCP settings.
+- Claude, Claude Desktop, Cowork and ChatGPT: reconnect the Agent-Native
+  connector in the host's connector settings, then rescan its tools.
+
+Reconnecting refreshes only the authorization and keeps the installed skill, so
+never reinstall the skill or plugin to fix a 401.
+
 ## Failure handling
 
 - If `open_app` succeeds but no inline surface appears, show its returned
   link and say that this host does not expose an embedded browser here.
 - After an app loads, check for `list-host-webmcp-tools` before delegating. If
   it is available, use the exact returned tool name and origin for direct work.
-- If `ask_app` cannot reach Slides, check that Slides is granted in
-  Dispatch and that the connector is authenticated, then retry once with the
-  exact app id `slides`.
-- If screen state has no deck or selection, describe that state instead of
-  fabricating context. Ask the user to open a deck or select an element when
+- If `ask_app` cannot reach an app, check that it is granted in Dispatch and
+  that the connector is authenticated, then retry once with the exact app id
+  from `list_apps`.
+- If screen state has no open item or selection, describe that state instead
+  of fabricating context. Ask the user to open one or select an element when
   the requested edit depends on it.
 - Treat a successful open link, a queued task, or a tool acknowledgment as
   navigation/task setup only. Confirm a write with the app's readback action.

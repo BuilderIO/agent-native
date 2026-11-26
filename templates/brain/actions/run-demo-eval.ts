@@ -27,6 +27,7 @@ export default defineAction({
         "When seeding during the eval, also publish selected canonical facts to workspace resources.",
       ),
   }),
+  mcpTool: false,
   run: async ({ mode, seedIfMissing, publishCanonical }) => {
     const result =
       mode === "retrieval"

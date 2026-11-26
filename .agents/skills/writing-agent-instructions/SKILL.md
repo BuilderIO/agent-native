@@ -52,11 +52,9 @@ Two consequences worth designing around:
 - **Put the skills list second, right after the purpose line.** It is the
   pointer to every deferred skill. If it lands in the truncated tail, the agent
   cannot discover any of the depth you carefully moved out.
-- **Markdown tables cost more than they look.** Prettier pads table cells to
-  align columns, and that invisible whitespace counts against the cap — enough
-  padding in a wide action table to push a file back over it on its own. Both
-  `**/AGENTS.md` and `**/SKILL.md` are in `.prettierignore` for this reason;
-  keep them there and write table rows unpadded.
+- **Markdown tables cost more than they look.** Wide aligned tables add
+  padding whitespace that counts against the byte/word cap — write concise
+  tables and verify with `pnpm fmt:check` (`oxfmt`) and `pnpm guard:doc-budgets`.
 
 ```markdown
 # Projects App

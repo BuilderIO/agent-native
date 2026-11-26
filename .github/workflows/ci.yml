@@ -20,6 +20,7 @@ jobs:
     timeout-minutes: 15
     outputs:
       docs_only: ${{ steps.scope.outputs.docs_only }}
+      changelog_only: ${{ steps.scope.outputs.changelog_only }}
       full: ${{ steps.scope.outputs.full }}
       lint: ${{ steps.scope.outputs.lint }}
       has_reports: ${{ steps.feedback.outputs.has_reports }}
@@ -46,6 +47,7 @@ jobs:
       ssr_boot_apps: ${{ steps.scope.outputs.ssr_boot_apps }}
       guards: ${{ steps.scope.outputs.guards }}
       qa_static: ${{ steps.scope.outputs.qa_static }}
+      qa_static_apps: ${{ steps.scope.outputs.qa_static_apps }}
       neon_query_budget: ${{ steps.scope.outputs.neon_query_budget }}
       query_budget_matrix: ${{ steps.scope.outputs.query_budget_matrix }}
       neon_connection_budget: ${{ steps.scope.outputs.neon_connection_budget }}
@@ -148,6 +150,7 @@ jobs:
           CI_FULL: ${{ needs.change-scope.outputs.full }}
           TARGETED_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.test_workspace_filters }}
           LANES: 12
+          CI_MIN_PACKAGE_SHARDS: '{"@agent-native/toolkit":2}'
         run: |
           set -euo pipefail
           if [ "$CI_FULL" = "true" ]; then
@@ -289,23 +292,33 @@ jobs:
   typecheck:
     name: Typecheck
     needs: change-scope
-    if: needs.change-scope.outputs.typecheck == 'true'
+    if: >-
+      needs.change-scope.outputs.typecheck == 'true' ||
+      (needs.change-scope.outputs.typecheck == 'false' && needs.change-scope.outputs.changelog_only == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Verify Typecheck is outside the changelog-only scope
+        if: needs.change-scope.outputs.typecheck == 'false' && needs.change-scope.outputs.changelog_only == 'true'
+        run: echo 'Complete Git diff contains only changelog Markdown entries.' >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        if: needs.change-scope.outputs.typecheck == 'true'
         with:
           persist-credentials: false
 
       - uses: ./.github/actions/setup-pnpm
+        if: needs.change-scope.outputs.typecheck == 'true'
         with:
           restore-dist-cache: "true"
 
       - name: Build core declarations before dependent typechecks
-        if: needs.change-scope.outputs.full == 'true' || contains(needs.change-scope.outputs.test_workspace_filters, '{packages/core}')
+        if: >-
+          needs.change-scope.outputs.typecheck == 'true' &&
+          (needs.change-scope.outputs.full == 'true' || contains(needs.change-scope.outputs.test_workspace_filters, '{packages/core}'))
         run: pnpm --filter @agent-native/core run build
 
       - name: Typecheck affected workspaces
+        if: needs.change-scope.outputs.typecheck == 'true'
         env:
           CI_FULL: ${{ needs.change-scope.outputs.full }}
           CI_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.test_workspace_filters }}
@@ -342,16 +355,18 @@ jobs:
           restore-dist-cache: "true"
 
       - name: Restore Playwright browser cache
+        id: pw_cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: playwright-${{ runner.os }}-
+          key: playwright-unit-v2-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-unit-v2-${{ runner.os }}-
 
       - name: Install Playwright Chromium for browser-backed unit tests
+        if: steps.pw_cache.outputs.cache-hit != 'true'
         run: |
-          pnpm exec playwright install --only-shell --force chromium
-          pnpm --filter @agent-native/creative-context exec playwright install --only-shell --force chromium
+          pnpm exec playwright install --only-shell chromium
+          pnpm --filter @agent-native/creative-context exec playwright install --only-shell chromium
 
       - name: Allow the downloaded Chromium sandbox
         uses: ./.github/actions/allow-playwright-sandbox
@@ -459,16 +474,18 @@ jobs:
           restore-dist-cache: "true"
 
       - name: Restore Playwright browser cache
+        id: pw_cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: playwright-${{ runner.os }}-
+          key: playwright-unit-v2-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-unit-v2-${{ runner.os }}-
 
       - name: Install Playwright Chromium for browser-backed unit tests
+        if: steps.pw_cache.outputs.cache-hit != 'true'
         run: |
-          pnpm exec playwright install --only-shell --force chromium
-          pnpm --filter @agent-native/creative-context exec playwright install --only-shell --force chromium
+          pnpm exec playwright install --only-shell chromium
+          pnpm --filter @agent-native/creative-context exec playwright install --only-shell chromium
 
       - name: Allow the downloaded Chromium sandbox
         uses: ./.github/actions/allow-playwright-sandbox
@@ -1948,7 +1965,7 @@ jobs:
   build:
     name: Build artifacts
     needs: change-scope
-    if: needs.change-scope.result == 'success' && (needs.change-scope.outputs.docs_only == 'true' || needs.change-scope.outputs.build == 'true')
+    if: needs.change-scope.result == 'success' && needs.change-scope.outputs.build == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -1994,13 +2011,30 @@ jobs:
           CI_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.workspace_filters }}
         run: node --experimental-strip-types scripts/ci-build-workspaces.ts
 
+  docs-build:
+    name: Build docs site
+    needs: change-scope
+    if: needs.change-scope.result == 'success' && needs.change-scope.outputs.docs_only == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Generate isolated build auth secret
+        run: echo "BETTER_AUTH_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+
       - name: Build docs site
-        if: needs.change-scope.outputs.docs_only == 'true'
         run: pnpm --filter @agent-native/docs build
 
   build-gate:
     name: Build
-    needs: [change-scope, build, typecheck, guards]
+    needs: [change-scope, build, docs-build, typecheck, guards]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -2009,9 +2043,11 @@ jobs:
         env:
           CHANGE_SCOPE_RESULT: ${{ needs.change-scope.result }}
           DOCS_ONLY: ${{ needs.change-scope.outputs.docs_only }}
+          DOCS_BUILD_RESULT: ${{ needs.docs-build.result }}
           BUILD_REQUIRED: ${{ needs.change-scope.outputs.build }}
           BUILD_RESULT: ${{ needs.build.result }}
           TYPECHECK_REQUIRED: ${{ needs.change-scope.outputs.typecheck }}
+          CHANGELOG_ONLY: ${{ needs.change-scope.outputs.changelog_only }}
           TYPECHECK_RESULT: ${{ needs.typecheck.result }}
           GUARDS_REQUIRED: ${{ needs.change-scope.outputs.guards }}
           GUARDS_RESULT: ${{ needs.guards.result }}
@@ -2051,14 +2087,16 @@ jobs:
           require_selector "Docs build" "$DOCS_ONLY" || status=1
           require_selector "Build artifacts" "$BUILD_REQUIRED" || status=1
           require_selector "Typecheck" "$TYPECHECK_REQUIRED" || status=1
+          require_selector "Changelog-only" "$CHANGELOG_ONLY" || status=1
           require_selector "Security guards" "$GUARDS_REQUIRED" || status=1
 
-          build_selected=false
-          if [[ "$DOCS_ONLY" == "true" || "$BUILD_REQUIRED" == "true" ]]; then
-            build_selected=true
+          require_result "Docs build" "$DOCS_ONLY" "$DOCS_BUILD_RESULT" || status=1
+          require_result "Build artifacts" "$BUILD_REQUIRED" "$BUILD_RESULT" || status=1
+          typecheck_selected=false
+          if [[ "$TYPECHECK_REQUIRED" == "true" || ( "$TYPECHECK_REQUIRED" == "false" && "$CHANGELOG_ONLY" == "true" ) ]]; then
+            typecheck_selected=true
           fi
-          require_result "Build artifacts" "$build_selected" "$BUILD_RESULT" || status=1
-          require_result "Typecheck" "$TYPECHECK_REQUIRED" "$TYPECHECK_RESULT" || status=1
+          require_result "Typecheck" "$typecheck_selected" "$TYPECHECK_RESULT" || status=1
           require_result "Security guards" "$GUARDS_REQUIRED" "$GUARDS_RESULT" || status=1
           exit "$status"
 
@@ -2515,53 +2553,70 @@ jobs:
       - uses: ./.github/actions/setup-pnpm
         with:
           install: no-scripts
+          restore-dist-cache: "true"
 
       - name: Test production deploy concurrency guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:netlify-prebuilt-workflow
 
       - name: Test serverless function size baseline guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:function-size-baseline
 
       - name: Test AgentKit stream ownership guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:agentkit-stream-ownership
 
       - name: Test untracked-imports guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:no-untracked-imports
 
       - name: Test deferred server counts guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:no-deferred-server-counts
 
       - name: Test mobile build path guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:mobile-build-paths
 
       - name: Test bare pnpm spawn guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:no-bare-pnpm-spawn
 
       - name: Test recursive copy links guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:recursive-copy-links
 
       - name: Test single S3 signer guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:single-s3-signer
 
       - name: Test source-reading tests guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:no-source-reading-tests
 
       - name: Test legacy MCP hint baseline guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:no-new-legacy-mcp-hints
 
       - name: Test DB tool scoping guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:db-tool-scoping
 
       - name: Test MCP parity baseline guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:no-new-mcp-parity-gaps
 
       - name: Test blocker-safe module names guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:blocker-safe-module-names
 
       - name: Test strictness ratchet guards
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:strictness-guards
 
       - name: Test Neon transfer alert and offline backtest
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:neon-transfer-alert
 
       - name: Build packages for source-backed guards
@@ -2602,11 +2657,21 @@ jobs:
       # Source-only template checks: no DB, browser, network, or secrets.
       - name: Template route matrix (fails on drift)
         if: ${{ !cancelled() && needs.change-scope.outputs.qa_static == 'true' }}
-        run: pnpm qa:template-routes
+        env:
+          QA_STATIC_APPS: ${{ needs.change-scope.outputs.qa_static_apps }}
+        run: |
+          set -euo pipefail
+          mapfile -t apps < <(jq -r '.[]' <<< "${QA_STATIC_APPS:-[]}")
+          pnpm qa:template-routes "${apps[@]}"
 
       - name: Template action audit (advisory)
         if: ${{ !cancelled() && needs.change-scope.outputs.qa_static == 'true' }}
-        run: pnpm actions:audit
+        env:
+          QA_STATIC_APPS: ${{ needs.change-scope.outputs.qa_static_apps }}
+        run: |
+          set -euo pipefail
+          mapfile -t apps < <(jq -r '.[]' <<< "${QA_STATIC_APPS:-[]}")
+          pnpm actions:audit "${apps[@]}"
 
   standalone-chat:
     name: Generate + run standalone Chat

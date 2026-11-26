@@ -336,7 +336,7 @@ vi.mock("./task-store.js", () => {
 // Mock the integrations/internal-token import so the a2a handler tests don't
 // require A2A_SECRET to be set in the test environment for sign().
 vi.mock("../integrations/internal-token.js", () => ({
-  signInternalToken: () => "test-token",
+  signInternalToken: vi.fn(() => "test-token"),
   verifyInternalToken: () => true,
   extractBearerToken: (h?: string) => h?.replace(/^Bearer\s+/i, "") ?? null,
 }));
@@ -3496,7 +3496,46 @@ describe("handleJsonRpc", () => {
     expect(followup.result.status.message.parts[0].text).toBe("event-present");
   });
 
+  it("refuses async A2A without A2A_SECRET when the unsigned handoff would leave this machine", async () => {
+    vi.stubEnv("A2A_SECRET", "");
+    vi.stubEnv("FUSION_POD_UID", "");
+    vi.stubEnv("FUSION_ENVIRONMENT", "");
+    const fetchMock = vi.fn(async () => new Response("ok"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { signInternalToken } =
+      await import("../integrations/internal-token.js");
+    vi.mocked(signInternalToken).mockImplementationOnce(() => {
+      throw new Error("A2A_SECRET is required");
+    });
+
+    const event = mockEvent();
+    event.node.req = { headers: { host: "abc.tunnel.example" } };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          message: { role: "user", parts: [{ type: "text", text: "go" }] },
+        },
+      },
+      event,
+      customHandler,
+    );
+
+    expect(result.error).toEqual({
+      code: -32001,
+      message:
+        "Self-dispatch to /_agent-native/a2a/_process-task at http://abc.tunnel.example refused: A2A_SECRET is not set and the unsigned processor handoff would leave this machine. Set A2A_SECRET, or set AGENT_NATIVE_SELF_DISPATCH_URL to this server's loopback address.",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("self-dispatches async A2A tasks under APP_BASE_PATH", async () => {
+    vi.stubEnv("A2A_SECRET", "test-secret-at-least-32-characters-long");
     process.env.APP_BASE_PATH = "/docs";
     const fetchMock = vi.fn(async () => new Response("ok"));
     vi.stubGlobal("fetch", fetchMock);

@@ -7,11 +7,23 @@ import { Editor } from "@tiptap/core";
 import { TextSelection } from "@tiptap/pm/state";
 import { EditorContent } from "@tiptap/react";
 import { prosemirrorToYDoc, yUndoPluginKey } from "@tiptap/y-tiptap";
-import { act } from "react";
+import { act, useEffect, type ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
-import { MemoryRouter } from "react-router";
-import { describe, expect, it } from "vitest";
+import { MemoryRouter, useLocation } from "react-router";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import * as Y from "yjs";
+
+const pages = vi.hoisted(() => ({
+  create: vi.fn(async (_parentId: string, _id: string) => {}),
+  rollback: vi.fn(async (_input: { id: string; parentId: string }) => ({})),
+}));
+vi.mock("@/hooks/use-create-page", () => ({
+  useCreatePage: () => pages.create,
+}));
+vi.mock("@/hooks/use-documents", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/hooks/use-documents")>()),
+  useRollbackCreatedSlashDocument: () => ({ mutateAsync: pages.rollback }),
+}));
 
 import { runPersistableHistoryCommand } from "./editor-transaction-meta";
 import { SlashCommandMenu } from "./SlashCommandMenu";
@@ -59,7 +71,10 @@ function headingBlock(editor: Editor) {
 }
 
 /** Renders the slash menu beside a collaborative editor. */
-async function mountSlashMenu(markdown?: string) {
+async function mountSlashMenu(
+  markdown?: string,
+  props: Partial<ComponentProps<typeof SlashCommandMenu>> = {},
+) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -67,9 +82,18 @@ async function mountSlashMenu(markdown?: string) {
     defaultOptions: { queries: { retry: false } },
   });
   const editor = collabEditor(markdown);
+  let path = "";
+  function LocationProbe() {
+    const location = useLocation();
+    useEffect(() => {
+      path = location.pathname;
+    });
+    return null;
+  }
   await act(async () => {
     root.render(
       <MemoryRouter>
+        <LocationProbe />
         <QueryClientProvider client={queryClient}>
           <AgentNativeI18nProvider
             initialLocale="en-US"
@@ -81,7 +105,7 @@ async function mountSlashMenu(markdown?: string) {
           >
             <div className="visual-editor-wrapper">
               <EditorContent editor={editor} />
-              <SlashCommandMenu editor={editor} />
+              <SlashCommandMenu editor={editor} {...props} />
             </div>
           </AgentNativeI18nProvider>
         </QueryClientProvider>
@@ -92,6 +116,7 @@ async function mountSlashMenu(markdown?: string) {
   return {
     container,
     editor,
+    location: () => path,
     unmount: async () => {
       await act(async () => root.unmount());
       editor.destroy();
@@ -341,5 +366,61 @@ describe("slash menu in a Toggle's title", () => {
     } finally {
       await unmount();
     }
+  });
+});
+
+describe("/page", () => {
+  function pageReferences(editor: Editor) {
+    const ids: string[] = [];
+    editor.state.doc.descendants((node) => {
+      if (node.attrs.tagName === "page")
+        ids.push(JSON.parse(node.attrs.attrsJson).id);
+    });
+    return ids;
+  }
+
+  async function makePage(persisted: boolean) {
+    pages.create.mockClear();
+    pages.rollback.mockClear();
+    const onDraftPersisted = vi.fn(async (_markdown: string) => persisted);
+    const mounted = await mountSlashMenu(undefined, {
+      documentId: "parent",
+      onDraftPersisted,
+    });
+    onTestFinished(mounted.unmount);
+    typeAt(mounted.editor, mounted.editor.state.doc.content.size - 1, "/page");
+    await act(async () => Promise.resolve());
+    await pressEnter();
+    await act(async () =>
+      vi.waitFor(() => expect(onDraftPersisted).toHaveBeenCalledOnce()),
+    );
+    const pageId = pages.create.mock.calls[0]?.[1];
+    expect(pages.create).toHaveBeenCalledWith("parent", pageId);
+    return { ...mounted, onDraftPersisted, pageId };
+  }
+
+  it("saves the link to the new page through the page's editor", async () => {
+    const { editor, location, onDraftPersisted, pageId } = await makePage(true);
+    await act(async () =>
+      vi.waitFor(() => expect(location()).toBe(`/page/${pageId}`)),
+    );
+    expect(onDraftPersisted).toHaveBeenCalledOnce();
+    expect(onDraftPersisted.mock.calls[0]?.[0]).toContain(`id="${pageId}"`);
+    expect(pageReferences(editor)).toEqual([pageId]);
+    expect(pages.rollback).not.toHaveBeenCalled();
+  });
+
+  it("takes the new page back when the page's editor can't save the link", async () => {
+    const { editor, onDraftPersisted, pageId } = await makePage(false);
+    expect(onDraftPersisted).toHaveBeenCalledOnce();
+    await act(async () =>
+      vi.waitFor(() =>
+        expect(pages.rollback).toHaveBeenCalledWith({
+          id: pageId,
+          parentId: "parent",
+        }),
+      ),
+    );
+    expect(pageReferences(editor)).toEqual([]);
   });
 });

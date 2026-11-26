@@ -38,6 +38,14 @@ function sentenceStarts(text: string) {
   return starts;
 }
 
+export function countSentences(text: string): number {
+  let count = 0;
+  for (const line of text.split("\n")) {
+    if (hasWord(line)) count += 1 + sentenceStarts(line).length;
+  }
+  return count;
+}
+
 /** Whether the unchanged text between two pieces holds a sentence boundary. */
 function separatesSentences(source: string, from: number, to: number) {
   // The whole line: what comes before says whether a period ended an

@@ -55,6 +55,7 @@ import {
 } from "../org/service-principal-guard.js";
 import { isActionGranted } from "../org/service-principal-policy.js";
 import { isDeploymentEmailDomainAllowed } from "../org/signup-admission.js";
+import { canonicalResourcePath } from "../resources/path-form.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import type { BearerCredentialRefusal } from "../server/bearer-credential-refusal.js";
 import { readDeployCredentialEnv } from "../server/credential-provider.js";
@@ -70,6 +71,7 @@ import {
   getEmbedSessionOrigin,
   validateEmbedRequestOrigin,
 } from "../server/embed-request-origin.js";
+import { refusesLocalDevCredential } from "../server/local-dev-identity.js";
 import {
   getRequestContext,
   getRequestOrgId,
@@ -2531,21 +2533,25 @@ function readOnlyResourceEntry(
         ) ||
         args.action !== "read" ||
         (args.scope !== "personal" && args.scope !== "shared") ||
-        typeof args.path !== "string" ||
-        !args.path ||
-        args.path.startsWith("/") ||
-        args.path.includes("\\") ||
-        args.path
+        typeof args.path !== "string"
+      ) {
+        throw new Error("Invalid resource read arguments");
+      }
+      const name = canonicalResourcePath(args.path);
+      if (
+        !name ||
+        name.includes("\\") ||
+        name
           .split("/")
           .some((part) => !part || part === "." || part === "..") ||
-        /[\x00-\x1f\x7f]/.test(args.path)
+        /[\x00-\x1f\x7f]/.test(name)
       ) {
         throw new Error("Invalid resource read arguments");
       }
       const { readScopedResourceForMcp, readScopedSkillForMcp } =
         await import("../resources/store.js");
       const signal = actionContext?.signal;
-      const resource = args.path.startsWith("skills/")
+      const resource = name.startsWith("skills/")
         ? await readScopedSkillForMcp({
             identity,
             scope: args.scope,
@@ -6106,7 +6112,7 @@ export async function verifyAuth(
     allowDevOpen?: boolean;
     allowLocalOwnerHint?: boolean;
     resourceUrl?: string | string[];
-    event?: unknown;
+    event?: import("h3").H3Event;
     /** This app's public origin; federated orgs need it for the membership check. */
     requestOrigin?: string;
   } = {},
@@ -6138,8 +6144,12 @@ export async function verifyAuth(
           }
         );
       }
-      if (issued)
+      if (issued) {
+        if (refusesLocalDevCredential(issued.userEmail, options.event)) {
+          return { authed: false, refusal: "local-dev-identity" };
+        }
         return admitIssuedMcpCredential(issued, options.requestOrigin);
+      }
     }
   }
   if (accessTokens.length === 0 && !hasA2ASecret && !token) {

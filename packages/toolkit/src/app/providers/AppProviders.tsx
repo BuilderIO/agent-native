@@ -122,6 +122,9 @@ export interface AppProvidersProps {
   /** See `RequireSessionProps.signedOutHref`. */
   signedOutHref?: () => string | null;
 
+  /** See `RequireSessionProps.revealWhileLoading`. */
+  revealWhileLoading?: () => boolean;
+
   skipFirstRunOnboarding?: boolean;
 
   /** Opt in to the app-specific, consented Builder signup experiment. */
@@ -769,6 +772,7 @@ export function AppProviders({
   skeletonLayout,
   sessionBypass = false,
   signedOutHref,
+  revealWhileLoading,
   skipFirstRunOnboarding = false,
   builderSignupExperiment,
   builderSignupHostedHosts,
@@ -838,6 +842,7 @@ export function AppProviders({
       bypass={sessionBypass}
       fallback={fallback}
       signedOutHref={signedOutHref}
+      revealWhileLoading={revealWhileLoading}
     >
       {sessionBypass ? (
         <>

@@ -121,6 +121,7 @@ export default defineAction({
     .refine((args) => args.sourceId || args.captureIds?.length, {
       message: "Provide sourceId or captureIds",
     }),
+  mcpTool: false,
   run: async (args) => {
     const db = getDb();
     const settings = await readBrainSettings();

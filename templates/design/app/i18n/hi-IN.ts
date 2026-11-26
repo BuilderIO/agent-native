@@ -852,6 +852,10 @@ export default {
     exportPreview: {
       rendering: "पूर्वावलोकन बन रहा है…",
       failed: "पूर्वावलोकन उपलब्ध नहीं",
+      noPreview: "पूर्वावलोकन के लिए कोई स्क्रीन नहीं",
+      externalPreview: "पूर्वावलोकन के लिए लाइव ऐप ज़रूरी है",
+      readOnlyPreview: "केवल-पढ़ने मोड में पूर्वावलोकन उपलब्ध नहीं",
+      selectionUnresolved: "चयन इस स्क्रीन पर नहीं मिला",
     },
     framePresets: {
       title: "फ़्रेम",
@@ -1902,6 +1906,7 @@ export default {
   layersPanel: {
     title: "परतें",
     screens: "पेज",
+    components: "कॉम्पोनेंट",
     resizeScreens: "पेज सेक्शन का आकार बदलें",
     thumbnail: "थंबनेल",
     addScreen: "पेज जोड़ें",

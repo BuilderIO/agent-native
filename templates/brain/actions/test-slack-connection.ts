@@ -69,6 +69,7 @@ export default defineAction({
         "When true, channel names may be resolved through conversations.list metadata. Channel IDs avoid that metadata scan.",
       ),
   }),
+  mcpTool: false,
   run: async ({ sourceId, channelRefs, resolveNames }) => {
     let refs = channelRefs;
     let workspaceConnectionId: string | undefined;

@@ -30,8 +30,11 @@ import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import {
   contentTrashDateSchema,
   contentTrashPredicates,
+  contentTrashWherePredicate,
+  contentTrashWhereSchema,
   validateContentTrashDateRange,
 } from "./_content-trash-query.js";
+import { configurationRevision } from "./_database-setup-mutation.js";
 
 const inputSchema = z
   .object({
@@ -84,6 +87,11 @@ const inputSchema = z
     deletedTo: contentTrashDateSchema
       .optional()
       .describe("Inclusive deletion-time end."),
+    where: contentTrashWhereSchema
+      .optional()
+      .describe(
+        'Filter conditions joined by mode "and" or "or", with one level of groups. A condition is {field, operator: "is"|"isNot", values} for spaceId, parentId, createdBy, updatedBy, deletedBy (emails), or kind ("page"|"database"); or {field: "deletedAt", from?, to?}. Applied with the other filters.',
+      ),
     sort: z
       .enum(["name", "createdAt", "updatedAt", "deletedAt"])
       .default("deletedAt")
@@ -147,6 +155,7 @@ export default defineAction({
           args.deletedTo ?? null,
           args.sort,
           args.direction,
+          ...(args.where?.items.length ? [args.where] : []),
         ]),
       )
       .digest("hex");
@@ -199,7 +208,8 @@ export default defineAction({
       args.createdBy ||
       args.updatedBy ||
       args.deletedFrom ||
-      args.deletedTo
+      args.deletedTo ||
+      args.where?.items.length
     );
     const sortValue =
       args.sort === "name"
@@ -234,6 +244,10 @@ export default defineAction({
         rawRootId: doc.trashRootId,
         documentTrashedAt: doc.trashedAt,
         databaseDeletedAt: database.deletedAt,
+        databaseSpaceId: database.spaceId,
+        databaseDocumentId: database.documentId,
+        databaseOwnerBlockId: database.ownerBlockId,
+        databaseViewConfigJson: database.viewConfigJson,
       })
       .from(doc)
       .leftJoin(database, eq(database.id, canonical))
@@ -302,6 +316,15 @@ export default defineAction({
             : undefined,
           args.deletedFrom ? gte(deletedAt, args.deletedFrom) : undefined,
           args.deletedTo ? lte(deletedAt, args.deletedTo) : undefined,
+          contentTrashWherePredicate(args.where, {
+            spaceId: space.id,
+            parentId: parent.id,
+            createdBy: doc.createdBy,
+            updatedBy: doc.updatedBy,
+            deletedBy: doc.trashedBy,
+            databaseId: database.id,
+            deletedAt,
+          }),
           cursor
             ? or(
                 compare(sortValue, cursor.value),
@@ -364,10 +387,31 @@ export default defineAction({
           rawRootId,
           documentTrashedAt,
           databaseDeletedAt,
+          databaseSpaceId,
+          databaseDocumentId,
+          databaseOwnerBlockId,
+          databaseViewConfigJson,
           sortValue: _sortValue,
           ...row
         }) => ({
           ...row,
+          collectionRestore:
+            row.databaseId !== null &&
+            ownerDocumentId === null &&
+            databaseSpaceId !== null &&
+            databaseDocumentId !== null &&
+            databaseViewConfigJson !== null
+              ? {
+                  spaceId: databaseSpaceId,
+                  databaseDocumentId,
+                  configurationRevision: configurationRevision({
+                    viewConfigJson: databaseViewConfigJson,
+                    deletedAt: databaseDeletedAt,
+                    ownerDocumentId,
+                    ownerBlockId: databaseOwnerBlockId,
+                  }),
+                }
+              : null,
           createdByState: row.createdBy === null ? "unresolved" : "known",
           updatedByState: row.updatedBy === null ? "unresolved" : "known",
           trashedByState: row.trashedBy === null ? "unresolved" : "known",

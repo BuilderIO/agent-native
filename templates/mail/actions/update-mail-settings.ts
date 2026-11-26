@@ -47,13 +47,14 @@ const settingsSchema = z.object({
     ),
   contactPanelWidgets: z
     .object({
+      meetings: z.boolean().optional(),
       notes: z.boolean().optional(),
       attachments: z.boolean().optional(),
       recent: z.boolean().optional(),
     })
     .optional()
     .describe(
-      "Turn built-in widgets in the person panel beside an open email on or off, for every email: notes (the user's private note about that person), attachments (files from that person, newest first), recent (recent emails with that person). Only the widgets supplied change.",
+      "Turn built-in widgets in the person panel beside an open email on or off, for every email: meetings (upcoming and past meetings with that person), notes (the user's private note about that person), attachments (files from that person, newest first), recent (recent emails with that person). Only the widgets supplied change.",
     ),
 });
 

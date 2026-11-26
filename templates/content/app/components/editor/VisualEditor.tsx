@@ -21,6 +21,7 @@ import { type RegistryBlockSideMapBlock } from "@agent-native/toolkit/editor";
 import {
   applyDocSurgically,
   createSharedEditorExtensions,
+  isListItem,
   RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION,
   TaskListPasteNormalization,
   useCollabReconcile,
@@ -121,6 +122,7 @@ import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
 import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
 import { Button } from "@/components/ui/button";
 import type { CommentThread } from "@/hooks/use-comments";
+import { useStableCallback } from "@/hooks/use-stable-callback";
 import {
   CONTENT_EDITABLE_MARK,
   markStartupMilestone,
@@ -130,6 +132,13 @@ import {
   AnalyticsChartPaste,
   type AnalyticsChartPasteOptions,
 } from "./analytics-chart/analytics-chart-paste";
+import {
+  currentTurnIntoTarget,
+  selectedListItem,
+  turnBlockInto,
+  turnSelectedListItemInto,
+  type TurnIntoTarget,
+} from "./block-actions";
 import {
   blockLinkId,
   blockLinkUrl,
@@ -196,6 +205,7 @@ import {
 import { ContentReferenceNode } from "./extensions/ContentReferenceNode";
 import { DragHandle } from "./extensions/DragHandle";
 import { ImageNode, type ContentImageOptions } from "./extensions/ImageNode";
+import { ListItemKeys } from "./extensions/ListItemKeys";
 import {
   LOCAL_FILE_USER_EDIT_META,
   LocalMdxComponentNode,
@@ -272,6 +282,8 @@ import {
   measureLiveBodyParity,
   reportLiveBodyParity,
 } from "./live-body-parity";
+import { usePageChecksActions } from "./page-checks/page-checks-context";
+import { PageCheckMarks } from "./page-checks/PageCheckMarks";
 import { imageDisplaySrc } from "./private-media-src";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import {
@@ -814,6 +826,56 @@ export function getRecentEditPresenceMarkerRect(
   );
 }
 
+const LIST_ITEM_MARKERS: ReadonlyArray<[RegExp, TurnIntoTarget]> = [
+  [/^[-+*]$/, "bulletedList"],
+  [/^\d+[.)]$/, "numberedList"],
+  [/^\[[ xX]?\]$/, "todoList"],
+  [/^[|"]$/, "quote"],
+];
+
+function turnBlockByMarker(view: EditorView, from: number, text: string) {
+  const { selection } = view.state;
+  const { $from } = selection;
+  if (text !== " " || !selection.empty || $from.parent.type.spec.code) {
+    return false;
+  }
+  const marker = view.state.doc.textBetween($from.start(), from);
+  const item = selectedListItem(selection);
+  const target = item
+    ? LIST_ITEM_MARKERS.find(([pattern]) => pattern.test(marker))?.[1]
+    : $from.parent.type.name === "paragraph" && /^\d+\)$/.test(marker)
+      ? "numberedList"
+      : undefined;
+  if (
+    !target ||
+    (item && currentTurnIntoTarget(item.node, $from.node(-2)) === target)
+  ) {
+    return false;
+  }
+  const tr = view.state.tr.delete($from.start(), from);
+  const turned = item
+    ? turnSelectedListItemInto(tr, target)
+    : turnBlockInto(tr, $from.before(), target);
+  if (!turned) return false;
+  const $caret = tr.selection.$from;
+  if ($caret.depth >= 3 && isListItem($caret.node(-1))) {
+    const start = Number.parseInt(marker, 10);
+    const list = $caret.node(-2);
+    if (
+      list.type.name === "orderedList" &&
+      $caret.index(-2) === 0 &&
+      start > 1
+    ) {
+      tr.setNodeAttribute($caret.before(-2), "start", start);
+    }
+    if (/x/i.test(marker) && "checked" in $caret.node(-1).attrs) {
+      tr.setNodeAttribute($caret.before(-1), "checked", true);
+    }
+  }
+  view.dispatch(tr.scrollIntoView());
+  return true;
+}
+
 const NotionMarkdownShortcuts = Extension.create({
   name: "notionMarkdownShortcuts",
   priority: 1000,
@@ -864,6 +926,7 @@ const NotionMarkdownShortcuts = Extension.create({
         key: new PluginKey("notionMarkdownShortcuts"),
         props: {
           handleTextInput(view, from, _to, text) {
+            if (turnBlockByMarker(view, from, text)) return true;
             const shortcut = readBlockShortcut(view, from, text);
             if (!shortcut) return false;
 
@@ -1965,6 +2028,7 @@ interface VisualEditorProps {
     | undefined;
   /** Starts a comment on a whole block, such as a video. */
   onBlockComment?: (target: CommentBlockTarget, offsetTop: number) => void;
+  pageCheckMarks?: boolean;
   commentThreads?: CommentThread[];
   activeThreadId?: string | null;
   hoveredThreadId?: string | null;
@@ -3580,6 +3644,7 @@ export function createVisualEditorExtensions({
       DragHandle,
       TypographyReplacements,
       NotionMarkdownShortcuts,
+      ListItemKeys,
       ...(analyticsChartPaste
         ? [AnalyticsChartPaste.configure({ getContext: analyticsChartPaste })]
         : []),
@@ -3944,6 +4009,7 @@ export function VisualEditor({
   onComment,
   onSuggestEdit,
   onBlockComment,
+  pageCheckMarks = false,
   commentThreads,
   activeThreadId,
   hoveredThreadId,
@@ -3983,6 +4049,20 @@ export function VisualEditor({
   onBlockIdentityIds,
 }: VisualEditorProps) {
   const t = useT();
+  const pageCheckActions = usePageChecksActions();
+  const pageChecksHere = pageCheckMarks && !!pageCheckActions?.enabled;
+  const addCheckAt =
+    pageChecksHere &&
+    pageCheckActions.canEdit &&
+    !suggesting &&
+    !directoryWidgetEditing
+      ? pageCheckActions.openAdd
+      : undefined;
+  const commentFromCheck = useStableCallback(
+    (...args: Parameters<NonNullable<VisualEditorProps["onComment"]>>) => {
+      onComment?.(...args);
+    },
+  );
   const tRef = useRef(t);
   tRef.current = t;
   const widgetBridgeActive = isEmbedMcpChatBridgeActive();
@@ -6455,6 +6535,7 @@ export function VisualEditor({
               }),
             ).then(isEditorDraftSaveAccepted)
           }
+          onAddCheck={addCheckAt}
         />
       ) : null}
       <LinkHoverPreview editor={editor} editable={editable} />
@@ -6469,6 +6550,7 @@ export function VisualEditor({
           editor={editor}
           onComment={onComment}
           onCopyLink={blockLinks && documentId ? copyBlockLink : undefined}
+          onAddCheck={addCheckAt ? (block) => addCheckAt(block.pos) : undefined}
           onTurnTableIntoCollection={
             documentId && !directoryWidgetEditing
               ? turnTableIntoCollection
@@ -6512,6 +6594,14 @@ export function VisualEditor({
           </DrawDiagramsContext.Provider>
         </InteractiveHtmlContext.Provider>
       </RegistryBlockDataProvider>
+      {pageChecksHere && !showStoredBody ? (
+        <PageCheckMarks
+          editor={editor}
+          wrapperRef={wrapperRef}
+          onComment={onComment ? commentFromCheck : undefined}
+          suggesting={suggesting}
+        />
+      ) : null}
       {collabState.initialSeedFailed ? (
         <div
           role="alert"

@@ -17,6 +17,7 @@ import {
 } from "@/components/email/ContactPanelMenu";
 import {
   AttachmentsWidget,
+  MeetingsWidget,
   NotesWidget,
   RecentWidget,
   type RecentContactEmail,
@@ -235,6 +236,7 @@ export function IntegrationsSidebar({
         </div>
       )}
 
+      {loaded && widgets.meetings && <MeetingsWidget email={email} />}
       {loaded && widgets.notes && (
         <NotesWidget
           email={email}

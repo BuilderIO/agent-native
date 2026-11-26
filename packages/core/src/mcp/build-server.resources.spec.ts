@@ -181,7 +181,7 @@ describe("read-only MCP resources", () => {
       async ({ sql, args }: { sql: string; args: unknown[] }) => {
         const owner = args[0];
         if (owner !== "alice@example.test") return { rows: [] };
-        if (sql.includes("path LIKE"))
+        if (sql.includes("path LIKE 'skills/"))
           return { rows: [{ owner, path: skillPath }] };
         if (args[1] !== skillPath || manifest === null) return { rows: [] };
         return {
@@ -470,6 +470,7 @@ describe("read-only MCP resources", () => {
       { action: "write", scope: "personal", path: "a", content: "x" },
       { action: "read", scope: "workspace", path: "a" },
       { action: "read", scope: "personal", path: "../a" },
+      { action: "read", scope: "personal", path: "/" },
       { action: "read", scope: "personal", path: "a", extra: true },
     ]) {
       const result = await client.callTool({
@@ -480,6 +481,59 @@ describe("read-only MCP resources", () => {
     }
     expect(mocks.read).not.toHaveBeenCalled();
     expect(mocks.write).not.toHaveBeenCalled();
+  });
+  it("reads a path spelled with a leading slash, as uploads used to store it", async () => {
+    const client = await clientFor(config());
+    try {
+      const result = await client.callTool({
+        name: "resources",
+        arguments: { action: "read", scope: "personal", path: "/notes.md" },
+      });
+      expect(result.isError).not.toBe(true);
+      expect(mocks.read).toHaveBeenCalledWith(
+        expect.objectContaining({ scope: "personal", path: "/notes.md" }),
+      );
+    } finally {
+      await client.close();
+    }
+  });
+  it("refuses a skill path spelled with a leading slash instead of reading the plain one", async () => {
+    const skillPath = "skills/reports/SKILL.md";
+    mocks.sql.mockImplementation(
+      async ({ args }: { sql: string; args: unknown[] }) => ({
+        rows:
+          args[0] === "alice@example.test"
+            ? [
+                {
+                  id: "s",
+                  owner: args[0],
+                  path: skillPath,
+                  content:
+                    "---\nname: reports\ndescription: prepare report\n---\n# Report guide",
+                  content_complete: 1,
+                  visibility: "workspace",
+                  metadata: null,
+                },
+              ]
+            : [],
+      }),
+    );
+    const client = await clientFor(config());
+    try {
+      const plain = await client.callTool({
+        name: "resources",
+        arguments: { action: "read", scope: "personal", path: skillPath },
+      });
+      const slashed = await client.callTool({
+        name: "resources",
+        arguments: { action: "read", scope: "personal", path: `/${skillPath}` },
+      });
+      expect(plain.isError).toBeFalsy();
+      expect(slashed.isError).toBe(true);
+      expect(text(slashed)).not.toContain("Report guide");
+    } finally {
+      await client.close();
+    }
   });
   it("requires opt-in, verified identity and read OAuth scope, and respects explicit denial", async () => {
     const cases: Array<[MCPConfig, MCPCallerIdentity | undefined]> = [

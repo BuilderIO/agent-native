@@ -67,6 +67,20 @@ const benignMutation = vi.hoisted(() => ({
   isPending: false,
 }));
 
+const rowMutations = vi.hoisted(() => {
+  const mutation = () => ({
+    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
+    isPending: false,
+  });
+  return {
+    removeItems: mutation(),
+    duplicateItems: mutation(),
+    duplicateItem: mutation(),
+    deleteDocument: mutation(),
+  };
+});
+
 const addItemMutation = vi.hoisted(() => ({
   mutate: vi.fn(),
   mutateAsync: vi.fn(),
@@ -256,9 +270,9 @@ vi.mock("@/hooks/use-content-database", async (importOriginal) => ({
   ],
   refreshAfterPersonalViewSave: vi.fn(),
   useUpdateContentDatabaseView: () => updateViewMutation,
-  useRemoveDatabaseItems: () => benignMutation,
-  useDuplicateDatabaseItem: () => benignMutation,
-  useDuplicateDatabaseItems: () => benignMutation,
+  useRemoveDatabaseItems: () => rowMutations.removeItems,
+  useDuplicateDatabaseItem: () => rowMutations.duplicateItem,
+  useDuplicateDatabaseItems: () => rowMutations.duplicateItems,
   useMoveDatabaseItem: () => benignMutation,
   useBuilderCmsModels: () => builderCmsModelsQuery,
   useMaterializeBuilderRequiredFields: () => benignMutation,
@@ -304,7 +318,7 @@ vi.mock("@/hooks/use-documents", async (importOriginal) => ({
   seedDatabaseItemDocumentCaches: vi.fn(),
   startDatabaseItemPreviewReads: vi.fn(),
   useCreateDocument: () => createDocumentMutation,
-  useDeleteDocument: () => benignMutation,
+  useDeleteDocument: () => rowMutations.deleteDocument,
   useUpdateDocument: () => benignMutation,
 }));
 
@@ -321,6 +335,23 @@ vi.mock("./database-cell-comments", async (importOriginal) => ({
     return null;
   },
 }));
+
+const pageSurfaces = vi.hoisted(() => ({
+  props: [] as object[],
+}));
+vi.mock("../DocumentEditor", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../DocumentEditor")>();
+  const { createElement } = await import("react");
+  return {
+    ...actual,
+    PageEditorSurface: (
+      props: Parameters<typeof actual.PageEditorSurface>[0],
+    ) => {
+      pageSurfaces.props.push(props);
+      return createElement(actual.PageEditorSurface, props);
+    },
+  };
+});
 
 // The header and every row lay out their cells through one, so its render
 // count shows whether an update reached the table at all.
@@ -499,6 +530,37 @@ function findButtonByText(container: HTMLElement, text: string) {
   );
 }
 
+function selectableRow(id: string, title: string): ContentDatabaseItem {
+  return {
+    id: `item-${id}`,
+    databaseId: "database-1",
+    document: {
+      id: `document-${id}`,
+      parentId: "document-1",
+      title,
+      content: "",
+      icon: null,
+      position: 0,
+      isFavorite: false,
+      hideFromSearch: false,
+      accessRole: "viewer",
+      canView: true,
+      canEdit: false,
+      canManage: false,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    },
+    position: 0,
+    properties: [],
+    bodyHydration: {
+      status: "hydrated",
+      attemptedAt: null,
+      error: null,
+      version: null,
+    },
+  };
+}
+
 describe("DatabaseView UI regressions", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -528,6 +590,14 @@ describe("DatabaseView UI regressions", () => {
       .mockResolvedValue(databaseResponse);
     processBuilderBodiesMutation.mutate.mockReset();
     benignMutation.mutateAsync.mockReset().mockResolvedValue(undefined);
+    for (const mutation of Object.values(rowMutations)) {
+      mutation.mutate.mockReset();
+      mutation.mutateAsync
+        .mockReset()
+        .mockImplementation((input: unknown) =>
+          benignMutation.mutateAsync(input),
+        );
+    }
     updateViewMutation.mutate.mockReset();
     updateViewMutation.mutateAsync
       .mockReset()
@@ -724,7 +794,8 @@ describe("DatabaseView UI regressions", () => {
     expect(updateViewMutation.mutateAsync).not.toHaveBeenCalled();
   });
 
-  it("opens the toolbar's Sort menu with a pointer and its Filter panel with a click", async () => {
+  // oracle-change(templates/content/app/components/editor/database/DatabaseView.error-toasts.test.tsx): the Sort button opened a menu of fields; it now opens a panel like Filter's, holding the sorts and their field picker
+  it("opens the toolbar's Sort and Filter panels with a click", async () => {
     await renderDatabaseView();
 
     const sortButton = container.querySelector<HTMLButtonElement>(
@@ -735,23 +806,17 @@ describe("DatabaseView UI regressions", () => {
     );
     expect(sortButton).toBeTruthy();
     expect(filterButton).toBeTruthy();
-    expect(sortButton?.getAttribute("aria-haspopup")).toBe("menu");
+    expect(sortButton?.getAttribute("aria-haspopup")).toBe("dialog");
     expect(filterButton?.getAttribute("aria-haspopup")).toBe("dialog");
 
     await act(async () => {
       sortButton?.focus();
-      sortButton?.dispatchEvent(
-        new PointerEvent("pointerdown", {
-          bubbles: true,
-          button: 0,
-          pointerType: "mouse",
-        }),
-      );
+      sortButton?.click();
       await Promise.resolve();
     });
 
     expect(sortButton?.getAttribute("aria-expanded")).toBe("true");
-    expect(document.querySelector("[role=menu]")).toBeTruthy();
+    expect(document.querySelector("[role=dialog]")).toBeTruthy();
 
     await act(async () => {
       document.activeElement?.dispatchEvent(
@@ -1642,35 +1707,10 @@ describe("DatabaseView UI regressions", () => {
   });
 
   it("removes the confirmed selection snapshot without clearing newer selections", async () => {
-    const row = (id: string, title: string): ContentDatabaseItem => ({
-      id: `item-${id}`,
-      databaseId: "database-1",
-      document: {
-        id: `document-${id}`,
-        parentId: "document-1",
-        title,
-        content: "",
-        icon: null,
-        position: 0,
-        isFavorite: false,
-        hideFromSearch: false,
-        accessRole: "viewer",
-        canView: true,
-        canEdit: false,
-        canManage: false,
-        createdAt: "2026-01-01T00:00:00.000Z",
-        updatedAt: "2026-01-01T00:00:00.000Z",
-      },
-      position: 0,
-      properties: [],
-      bodyHydration: {
-        status: "hydrated",
-        attemptedAt: null,
-        error: null,
-        version: null,
-      },
-    });
-    databaseResponse.items = [row("a", "Alpha"), row("b", "Beta")];
+    databaseResponse.items = [
+      selectableRow("a", "Alpha"),
+      selectableRow("b", "Beta"),
+    ];
     await renderDatabaseView();
 
     await act(async () => {
@@ -1701,16 +1741,57 @@ describe("DatabaseView UI regressions", () => {
       await Promise.resolve();
     });
 
-    expect(benignMutation.mutateAsync).toHaveBeenCalledWith({
-      documentId: "document-1",
-      itemIds: ["item-a"],
-    });
+    expect(rowMutations.removeItems.mutateAsync.mock.calls).toEqual([
+      [{ documentId: "document-1", itemIds: ["item-a"] }],
+    ]);
+    expect(rowMutations.deleteDocument.mutateAsync).not.toHaveBeenCalled();
+    expect(rowMutations.duplicateItems.mutateAsync).not.toHaveBeenCalled();
+    expect(rowMutations.duplicateItem.mutateAsync).not.toHaveBeenCalled();
+    expect(rowMutations.removeItems.mutate).not.toHaveBeenCalled();
+    expect(rowMutations.deleteDocument.mutate).not.toHaveBeenCalled();
+    expect(rowMutations.duplicateItems.mutate).not.toHaveBeenCalled();
+    expect(rowMutations.duplicateItem.mutate).not.toHaveBeenCalled();
     expect(container.textContent).toContain("1 selected");
     expect(
       container.querySelector<HTMLButtonElement>(
         '[aria-label="Deselect Beta"]',
       ),
     ).toBeTruthy();
+  });
+
+  it("duplicates every selected row in one batch call", async () => {
+    databaseResponse.items = [
+      selectableRow("a", "Alpha"),
+      selectableRow("b", "Beta"),
+    ];
+    await renderDatabaseView();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Select Alpha"]')
+        ?.click();
+    });
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Select Beta"]')
+        ?.click();
+    });
+    await act(async () => {
+      findButtonByText(container, "Duplicate")?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(rowMutations.duplicateItems.mutateAsync.mock.calls).toEqual([
+      [{ documentId: "document-1", itemIds: ["item-a", "item-b"] }],
+    ]);
+    expect(rowMutations.duplicateItem.mutateAsync).not.toHaveBeenCalled();
+    expect(rowMutations.removeItems.mutateAsync).not.toHaveBeenCalled();
+    expect(rowMutations.deleteDocument.mutateAsync).not.toHaveBeenCalled();
+    expect(rowMutations.duplicateItems.mutate).not.toHaveBeenCalled();
+    expect(rowMutations.duplicateItem.mutate).not.toHaveBeenCalled();
+    expect(rowMutations.removeItems.mutate).not.toHaveBeenCalled();
+    expect(rowMutations.deleteDocument.mutate).not.toHaveBeenCalled();
   });
 
   // Three rows filtered on a Status property, with that filter's chip.
@@ -1770,11 +1851,13 @@ describe("DatabaseView UI regressions", () => {
     };
     databaseQueryState.tableQueryAnswered = true;
     await renderDatabaseView();
-    const chip = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent.trim() === "agentChat.filters.fieldValue",
+    const filterButton = container.querySelector<HTMLElement>(
+      'button[aria-label="1 active filters"]',
     );
-    if (!chip) throw new Error("The Status filter chip did not render.");
-    return { chip, row, first, third };
+    if (!filterButton) {
+      throw new Error("The toolbar's Filter button doesn't count the filter.");
+    }
+    return { filterButton, row, first, third };
   }
 
   async function press(target: HTMLElement) {
@@ -1806,28 +1889,29 @@ describe("DatabaseView UI regressions", () => {
     });
   }
 
-  it("redraws only the rows whose data changed when a chip opens, the table is sorted, a row changes, or a row goes", async () => {
-    const { chip, row, first, third } = await renderStatusFilteredTable();
+  // oracle-change(templates/content/app/components/editor/database/DatabaseView.error-toasts.test.tsx): the filter chips are gone, so the Filter menu opens instead, and the Sort panel offers fields as options rather than menu items
+  it("redraws only the rows whose data changed when the Filter menu opens, the table is sorted, a row changes, or a row goes", async () => {
+    const { filterButton, row, first, third } =
+      await renderStatusFilteredTable();
     expect(cellRendersByItemId.get("item-a")).toBeGreaterThan(0);
 
     cellRendersByItemId.clear();
-    await press(chip);
-    expect(chip.getAttribute("aria-expanded")).toBe("true");
+    await press(filterButton);
+    expect(filterButton.getAttribute("aria-expanded")).toBe("true");
     expect([...cellRendersByItemId.keys()]).toEqual([]);
     await pressEscape();
 
     // Sorting rebuilds the view but leaves every row's data as it was.
-    const sortButton = container.querySelector('button[aria-label="Sort"]');
-    if (!sortButton) throw new Error("The toolbar has no Sort button.");
-    await mousePointerDown(sortButton);
-    const statusItem = [...document.querySelectorAll("[role=menuitem]")].find(
-      (item) => item.textContent.trim() === "Status",
+    const sortButton = container.querySelector<HTMLElement>(
+      'button[aria-label="Sort"]',
     );
-    if (!statusItem) throw new Error("The Sort menu doesn't offer Status.");
-    await act(async () => {
-      statusItem.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await Promise.resolve();
-    });
+    if (!sortButton) throw new Error("The toolbar has no Sort button.");
+    await press(sortButton);
+    const statusOption = [
+      ...document.querySelectorAll<HTMLElement>('[role="option"]'),
+    ].find((option) => option.textContent.trim() === "Status");
+    if (!statusOption) throw new Error("The Sort panel doesn't offer Status.");
+    await press(statusOption);
     expect(sortButton.getAttribute("aria-label")).toBe("1 active sorts");
     expect(
       container.querySelectorAll("[data-database-row-id]").length,
@@ -1848,44 +1932,45 @@ describe("DatabaseView UI regressions", () => {
     expect([...cellRendersByItemId.keys()]).toEqual([]);
   });
 
-  // oracle-change: the click-shield tests went with Content's own chip menus; the kit's modal popovers keep clicks off the table instead, as this test checks
-  it("keeps clicks off the table while a filter chip is open, and gives them back when it closes", async () => {
-    const { chip } = await renderStatusFilteredTable();
-    await press(chip);
-    expect(chip.getAttribute("aria-expanded")).toBe("true");
+  // oracle-change(templates/content/app/components/editor/database/DatabaseView.error-toasts.test.tsx): the filter chips are gone; the toolbar's Filter menu is the modal popover that keeps clicks off the table now
+  it("keeps clicks off the table while the Filter menu is open, and gives them back when it closes", async () => {
+    const { filterButton } = await renderStatusFilteredTable();
+    await press(filterButton);
+    expect(filterButton.getAttribute("aria-expanded")).toBe("true");
     expect(document.body.style.pointerEvents).toBe("none");
     await pressEscape();
-    expect(chip.getAttribute("aria-expanded")).toBe("false");
+    expect(filterButton.getAttribute("aria-expanded")).toBe("false");
     expect(document.body.style.pointerEvents).toBe("");
   });
 
-  it("opens the editor of a filter added from the bar's Filter button", async () => {
-    await renderStatusFilteredTable();
-    const addButton = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent.trim() === "agentChat.filters.filter",
-    );
-    if (!addButton) throw new Error("The bar's Filter button did not render.");
+  // oracle-change(templates/content/app/components/editor/database/DatabaseView.error-toasts.test.tsx): filters are added from the Filter menu's Add filter button now, not a Filter chip on a bar under the toolbar
+  it("opens the editor of a filter added from the Filter menu", async () => {
+    const { filterButton } = await renderStatusFilteredTable();
+    await press(filterButton);
+    const addButton = document.querySelector<HTMLElement>("[data-filter-add]");
+    if (!addButton) throw new Error("The Filter menu has no Add filter.");
     await press(addButton);
     const nameOption = [
       ...document.querySelectorAll<HTMLElement>('[role="option"]'),
     ].find((option) => option.textContent.trim() === "Name");
     if (!nameOption) throw new Error("The Filter menu doesn't offer Name.");
     await press(nameOption);
-    expect(addButton.getAttribute("aria-expanded")).toBe("true");
+    expect(filterButton.getAttribute("aria-expanded")).toBe("true");
     expect(
       document.querySelector('[role="dialog"] input[aria-label="Name"]'),
     ).not.toBeNull();
   });
 
-  it("opens and closes a filter chip without re-rendering the table", async () => {
-    const { chip } = await renderStatusFilteredTable();
+  // oracle-change(templates/content/app/components/editor/database/DatabaseView.error-toasts.test.tsx): the filter chips are gone, so the toolbar's Filter menu is what opens and closes
+  it("opens and closes the Filter menu without re-rendering the table", async () => {
+    const { filterButton } = await renderStatusFilteredTable();
     expect(tableGridRenders.count).toBeGreaterThan(0);
 
     tableGridRenders.count = 0;
-    await press(chip);
-    expect(chip.getAttribute("aria-expanded")).toBe("true");
+    await press(filterButton);
+    expect(filterButton.getAttribute("aria-expanded")).toBe("true");
     await pressEscape();
-    expect(chip.getAttribute("aria-expanded")).toBe("false");
+    expect(filterButton.getAttribute("aria-expanded")).toBe("false");
     expect(tableGridRenders.count).toBe(0);
   });
 
@@ -2204,9 +2289,11 @@ describe("DatabaseView UI regressions", () => {
     ).toBeNull();
   });
 
-  it("keeps the preview a row's menu opened for a comment", async () => {
+  // oracle-change: DatabaseView.test.ts's PageEditorSurface source grep became this opened preview
+  it("keeps open the preview of the row's own page, in its collection, that a row's menu opened for a comment", async () => {
     databaseResponse.items = [commentableRow("a", "Alpha", true)];
     await renderDatabaseView();
+    pageSurfaces.props.length = 0;
     const trigger = container.querySelector(
       '[aria-label="Row actions for Alpha"]',
     );
@@ -2215,6 +2302,7 @@ describe("DatabaseView UI regressions", () => {
     await mousePointerDown(trigger);
     await selectMenuItem("editor.comment");
     await act(async () => {
+      // fixed-sleep-ok: lets the closing menu's deferred focus return run, so the check below sees where focus settles
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     // The preview closes when focus leaves it, so the menu must not hand focus
@@ -2223,6 +2311,12 @@ describe("DatabaseView UI regressions", () => {
     expect(
       document.body.querySelector('[aria-label^="Preview actions for"]'),
     ).toBeTruthy();
+    expect(pageSurfaces.props[pageSurfaces.props.length - 1]).toMatchObject({
+      documentId: "document-a",
+      databaseId: "database-1",
+      databaseDocumentId: "document-1",
+      host: "preview",
+    });
   });
 
   it("offers a comment from a board card's menu", async () => {
