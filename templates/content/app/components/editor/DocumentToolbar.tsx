@@ -65,6 +65,7 @@ import {
   type Ref,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -176,6 +177,7 @@ import {
   leaveEscapeToPagePanel,
 } from "./document-page-panel-state";
 import { DocumentPanelTabs } from "./DocumentPanelTabs";
+import { usePreviewControls } from "./preview-controls";
 import {
   VersionHistoryPanel,
   type HistoryRestoreApplyResult,
@@ -868,6 +870,8 @@ function ToolbarBreadcrumbSiblingPage({
 
 interface DocumentToolbarProps {
   compact?: boolean;
+  inert?: boolean;
+  pageEditorOwner?: string;
   documentId: string;
   documentTitle?: string;
   documentContent?: string;
@@ -901,7 +905,10 @@ interface DocumentToolbarProps {
   checksToLookAt?: number;
   /** Open comment threads on the Page, the count its Collection row shows. */
   openCommentCount?: number;
-  onUtilityPanelChange: (panel: DocumentPagePanelTab | null) => void;
+  onUtilityPanelChange: (
+    panel: DocumentPagePanelTab | null,
+    focusInside?: boolean,
+  ) => void;
   showAgentTab?: boolean;
   panelId?: string | undefined;
   showCommentsControl?: boolean;
@@ -976,8 +983,74 @@ function widgetBreadcrumbItems(
   ];
 }
 
+function DocumentToolbarBar({
+  floating,
+  toolbarRef,
+  className,
+  children,
+}: {
+  floating: boolean;
+  toolbarRef: Ref<HTMLDivElement>;
+  className: string;
+  children: ReactNode;
+}) {
+  if (floating) return children;
+  return (
+    <div
+      ref={toolbarRef}
+      className={className}
+      data-editor-selection-continuation=""
+    >
+      {children}
+    </div>
+  );
+}
+
+function DocumentToolbarControls({
+  floating,
+  slot,
+  inert,
+  owner,
+  children,
+}: {
+  floating: boolean;
+  slot: HTMLElement | null;
+  inert: boolean;
+  owner: string | undefined;
+  children: ReactNode;
+}) {
+  if (!floating) {
+    return (
+      <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
+        {children}
+      </div>
+    );
+  }
+  const controls = (
+    <span
+      className="contents"
+      inert={inert || undefined}
+      data-page-editor-owner={owner}
+    >
+      {children}
+    </span>
+  );
+  return slot ? (
+    createPortal(controls, slot)
+  ) : (
+    <div
+      className="flex items-center gap-0.5"
+      data-editor-selection-continuation=""
+    >
+      {controls}
+    </div>
+  );
+}
+
 export function DocumentToolbar({
   compact = false,
+  inert = false,
+  pageEditorOwner,
   documentId,
   documentTitle,
   documentContent,
@@ -1050,12 +1123,17 @@ export function DocumentToolbar({
     true,
     reservedWidth,
   );
+  const previewControls = usePreviewControls();
+  const floating = compact && !inWidget;
+  const touch = floating && previewControls?.touch === true;
+  const discussionInMenu =
+    floating && previewControls?.discussionInMenu === true;
   // A widget has no page-actions menu to fold into: its session cannot run
   // what the menu holds, so Share and Open stay in the bar.
-  const suggestingInMenu = !inWidget && foldLevel >= 2;
-  const presenceHidden = inWidget || foldLevel >= 3;
-  const shareInMenu = !inWidget && foldLevel >= TOOLBAR_SHARE_FOLD;
-  const phoneBar = !inWidget && foldLevel >= TOOLBAR_PHONE_FOLD;
+  const suggestingInMenu = !inWidget && (floating || foldLevel >= 2);
+  const presenceHidden = inWidget || floating || foldLevel >= 3;
+  const shareInMenu = !inWidget && !floating && foldLevel >= TOOLBAR_SHARE_FOLD;
+  const phoneBar = !inWidget && !floating && foldLevel >= TOOLBAR_PHONE_FOLD;
   const panelTabs: DocumentPagePanelTab[] = inWidget
     ? []
     : [
@@ -1063,10 +1141,15 @@ export function DocumentToolbar({
         ...(showCommentsControl ? (["comments"] as const) : []),
         "info",
       ];
+  const barPanelTabs = floating
+    ? panelTabs.filter((tab) => tab === "comments" && !discussionInMenu)
+    : panelTabs;
   // A widget shares only through a write grant, and not a document its
   // viewer cannot edit; the app shares everything it does not hold read-only.
   const shareAvailable = canShare && (inWidget ? writeWidget : !readOnly);
   const pageActionsButtonRef = useRef<HTMLButtonElement | null>(null);
+  const floatShareTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const shareClosedByTriggerRef = useRef(false);
   const pageActionsRef = useCallback(
     (node: HTMLButtonElement | null) => {
       pageActionsButtonRef.current = node;
@@ -1619,13 +1702,16 @@ export function DocumentToolbar({
       if (nextOpen) return;
       setShareRequested(false);
       setShareInitialTab("share");
-      if (shareInMenu && shareRequested) {
+      if ((shareInMenu || floating) && shareRequested) {
         if (shareFocusFrameRef.current != null) {
           cancelAnimationFrame(shareFocusFrameRef.current);
         }
         shareFocusFrameRef.current = requestAnimationFrame(() => {
           shareFocusFrameRef.current = null;
-          pageActionsButtonRef.current?.focus();
+          (floating
+            ? floatShareTriggerRef
+            : pageActionsButtonRef
+          ).current?.focus();
         });
       }
       if (!openShareOnLoad) return;
@@ -1640,6 +1726,7 @@ export function DocumentToolbar({
       );
     },
     [
+      floating,
       location.pathname,
       location.search,
       navigate,
@@ -1814,6 +1901,34 @@ export function DocumentToolbar({
   );
 
   const shareLabel = t("editor.toolbar.share");
+  const floatShareClassName = cn(
+    "rounded-[8px] px-2.5",
+    touch ? "h-11" : "h-8",
+  );
+  const floatShareTrigger = (
+    <span
+      className="flex shrink-0"
+      onPointerDownCapture={() => {
+        shareClosedByTriggerRef.current = shareMounted;
+      }}
+    >
+      <ShareTrigger
+        ref={floatShareTriggerRef}
+        className={floatShareClassName}
+        emphasis="ghost"
+        aria-expanded={shareMounted}
+        aria-label={shareLabel}
+        label={shareLabel}
+        onPress={() => {
+          if (shareClosedByTriggerRef.current) {
+            shareClosedByTriggerRef.current = false;
+            return;
+          }
+          setShareRequested(true);
+        }}
+      />
+    </span>
+  );
   const unopenedShareControl = (
     <JoinedShareControl
       appearance={inWidget ? "joined" : "plain"}
@@ -1845,13 +1960,13 @@ export function DocumentToolbar({
       {/* As the toolbar narrows, the Edited label goes first, then the Suggesting label, then controls fold by `toolbarFoldLevel`;
           the breadcrumb folds its ancestors before the page title drops below
           a readable width. */}
-      <div
-        ref={toolbarRef}
+      <DocumentToolbarBar
+        floating={floating}
+        toolbarRef={toolbarRef}
         className={cn(
           "relative z-10 flex h-12 shrink-0 items-center bg-background @container/toolbar",
           shareInMenu ? "gap-1 px-2" : "gap-3 px-4",
         )}
-        data-editor-selection-continuation=""
       >
         {sidebarTrigger}
         {!compact ? (
@@ -1869,7 +1984,12 @@ export function DocumentToolbar({
             }}
           />
         ) : null}
-        <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
+        <DocumentToolbarControls
+          floating={floating}
+          slot={previewControls?.slot ?? null}
+          inert={inert}
+          owner={pageEditorOwner}
+        >
           {editedLabel && !compact ? (
             historyAvailable ? (
               <button
@@ -1922,30 +2042,34 @@ export function DocumentToolbar({
             </div>
           ) : null}
 
-          {phoneBar ? null : pageChecksCount}
-          {panelTabs.length ? (
+          {phoneBar || floating ? null : pageChecksCount}
+          {barPanelTabs.length ? (
             <>
               <DocumentPanelTabs
-                tabs={panelTabs}
+                tabs={barPanelTabs}
                 activeTab={utilityPanel}
                 openCommentCount={openCommentCount}
                 checksToLookAt={phoneBar ? checksToLookAt : 0}
-                plain={phoneBar}
+                plain={phoneBar || floating}
+                compact={floating && !touch}
                 panelId={panelId}
                 commentsTriggerRef={commentsTriggerRef}
                 onTabChange={onUtilityPanelChange}
               />
-              <div
-                aria-hidden="true"
-                className="mx-1.5 h-4 w-px shrink-0 bg-border"
-                data-document-toolbar-divider
-              />
+              {floating ? null : (
+                <div
+                  aria-hidden="true"
+                  className="mx-1.5 h-4 w-px shrink-0 bg-border"
+                  data-document-toolbar-divider
+                />
+              )}
             </>
           ) : null}
 
           {shareAvailable &&
           !isLocalFileDocument &&
           !shareInMenu &&
+          !floating &&
           !inWidget ? (
             <AgentLevelNote
               level={agentLevel.level}
@@ -1958,7 +2082,9 @@ export function DocumentToolbar({
                 <DropdownMenu modal={false}>
                   <DropdownMenuTrigger asChild>
                     <ShareTrigger
-                      className="h-8 rounded-md px-3"
+                      className={
+                        floating ? floatShareClassName : "h-8 rounded-md px-3"
+                      }
                       emphasis="ghost"
                       pending={shareLocalFile.isPending}
                       disabled={shareLocalFile.isPending}
@@ -1984,14 +2110,33 @@ export function DocumentToolbar({
                 </DropdownMenu>
               )
             ) : (
-              <Suspense fallback={shareInMenu ? null : unopenedShareControl}>
+              <Suspense
+                fallback={
+                  floating
+                    ? floatShareTrigger
+                    : shareInMenu
+                      ? null
+                      : unopenedShareControl
+                }
+              >
+                {floating ? floatShareTrigger : null}
                 {shareRequested || openShareOnLoad ? (
                   <ShareButton
                     resourceType="document"
                     resourceId={documentId}
                     resourceTitle={documentTitle}
                     actionRef={shareActionRef}
-                    hideTrigger={shareInMenu}
+                    hideTrigger={shareInMenu || floating}
+                    {...(floating
+                      ? {
+                          anchor: (
+                            <span
+                              aria-hidden="true"
+                              className="-ms-0.5 w-0 shrink-0 self-stretch"
+                            />
+                          ),
+                        }
+                      : {})}
                     shareUrl={shareUrl}
                     mobileSheet
                     triggerContent={shareLabel}
@@ -2101,7 +2246,7 @@ export function DocumentToolbar({
                           }
                     }
                   />
-                ) : shareInMenu ? null : (
+                ) : shareInMenu || floating ? null : (
                   unopenedShareControl
                 )}
 
@@ -2185,7 +2330,11 @@ export function DocumentToolbar({
                       ref={pageActionsRef}
                       className={cn(
                         "flex items-center justify-center text-muted-foreground hover:bg-accent hover:text-foreground",
-                        phoneBar ? "size-11 rounded-lg" : "size-8 rounded-md",
+                        floating
+                          ? cn("rounded-[8px]", touch ? "size-11" : "size-8")
+                          : phoneBar
+                            ? "size-11 rounded-lg"
+                            : "size-8 rounded-md",
                         // Folded, the menu holds Stop suggesting, so it shows
                         // its state.
                         suggestingInMenu &&
@@ -2241,7 +2390,62 @@ export function DocumentToolbar({
                 pageActionsEscapedRef.current = false;
               }}
             >
-              {shareInMenu ? (
+              {floating ? (
+                <>
+                  {previewControls?.rowMenu ? (
+                    <>
+                      <DropdownMenuGroup>
+                        {previewControls.rowMenu}
+                      </DropdownMenuGroup>
+                      <DropdownMenuSeparator />
+                    </>
+                  ) : null}
+                  <DropdownMenuGroup>
+                    {panelTabs
+                      .filter(
+                        (tab) =>
+                          tab === "info" ||
+                          (tab === "comments" && discussionInMenu),
+                      )
+                      .map((tab) => (
+                        <DropdownMenuItem
+                          key={tab}
+                          onSelect={() =>
+                            onUtilityPanelChange(
+                              utilityPanel === tab ? null : tab,
+                              true,
+                            )
+                          }
+                        >
+                          <span className="min-w-0 flex-1 truncate">
+                            {tab === "info"
+                              ? t("editor.toolbar.info")
+                              : t("comments.discussion")}
+                          </span>
+                          {tab === "comments" && openCommentCount > 0 ? (
+                            <span className="text-xs font-semibold tabular-nums text-muted-foreground">
+                              {openCommentCount > 99 ? "99+" : openCommentCount}
+                            </span>
+                          ) : null}
+                          {utilityPanel === tab ? (
+                            <IconCheck
+                              aria-hidden="true"
+                              className="text-muted-foreground"
+                            />
+                          ) : null}
+                        </DropdownMenuItem>
+                      ))}
+                    {shareAvailable ? (
+                      <DropdownMenuItem
+                        onSelect={() => void handleCopyPageLink()}
+                      >
+                        {t("editor.toolbar.copyPageLink")}
+                      </DropdownMenuItem>
+                    ) : null}
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                </>
+              ) : shareInMenu ? (
                 <>
                   <DropdownMenuGroup>
                     {!isLocalFileDocument ? (
@@ -2742,8 +2946,8 @@ export function DocumentToolbar({
               ) : null}
             </DropdownMenuContent>
           </DropdownMenu>
-        </div>
-      </div>
+        </DocumentToolbarControls>
+      </DocumentToolbarBar>
       {inWidget ? null : (
         <>
           <AlertDialog

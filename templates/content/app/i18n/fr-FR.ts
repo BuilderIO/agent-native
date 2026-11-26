@@ -507,6 +507,7 @@ const database = {
   newProperty: "Nouvelle propriété",
   newViewName: "Nom de nouvelle vue",
   nextDatabasePage: "Page de collection suivante",
+  previewPosition: "{{index}} sur {{total}}",
   nextMonth: "Mois suivant",
   nextTimelineRange: "Plage chronologique suivante",
   noRowsMatchThisView: "Aucune ligne ne correspond à cette vue",

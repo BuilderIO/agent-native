@@ -961,7 +961,9 @@ describe("DatabaseView UI regressions", () => {
 
     expect(toastErrorMock).not.toHaveBeenCalled();
     expect(
-      window.document.body.querySelector('[aria-label^="Preview actions for"]'),
+      window.document.body.querySelector(
+        '[role="dialog"] [data-database-preview-controls]',
+      ),
     ).toBeTruthy();
   });
 
@@ -2309,7 +2311,9 @@ describe("DatabaseView UI regressions", () => {
     // back to its button.
     expect(document.activeElement).not.toBe(trigger);
     expect(
-      document.body.querySelector('[aria-label^="Preview actions for"]'),
+      document.body.querySelector(
+        '[role="dialog"] [data-database-preview-controls]',
+      ),
     ).toBeTruthy();
     expect(pageSurfaces.props[pageSurfaces.props.length - 1]).toMatchObject({
       documentId: "document-a",
@@ -2317,6 +2321,41 @@ describe("DatabaseView UI regressions", () => {
       databaseDocumentId: "document-1",
       host: "preview",
     });
+  });
+
+  it("marks the row the preview shows, and moves the mark as it steps", async () => {
+    databaseResponse.items = [
+      commentableRow("a", "Alpha", true),
+      commentableRow("b", "Beta", true),
+    ];
+    await renderDatabaseView();
+    const markedRow = () =>
+      container
+        .querySelector("[data-database-row-preview-open]")
+        ?.getAttribute("data-database-row-id") ?? null;
+    const control = (label: string) => {
+      const button = document.body.querySelector<HTMLElement>(
+        `[data-database-preview-controls] [aria-label="${label}"]`,
+      );
+      if (!button) throw new Error(`The preview has no ${label}.`);
+      return button;
+    };
+    expect(markedRow()).toBeNull();
+
+    const opener = container.querySelector<HTMLElement>(
+      '[aria-label="Open Alpha preview"]',
+    );
+    if (!opener) throw new Error("Alpha has no title button.");
+    await act(async () => opener.click());
+    await vi.waitFor(() => expect(markedRow()).toBe("item-a"));
+
+    const next = control("Next collection page");
+    await act(async () => next.click());
+    await vi.waitFor(() => expect(markedRow()).toBe("item-b"));
+
+    const close = control("Close");
+    await act(async () => close.click());
+    await vi.waitFor(() => expect(markedRow()).toBeNull());
   });
 
   it("offers a comment from a board card's menu", async () => {

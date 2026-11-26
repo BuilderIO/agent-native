@@ -401,6 +401,7 @@ const databaseMessages = {
   newProperty: "New property",
   newViewName: "New view name",
   nextDatabasePage: "Next collection page",
+  previewPosition: "{{index}} of {{total}}",
   nextMonth: "Next month",
   nextTimelineRange: "Next timeline range",
   noRowsMatchThisView: "No rows match this view",

@@ -485,6 +485,7 @@ const database = {
   newProperty: "새 속성",
   newViewName: "새 보기 이름",
   nextDatabasePage: "다음 컬렉션 페이지",
+  previewPosition: "{{index}} / {{total}}",
   nextMonth: "다음 달",
   nextTimelineRange: "다음 타임라인 범위",
   noRowsMatchThisView: "이 보기에 일치하는 행이 없습니다",

@@ -90,6 +90,7 @@ describe("a row's panel while its page is read", () => {
     draw(row({}, 3));
     expect(drawn.toolbar).toMatchObject({
       compact: true,
+      inert: true,
       documentId: "row-1",
       documentTitle: "Launch plan",
       canEdit: true,

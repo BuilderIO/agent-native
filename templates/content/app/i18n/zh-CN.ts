@@ -439,6 +439,7 @@ const database = {
   newProperty: "新属性",
   newViewName: "新视图名称",
   nextDatabasePage: "下一页集合页面",
+  previewPosition: "{{index}} / {{total}}",
   nextMonth: "下个月",
   nextTimelineRange: "下一个时间线范围",
   noRowsMatchThisView: "没有行匹配此视图",

@@ -463,6 +463,7 @@ const database = {
   newProperty: "خاصية جديدة",
   newViewName: "اسم عرض جديد",
   nextDatabasePage: "صفحة المجموعة التالية",
+  previewPosition: "{{index}} من {{total}}",
   nextMonth: "الشهر التالي",
   nextTimelineRange: "نطاق المخطط الزمني التالي",
   noRowsMatchThisView: "لا توجد صفوف تطابق هذا العرض",

@@ -492,6 +492,7 @@ const database = {
   newProperty: "新しいプロパティ",
   newViewName: "新しいビュー名",
   nextDatabasePage: "次のコレクションページ",
+  previewPosition: "{{index}} / {{total}}",
   nextMonth: "次の月",
   nextTimelineRange: "次のタイムライン範囲",
   noRowsMatchThisView: "このビューに一致する行はありません",
