@@ -82,7 +82,9 @@ function linkTarget(href: string, targets: string[]): string | null {
 }
 
 function linksToProfile(post: XPost, handle: string): boolean {
-  const name = handle.slice(1).toLowerCase();
+  const profile = new RegExp(
+    `^/${handle.slice(1).toLowerCase()}(?:/status/\\d+(?:/.*)?)?/?$`,
+  );
   return post.links.some((link) =>
     [link.expandedUrl, link.unwoundUrl].some((href) => {
       const parsed = href ? hostAndPath(href) : null;
@@ -90,7 +92,7 @@ function linksToProfile(post: XPost, handle: string): boolean {
       const host = parsed.host.replace(/^(?:www|mobile)\./, "");
       return (
         (host === "x.com" || host === "twitter.com") &&
-        parsed.path.split("/")[1] === name
+        profile.test(parsed.path)
       );
     }),
   );
@@ -100,13 +102,17 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function plainHyphens(text: string): string {
+  return text.replace(/[\u2010\u2011]/g, "-");
+}
+
 export function xTermMatches(text: string, term: string): boolean {
-  const anyCase = term.startsWith("@") || term.includes(".");
+  const anyCase = /[^\p{L}\s]/u.test(term);
   const pattern = new RegExp(
-    `(?<![A-Za-z0-9_@])${escapeRegExp(term)}(?![A-Za-z0-9_])`,
-    anyCase ? "i" : "",
+    `(?<![\\p{L}\\p{M}\\p{N}_@])${escapeRegExp(plainHyphens(term))}(?![\\p{L}\\p{M}\\p{N}_])`,
+    anyCase ? "iu" : "u",
   );
-  return pattern.test(text);
+  return pattern.test(plainHyphens(text));
 }
 
 function textWithoutLinks(post: XPost): string {

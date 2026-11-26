@@ -99,16 +99,38 @@ describe("X counting rule", () => {
     );
   });
 
-  it("doesn't count the generic word builder, lowercase agent-native or a longer handle", () => {
+  it("doesn't count the generic word builder, a lowercase spaced name or a longer handle", () => {
     for (const text of [
       "Every builder should try this",
       "The Builder pattern in Java",
-      "an agent-native workflow for everyone",
+      `${SPACED_BRAND.toLowerCase()} workflows for everyone`,
       "Thanks @builderio_fan",
       "mybuilder.io is not it",
     ]) {
       expect(xCountedBy(post(text), STEVE, RULE)).toBeNull();
     }
+  });
+
+  it("counts a term with a hyphen in any case, with the Unicode hyphens X posts often carry", () => {
+    expect(
+      xCountedBy(post("an agent-native workflow for everyone"), STEVE, RULE),
+    ).toBe("term:Agent-Native");
+    for (const hyphen of [0x2010, 0x2011]) {
+      expect(
+        xCountedBy(
+          post(`Built with Agent${String.fromCharCode(hyphen)}Native.`),
+          STEVE,
+          RULE,
+        ),
+      ).toBe("term:Agent-Native");
+    }
+    expect(
+      xCountedBy(
+        post(`Built with Agent${String.fromCharCode(0x2013)}Native.`),
+        STEVE,
+        RULE,
+      ),
+    ).toBeNull();
   });
 
   it("doesn't let a t.co address or a builder.io homepage link count as a mention", () => {
@@ -128,31 +150,58 @@ describe("X counting rule", () => {
     ).toBeNull();
   });
 
-  it("counts a quote of an @builderio post through its link", () => {
-    expect(
-      xCountedBy(
-        post("This is great https://t.co/q", [
-          link("https://x.com/builderio/status/123", "https://t.co/q"),
-        ]),
-        STEVE,
-        RULE,
-      ),
-    ).toBe("term:@builderio");
-    expect(
-      xCountedBy(
-        post("Look https://t.co/q", [
-          link("https://twitter.com/someoneelse/status/123", "https://t.co/q"),
-        ]),
-        STEVE,
-        RULE,
-      ),
-    ).toBeNull();
+  it("counts a quote of an @builderio post or a link to its profile through the link", () => {
+    for (const href of [
+      "https://x.com/builderio/status/123",
+      "https://x.com/BuilderIO/status/123/photo/1",
+      "https://mobile.twitter.com/builderio/status/123",
+      "https://x.com/builderio",
+      "https://www.x.com/builderio/",
+    ]) {
+      expect(
+        xCountedBy(
+          post("This is great https://t.co/q", [link(href, "https://t.co/q")]),
+          STEVE,
+          RULE,
+        ),
+      ).toBe("term:@builderio");
+    }
   });
 
-  it("matches a term with a dot or @ in any case and other terms in their own case", () => {
+  it("doesn't count a link to another account, another page of @builderio's or a search for it", () => {
+    for (const href of [
+      "https://twitter.com/someoneelse/status/123",
+      "https://x.com/builderio_fan/status/123",
+      "https://x.com/builderio/likes",
+      "https://x.com/builderio/followers",
+      "https://x.com/search?q=builderio",
+      "https://notx.com/builderio",
+    ]) {
+      expect(
+        xCountedBy(
+          post("Look https://t.co/q", [link(href, "https://t.co/q")]),
+          STEVE,
+          RULE,
+        ),
+      ).toBeNull();
+    }
+  });
+
+  it("matches a term with anything besides letters and spaces in any case and other terms in their own case", () => {
     expect(xTermMatches("BUILDER.IO rocks", "Builder.io")).toBe(true);
+    expect(xTermMatches("AGENT-NATIVE", "Agent-Native")).toBe(true);
+    expect(xTermMatches("v2 is out", "V2")).toBe(true);
     expect(xTermMatches(SPACED_BRAND.toLowerCase(), SPACED_BRAND)).toBe(false);
     expect(xTermMatches("(Agent-Native)", "Agent-Native")).toBe(true);
+  });
+
+  it("treats any letter, accented or not, as part of the word around a term", () => {
+    expect(xTermMatches("éBuilder.io", "Builder.io")).toBe(false);
+    expect(xTermMatches("Builder.ioñ", "Builder.io")).toBe(false);
+    expect(xTermMatches("«Builder.io»", "Builder.io")).toBe(true);
+    expect(xTermMatches("Builder.io’s new editor", "Builder.io")).toBe(true);
+    expect(xTermMatches(`Café ${SPACED_BRAND}`, SPACED_BRAND)).toBe(true);
+    expect(xTermMatches(`Café${SPACED_BRAND}`, SPACED_BRAND)).toBe(false);
   });
 });
 
