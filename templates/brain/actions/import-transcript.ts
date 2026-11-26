@@ -32,10 +32,10 @@ export default defineAction({
   }),
   needsApproval: async (args, ctx) =>
     isOutsideAgentCall(ctx) &&
-    (await importReplacesCapture(
-      args.externalId ? [args.externalId] : [],
-      { sourceId: args.sourceId, sourceTitle: args.sourceTitle },
-    )),
+    (await importReplacesCapture(args.externalId ? [args.externalId] : [], {
+      sourceId: args.sourceId,
+      sourceTitle: args.sourceTitle,
+    })),
   mcpTool: "search",
   run: async (args) => {
     const importerEmail = getRequestUserEmail()?.trim().toLowerCase();
