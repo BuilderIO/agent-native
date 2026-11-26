@@ -52,6 +52,25 @@ export type ContactAttachment = Attachment & {
 
 export type ContactAttachmentList = { attachments: ContactAttachment[] };
 
+export type ContactMeeting = {
+  id: string;
+  title: string;
+  start: string;
+  end: string;
+  allDay: boolean;
+  url?: string;
+  accountEmail?: string;
+};
+
+export type ContactMeetings = {
+  source: "calendar" | "mail" | "none";
+  calendar: "connected" | "not_connected" | "unavailable";
+  calendarUrl?: string;
+  upcoming: ContactMeeting[];
+  recent: ContactMeeting[];
+  failedAccounts: Array<{ accountEmail: string; message: string }>;
+};
+
 export type ContactNote = {
   markdown: string;
   truncated: boolean;

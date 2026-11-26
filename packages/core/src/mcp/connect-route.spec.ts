@@ -45,6 +45,10 @@ vi.mock("../server/auth.js", () => ({
   getConfiguredLoginHtml: (...a: any[]) => getConfiguredLoginHtmlMock(...a),
   isLoopbackRequest: (...a: any[]) => isLoopbackRequestMock(...a),
 }));
+vi.mock("../server/loopback.js", () => ({
+  isLoopbackRequest: (event: { headers?: Record<string, string> }) =>
+    isLoopbackRequestMock(event),
+}));
 
 const listOrgMembershipsForEventMock = vi.fn(
   async (): Promise<unknown[] | null> => null,
@@ -962,6 +966,17 @@ describe("handleMcpConnect", () => {
           mint,
         ),
       ).rejects.toMatchObject({ statusCode: 403 });
+      await expect(
+        runWithRequestContext(
+          {
+            userEmail: "dev@local.test",
+            requestOrigin: "http://localhost:8080",
+            isLoopbackRequest: true,
+            run: { isBackgroundWorker: true },
+          },
+          mint,
+        ),
+      ).rejects.toMatchObject({ statusCode: 403 });
       expect(tokenRows).toHaveLength(0);
     });
 
@@ -1068,6 +1083,91 @@ describe("handleMcpConnect", () => {
         "/tokens/revoke",
       );
       expect(res.status).toBe(401);
+    });
+  });
+
+  describe("AUTH_DISABLED identity", () => {
+    const authDisabledSession = { email: "dev@local.test" };
+
+    it("refuses to mint a connect token off loopback", async () => {
+      getSessionMock.mockResolvedValue(authDisabledSession);
+      const res = await handleMcpConnect(ev({ method: "POST" }), "/token");
+      expect(res.status).toBe(403);
+      expect((await res.json()).error).toMatch(/local development identity/);
+      expect(tokenRows).toHaveLength(0);
+      expect(withMcpCredentialIssuanceMock).not.toHaveBeenCalled();
+    });
+
+    it("refuses to approve a device code off loopback", async () => {
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      getSessionMock.mockResolvedValue(authDisabledSession);
+      const res = await handleMcpConnect(
+        ev({ method: "POST", body: { user_code: "ABCD-2345" } }),
+        "/device/authorize",
+      );
+      expect(res.status).toBe(403);
+      expect(deviceRows[0]).toMatchObject({
+        status: "pending",
+        ownerEmail: null,
+      });
+    });
+
+    it("still mints and approves for local development on loopback", async () => {
+      getSessionMock.mockResolvedValue(authDisabledSession);
+      const minted = await handleMcpConnect(
+        ev({ method: "POST", host: "localhost:8080" }),
+        "/token",
+      );
+      expect(minted.status).toBe(200);
+      expect((await minted.json()).token).toEqual(expect.any(String));
+      expect(tokenRows).toHaveLength(1);
+      expect(tokenRows[0].ownerEmail).toBe("dev@local.test");
+
+      await handleMcpConnect(
+        ev({ method: "POST", host: "localhost:8080" }),
+        "/device/start",
+      );
+      const approved = await handleMcpConnect(
+        ev({
+          method: "POST",
+          host: "localhost:8080",
+          body: { user_code: "ABCD-2345" },
+        }),
+        "/device/authorize",
+      );
+      expect(approved.status).toBe(200);
+      const polled = await handleMcpConnect(
+        ev({
+          method: "POST",
+          host: "localhost:8080",
+          body: { device_code: deviceRows[0].deviceCode },
+        }),
+        "/device/poll",
+      );
+      expect(polled.status).toBe(200);
+      expect(await polled.json()).toMatchObject({
+        status: "approved",
+        token: expect.any(String),
+      });
+    });
+
+    it("refuses to mint for a device code the dev identity already approved when polled off loopback", async () => {
+      await handleMcpConnect(ev({ method: "POST" }), "/device/start");
+      Object.assign(deviceRows[0], {
+        status: "approved",
+        ownerEmail: "dev@local.test",
+      });
+      const res = await handleMcpConnect(
+        ev({
+          method: "POST",
+          body: { device_code: deviceRows[0].deviceCode },
+        }),
+        "/device/poll",
+      );
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({ status: "error" });
+      expect(deviceRows[0].status).toBe("approved");
+      expect(tokenRows).toHaveLength(0);
     });
   });
 

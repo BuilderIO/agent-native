@@ -149,6 +149,7 @@ jobs:
           CI_FULL: ${{ needs.change-scope.outputs.full }}
           TARGETED_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.test_workspace_filters }}
           LANES: 12
+          CI_MIN_PACKAGE_SHARDS: '{"@agent-native/toolkit":2}'
         run: |
           set -euo pipefail
           if [ "$CI_FULL" = "true" ]; then
@@ -353,16 +354,18 @@ jobs:
           restore-dist-cache: "true"
 
       - name: Restore Playwright browser cache
+        id: pw_cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: playwright-${{ runner.os }}-
+          key: playwright-unit-v2-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-unit-v2-${{ runner.os }}-
 
       - name: Install Playwright Chromium for browser-backed unit tests
+        if: steps.pw_cache.outputs.cache-hit != 'true'
         run: |
-          pnpm exec playwright install --only-shell --force chromium
-          pnpm --filter @agent-native/creative-context exec playwright install --only-shell --force chromium
+          pnpm exec playwright install --only-shell chromium
+          pnpm --filter @agent-native/creative-context exec playwright install --only-shell chromium
 
       - name: Allow the downloaded Chromium sandbox
         uses: ./.github/actions/allow-playwright-sandbox
@@ -470,16 +473,18 @@ jobs:
           restore-dist-cache: "true"
 
       - name: Restore Playwright browser cache
+        id: pw_cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: playwright-${{ runner.os }}-
+          key: playwright-unit-v2-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: playwright-unit-v2-${{ runner.os }}-
 
       - name: Install Playwright Chromium for browser-backed unit tests
+        if: steps.pw_cache.outputs.cache-hit != 'true'
         run: |
-          pnpm exec playwright install --only-shell --force chromium
-          pnpm --filter @agent-native/creative-context exec playwright install --only-shell --force chromium
+          pnpm exec playwright install --only-shell chromium
+          pnpm --filter @agent-native/creative-context exec playwright install --only-shell chromium
 
       - name: Allow the downloaded Chromium sandbox
         uses: ./.github/actions/allow-playwright-sandbox
@@ -2532,53 +2537,70 @@ jobs:
       - uses: ./.github/actions/setup-pnpm
         with:
           install: no-scripts
+          restore-dist-cache: "true"
 
       - name: Test production deploy concurrency guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:netlify-prebuilt-workflow
 
       - name: Test serverless function size baseline guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:function-size-baseline
 
       - name: Test AgentKit stream ownership guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:agentkit-stream-ownership
 
       - name: Test untracked-imports guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:no-untracked-imports
 
       - name: Test deferred server counts guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:no-deferred-server-counts
 
       - name: Test mobile build path guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:mobile-build-paths
 
       - name: Test bare pnpm spawn guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:no-bare-pnpm-spawn
 
       - name: Test recursive copy links guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:recursive-copy-links
 
       - name: Test single S3 signer guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:single-s3-signer
 
       - name: Test source-reading tests guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:no-source-reading-tests
 
       - name: Test legacy MCP hint baseline guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:no-new-legacy-mcp-hints
 
       - name: Test DB tool scoping guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:db-tool-scoping
 
       - name: Test MCP parity baseline guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:no-new-mcp-parity-gaps
 
       - name: Test blocker-safe module names guard
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:blocker-safe-module-names
 
       - name: Test strictness ratchet guards
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:strictness-guards
 
       - name: Test Neon transfer alert and offline backtest
+        if: needs.change-scope.outputs.full == 'true'
         run: pnpm test:neon-transfer-alert
 
       - name: Build packages for source-backed guards

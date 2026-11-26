@@ -88,11 +88,11 @@ afterAll(() => {
 });
 
 describe("private roadmap capability projection", () => {
-  it("projects and replays all 126 capability IDs through stable-key upsert, then exhausts paginated readback", async () => {
+  it("projects and replays all 127 capability IDs through stable-key upsert, then exhausts paginated readback", async () => {
     const capabilities = loadCapabilities();
-    expect(capabilities).toHaveLength(126);
+    expect(capabilities).toHaveLength(127);
     expect(new Set(capabilities.map((capability) => capability.id)).size).toBe(
-      126,
+      127,
     );
 
     const provisioned = await asUser(OWNER, () =>
@@ -274,7 +274,7 @@ describe("private roadmap capability projection", () => {
         throw new Error("Roadmap projection readback was unavailable.");
       expect(page.pagination.offset).toBe(offset);
       expect(page.pagination.returnedItems).toBe(page.items.length);
-      expect(page.pagination.totalItems).toBe(126);
+      expect(page.pagination.totalItems).toBe(127);
       for (const item of page.items) {
         const keyProperty = item.properties.find(
           (property) => property.definition.id === keyPropertyId,

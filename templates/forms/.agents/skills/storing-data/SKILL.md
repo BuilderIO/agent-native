@@ -219,7 +219,7 @@ Local PGlite works out of the box for development. To deploy to production or an
 
 ### Real-time Sync
 
-Polling streams database changes to the UI. When the agent writes to the database via scripts, the UI updates automatically via `useDbSync()` which invalidates React Query caches.
+Chat-run tool calls refresh UI data automatically. Opt in to `useDbSync({ realtime: { reason } })` only when external changes matter before refresh (see the `real-time-sync` skill).
 
 ## Do
 

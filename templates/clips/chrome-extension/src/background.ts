@@ -3,6 +3,7 @@ import {
   BROWSER_DIAGNOSTIC_LOOKBACK_MS,
   sanitizeBrowserDiagnosticNavigationUrl,
 } from "@shared/browser-diagnostics";
+import { CLIPS_RICH_RECORDINGS, isLabEnabled } from "@shared/labs";
 import { buildRecordingShareUrl } from "@shared/recording-link";
 
 import {
@@ -223,6 +224,7 @@ type NativeRecording = {
   savedToDisk?: boolean;
   savedFilename?: string;
   mimeType?: string;
+  pageTrack?: boolean;
 };
 
 type OffscreenStatusMessage = {
@@ -1174,6 +1176,57 @@ function actionUrl(settings: ExtensionSettings, actionName: string): string {
   return `${settings.clipsBaseUrl}/_agent-native/actions/${actionName}`;
 }
 
+async function readRichRecordingsLab(
+  settings: ExtensionSettings,
+): Promise<boolean> {
+  try {
+    const res = await fetch(actionUrl(settings, "get-lab-states"), {
+      method: "GET",
+      headers: {
+        "X-Agent-Native-Frontend": "1",
+        ...(await authHeaders(settings)),
+      },
+      credentials: "include",
+      cache: "no-store",
+      signal: AbortSignal.timeout(3_000),
+    });
+    if (!res.ok) {
+      console.warn("[clips-bg] lab states unavailable:", res.status);
+      return false;
+    }
+    const values: unknown = await res.json();
+    return (
+      values !== null &&
+      typeof values === "object" &&
+      !Array.isArray(values) &&
+      isLabEnabled(values as Record<string, unknown>, CLIPS_RICH_RECORDINGS)
+    );
+  } catch (err) {
+    console.warn("[clips-bg] lab states unavailable:", err);
+    return false;
+  }
+}
+
+function isWebPageUrl(url: string | undefined): boolean {
+  return /^https?:\/\//i.test(url ?? "");
+}
+
+async function injectPageTrack(tabId: number): Promise<void> {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["assets/page-track-recorder.js"],
+      world: "MAIN",
+    });
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["assets/page-track-relay.js"],
+    });
+  } catch (err) {
+    console.warn("[clips-bg] page track could not start in this tab:", err);
+  }
+}
+
 async function postAction<T>(
   settings: ExtensionSettings,
   actionName: string,
@@ -1560,6 +1613,10 @@ async function armRecording(args: {
   const surface: "browser" | "window" | "monitor" =
     settings.captureSurface === "camera" ? "browser" : settings.captureSurface;
   console.log("[clips-bg] arm: start", { mode, surface, tabId: tab.id });
+  const pageTrackLab =
+    mode === "screen" && isWebPageUrl(tab.url)
+      ? readRichRecordingsLab(settings)
+      : Promise.resolve(false);
 
   await ensureOffscreenDocument();
 
@@ -1655,6 +1712,7 @@ async function armRecording(args: {
   }
 
   const uploadUrl = `${settings.clipsBaseUrl}${created.uploadChunkUrl}`;
+  const pageTrack = await pageTrackLab;
   const session = createSession(sessionId, tab, settings);
   session.recordingId = created.id;
 
@@ -1679,6 +1737,7 @@ async function armRecording(args: {
     status: "recording",
     recordingUrl: `${settings.clipsBaseUrl}/r/${encodeURIComponent(created.id)}`,
     error: null,
+    ...(pageTrack ? { pageTrack: true } : {}),
   };
   try {
     await persistPendingNativeRecording(activeNativeRecording);
@@ -1715,6 +1774,14 @@ async function armRecording(args: {
       startDelayMs,
       authToken,
       transcriptUrl: actionUrl(settings, "save-browser-transcript"),
+      ...(pageTrack
+        ? {
+            pageTrack: {
+              tabId: tab.id as number,
+              tracksUrl: `${settings.clipsBaseUrl}/api/uploads/${encodeURIComponent(created.id)}/tracks`,
+            },
+          }
+        : {}),
     });
   } catch (err) {
     console.error("[clips-bg] arm: BEGIN failed", err);
@@ -1774,6 +1841,9 @@ async function markRecordingStarted() {
     ).toISOString();
     activeNativeRecording.status = "recording";
     await saveActiveNativeRecording();
+    if (activeNativeRecording.pageTrack) {
+      void injectPageTrack(activeNativeRecording.targetTabId);
+    }
   }
   await broadcastMount();
   broadcastOverlayState();
@@ -1886,6 +1956,7 @@ async function handleOverlayRestart() {
     };
   }
   recording.uploadMode = uploadMode;
+  delete recording.pageTrack;
   overlayPhase = "countdown";
   overlayBaseElapsedMs = 0;
   overlayBaseEpochMs = nowMs();
@@ -3567,6 +3638,17 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     await mountOverlayOnTab(tabId);
     broadcastOverlayState();
     if (overlayPhase === "countdown") await handleOverlaySkip();
+  })();
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status !== "complete") return;
+  void (async () => {
+    await ensureRestored();
+    const recording = activeNativeRecording;
+    if (!recording?.pageTrack || recording.targetTabId !== tabId) return;
+    if (overlayPhase !== "recording" && overlayPhase !== "paused") return;
+    await injectPageTrack(tabId);
   })();
 });
 

@@ -88,6 +88,7 @@ interface SlashCommandMenuProps {
   notionPageId?: string | null;
   /** The page saves no body; its body is the live copy. */
   bodyIsLiveCopy?: boolean;
+  onAddCheck?: (pos: number) => void;
 }
 
 interface EditorMenuPosition {
@@ -187,6 +188,19 @@ export function excludeCommandsWithDuplicateTitles<T extends { title: string }>(
   );
   return candidateCommands.filter(
     (command) => !primaryTitles.has(command.title.trim().toLocaleLowerCase()),
+  );
+}
+
+export function slashCommandStartIndex(
+  commands: readonly { title: string }[],
+  query: string,
+): number {
+  const normalizedQuery = query.toLowerCase();
+  return Math.max(
+    0,
+    commands.findIndex((command) =>
+      command.title.toLowerCase().includes(normalizedQuery),
+    ),
   );
 }
 
@@ -946,6 +960,7 @@ export function SlashCommandMenu({
   onDraftCommitted,
   onDraftPersisted,
   bodyIsLiveCopy = false,
+  onAddCheck,
 }: SlashCommandMenuProps) {
   const t = useT();
   const labs = useLabStates();
@@ -961,7 +976,7 @@ export function SlashCommandMenu({
   const [isOpen, setIsOpen] = useState(false);
   const [isTurnInto, setIsTurnInto] = useState(false);
   const [query, setQuery] = useState("");
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [position, setPosition] = useState<EditorMenuPosition | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const selectedItemRef = useRef<HTMLButtonElement>(null);
@@ -1465,6 +1480,19 @@ export function SlashCommandMenu({
   const mediaCommands = isTurnInto
     ? []
     : [imageCommand, videoCommand, audioCommand];
+  const checkCommands: CommandItem[] =
+    isTurnInto || !onAddCheck
+      ? []
+      : [
+          {
+            title: t("pageChecks.addCheck"),
+            description: t("pageChecks.addCheckDescription"),
+            searchText: "check",
+            action: (editor, { slashRange }) => {
+              onAddCheck(slashRange?.from ?? editor.state.selection.from);
+            },
+          },
+        ];
   const normalizedQuery = query.toLowerCase();
   const commandMatchesQuery = (cmd: CommandItem) =>
     cmd.title.toLowerCase().includes(normalizedQuery) ||
@@ -1489,6 +1517,9 @@ export function SlashCommandMenu({
   const availableMediaCommands = directoryWidgetEditing
     ? []
     : slashCommandsForMode(mediaCommands, suggesting);
+  const availableCheckCommands = directoryWidgetEditing
+    ? []
+    : slashCommandsForMode(checkCommands, suggesting);
   const filteredAiCommands = availableAiCommands.filter(commandMatchesQuery);
   const filteredBlockCommands =
     availableBlockCommands.filter(commandMatchesQuery);
@@ -1500,6 +1531,8 @@ export function SlashCommandMenu({
     availablePageCommands.filter(commandMatchesQuery);
   const filteredMediaCommands =
     availableMediaCommands.filter(commandMatchesQuery);
+  const filteredCheckCommands =
+    availableCheckCommands.filter(commandMatchesQuery);
   const allCommands = [
     ...availableAiCommands,
     ...availableBlockCommands,
@@ -1507,6 +1540,7 @@ export function SlashCommandMenu({
     ...availableLocalComponentCommands,
     ...availableMediaCommands,
     ...availablePageCommands,
+    ...availableCheckCommands,
   ];
   const filteredCommands = [
     ...filteredAiCommands,
@@ -1515,7 +1549,10 @@ export function SlashCommandMenu({
     ...filteredLocalComponentCommands,
     ...filteredMediaCommands,
     ...filteredPageCommands,
+    ...filteredCheckCommands,
   ];
+  const activeIndex =
+    selectedIndex ?? slashCommandStartIndex(filteredCommands, query);
 
   const renderCommand = (cmd: CommandItem) => {
     const globalIndex = filteredCommands.indexOf(cmd);
@@ -1523,8 +1560,8 @@ export function SlashCommandMenu({
       <CommandButton
         key={globalIndex}
         cmd={cmd}
-        isSelected={globalIndex === selectedIndex}
-        buttonRef={globalIndex === selectedIndex ? selectedItemRef : undefined}
+        isSelected={globalIndex === activeIndex}
+        buttonRef={globalIndex === activeIndex ? selectedItemRef : undefined}
         onExecute={() => executeCommand(cmd)}
         onHover={() => setSelectedIndex(globalIndex)}
       />
@@ -1629,20 +1666,21 @@ export function SlashCommandMenu({
         e.preventDefault();
         e.stopPropagation();
         if (filteredCommands.length === 0) return;
-        setSelectedIndex((i) => (i + 1) % filteredCommands.length);
+        setSelectedIndex((activeIndex + 1) % filteredCommands.length);
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
         e.stopPropagation();
         if (filteredCommands.length === 0) return;
         setSelectedIndex(
-          (i) => (i - 1 + filteredCommands.length) % filteredCommands.length,
+          (activeIndex - 1 + filteredCommands.length) % filteredCommands.length,
         );
       } else if (e.key === "Enter") {
         e.preventDefault();
         e.stopPropagation();
-        if (filteredCommands[selectedIndex]) {
-          void executeCommand(filteredCommands[selectedIndex]);
-        }
+        const command = filteredCommands.find(
+          (_, index) => index === activeIndex,
+        );
+        if (command) void executeCommand(command);
       } else if (e.key === "Escape") {
         e.stopPropagation();
         setIsOpen(false);
@@ -1657,7 +1695,7 @@ export function SlashCommandMenu({
     return () => document.removeEventListener("keydown", handleKeyDown, true);
   }, [
     isOpen,
-    selectedIndex,
+    activeIndex,
     filteredCommands,
     executeCommand,
     editor,
@@ -1685,7 +1723,7 @@ export function SlashCommandMenu({
     } else if (itemBottom > visibleBottom) {
       menu.scrollTop = itemBottom - menu.clientHeight;
     }
-  }, [filteredCommands.length, isOpen, selectedIndex]);
+  }, [filteredCommands.length, isOpen, activeIndex]);
 
   useEffect(() => {
     if (!editor) return;
@@ -1713,7 +1751,7 @@ export function SlashCommandMenu({
         const slashStart = blockStart + slashIndex;
         slashPosRef.current = slashStart;
         setQuery(slashQuery);
-        setSelectedIndex(0);
+        setSelectedIndex(null);
 
         const resolved = state.doc.resolve(slashStart);
         const parentNode = resolved.parent;
@@ -1812,6 +1850,7 @@ export function SlashCommandMenu({
               ],
               ["media", t("editor.slash.media"), filteredMediaCommands],
               ["pages", t("editor.slash.pages"), filteredPageCommands],
+              ["checks", t("pageChecks.title"), filteredCheckCommands],
             ] as const
           )
             .filter(([, , commands]) => commands.length > 0)

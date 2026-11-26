@@ -7,16 +7,16 @@ This index summarizes the atomic product contracts beneath the public roadmap. E
 ## Catalog summary
 
 - Chapters: 6
-- Features: 33
+- Features: 34
 - Named increments: 1
-- Capabilities: 126
+- Capabilities: 127
 
 | Capability state | Count |
 | ---------------- | ----: |
 | Verified         |     4 |
 | Failing          |     1 |
 | Stale            |     0 |
-| In Progress      |    22 |
+| In Progress      |    23 |
 | Approved Shape   |    85 |
 | Exploring        |     9 |
 | Deferred         |     0 |
@@ -33,6 +33,7 @@ graph LR
   family_author["Author"]
   family_automation["Automation"]
   family_capture["Capture"]
+  family_check["Check"]
   family_command["Command"]
   family_comment["Comment"]
   family_diff["Diff"]
@@ -99,6 +100,7 @@ graph LR
   family_agent --> family_rule
   family_agent --> family_security
   family_agent --> family_view
+  family_author --> family_check
   family_author --> family_form
   family_author --> family_reader
   family_author --> family_review
@@ -134,6 +136,7 @@ graph LR
   family_knowledge --> family_view
   family_layout --> family_presentation
   family_object --> family_author
+  family_object --> family_check
   family_object --> family_comment
   family_object --> family_discussion
   family_object --> family_knowledge
@@ -254,6 +257,12 @@ graph LR
 | Capability                                                       | State          | User promise                                                                             |
 | ---------------------------------------------------------------- | -------------- | ---------------------------------------------------------------------------------------- |
 | [Capture and enrichment](capabilities/content.capture.enrich.md) | Approved Shape | Send material to a chosen Collection and let its own rules turn it into durable context. |
+
+## Check
+
+| Capability                                   | State       | User promise                                                                                                                             |
+| -------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| [Checks](capabilities/content.check.page.md) | In Progress | Put a sentence on a page, like "Under 120 words", and see every part of the page that doesn't pass, without anything changing your text. |
 
 ## Command
 

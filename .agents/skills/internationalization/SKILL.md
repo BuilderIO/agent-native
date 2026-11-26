@@ -88,6 +88,7 @@ Run:
 
 ```bash
 pnpm guard:i18n-catalogs
+pnpm guard:i18n-changed-copy
 ```
 
 For broader changes, also run the affected template tests and `pnpm typecheck`.

@@ -1,4 +1,5 @@
 export const CONTACT_PANEL_WIDGET_IDS = [
+  "meetings",
   "notes",
   "attachments",
   "recent",
@@ -9,6 +10,7 @@ export type ContactPanelWidgetId = (typeof CONTACT_PANEL_WIDGET_IDS)[number];
 export type ContactPanelWidgets = Record<ContactPanelWidgetId, boolean>;
 
 export const DEFAULT_CONTACT_PANEL_WIDGETS: ContactPanelWidgets = {
+  meetings: true,
   notes: true,
   attachments: false,
   recent: true,
