@@ -69,6 +69,11 @@ export default defineAction({
       .describe("Minimum slot duration in minutes (default: 30)"),
   }),
   http: false,
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   chatUI: {
     renderer: ACTION_CHAT_UI_RECORD_CHANGE_RENDERER,
     when: (_args, result) => projectTimeChoice(result) !== null,
