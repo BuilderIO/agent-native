@@ -308,179 +308,184 @@ afterEach(async () => {
   act(() => root.unmount());
   await settle();
   container.remove();
+  document.body.replaceChildren();
   vi.unstubAllGlobals();
   vi.useRealTimers();
   mobile = false;
 });
+const kindSurfaces = houseFixtureKinds.flatMap((kind) =>
+  surfaces.map((surface) => [kind, surface] as const),
+);
 describe("generated house surface invariants", () => {
-  it("keeps IDs unique and ARIA references singular across fixtures, states, presentations and themes", async () => {
-    for (const kind of houseFixtureKinds)
-      for (const surface of surfaces)
-        for (const state of states)
-          for (const presentation of presentations)
-            for (const theme of ["light", "dark"]) {
-              mobile = surface === "drawer" || presentation === "drawer";
-              for (const shellCount of [1, 2]) {
-                act(() =>
-                  root.render(
-                    <div
-                      key={`${kind}-${surface}-${state}-${presentation}-${theme}-${shellCount}`}
-                    >
-                      {Array.from({ length: shellCount }, (_, index) => (
-                        <Fixture
-                          key={index}
-                          {...{
-                            kind,
-                            surface,
-                            state,
-                            presentation,
-                            theme,
-                            index,
-                          }}
-                        />
-                      ))}
-                    </div>,
-                  ),
-                );
-                await settle(1);
-                assertIds();
-                act(() => {
-                  for (let index = 0; index < shellCount; index++)
-                    openers[index]();
-                });
-                await settle(1);
-                assertIds();
-                act(() => {
-                  for (let index = 0; index < shellCount; index++)
-                    closers[index]();
-                });
-                await settle(1);
-                assertIds();
-              }
-            }
-  }, 600000);
-  it("returns focus for every surface × dismissal path × opener state", async () => {
-    for (const kind of houseFixtureKinds)
-      for (const surface of surfaces)
-        for (const nested of surface === "drawer" ? [false] : [false, true])
-          for (const path of [
-            "escape",
-            "outside",
-            "close",
-            "completion",
-          ] as const)
-            for (const state of [
-              "enabled",
-              "disabled",
-              "pending",
-              "removed",
-            ] as const) {
-              mobile = surface === "drawer" || nested;
+  it.each(kindSurfaces)(
+    "keeps IDs unique and ARIA references singular across states, presentations and themes: %s / %s",
+    async (kind, surface) => {
+      for (const state of states)
+        for (const presentation of presentations)
+          for (const theme of ["light", "dark"]) {
+            mobile = surface === "drawer" || presentation === "drawer";
+            for (const shellCount of [1, 2]) {
               act(() =>
                 root.render(
-                  <Fixture
-                    key={`${kind}-${surface}-${path}-${state}-${nested}`}
-                    {...{ kind, surface, nested }}
-                  />,
+                  <div
+                    key={`${kind}-${surface}-${state}-${presentation}-${theme}-${shellCount}`}
+                  >
+                    {Array.from({ length: shellCount }, (_, index) => (
+                      <Fixture
+                        key={index}
+                        {...{
+                          kind,
+                          surface,
+                          state,
+                          presentation,
+                          theme,
+                          index,
+                        }}
+                      />
+                    ))}
+                  </div>,
                 ),
               );
-              const trigger = opener(surface);
+              await settle(1);
+              assertIds();
               act(() => {
-                trigger.focus();
-                trigger.click();
+                for (let index = 0; index < shellCount; index++)
+                  openers[index]();
               });
-              await settle();
-              act(() => change(state));
-              if (state === "removed") trigger.remove();
-              if (state === "disabled" || state === "pending")
-                act(() => {
-                  if (trigger.matches(":disabled")) trigger.blur();
-                });
-              const modalSurface = [
-                "dialog",
-                "popover",
-                "menu",
-                "drawer",
-              ].includes(surface);
-              const panel = modalSurface
-                ? [
-                    ...document.querySelectorAll<HTMLElement>(
-                      '[role="dialog"]',
-                    ),
-                  ].at(-1)
-                : surface === "peek"
-                  ? document.querySelector<HTMLElement>("nav")
-                  : document.getElementById(
-                      trigger.getAttribute("aria-controls") ?? "",
-                    );
-              if (!panel)
-                throw new Error(
-                  `Missing panel: ${kind}/${surface}/${path}/${state}`,
-                );
-              if (path === "escape")
-                act(() => {
-                  fireEvent.keyDown(document.activeElement ?? document.body, {
-                    key: "Escape",
-                  });
-                });
-              if (path === "outside") {
-                await vi.advanceTimersByTimeAsync(10);
-                act(() => {
-                  fireEvent.pointerDown(document.body, {
-                    button: 0,
-                    pointerType: "mouse",
-                  });
-                  fireEvent.pointerUp(document.body, {
-                    button: 0,
-                    pointerType: "mouse",
-                  });
-                  fireEvent.click(document.body, { button: 0 });
-                });
-              }
-              if (path === "close" || path === "completion") {
-                const control = container.querySelector<HTMLElement>(
-                  path === "close" ? "[data-close]" : "[data-complete]",
-                );
-                const nativeClose =
-                  path === "close"
-                    ? [
-                        ...panel.querySelectorAll<HTMLButtonElement>("button"),
-                      ].find((button) => button.textContent.trim() === "Close")
-                    : null;
-                await act(async () => (nativeClose ?? control)?.click());
-              }
-              await settle();
-              expect(
-                getOpen(),
-                `${kind}/${surface}/${path}/${state} state`,
-              ).toBe(false);
-              expect(
-                document.querySelectorAll('[role="dialog"]').length,
-                `${kind}/${surface}/${path}/${state}/${nested} dismissed`,
-              ).toBe(nested ? 1 : 0);
-              expect(
-                document.activeElement,
-                `${kind}/${surface}/${path}/${state}`,
-              ).not.toBe(document.body);
-              expect(document.activeElement === trigger).toBe(
-                state === "enabled",
-              );
-              const expected =
-                state === "enabled"
-                  ? trigger
-                  : surface === "drawer" ||
-                      (surface === "peek" && state === "disabled" && !nested)
-                    ? container.querySelector('[data-part="app-shell"]')
-                    : nested && state === "disabled"
-                      ? document.querySelector('[role="dialog"] > button')
-                      : document.querySelector(
-                          `[data-rid="${state === "removed" && surface !== "peek" ? "collapse" : "search"}"]:not(:has([data-rid]))`,
-                        );
-              expect(
-                document.activeElement,
-                `${kind}/${surface}/${path}/${state}/${nested} nearest landmark control`,
-              ).toBe(expected);
+              await settle(1);
+              assertIds();
+              act(() => {
+                for (let index = 0; index < shellCount; index++)
+                  closers[index]();
+              });
+              await settle(1);
               assertIds();
             }
-  }, 600000);
+          }
+    },
+    90_000,
+  );
+  it.each(kindSurfaces)(
+    "returns focus for every dismissal path × opener state: %s / %s",
+    async (kind, surface) => {
+      for (const nested of surface === "drawer" ? [false] : [false, true])
+        for (const path of [
+          "escape",
+          "outside",
+          "close",
+          "completion",
+        ] as const)
+          for (const state of [
+            "enabled",
+            "disabled",
+            "pending",
+            "removed",
+          ] as const) {
+            mobile = surface === "drawer" || nested;
+            act(() =>
+              root.render(
+                <Fixture
+                  key={`${kind}-${surface}-${path}-${state}-${nested}`}
+                  {...{ kind, surface, nested }}
+                />,
+              ),
+            );
+            const trigger = opener(surface);
+            act(() => {
+              trigger.focus();
+              trigger.click();
+            });
+            await settle();
+            act(() => change(state));
+            if (state === "removed") trigger.remove();
+            if (state === "disabled" || state === "pending")
+              act(() => {
+                if (trigger.matches(":disabled")) trigger.blur();
+              });
+            const modalSurface = [
+              "dialog",
+              "popover",
+              "menu",
+              "drawer",
+            ].includes(surface);
+            const panel = modalSurface
+              ? [
+                  ...document.querySelectorAll<HTMLElement>('[role="dialog"]'),
+                ].at(-1)
+              : surface === "peek"
+                ? document.querySelector<HTMLElement>("nav")
+                : document.getElementById(
+                    trigger.getAttribute("aria-controls") ?? "",
+                  );
+            if (!panel)
+              throw new Error(
+                `Missing panel: ${kind}/${surface}/${path}/${state}`,
+              );
+            if (path === "escape")
+              act(() => {
+                fireEvent.keyDown(document.activeElement ?? document.body, {
+                  key: "Escape",
+                });
+              });
+            if (path === "outside") {
+              await vi.advanceTimersByTimeAsync(10);
+              act(() => {
+                fireEvent.pointerDown(document.body, {
+                  button: 0,
+                  pointerType: "mouse",
+                });
+                fireEvent.pointerUp(document.body, {
+                  button: 0,
+                  pointerType: "mouse",
+                });
+                fireEvent.click(document.body, { button: 0 });
+              });
+            }
+            if (path === "close" || path === "completion") {
+              const control = container.querySelector<HTMLElement>(
+                path === "close" ? "[data-close]" : "[data-complete]",
+              );
+              const nativeClose =
+                path === "close"
+                  ? [
+                      ...panel.querySelectorAll<HTMLButtonElement>("button"),
+                    ].find((button) => button.textContent.trim() === "Close")
+                  : null;
+              await act(async () => (nativeClose ?? control)?.click());
+            }
+            await settle();
+            expect(getOpen(), `${kind}/${surface}/${path}/${state} state`).toBe(
+              false,
+            );
+            expect(
+              document.querySelectorAll('[role="dialog"]').length,
+              `${kind}/${surface}/${path}/${state}/${nested} dismissed`,
+            ).toBe(nested ? 1 : 0);
+            expect(
+              document.activeElement,
+              `${kind}/${surface}/${path}/${state}`,
+            ).not.toBe(document.body);
+            expect(document.activeElement === trigger).toBe(
+              state === "enabled",
+            );
+            const expected =
+              state === "enabled"
+                ? trigger
+                : surface === "drawer" ||
+                    (surface === "peek" && state === "disabled" && !nested)
+                  ? container.querySelector('[data-part="app-shell"]')
+                  : nested && state === "disabled"
+                    ? document.querySelector('[role="dialog"] > button')
+                    : document.querySelector(
+                        `[data-rid="${state === "removed" && surface !== "peek" ? "collapse" : "search"}"]:not(:has([data-rid]))`,
+                      );
+            expect(
+              document.activeElement,
+              `${kind}/${surface}/${path}/${state}/${nested} nearest landmark control`,
+            ).toBe(expected);
+            assertIds();
+          }
+    },
+    30_000,
+  );
 });
