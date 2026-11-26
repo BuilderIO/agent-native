@@ -17,7 +17,6 @@ import {
   getMethod,
   getQuery,
   getHeader,
-  getRequestIP,
   readBody as readH3Body,
   type H3Event,
 } from "h3";
@@ -34,8 +33,7 @@ import {
 } from "../a2a/artifact-response.js";
 import {
   hasConfiguredA2ASecret,
-  isLoopbackAddress,
-  isTrustedLocalRuntime,
+  isTrustedLocalRequest,
 } from "../a2a/auth-policy.js";
 import {
   sanitizeA2ACorrelationId,
@@ -6217,17 +6215,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               setResponseStatus(event, 401);
               return { error: "Invalid or expired processor token" };
             }
-          } else {
-            const loopback = isLoopbackAddress(
-              getRequestIP(event, { xForwardedFor: false }),
-            );
-            if (!isTrustedLocalRuntime({ loopback })) {
-              setResponseStatus(event, 503);
-              return {
-                error:
-                  "Agent Teams processor not configured — set A2A_SECRET on this deployment (or A2A_ALLOW_UNSIGNED_INTERNAL=1 for trusted local dev).",
-              };
-            }
+          } else if (!isTrustedLocalRequest(event)) {
+            setResponseStatus(event, 503);
+            return {
+              error:
+                "Agent Teams processor not configured — set A2A_SECRET on this deployment (or A2A_ALLOW_UNSIGNED_INTERNAL=1 for trusted local dev).",
+            };
           }
 
           try {
@@ -10622,16 +10615,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             };
           }
 
-          // Validate + HMAC-authenticate the self-dispatch and prepare the
-          // background-worker body. Pure decision (unit-tested in
-          // durable-background.spec.ts); the route only wires it to h3. This
-          // handler DOES have the h3 event, so it can see the real socket
-          // peer — thread the loopback signal through so unsigned local-dev
-          // self-dispatch (no A2A_SECRET) still works over 127.0.0.1/::1.
           const prepared = prepareProcessRunRequest(
             processBody,
             getHeader(event, "authorization"),
-            isLoopbackAddress(getRequestIP(event, { xForwardedFor: false })),
+            event,
           );
           if (!prepared.ok) {
             // DIAGNOSTIC: record the auth/validation failure ONTO the run

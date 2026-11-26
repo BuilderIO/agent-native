@@ -10,6 +10,7 @@ import { createIntegrationsPlugin } from "./plugin.js";
 import type { PlatformAdapter } from "./types.js";
 
 const getSessionMock = vi.hoisted(() => vi.fn());
+const isLoopbackRequestMock = vi.hoisted(() => vi.fn(() => true));
 const getOrgContextMock = vi.hoisted(() =>
   vi.fn(async () => ({ orgId: "org-qa", role: "owner" })),
 );
@@ -472,6 +473,11 @@ function clearDeploymentUrlEnv() {
   }
   resetAppConfigForTests();
 }
+
+vi.mock("../server/loopback.js", async (importActual) => ({
+  ...(await importActual<typeof import("../server/loopback.js")>()),
+  isLoopbackRequest: isLoopbackRequestMock,
+}));
 
 describe("integrations plugin routes", () => {
   const originalNodeEnv = process.env.NODE_ENV;
@@ -1918,9 +1924,40 @@ describe("integrations plugin routes", () => {
     expect(result.status).toBe(503);
     expect(result.body).toEqual({
       error:
-        "A2A_SECRET not configured — internal token signing is required to process integration tasks in production.",
+        "A2A_SECRET not configured — internal token signing is required to process integration tasks outside local development.",
     });
   });
+
+  it.each([
+    ["process-task", { taskId: "task-remote" }, "integration tasks"],
+    [
+      "process-a2a-continuation",
+      { continuationId: "continuation-remote" },
+      "A2A continuations",
+    ],
+  ])(
+    "refuses an unsigned %s request that is not local in development",
+    async (route, body, subject) => {
+      delete process.env.A2A_SECRET;
+      process.env.NODE_ENV = "development";
+      isLoopbackRequestMock.mockReturnValueOnce(false);
+      const nitroApp = createNitroApp();
+      await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+      const result = await dispatch(
+        nitroApp,
+        `/_agent-native/integrations/${route}`,
+        "POST",
+        body,
+      );
+
+      expect(result.status).toBe(503);
+      expect(result.body).toEqual({
+        error: `A2A_SECRET not configured — internal token signing is required to process ${subject} outside local development.`,
+      });
+      expect(isLoopbackRequestMock).toHaveBeenCalled();
+    },
+  );
 
   it("rejects unsigned durable recovery sweeps", async () => {
     process.env.A2A_SECRET = "test-secret";
