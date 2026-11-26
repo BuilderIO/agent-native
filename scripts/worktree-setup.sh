@@ -2,7 +2,7 @@
 # Makes a new git worktree ready to run: clones the main checkout's dependencies copy-on-write where the package manager doesn't share them already, then installs.
 set -euo pipefail
 
-wt=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
+wt=$(git -C "${1:-$(dirname "$0")}" rev-parse --show-toplevel) # optional arg: the worktree to set up
 cd "$wt"
 git_dir=$(git rev-parse --path-format=absolute --git-dir)
 common_dir=$(git rev-parse --path-format=absolute --git-common-dir)
@@ -25,19 +25,20 @@ for tool in node "$pm"; do
   fi
 done
 
-lock="$git_dir/worktree-setup.lock"
-if ! mkdir "$lock" 2>/dev/null; then
-  if [ -n "$(find "$lock" -maxdepth 0 -mmin +30 2>/dev/null)" ]; then
-    rmdir "$lock" && mkdir "$lock"
-  else
+lock="$git_dir/worktree-setup.lock" # a symlink to the owner's pid, created atomically
+lock_owner() { readlink "$lock" 2>/dev/null; }
+until ln -s "$$" "$lock" 2>/dev/null; do
+  owner=$(lock_owner) || continue
+  if kill -0 "$owner" 2>/dev/null; then
     echo "worktree-setup: waiting for the setup already running in this worktree (see $log)" >&2
-    while [ -d "$lock" ] && [ -z "$(find "$lock" -maxdepth 0 -mmin +30 2>/dev/null)" ]; do sleep 5; done
-    [ "$(cat "$state_file" 2>/dev/null)" = "done" ] && exit 0
-    echo "worktree-setup: the other setup run didn't finish; see $log, then rerun bash scripts/worktree-setup.sh" >&2
-    exit 1
+    while [ "$(lock_owner)" = "$owner" ] && kill -0 "$owner" 2>/dev/null; do sleep 5; done
+  elif [ "$(lock_owner)" = "$owner" ]; then
+    rm -f "$lock" # its owner died without cleaning up
   fi
-fi
-trap 'rmdir "$lock" 2>/dev/null || true' EXIT
+done
+trap 'rm -f "$lock"' EXIT
+state=$(cat "$state_file" 2>/dev/null || true)
+[ "$state" = "done" ] && exit 0
 
 src=${CODEX_SOURCE_TREE_PATH:-$(git worktree list --porcelain | sed -n '1s/^worktree //p')}
 start=$SECONDS
@@ -54,9 +55,9 @@ workspace_dirs() {
 }
 
 same_apfs_volume() { # macOS cp -c silently makes a full copy unless both trees sit on one APFS volume
-  local volume
-  volume=$(df -P "$src" | awk 'END{print $NF}')
-  [ "$volume" = "$(df -P "$wt" | awk 'END{print $NF}')" ] && mount | grep -qF " on $volume (apfs"
+  local device
+  device=$(df -P "$src" | awk 'END{print $1}')
+  [ "$device" = "$(df -P "$wt" | awk 'END{print $1}')" ] && mount | grep -F "$device on " | grep -qF "(apfs"
 }
 
 clone_dir() { # copy-on-write only: a plain copy costs as much disk as installing
