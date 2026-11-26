@@ -5,6 +5,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import {
   LOAD_TIMEOUT_MS,
+  catalogContractAppIdsFromEnv,
   defaultProductionTools,
   loadAppCatalogs,
   repoRoot,
@@ -356,6 +357,7 @@ describe("tool reference detection", () => {
 });
 
 describe("static MCP instructions name only advertised tools", () => {
+  const scopedAppIds = catalogContractAppIdsFromEnv();
   let apps: AppCatalog[] = [];
 
   beforeAll(async () => {
@@ -363,6 +365,7 @@ describe("static MCP instructions name only advertised tools", () => {
   }, LOAD_TIMEOUT_MS);
 
   it("covers every app that sets instructions", () => {
+    if (scopedAppIds) return;
     expect(apps.map((app) => app.appId)).toEqual(
       expect.arrayContaining(["content", "design", "forms", "plan", "slides"]),
     );
@@ -385,10 +388,12 @@ describe("static MCP instructions name only advertised tools", () => {
   });
 
   it("keeps the exception maps limited to tokens that are still needed", () => {
+    const loadedAppIds = new Set(apps.map((app) => app.appId));
     const stale: string[] = [];
     const ownersOf = (scope: string) =>
       scope === "*" ? apps : apps.filter((app) => app.appId === scope);
     for (const [scope, entries] of Object.entries(MERGED_NOT_TOOL_NAMES)) {
+      if (scopedAppIds && (scope === "*" || !loadedAppIds.has(scope))) continue;
       for (const token of Object.keys(entries)) {
         if (
           !ownersOf(scope).some((app) =>
@@ -402,6 +407,7 @@ describe("static MCP instructions name only advertised tools", () => {
     for (const [scope, entries] of Object.entries(
       MERGED_ADVERTISED_ONLY_CONDITIONALLY,
     )) {
+      if (scopedAppIds && (scope === "*" || !loadedAppIds.has(scope))) continue;
       for (const [token, reason] of Object.entries(entries)) {
         const owners = ownersOf(scope);
         if (

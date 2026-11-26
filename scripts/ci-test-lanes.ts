@@ -309,6 +309,38 @@ const CATALOG_CONTRACT_CORE_SPECS = [
   "src/mcp/hidden-inline-apps.spec.ts",
 ] as const;
 
+const HIDDEN_INLINE_APP_SLUGS = new Set([
+  "analytics",
+  "calendar",
+  "content",
+  "design",
+  "mail",
+  "slides",
+]);
+
+export function catalogContractAppsForChangedPaths(
+  paths: readonly string[],
+  repositoryRoot = ROOT,
+): string {
+  const templateSlugs = new Set<string>();
+  for (const rawPath of paths) {
+    const normalized = normalizeChangedPath(rawPath);
+    if (
+      isStandaloneE2eRunner(normalized, repositoryRoot) ||
+      isDocsPath(normalized) ||
+      TEST_FILE_RE.test(normalized) ||
+      /\.d\.[cm]?ts$/u.test(normalized) ||
+      NON_CODE_ASSET_RE.test(normalized)
+    ) {
+      continue;
+    }
+    if (normalized.startsWith("packages/")) return "";
+    const match = /^templates\/([^/]+)\//u.exec(normalized);
+    if (match) templateSlugs.add(match[1]!);
+  }
+  return [...templateSlugs].sort().join(",");
+}
+
 // The tool-search benchmark ranks requests against templates' action
 // registries, which it imports through a generated file `vitest --changed`
 // cannot see. Core changes reach it through the import graph; a template
@@ -338,7 +370,7 @@ export function catalogContractCoreSpecs(
   paths: readonly string[],
   repositoryRoot = ROOT,
 ): readonly string[] {
-  return paths.some((path) => {
+  const triggered = paths.some((path) => {
     const normalized = normalizeChangedPath(path);
     return (
       /^(?:templates|packages)\//u.test(normalized) &&
@@ -348,9 +380,17 @@ export function catalogContractCoreSpecs(
       !/\.d\.[cm]?ts$/u.test(normalized) &&
       !NON_CODE_ASSET_RE.test(normalized)
     );
-  })
-    ? CATALOG_CONTRACT_CORE_SPECS
-    : [];
+  });
+  if (!triggered) return [];
+  const scopedApps = catalogContractAppsForChangedPaths(paths, repositoryRoot);
+  if (!scopedApps) return CATALOG_CONTRACT_CORE_SPECS;
+  const slugs = scopedApps.split(",");
+  if (slugs.some((slug) => HIDDEN_INLINE_APP_SLUGS.has(slug))) {
+    return CATALOG_CONTRACT_CORE_SPECS;
+  }
+  return CATALOG_CONTRACT_CORE_SPECS.filter(
+    (spec) => spec !== "src/mcp/hidden-inline-apps.spec.ts",
+  );
 }
 
 function readCoreFastTestFiles(since?: string): string[] {
@@ -788,6 +828,7 @@ function main(): void {
   let coreFiles = 0;
   let coreTestFiles: string[] = [];
   let coreMode: Lane["coreMode"] = "";
+  let catalogContractApps = "";
   let lanes: Lane[];
   if (targeted) {
     const baseSha = process.env.CI_BASE_SHA;
@@ -799,6 +840,9 @@ function main(): void {
     const changedPaths = readChangedPaths(baseSha);
     const fullCore = requiresFullCoreFastTests(changedPaths);
     coreMode = fullCore ? "full" : "changed";
+    catalogContractApps = fullCore
+      ? ""
+      : catalogContractAppsForChangedPaths(changedPaths);
     coreTestFiles = [
       ...new Set([
         ...readCoreFastTestFiles(fullCore ? undefined : baseSha),
@@ -839,6 +883,7 @@ function main(): void {
     "core_test_files",
     JSON.stringify(coreMode === "changed" ? coreTestFiles : []),
   );
+  emit("catalog_contract_apps", catalogContractApps);
   summarize(lanes, coreFiles, coreMode);
 }
 
