@@ -1188,6 +1188,52 @@ describe("call-agent action", () => {
     );
   });
 
+  describe("peer connect link", () => {
+    it.each([
+      [
+        "https://slides.agent-native.test/_agent-native/a2a",
+        "https://slides.agent-native.test",
+      ],
+      ["http://localhost:8081/base/a2a", "http://localhost:8081"],
+    ])(
+      "points a typed missing_credentials failure at the peer origin (%s)",
+      async (url, origin) => {
+        findAgentMock.mockResolvedValueOnce({ name: "Slides", url });
+        callAgentMock.mockRejectedValueOnce(
+          terminalTaskError("failed", "child failed", "missing_credentials"),
+        );
+        const { run } = await import("./call-agent.js");
+
+        const outcome = await run({ agent: "analytics", message: "first" }, {
+          send: vi.fn(),
+          blockedA2ATargets: new Map(),
+        } as any).catch((error) => error);
+
+        expect(outcome.message).toContain(`Open ${origin} and`);
+        expect(outcome.message).not.toMatch(/Settings\s*[>\u2192]/i);
+      },
+    );
+
+    it.each(["ftp://slides.agent-native.test/a2a", "not a url"])(
+      "names no link when the peer url is %s",
+      async (url) => {
+        findAgentMock.mockResolvedValueOnce({ name: "Slides", url });
+        callAgentMock.mockRejectedValueOnce(
+          terminalTaskError("failed", "child failed", "missing_credentials"),
+        );
+        const { run } = await import("./call-agent.js");
+
+        const outcome = await run({ agent: "analytics", message: "first" }, {
+          send: vi.fn(),
+          blockedA2ATargets: new Map(),
+        } as any).catch((error) => error);
+
+        expect(outcome.message).toContain("Open the Slides app and use");
+        expect(outcome.message).not.toMatch(/Settings\s*[>\u2192]/i);
+      },
+    );
+  });
+
   describe("input-required answers", () => {
     const connectionRequired = () =>
       terminalTaskError(
