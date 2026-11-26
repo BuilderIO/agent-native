@@ -7,6 +7,10 @@ import {
   type A2AArtifactIdentity,
   type A2AToolResultSummary,
 } from "../a2a/artifact-response.js";
+import {
+  acceptsUnsignedSelfDispatch,
+  hasConfiguredA2ASecret,
+} from "../a2a/auth-policy.js";
 import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
 import { isInBackgroundFunctionRuntime } from "../agent/durable-background.js";
 import {
@@ -441,6 +445,27 @@ async function enqueueAndDispatch(
   handlerStartedAt = Date.now(),
 ): Promise<void> {
   const taskId = crypto.randomUUID();
+  const baseUrl = resolveBaseUrl(event);
+  if (!hasConfiguredA2ASecret() && !acceptsUnsignedSelfDispatch(baseUrl)) {
+    console.error(
+      `[integrations] refusing ${incoming.platform} message: A2A_SECRET is not set and the processor handoff to ${baseUrl} would leave this machine. Set A2A_SECRET, or set AGENT_NATIVE_SELF_DISPATCH_URL to this server's loopback address.`,
+    );
+    try {
+      await options.adapter.sendResponse(
+        {
+          text: "I can't work on that yet — this app needs A2A_SECRET set before it can process messages that reach it from another host.",
+          platformContext: incoming.platformContext,
+        },
+        incoming,
+      );
+    } catch (err) {
+      console.error(
+        "[integrations] failed to report the missing A2A_SECRET to user:",
+        err,
+      );
+    }
+    return;
+  }
 
   const requestScope = await resolveIntegrationRequestScope({
     ownerEmail: options.ownerEmail,
@@ -484,7 +509,6 @@ async function enqueueAndDispatch(
     }),
   });
 
-  const baseUrl = resolveBaseUrl(event);
   const settleWaitMs = options.adapter.capabilities?.deferredWebhookResponse
     ? Math.min(
         DEFERRED_RESPONSE_DISPATCH_SETTLE_WAIT_MS,

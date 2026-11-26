@@ -97,6 +97,7 @@ describe("integration webhook handler", () => {
     });
     insertPendingTaskMock.mockResolvedValue(undefined);
     isDuplicateEventErrorMock.mockReturnValue(false);
+    vi.stubEnv("A2A_SECRET", "test-secret");
     resolveOwnerEngineApiKeyMock.mockResolvedValue({
       apiKey: undefined,
       apiKeyEnvVar: undefined,
@@ -111,6 +112,35 @@ describe("integration webhook handler", () => {
     vi.useRealTimers();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
+  });
+
+  it("refuses before enqueueing when an unsigned handoff would leave this machine", async () => {
+    vi.stubEnv("A2A_SECRET", "");
+    vi.stubEnv("FUSION_POD_UID", "");
+    vi.stubEnv("FUSION_ENVIRONMENT", "");
+    const sendResponse = vi.fn();
+    const incoming = createIncoming(1000);
+
+    const result = await handleWebhook(createEvent(), {
+      adapter: createAdapter(sendResponse),
+      systemPrompt: "system",
+      actions: {},
+      model: "test-model",
+      apiKey: "test-key",
+      ownerEmail: "alice+qa@agent-native.test",
+      incoming,
+    });
+
+    expect(result).toEqual({ status: 200, body: "ok" });
+    expect(insertPendingTaskMock).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(sendResponse).toHaveBeenCalledWith(
+      {
+        text: "I can't work on that yet — this app needs A2A_SECRET set before it can process messages that reach it from another host.",
+        platformContext: incoming.platformContext,
+      },
+      incoming,
+    );
   });
 
   it("enqueues and dispatches without sending a platform response inline", async () => {
