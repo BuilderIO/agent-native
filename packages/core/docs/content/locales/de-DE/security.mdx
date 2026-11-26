@@ -352,7 +352,7 @@ A2A_SECRET=your-shared-secret-at-least-32-chars
 3. App B liest den verifizierten `sub`-Anspruch in den Anforderungskontext
 4. Es gilt der Datenbereich – App B zeigt nur Steves Daten
 
-Ohne `A2A_SECRET` in der Produktion geben jeder A2A-Endpunkt und der `/_agent-native/integrations/process-task`-Self-Fire-Endpunkt **503** zurück. Legen Sie es für jede App fest, die A2A-Verkehr anruft oder empfängt. (Für die lokale Entwicklung erlaubt das Framework weiterhin nicht authentifizierte Aufrufe.)
+Ohne `A2A_SECRET` in der Produktion geben jeder A2A-Endpunkt und der `/_agent-native/integrations/process-task`-Self-Fire-Endpunkt **503** zurück. Legen Sie es für jede App fest, die A2A-Verkehr anruft oder empfängt. (In der lokalen Entwicklung akzeptiert A2A nicht authentifizierte Aufrufe nur vom selben Rechner; setzen Sie `A2A_SECRET` auf einem Dev-Server, den andere Hosts erreichen können.)
 
 ## Eingehender Webhooks {#webhooks}
 

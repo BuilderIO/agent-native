@@ -2,6 +2,10 @@ import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
+  planCommentReactions,
+  planReactionActor,
+} from "../server/lib/plan-comments.js";
+import {
   exportPlanContentToMdxFolder,
   referencedBlockIdsForPlanComments,
 } from "../server/plan-mdx.js";
@@ -66,7 +70,20 @@ export default defineAction({
     compactCatalog: true,
   },
   run: async (args, ctx) => {
-    const bundle = await loadPlanBundle(args.id);
+    const loaded = await loadPlanBundle(args.id);
+    const reactions = await planCommentReactions(
+      loaded.comments.map((comment) => comment.id),
+      planReactionActor(ctx),
+    );
+    const bundle = {
+      ...loaded,
+      comments: loaded.comments.map((comment) => {
+        const given = reactions.get(comment.id);
+        return given !== undefined && given.length > 0
+          ? { ...comment, reactions: given }
+          : comment;
+      }),
+    };
     const isFrontend = ctx?.caller === "frontend";
     const isModern = Boolean(bundle.plan.content);
     const isAgentCaller =

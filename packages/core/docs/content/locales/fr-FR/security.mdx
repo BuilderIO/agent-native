@@ -352,7 +352,7 @@ A2A_SECRET=your-shared-secret-at-least-32-chars
 3. L'application B lit la revendication `sub` vérifiée dans le contexte de la demande
 4. La portée des données s'applique : l'application B affiche uniquement les données de Steve
 
-Sans `A2A_SECRET` en production, chaque point de terminaison A2A et le point de terminaison à déclenchement automatique `/_agent-native/integrations/process-task` renvoient **503**. Définissez-le sur chaque application qui appelle ou reçoit du trafic A2A. (Pour le développement local, le framework autorise toujours les appels non authentifiés.)
+Sans `A2A_SECRET` en production, chaque point de terminaison A2A et le point de terminaison à déclenchement automatique `/_agent-native/integrations/process-task` renvoient **503**. Définissez-le sur chaque application qui appelle ou reçoit du trafic A2A. (En développement local, A2A n'accepte les appels non authentifiés que depuis la même machine ; définissez `A2A_SECRET` sur un serveur de développement accessible depuis d'autres hôtes.)
 
 ## Entrant Webhooks {#webhooks}
 

@@ -29,7 +29,7 @@ function replyEditors(root: ParentNode) {
     (editor) => !editor.closest("[data-discussion-composer]"),
   );
 }
-import { expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   richEditorValue,
@@ -901,6 +901,190 @@ it.each([
     }
   },
 );
+
+function pendingSuggestion(id: string) {
+  return suggestionFixture({
+    id,
+    threadId: `thread-${id}`,
+    revision: 1,
+    authorEmail: "reviewer@example.test",
+    actorKind: "human",
+    createdAt: "2026-09-06T12:00:00.000Z",
+    status: "pending",
+    operations: [
+      {
+        ordinal: 0,
+        kind: "replace_text",
+        before: { changedText: "before" },
+        after: { changedText: "after" },
+        schemaVersion: 1,
+      },
+    ],
+  });
+}
+
+it("reaches a suggestion's Accept before its reactions and menu, with no stop on the card itself", async () => {
+  const suggestion = pendingSuggestion("pending-pointer-decision");
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  function Harness() {
+    const drafts = useCommentReplyDrafts("document-card-stops");
+    return (
+      <CommentsSidebar
+        replyDrafts={drafts}
+        documentId="document-card-stops"
+        suggestions={[suggestion]}
+        presentation="history"
+        canComment
+        canDecideSuggestions
+        onDecideSuggestion={vi.fn()}
+        forceVisible
+      />
+    );
+  }
+  try {
+    await act(async () => root.render(<Harness />));
+    const card = container.querySelector<HTMLElement>(
+      `[data-suggestion-id="${suggestion.id}"] [data-thread-card]`,
+    );
+    if (!card) throw new Error("No suggestion card");
+    expect(card.getAttribute("tabindex")).toBe("-1");
+    const stops = [
+      ...card.querySelectorAll<HTMLElement>(
+        "button:not(:disabled), a[href], [tabindex]",
+      ),
+    ].filter((element) => element.getAttribute("tabindex") !== "-1");
+    const stop = (label: string) =>
+      stops.findIndex(
+        (element) => element.getAttribute("aria-label") === label,
+      );
+    const accept = stop("editor.acceptSuggestion");
+    expect(accept).toBe(2);
+    expect(stop("editor.rejectSuggestion")).toBe(accept + 1);
+    expect(stop("comments.addReaction")).toBeGreaterThan(accept + 1);
+    expect(stop("comments.moreActions")).toBeGreaterThan(accept + 1);
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+});
+
+describe("focus after a decision", () => {
+  const first = pendingSuggestion("pending-focus-first");
+  const second = pendingSuggestion("pending-focus-second");
+  let container: HTMLDivElement;
+  let editor: HTMLDivElement;
+  let root: ReturnType<typeof createRoot>;
+  const onDecide = vi.fn();
+  function Harness({ suggestions }: { suggestions: ResourceSuggestion[] }) {
+    const drafts = useCommentReplyDrafts("document-decision-focus");
+    return (
+      <CommentsSidebar
+        replyDrafts={drafts}
+        documentId="document-decision-focus"
+        suggestions={suggestions}
+        presentation="history"
+        canComment
+        canDecideSuggestions
+        onDecideSuggestion={(suggestion, decision) =>
+          onDecide(suggestion.id, decision)
+        }
+        forceVisible
+      />
+    );
+  }
+  const show = (suggestions: ResourceSuggestion[]) =>
+    act(async () => root.render(<Harness suggestions={suggestions} />));
+  const cardOf = (id: string) =>
+    container.querySelector<HTMLElement>(
+      `[data-suggestion-id="${id}"] [data-thread-card]`,
+    );
+  const decide = async (id: string, label: string, detail: number) => {
+    const button = container.querySelector<HTMLButtonElement>(
+      `[data-suggestion-id="${id}"] button[aria-label="${label}"]`,
+    );
+    if (!button) throw new Error(`No ${label} on ${id}`);
+    button.focus();
+    await act(async () => {
+      button.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true, detail }),
+      );
+    });
+  };
+  beforeEach(() => {
+    onDecide.mockClear();
+    editor = document.createElement("div");
+    editor.className = "content-editor";
+    editor.setAttribute("contenteditable", "true");
+    editor.tabIndex = -1;
+    container = document.createElement("div");
+    document.body.append(editor, container);
+    root = createRoot(container);
+  });
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+    editor.remove();
+  });
+
+  it("goes to the next card once the decided one goes, then to the page", async () => {
+    await show([first, second]);
+    await decide(first.id, "editor.acceptSuggestion", 0);
+    expect(onDecide).toHaveBeenCalledWith(first.id, "accepted");
+    await show([second]);
+    expect(document.activeElement).toBe(cardOf(second.id));
+
+    await decide(second.id, "editor.rejectSuggestion", 0);
+    expect(onDecide).toHaveBeenCalledWith(second.id, "rejected");
+    await show([]);
+    expect(document.activeElement).toBe(editor);
+  });
+
+  it("goes back to a card before the decided one when it was the last", async () => {
+    await show([first, second]);
+    const cards = [
+      ...container.querySelectorAll<HTMLElement>("[data-suggestion-id]"),
+    ].map((card) => card.dataset.suggestionId);
+    const last = cards[cards.length - 1] === first.id ? first : second;
+    const other = last === first ? second : first;
+    await decide(last.id, "editor.acceptSuggestion", 0);
+    await show([other]);
+    expect(document.activeElement).toBe(cardOf(other.id));
+  });
+
+  it("leaves focus to the pointer after a click", async () => {
+    await show([first, second]);
+    await decide(first.id, "editor.acceptSuggestion", 1);
+    expect(onDecide).toHaveBeenCalledWith(first.id, "accepted");
+    await show([second]);
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it("goes to the open tab's editor when the page body's tab is hidden", async () => {
+    const body = document.createElement("div");
+    body.setAttribute("data-primary-block-field-panel", "");
+    body.hidden = true;
+    body.append(editor);
+    const open = document.createElement("div");
+    open.setAttribute("data-block-field-panel", "");
+    const field = document.createElement("div");
+    field.className = "content-editor";
+    field.setAttribute("contenteditable", "true");
+    field.tabIndex = -1;
+    open.append(field);
+    document.body.prepend(body, open);
+    try {
+      await show([first]);
+      await decide(first.id, "editor.acceptSuggestion", 0);
+      await show([]);
+      expect(document.activeElement).toBe(field);
+    } finally {
+      body.remove();
+      open.remove();
+    }
+  });
+});
 
 it.each(["ordinary", "suggestion"] as const)(
   "preserves the active %s reply and backward caret range across responsive remounts",

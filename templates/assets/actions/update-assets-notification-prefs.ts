@@ -26,6 +26,7 @@ export default defineAction({
         .describe("Email me when a generation I started finishes or fails."),
     })
     .strict(),
+  mcpTool: false,
   run: async (args): Promise<AssetsNotificationPreferences> => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("Sign in required");

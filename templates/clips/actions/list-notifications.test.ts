@@ -23,8 +23,8 @@ const tables = vi.hoisted(() => ({
     enableComments: "enableComments",
   },
   recordingShares: {},
-  recordingComments: {
-    recordingId: "recordingId",
+  reviewComments: {
+    resourceId: "resourceId",
     createdAt: "createdAt",
     mentionsJson: "mentionsJson",
   },
@@ -56,6 +56,13 @@ vi.mock("drizzle-orm", () => ({
   sql: vi.fn(),
   inArray: (column: string, values: string[]) => ({ column, values }),
 }));
+vi.mock("../server/lib/recording-comments.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../server/lib/recording-comments.js")
+  >()),
+  reviewComments: tables.reviewComments,
+  liveRecordingComments: () => [],
+}));
 vi.mock("../server/db/index.js", () => ({
   schema: tables,
   getDb: () => ({
@@ -84,7 +91,7 @@ vi.mock("../server/db/index.js", () => ({
                       )
                     : state.recording,
                 ]
-              : table === tables.recordingComments
+              : table === tables.reviewComments
                 ? [
                     {
                       id: "comment-test",
@@ -93,7 +100,7 @@ vi.mock("../server/db/index.js", () => ({
                       authorEmail: "author@example.com",
                       createdAt: new Date().toISOString(),
                       mentionsJson: JSON.stringify([
-                        { email: "viewer@example.com" },
+                        { label: "Viewer", email: "viewer@example.com" },
                       ]),
                     },
                   ]

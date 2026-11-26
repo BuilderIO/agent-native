@@ -1,7 +1,6 @@
 import { createHmac, randomUUID } from "node:crypto";
 
 import { canonicalA2AAudience } from "../a2a/audience.js";
-import { isLoopbackAddress } from "../a2a/auth-policy.js";
 import {
   signA2AOrgMemberDelegationToken,
   signA2AToken,
@@ -13,6 +12,7 @@ import {
   isHostedWorkspaceRuntime,
   resolveVercelDeploymentProtectionHeaders,
 } from "../server/deployment-protection.js";
+import { isLoopbackHostname } from "../server/loopback.js";
 import { effectiveOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import { getRequestContext } from "../server/request-context.js";
 import { workspaceUserGroupsIncludeUser } from "../workspace-connections/groups.js";
@@ -168,7 +168,7 @@ function configuredWorkspaceDirectory(): string | null {
 
   try {
     const url = new URL(gatewayUrl);
-    if (!isLoopbackAddress(url.hostname.replace(/^\[|\]$/g, ""))) {
+    if (!isLoopbackHostname(url.hostname.replace(/^\[|\]$/g, ""))) {
       return gatewayUrl;
     }
     const basePath = url.pathname.replace(/\/+$/, "");

@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
@@ -28,6 +28,8 @@ export default defineAction({
         "Override whether approval mirrors the resulting knowledge into context/company-brain workspace resources.",
       ),
   }),
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async ({ proposalId, reviewerNotes, publishCanonical }) => {
     const access = await assertAccess("brain-proposal", proposalId, "editor");
     const proposal = access.resource;

@@ -1167,6 +1167,7 @@ const editor = {
     visibilityScope: "في كل صف وللجميع. ويمكن للعرض إخفاؤها مع ذلك.",
   },
   slash: {
+    ai: "الذكاء الاصطناعي",
     audio: "الصوت",
     audioDescription: "تحميل أو تضمين الصوت",
     basicBlocks: "الكتل الأساسية",

@@ -110,11 +110,18 @@ export interface BuilderRelayRequestBody {
   credentials: BuilderRelayCredentials;
 }
 
+/** The request never produced an HTTP answer, or the answer was unusable. */
+export type BuilderProvisioningTransportFailure =
+  | "timeout"
+  | "unreachable"
+  | "invalid_response";
+
 export class BuilderAccountProvisioningError extends Error {
   readonly code: string | null;
   readonly upstreamStatus: number | null;
   readonly upstreamErrorBody: string | null;
   readonly upstreamBodyReadErrorType: string | null;
+  readonly transport: BuilderProvisioningTransportFailure | null;
 
   constructor(
     message: string,
@@ -122,6 +129,7 @@ export class BuilderAccountProvisioningError extends Error {
     upstreamStatus: number | null = null,
     upstreamErrorBody: string | null = null,
     upstreamBodyReadErrorType: string | null = null,
+    transport: BuilderProvisioningTransportFailure | null = null,
   ) {
     super(message);
     this.name = "BuilderAccountProvisioningError";
@@ -129,7 +137,84 @@ export class BuilderAccountProvisioningError extends Error {
     this.upstreamStatus = upstreamStatus;
     this.upstreamErrorBody = upstreamErrorBody;
     this.upstreamBodyReadErrorType = upstreamBodyReadErrorType;
+    this.transport = transport;
   }
+}
+
+export type BuilderProvisioningFailureCode =
+  | "provision_timeout"
+  | "provision_unreachable"
+  | "provision_invalid_response"
+  | "provision_rejected"
+  | "provision_rate_limited"
+  | "provision_invalid_request"
+  | "provision_upstream_error"
+  | "provision_failed";
+
+/** Each failure mode names itself; only a status we have no reading for is `provision_failed`. */
+export function classifyBuilderProvisioningFailure(
+  error: BuilderAccountProvisioningError | null,
+): { code: BuilderProvisioningFailureCode; message: string } {
+  if (!error) {
+    return {
+      code: "provision_failed",
+      message:
+        "Couldn't create your Builder.io account. Try again or sign in with an existing account.",
+    };
+  }
+  if (error.transport === "timeout") {
+    return {
+      code: "provision_timeout",
+      message: "Builder.io took too long to respond. Try again in a moment.",
+    };
+  }
+  if (error.transport === "unreachable") {
+    return {
+      code: "provision_unreachable",
+      message:
+        "Couldn't reach Builder.io from this app. Check the connection and try again.",
+    };
+  }
+  if (error.transport === "invalid_response") {
+    return {
+      code: "provision_invalid_response",
+      message:
+        "Builder.io answered with an unexpected response while creating your account. Try again or sign in with an existing account.",
+    };
+  }
+  const status = error.upstreamStatus;
+  if (status === 401 || status === 403) {
+    return {
+      code: "provision_rejected",
+      message:
+        "Builder.io rejected account creation from this app. Sign in with an existing Builder.io account instead.",
+    };
+  }
+  if (status === 429) {
+    return {
+      code: "provision_rate_limited",
+      message:
+        "Builder.io is limiting account creation right now. Wait a minute and try again.",
+    };
+  }
+  if (status === 400 || status === 422) {
+    return {
+      code: "provision_invalid_request",
+      message:
+        "Builder.io couldn't accept the account details for this email. Sign in with an existing Builder.io account instead.",
+    };
+  }
+  if (status !== null && status >= 500) {
+    return {
+      code: "provision_upstream_error",
+      message: "Builder.io is having trouble right now. Try again shortly.",
+    };
+  }
+  return {
+    code: "provision_failed",
+    message:
+      "Couldn't create your Builder.io account. Try again or sign in with an existing account.",
+  };
 }
 
 export function isBuilderAccountAlreadyExistsError(error: unknown): boolean {
@@ -2445,7 +2530,7 @@ async function fetchBuilderApi(
   } catch (error) {
     const errorName = error instanceof Error ? error.name : "";
     if (errorName === "AbortError" || errorName === "TimeoutError") {
-      throw new Error(
+      throw new BuilderApiTimeoutError(
         `Builder ${operation} timed out after ${BUILDER_API_REQUEST_TIMEOUT_MS}ms`,
         { cause: error },
       );
@@ -2453,6 +2538,8 @@ async function fetchBuilderApi(
     throw error;
   }
 }
+
+class BuilderApiTimeoutError extends Error {}
 
 async function readBuilderApiObject(
   response: Response,
@@ -2621,27 +2708,41 @@ export async function provisionBuilderAccount(input: {
   const signature = createHmac("sha256", builderAccountProvisioningSecret())
     .update(signaturePayload)
     .digest("base64url");
-  const response = await fetchBuilderApi(
-    new URL("/api/v1/accounts/agent-native", getBuilderApiHost()),
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-agent-native-account-version": version,
-        "x-agent-native-account-timestamp": timestamp,
-        "x-agent-native-account-request-id": requestId,
-        "x-agent-native-account-signature": signature,
+  let response: Response;
+  try {
+    response = await fetchBuilderApi(
+      new URL("/api/v1/accounts/agent-native", getBuilderApiHost()),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-agent-native-account-version": version,
+          "x-agent-native-account-timestamp": timestamp,
+          "x-agent-native-account-request-id": requestId,
+          "x-agent-native-account-signature": signature,
+        },
+        body: JSON.stringify({
+          email,
+          name,
+          ...(input.newAccountOnly ? { newAccountOnly: true } : {}),
+          ...(agentNativeApp ? { agentNativeApp } : {}),
+          ...(agentNativeTemplate ? { agentNativeTemplate } : {}),
+        }),
       },
-      body: JSON.stringify({
-        email,
-        name,
-        ...(input.newAccountOnly ? { newAccountOnly: true } : {}),
-        ...(agentNativeApp ? { agentNativeApp } : {}),
-        ...(agentNativeTemplate ? { agentNativeTemplate } : {}),
-      }),
-    },
-    "account provisioning",
-  );
+      "account provisioning",
+    );
+  } catch (error) {
+    throw new BuilderAccountProvisioningError(
+      error instanceof Error
+        ? error.message
+        : "Builder account provisioning failed",
+      undefined,
+      null,
+      null,
+      null,
+      error instanceof BuilderApiTimeoutError ? "timeout" : "unreachable",
+    );
+  }
   const bodyRead = await response
     .clone()
     .text()
@@ -2662,7 +2763,18 @@ export async function provisionBuilderAccount(input: {
   try {
     parsed = await readBuilderApiObject(response, "account provisioning");
   } catch (error) {
-    if (response.ok) throw error;
+    if (response.ok) {
+      throw new BuilderAccountProvisioningError(
+        error instanceof Error
+          ? error.message
+          : "Builder account provisioning failed",
+        undefined,
+        response.status,
+        builderProvisioningErrorBody(null, rawErrorBody),
+        bodyReadErrorType,
+        "invalid_response",
+      );
+    }
     throw new BuilderAccountProvisioningError(
       error instanceof Error
         ? error.message
@@ -2696,6 +2808,7 @@ export async function provisionBuilderAccount(input: {
       response.status,
       builderProvisioningErrorBody(parsed, rawErrorBody),
       bodyReadErrorType,
+      "invalid_response",
     );
   }
 }

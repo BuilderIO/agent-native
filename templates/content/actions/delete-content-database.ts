@@ -22,7 +22,7 @@ import {
 
 export default defineAction({
   description:
-    "Move one exact ordinary collection to recoverable Trash using its fresh configuration revision and an idempotency key; preserve records for restoration and return a receipt.",
+    "Move one exact ordinary collection to Trash using its fresh configuration revision and an idempotency key; preserve records for restoration until a daily job deletes it permanently, which it becomes eligible for after 30 days in Trash, and return a receipt.",
   mcpTool: true,
   mcpApp: { structuredContent: true },
   mcpAnnotations: {

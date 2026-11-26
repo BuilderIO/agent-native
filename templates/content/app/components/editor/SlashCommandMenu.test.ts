@@ -81,6 +81,7 @@ import {
   parseInlineGeneratePrompt,
   runGeneratePromptIfAllowed,
   slashCommandAllowedInMode,
+  slashCommandStartIndex,
   slashCommandsForDirectoryWidget,
   slashCommandsForMode,
   SlashCommandMenu,
@@ -204,10 +205,6 @@ describe("failed slash creation cleanup", () => {
   });
 });
 
-function TestIcon() {
-  return createElement("svg");
-}
-
 describe("inline slash generate command parsing", () => {
   it("extracts the prompt from /generate text", () => {
     expect(parseInlineGeneratePrompt("/generate outline this PRD")).toBe(
@@ -295,7 +292,7 @@ describe("generate command affordances", () => {
     }
   });
 
-  // oracle-change: the SlashCommandMenu.tsx grep became the rendered Generate prompt below; its icon and the removed Space shortcut guarded nothing a writer can use
+  // oracle-change: the SlashCommandMenu.tsx grep became the rendered Generate prompt below, which reaches the command by its title; the removed Space shortcut guarded nothing a writer can use
   it("sends a prompt written in the Generate popover to the agent", async () => {
     agentChat.send.mockClear();
     const container = document.createElement("div");
@@ -516,6 +513,18 @@ describe("slash command menu trigger", () => {
     expect(excludeCommandsWithDuplicateTitles(native, registry)).toEqual([
       { title: "API endpoint" },
     ]);
+  });
+
+  it("starts on a command named by the query before one matched only by its description", () => {
+    const commands = [
+      { title: "To-do list", description: "Checklist items" },
+      { title: "Add check", description: "Mark the parts that don't pass" },
+    ];
+
+    expect(slashCommandStartIndex(commands, "check")).toBe(1);
+    expect(slashCommandStartIndex(commands, "Check")).toBe(1);
+    expect(slashCommandStartIndex(commands, "")).toBe(0);
+    expect(slashCommandStartIndex(commands, "items")).toBe(0);
   });
 
   // oracle-change: the SlashCommandMenu.tsx save-call grep became these rendered saves
@@ -838,6 +847,68 @@ describe("slash command menu trigger", () => {
       container.remove();
     }
   });
+
+  it("adds a check from /check on Enter", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const editor = new Editor({
+      extensions: [StarterKit],
+      content: "<p></p>",
+    });
+    const onAddCheck = vi.fn();
+
+    try {
+      await act(async () => {
+        root.render(
+          createElement(
+            MemoryRouter,
+            null,
+            createElement(
+              QueryClientProvider,
+              { client: queryClient },
+              createElement(
+                "div",
+                { className: "visual-editor-wrapper" },
+                createElement(EditorContent, { editor }),
+                createElement(SlashCommandMenu, { editor, onAddCheck }),
+              ),
+            ),
+          ),
+        );
+        await Promise.resolve();
+      });
+
+      act(() => {
+        editor.commands.focus("end");
+        editor.commands.insertContent("/check");
+      });
+      await act(async () => Promise.resolve());
+
+      expect(container.querySelector(".slash-command-menu")).not.toBeNull();
+      act(() => {
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+      await act(async () => Promise.resolve());
+
+      expect(onAddCheck).toHaveBeenCalledOnce();
+      expect(editor.getJSON().content[0]).toMatchObject({ type: "paragraph" });
+    } finally {
+      await act(async () => root.unmount());
+      editor.destroy();
+      queryClient.clear();
+      container.remove();
+    }
+  });
 });
 
 describe("slash command pointer activation", () => {
@@ -856,7 +927,6 @@ describe("slash command pointer activation", () => {
           cmd: {
             title: "Code Block",
             description: "Insert a code block",
-            icon: TestIcon,
             action: vi.fn(),
           },
           isSelected: true,

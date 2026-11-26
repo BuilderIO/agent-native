@@ -5,10 +5,8 @@ import { join } from "node:path";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
 import {
-  compareMirroredReviewComments,
   getReviewCommentById,
   mirrorReviewComments,
-  registerReviewableResource,
 } from "@agent-native/core/review";
 import createReviewComment from "@agent-native/core/review/actions/create-review-comment";
 import deleteReviewComment from "@agent-native/core/review/actions/delete-review-comment";
@@ -20,7 +18,7 @@ import updateReviewComment from "@agent-native/core/review/actions/update-review
 import updateReviewCommentAnchor from "@agent-native/core/review/actions/update-review-comment-anchor";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { signShortLivedToken } from "@agent-native/core/server/short-lived-token";
-import { asc, eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { getCommentAccessTokenResourceId } from "./comment-access-token.js";
@@ -38,24 +36,38 @@ const MEMBER = "member@example.test";
 const STRANGER = "stranger@example.test";
 const PASSWORD = "fake-stored-share-password";
 
+const emails = vi.hoisted(() => ({
+  sendRecordingCommentEmails: vi.fn(async (_comment: { id: string }) => null),
+}));
+
 vi.mock("./activity-notifications.js", () => ({
   notifyRecordingComment: vi.fn(async () => null),
   notifyRecordingReaction: vi.fn(async () => null),
+  sendRecordingCommentEmails: emails.sendRecordingCommentEmails,
 }));
 
 interface Runnable<T = unknown> {
   run: (args: unknown, ctx?: unknown) => Promise<T>;
 }
-type Saved = { id: string; threadId: string; repeated: boolean };
+type Saved = {
+  id: string;
+  threadId: string;
+  parentId: string | null;
+  repeated: boolean;
+};
 
 let dbModule: typeof import("../db/index.js");
 let mirror: typeof import("./recording-comment-mirror.js");
+let comments: typeof import("./recording-comments.js");
 let review: typeof import("./recording-comment-review.js");
 let addComment: Runnable<Saved>;
-let replyToComment: Runnable<Saved & { parentId: string }>;
+let replyToComment: Runnable<Saved>;
 let updateComment: Runnable;
 let resolveComment: Runnable;
-let reactToComment: Runnable;
+let reactToComment: Runnable<{
+  reacted: boolean;
+  reactions: Record<string, string[]>;
+}>;
 let deleteComment: Runnable<{ deletedCommentIds: string[] }>;
 let listComments: Runnable<{ comments: unknown[] }>;
 let trashRecording: Runnable;
@@ -66,6 +78,7 @@ beforeAll(async () => {
   process.env.APP_URL = "https://clips.example.test";
   dbModule = await import("../db/index.js");
   mirror = await import("./recording-comment-mirror.js");
+  comments = await import("./recording-comments.js");
   review = await import("./recording-comment-review.js");
   addComment = (await import("../../actions/add-comment.js")).default as never;
   replyToComment = (await import("../../actions/reply-to-comment.js"))
@@ -155,35 +168,20 @@ async function createRecording(
   }
 }
 
-async function clipsCopies(recordingId: string) {
+async function clipsRows(recordingId: string) {
   const { getDb, schema } = dbModule;
-  const rows = await getDb()
-    .select()
+  return getDb()
+    .select({ id: schema.recordingComments.id })
     .from(schema.recordingComments)
-    .where(eq(schema.recordingComments.recordingId, recordingId))
-    .orderBy(asc(schema.recordingComments.createdAt));
-  return rows.map(mirror.recordingCommentCopy);
+    .where(eq(schema.recordingComments.recordingId, recordingId));
 }
 
-async function expectStoresAgree(recordingId: string) {
+async function clipsRowsInFull(recordingId: string) {
   const { getDb, schema } = dbModule;
-  const [sharing] = await getDb()
-    .select({
-      ownerEmail: schema.recordings.ownerEmail,
-      orgId: schema.recordings.orgId,
-      visibility: schema.recordings.visibility,
-    })
-    .from(schema.recordings)
-    .where(eq(schema.recordings.id, recordingId))
-    .limit(1);
-  const copies = await clipsCopies(recordingId);
-  expect(
-    await compareMirroredReviewComments(
-      { resourceType: "recording", resourceId: recordingId, ...sharing },
-      copies,
-    ),
-  ).toEqual({ checked: copies.length, differences: [] });
-  return copies.length;
+  return getDb()
+    .select()
+    .from(schema.recordingComments)
+    .where(eq(schema.recordingComments.recordingId, recordingId));
 }
 
 async function kitRows(recordingId: string) {
@@ -218,7 +216,7 @@ function unlockedFor(recordingId: string): Headers {
 }
 
 describe("Clips comments in the review kit", () => {
-  it("keeps the kit matching recording_comments through every comment action", async () => {
+  it("reads and writes every comment action through the kit and leaves recording_comments alone", async () => {
     await createRecording("rec-actions", { shares: [[VIEWER, "viewer"]] });
     const root = await as(OWNER, () =>
       addComment.run({
@@ -227,7 +225,6 @@ describe("Clips comments in the review kit", () => {
         videoTimestampMs: 12_542,
       }),
     );
-    await expectStoresAgree("rec-actions");
     expect(await stored(root.id)).toMatchObject({
       resourceType: "recording",
       resourceId: "rec-actions",
@@ -239,11 +236,13 @@ describe("Clips comments in the review kit", () => {
       body: "Tighten the **intro**",
       authorEmail: OWNER,
       createdBy: "human",
-      resolutionTarget: null,
       ownerEmail: OWNER,
       orgId: ORG,
       visibility: "private",
     });
+    expect(emails.sendRecordingCommentEmails).toHaveBeenCalledWith(
+      expect.objectContaining({ id: root.id }),
+    );
 
     const reply = await as(VIEWER, () =>
       replyToComment.run({ commentId: root.id, content: "On it" }),
@@ -257,7 +256,7 @@ describe("Clips comments in the review kit", () => {
         parentId: reply.id,
       }),
     );
-    await expectStoresAgree("rec-actions");
+    expect(reply).toMatchObject({ threadId: root.id, parentId: root.id });
     expect(await stored(reply.id)).toMatchObject({
       threadId: root.id,
       parentCommentId: root.id,
@@ -265,98 +264,145 @@ describe("Clips comments in the review kit", () => {
     });
     expect(await stored(nested.id)).toMatchObject({
       parentCommentId: reply.id,
-      anchor: { videoTimestampMs: 13_000 },
+      anchor: { videoTimestampMs: 12_542 },
     });
 
     await as(VIEWER, () =>
       reactToComment.run({ commentId: root.id, emoji: "👍" }),
     );
-    await as(OWNER, () =>
+    const reacted = await as(OWNER, () =>
       reactToComment.run({ commentId: root.id, emoji: "👍" }),
     );
+    expect(reacted.reacted).toBe(true);
+    expect(reacted.reactions["👍"]?.sort()).toEqual([OWNER, VIEWER].sort());
     await as(OWNER, () =>
       reactToComment.run({ commentId: reply.id, emoji: "🔥" }),
     );
-    await expectStoresAgree("rec-actions");
-    await as(OWNER, () =>
+    const undone = await as(OWNER, () =>
       reactToComment.run({ commentId: reply.id, emoji: "🔥" }),
     );
-    await expectStoresAgree("rec-actions");
+    expect(undone).toMatchObject({ reacted: false, reactions: {} });
 
     await as(OWNER, () =>
       updateComment.run({ id: root.id, content: "Tighten the intro, please" }),
     );
-    await expectStoresAgree("rec-actions");
     expect((await stored(root.id))?.body).toBe("Tighten the intro, please");
 
-    await as(VIEWER, () => resolveComment.run({ id: reply.id }));
-    await as(OWNER, () => resolveComment.run({ id: root.id, resolved: true }));
-    await expectStoresAgree("rec-actions");
-    expect((await stored(root.id))?.status).toBe("resolved");
+    const listed = await as(VIEWER, () =>
+      listComments.run({ recordingId: "rec-actions" }),
+    );
+    expect(listed.comments).toHaveLength(3);
+    expect(listed.comments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: root.id,
+          threadId: root.id,
+          parentId: null,
+          content: "Tighten the intro, please",
+          videoTimestampMs: 12_542,
+          resolved: false,
+        }),
+        expect.objectContaining({ id: reply.id, parentId: root.id }),
+        expect.objectContaining({ id: nested.id, parentId: reply.id }),
+      ]),
+    );
+
+    await expect(
+      as(VIEWER, () => resolveComment.run({ id: reply.id })),
+    ).rejects.toThrow("Only the comment author or a recording editor");
+    await as(OWNER, () => resolveComment.run({ id: reply.id }));
+    for (const id of [root.id, reply.id, nested.id]) {
+      expect((await stored(id))?.status).toBe("resolved");
+    }
+    await expect(
+      as(VIEWER, () =>
+        replyToComment.run({ commentId: root.id, content: "Too late" }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "thread_not_open" });
     await as(OWNER, () => resolveComment.run({ id: root.id, resolved: false }));
-    await expectStoresAgree("rec-actions");
+    expect((await stored(root.id))?.status).toBe("open");
+    await getDbExec().execute({
+      sql: "UPDATE agent_review_comments SET status = 'resolved' WHERE id = ?",
+      args: [root.id],
+    });
+    await as(OWNER, () => resolveComment.run({ id: nested.id }));
     expect((await stored(root.id))?.status).toBe("open");
 
     await as(OWNER, () => deleteComment.run({ id: nested.id }));
-    expect(await expectStoresAgree("rec-actions")).toBe(2);
     expect(await stored(nested.id)).toMatchObject({
       status: "deleted",
       body: "",
       deletedBy: OWNER,
     });
-
     const removed = await as(OWNER, () => deleteComment.run({ id: root.id }));
     expect(removed.deletedCommentIds.sort()).toEqual(
       [reply.id, root.id].sort(),
     );
-    expect(await expectStoresAgree("rec-actions")).toBe(0);
     expect((await stored(reply.id))?.status).toBe("deleted");
+    expect(await clipsRows("rec-actions")).toEqual([]);
   });
 
-  it("creates nothing in either store when an add repeats its idempotency key", async () => {
-    await createRecording("rec-repeat");
+  it("saves a keyed comment once, and refuses its key for another comment or after a delete", async () => {
+    await createRecording("rec-repeat", { shares: [[VIEWER, "viewer"]] });
     const args = {
       recordingId: "rec-repeat",
       content: "Saved once",
       videoTimestampMs: 4_000,
       idempotencyKey: "mirror-repeat-key-0001",
     };
+    const sent = emails.sendRecordingCommentEmails.mock.calls.length;
     const first = await as(OWNER, () => addComment.run(args));
     const before = await kitRows("rec-repeat");
     const second = await as(OWNER, () => addComment.run(args));
 
     expect(second).toMatchObject({ id: first.id, repeated: true });
-    expect(await expectStoresAgree("rec-repeat")).toBe(1);
     expect(await kitRows("rec-repeat")).toEqual(before);
+    expect(emails.sendRecordingCommentEmails.mock.calls.length).toBe(sent + 1);
+
+    await expect(
+      as(OWNER, () => addComment.run({ ...args, content: "Something else" })),
+    ).rejects.toMatchObject({
+      errorCode: "comment_key_used",
+      statusCode: 409,
+    });
+    const viewers = await as(VIEWER, () => addComment.run(args));
+    expect(viewers.id).not.toBe(first.id);
+
+    await as(OWNER, () => deleteComment.run({ id: first.id }));
+    await expect(as(OWNER, () => addComment.run(args))).rejects.toMatchObject({
+      errorCode: "comment_key_used",
+      message: expect.stringContaining("was deleted"),
+    });
   });
 
-  it("moves the kit's anchors with a Rewind that shifts the video", async () => {
+  it("moves comments with a Rewind that shifts the video, and leaves deleted ones", async () => {
     await createRecording("rec-rewind");
-    const comment = await as(OWNER, () =>
-      addComment.run({
-        recordingId: "rec-rewind",
-        content: "Here",
-        videoTimestampMs: 1_000,
-      }),
+    const add = (videoTimestampMs: number) =>
+      as(OWNER, () =>
+        addComment.run({
+          recordingId: "rec-rewind",
+          content: "Here",
+          videoTimestampMs,
+        }),
+      );
+    const comment = await add(1_000);
+    const gone = await add(2_000);
+    await as(OWNER, () => deleteComment.run({ id: gone.id }));
+    const revision = (await stored(comment.id))?.revision ?? 0;
+    const goneAnchor = (await stored(gone.id))?.anchor;
+    const { getDb } = dbModule;
+    await getDb().transaction((tx) =>
+      comments.shiftRecordingComments(tx, "rec-rewind", 5_000),
     );
-    const { getDb, schema } = dbModule;
-    await getDb().transaction(async (tx) => {
-      await tx
-        .update(schema.recordingComments)
-        .set({
-          videoTimestampMs: sql`${schema.recordingComments.videoTimestampMs} + 5000`,
-        })
-        .where(eq(schema.recordingComments.recordingId, "rec-rewind"));
-      await mirror.mirrorRecordingComments(tx, "rec-rewind", "all");
-    });
 
-    await expectStoresAgree("rec-rewind");
-    expect((await stored(comment.id))?.anchor).toEqual({
-      videoTimestampMs: 6_000,
+    expect(await stored(comment.id)).toMatchObject({
+      anchor: { videoTimestampMs: 6_000 },
+      revision: revision + 1,
     });
+    expect((await stored(gone.id))?.anchor).toEqual(goneAnchor);
   });
 
-  it("leaves both stores as they were when a recording is trashed", async () => {
+  it("leaves comments as they were when a recording is trashed", async () => {
     await createRecording("rec-trash", { shares: [[VIEWER, "viewer"]] });
     const comment = await as(VIEWER, () =>
       addComment.run({
@@ -367,7 +413,6 @@ describe("Clips comments in the review kit", () => {
     );
     await as(OWNER, () => trashRecording.run({ id: "rec-trash" }));
 
-    expect(await expectStoresAgree("rec-trash")).toBe(1);
     expect((await stored(comment.id))?.status).toBe("open");
     expect(
       await review.resolveRecordingCommentAccess("rec-trash", {
@@ -397,7 +442,6 @@ describe("Clips comments in the review kit", () => {
     );
     await as(OWNER, () => deleteRecordingPermanent.run({ id: "rec-delete" }));
 
-    expect(await expectStoresAgree("rec-delete")).toBe(0);
     for (const id of [root.id, reply.id]) {
       expect(await stored(id)).toMatchObject({
         status: "deleted",
@@ -407,32 +451,97 @@ describe("Clips comments in the review kit", () => {
     }
   });
 
-  it("rolls the kit's copy back with a comment write that fails", async () => {
-    await createRecording("rec-rollback");
+  it("deletes a comment's copy from before the switch along with it, emptying one that holds a key", async () => {
+    await createRecording("rec-old-copies");
     const { getDb, schema } = dbModule;
-
-    await expect(
-      getDb().transaction(async (tx) => {
-        await tx.insert(schema.recordingComments).values({
-          id: "rolled-back",
-          recordingId: "rec-rollback",
+    await getDb()
+      .insert(schema.recordingComments)
+      .values(
+        [
+          { id: "old-root", threadId: "old-root", parentId: null },
+          { id: "old-reply", threadId: "old-root", parentId: "old-root" },
+          { id: "old-kept", threadId: "old-kept", parentId: null },
+          {
+            id: "old-keyed",
+            threadId: "old-keyed",
+            parentId: null,
+            idempotencyKey: "content-key",
+            mentionsJson: JSON.stringify([{ email: MEMBER, name: "Member" }]),
+            emojiReactionsJson: JSON.stringify({ "🎉": [MEMBER] }),
+          },
+        ].map((row) => ({
+          ...row,
+          recordingId: "rec-old-copies",
           organizationId: ORG,
-          threadId: "rolled-back",
-          content: "Never saved",
+          content: `Written as ${row.id}`,
+          videoTimestampMs: 5_000,
           authorEmail: OWNER,
-        });
-        await mirror.mirrorRecordingComments(tx, "rec-rollback", [
-          "rolled-back",
-        ]);
-        expect(await stored("rolled-back")).not.toBeNull();
-        throw new Error("The comment write failed");
-      }),
-    ).rejects.toThrow("The comment write failed");
+          createdAt: "2026-10-01T09:00:00.000Z",
+          updatedAt: "2026-10-01T09:00:00.000Z",
+        })),
+      );
+    await mirrorReviewComments(
+      { resourceType: "recording", resourceId: "rec-old-copies" },
+      (await clipsRowsInFull("rec-old-copies")).map((row) =>
+        mirror.recordingCommentCopy(row),
+      ),
+    );
+    const oldIds = async () =>
+      (await clipsRows("rec-old-copies")).map((row) => row.id).sort();
 
-    expect(await stored("rolled-back")).toBeNull();
+    await as(OWNER, () => deleteComment.run({ id: "old-reply" }));
+    expect(await oldIds()).toEqual(["old-kept", "old-keyed", "old-root"]);
+    await as(OWNER, () =>
+      (deleteReviewComment as Runnable).run(
+        {
+          resourceType: "recording",
+          resourceId: "rec-old-copies",
+          commentId: "old-root",
+        },
+        { userEmail: OWNER, orgId: ORG, caller: "frontend" },
+      ),
+    );
+    expect(await oldIds()).toEqual(["old-kept", "old-keyed"]);
+    expect(await stored("old-root")).toMatchObject({ status: "deleted" });
+    await as(OWNER, () => deleteComment.run({ id: "old-keyed" }));
+    const left = await clipsRowsInFull("rec-old-copies");
+    expect(
+      left
+        .map(
+          ({
+            id,
+            content,
+            idempotencyKey,
+            mentionsJson,
+            emojiReactionsJson,
+          }) => ({
+            id,
+            content,
+            idempotencyKey,
+            mentionsJson,
+            emojiReactionsJson,
+          }),
+        )
+        .sort((a, b) => (a.id < b.id ? -1 : 1)),
+    ).toEqual([
+      {
+        id: "old-kept",
+        content: "Written as old-kept",
+        idempotencyKey: null,
+        mentionsJson: null,
+        emojiReactionsJson: "{}",
+      },
+      {
+        id: "old-keyed",
+        content: "",
+        idempotencyKey: "content-key",
+        mentionsJson: null,
+        emojiReactionsJson: "{}",
+      },
+    ]);
   });
 
-  it("copies comments written before the mirror, and a second copy changes nothing", async () => {
+  it("adds the comments the kit lacks once, links replies saved without a parent, and changes nothing else", async () => {
     await createRecording("rec-legacy", { visibility: "public" });
     const { getDb, schema } = dbModule;
     await getDb()
@@ -480,6 +589,17 @@ describe("Clips comments in the review kit", () => {
           createdAt: "2026-10-01T09:06:00.000Z",
           updatedAt: "2026-10-01T09:06:00.000Z",
         },
+        {
+          id: "legacy-deleted",
+          recordingId: "rec-legacy",
+          organizationId: ORG,
+          threadId: "legacy-deleted",
+          content: "Deleted through the kit",
+          videoTimestampMs: 1_000,
+          authorEmail: OWNER,
+          createdAt: "2026-10-03T09:00:00.000Z",
+          updatedAt: "2026-10-03T09:00:00.000Z",
+        },
       ]);
     await getDb().insert(schema.recordingComments).values({
       id: "orphan",
@@ -489,12 +609,47 @@ describe("Clips comments in the review kit", () => {
       content: "Orphaned",
       authorEmail: OWNER,
     });
+    const unlinked = await getDb()
+      .select()
+      .from(schema.recordingComments)
+      .where(eq(schema.recordingComments.id, "legacy-unlinked"));
+    await mirrorReviewComments(
+      { resourceType: "recording", resourceId: "rec-legacy" },
+      [
+        ...unlinked.map((row) => mirror.recordingCommentCopy(row)),
+        {
+          id: "legacy-deleted",
+          threadId: "legacy-deleted",
+          parentCommentId: null,
+          anchor: { videoTimestampMs: 1_000 },
+          anchorKind: "video-time",
+          anchorVersion: 1,
+          body: "Deleted through the kit",
+          authorEmail: OWNER,
+          authorName: null,
+          createdBy: "human",
+          resolved: false,
+          createdAt: "2026-10-03T09:00:00.000Z",
+          updatedAt: "2026-10-03T09:00:00.000Z",
+        },
+      ],
+    );
+    await mirror.deleteMirroredRecordingComments(
+      "rec-legacy",
+      ["legacy-deleted"],
+      OWNER,
+    );
+    const kitWritten = await as(OWNER, () =>
+      addComment.run({
+        recordingId: "rec-legacy",
+        content: "Written through the kit",
+        videoTimestampMs: 2_000,
+      }),
+    );
 
-    const first = await mirror.copyRecordingCommentsToReviewKit();
+    const first = await mirror.addMissingRecordingCommentsToReviewKit();
     expect(first.failedRecordings).toEqual([]);
-    expect(first.differences).toEqual([]);
-    expect(first).toMatchObject({ repliesWithoutParent: 1 });
-    expect(await expectStoresAgree("rec-legacy")).toBe(3);
+    expect(first).toMatchObject({ added: 2, linked: 1 });
     expect(await stored("legacy-root")).toMatchObject({
       status: "resolved",
       resolvedAt: "2026-10-02T09:00:00.000Z",
@@ -507,6 +662,16 @@ describe("Clips comments in the review kit", () => {
       parentCommentId: "legacy-root",
       status: "open",
     });
+    expect(await stored("legacy-unlinked")).toMatchObject({
+      threadId: "legacy-root",
+      parentCommentId: "legacy-root",
+    });
+    expect(await stored("legacy-deleted")).toMatchObject({
+      status: "deleted",
+      body: "",
+    });
+    expect((await stored(kitWritten.id))?.status).toBe("open");
+    expect(await stored("orphan")).toBeNull();
     const { rows: reactions } = await getDbExec().execute(
       `SELECT comment_id, actor_email, reaction FROM agent_review_comment_reactions
         WHERE comment_id IN ('legacy-root', 'legacy-unlinked')
@@ -516,206 +681,92 @@ describe("Clips comments in the review kit", () => {
       { comment_id: "legacy-root", actor_email: MEMBER, reaction: "🎉" },
       { comment_id: "legacy-root", actor_email: OWNER, reaction: "🎉" },
     ]);
-    expect(await stored("orphan")).toBeNull();
 
+    await as(OWNER, () =>
+      updateComment.run({ id: "legacy-reply", content: "Fixed it for good" }),
+    );
     const kitBefore = await kitRows("rec-legacy");
-    const again = await mirror.copyRecordingCommentsToReviewKit();
-    expect(again).toEqual(first);
+    const again = await mirror.addMissingRecordingCommentsToReviewKit();
+    expect(again).toMatchObject({
+      added: 0,
+      linked: 0,
+      failedRecordings: [],
+    });
     expect(await kitRows("rec-legacy")).toEqual(kitBefore);
+    expect((await stored("legacy-reply"))?.body).toBe("Fixed it for good");
   });
 
-  it("clears comments Clips copied but no longer has, and keeps ones written through the kit", async () => {
-    await createRecording("rec-kit-only");
-    const comment = await as(OWNER, () =>
-      addComment.run({
-        recordingId: "rec-kit-only",
-        content: "Gone from Clips",
-        videoTimestampMs: 0,
-      }),
-    );
-    const { getDb, schema } = dbModule;
-    await getDb()
-      .delete(schema.recordingComments)
-      .where(eq(schema.recordingComments.recordingId, "rec-kit-only"));
-    const at = "2026-11-20T12:00:00.000Z";
-    await mirrorReviewComments(
-      { resourceType: "recording", resourceId: "rec-deleted-elsewhere" },
-      [
-        {
-          id: "kit-only-recording-root",
-          threadId: "kit-only-recording-root",
-          parentCommentId: null,
-          body: "On a recording another server deleted",
-          authorEmail: OWNER,
-          authorName: null,
-          createdBy: "human",
-          resolved: false,
-          createdAt: at,
-          updatedAt: at,
-        },
-      ],
-    );
-    await mirrorReviewComments(
-      { resourceType: "recording", resourceId: "rec-kit-only" },
-      [
-        {
-          id: "kit-written-recording-root",
-          threadId: "kit-written-recording-root",
-          parentCommentId: null,
-          body: "Written through the kit before Clips registered",
-          authorEmail: OWNER,
-          authorName: null,
-          createdBy: "human",
-          resolved: false,
-          createdAt: at,
-          updatedAt: at,
-        },
-      ],
-    );
-
-    const report = await mirror.copyRecordingCommentsToReviewKit();
-
-    expect(report.failedRecordings).toEqual([]);
-    expect(report.differences).toEqual([]);
-    for (const id of [comment.id, "kit-only-recording-root"]) {
-      expect(await stored(id)).toMatchObject({ status: "deleted", body: "" });
-    }
-    expect(await stored("kit-written-recording-root")).toMatchObject({
-      status: "open",
-      body: "Written through the kit before Clips registered",
-    });
-    expect(report.kitWrittenComments).toContainEqual({
-      recordingId: "rec-kit-only",
-      id: "kit-written-recording-root",
-    });
-  });
-
-  it("deletes an agent's reply through the kit in a thread Clips deleted, and keeps one in a thread Clips kept", async () => {
-    await createRecording("rec-orphan");
-    const add = (content: string) =>
-      as(OWNER, () =>
-        addComment.run({
-          recordingId: "rec-orphan",
-          content,
-          videoTimestampMs: 0,
-        }),
-      );
-    const gone = await add("Deleted by a server on the old code");
-    const here = await add("Still in Clips");
-    const at = "2026-11-20T12:00:00.000Z";
-    const kitReply = (id: string, threadId: string) => ({
-      id,
-      threadId,
-      parentCommentId: threadId,
-      anchor: { videoTimestampMs: 0 },
-      anchorKind: "video-time",
-      anchorVersion: 1,
-      body: "A reply through the kit's own actions",
-      authorEmail: OWNER,
-      authorName: null,
-      createdBy: "agent" as const,
-      resolved: false,
-      createdAt: at,
-      updatedAt: at,
-    });
-    await mirrorReviewComments(
-      { resourceType: "recording", resourceId: "rec-orphan" },
-      [
-        kitReply("kit-recording-reply-gone", gone.id),
-        kitReply("kit-recording-reply-here", here.id),
-      ],
-    );
-    const { getDb, schema } = dbModule;
-    await getDb()
-      .delete(schema.recordingComments)
-      .where(eq(schema.recordingComments.id, gone.id));
-
-    const report = await mirror.copyRecordingCommentsToReviewKit();
-
-    expect(report.failedRecordings).toEqual([]);
-    expect(report.differences).toEqual([]);
-    for (const id of [gone.id, "kit-recording-reply-gone"]) {
-      expect(await stored(id)).toMatchObject({ status: "deleted", body: "" });
-    }
-    expect(report.orphanedReplies).toEqual([
-      { recordingId: "rec-orphan", id: "kit-recording-reply-gone" },
-    ]);
-    expect(await stored("kit-recording-reply-here")).toMatchObject({
-      status: "open",
-    });
-    expect(report.kitWrittenComments).toContainEqual({
-      recordingId: "rec-orphan",
-      id: "kit-recording-reply-here",
-    });
-  });
-
-  it("refuses recording comment writes through the kit's own actions", async () => {
+  it("takes recording comments written through the kit's own actions, with Clips' rules and emails", async () => {
     await createRecording("rec-kit-write");
-    const comment = await as(OWNER, () =>
-      addComment.run({
-        recordingId: "rec-kit-write",
-        content: "Written in Clips",
-        videoTimestampMs: 0,
-      }),
-    );
     const recording = {
       resourceType: "recording",
       resourceId: "rec-kit-write",
     };
     const ctx = { userEmail: OWNER, orgId: ORG, caller: "frontend" };
-    const kitWrites: Array<[unknown, Record<string, unknown>]> = [
-      [createReviewComment, { ...recording, body: "Written around Clips" }],
-      [
-        replyReviewComment,
-        { ...recording, commentId: comment.id, body: "Reply around Clips" },
-      ],
-      [
-        reactToReviewComment,
-        { ...recording, commentId: comment.id, reaction: "👀", active: true },
-      ],
-      [resolveReviewThread, { ...recording, threadId: comment.threadId }],
-      [
-        updateReviewComment,
-        { ...recording, commentId: comment.id, body: "Edited around Clips" },
-      ],
-      [deleteReviewComment, { ...recording, commentId: comment.id }],
-    ];
+    const run = <T>(action: unknown, args: Record<string, unknown>) =>
+      as(OWNER, () => (action as Runnable<T>).run(args, ctx));
+    const sent = emails.sendRecordingCommentEmails.mock.calls.length;
 
-    for (const [action, args] of kitWrites) {
-      await expect(
-        as(OWNER, () => (action as Runnable).run(args, ctx)),
-      ).rejects.toThrow("add-comment");
-    }
-    await as(OWNER, () =>
-      resolveComment.run({ id: comment.id, resolved: true }, ctx),
+    const created = await run<{ id: string; threadId: string }>(
+      createReviewComment,
+      {
+        ...recording,
+        body: "Written around Clips",
+        anchorKind: "video-time",
+        anchor: { videoTimestampMs: 7_000 },
+      },
     );
-    await expect(
-      as(OWNER, () =>
-        (resolveReviewThread as unknown as Runnable).run(
-          {
-            ...recording,
-            threadId: comment.threadId,
-            status: "resolved",
-            resolutionNote: "Changed through the kit",
-          },
-          ctx,
-        ),
-      ),
-    ).rejects.toThrow("add-comment");
-    await expectStoresAgree("rec-kit-write");
+    const replied = await run<{ id: string }>(replyReviewComment, {
+      ...recording,
+      commentId: created.id,
+      body: "Reply around Clips",
+    });
+    await run(reactToReviewComment, {
+      ...recording,
+      commentId: created.id,
+      reaction: "👀",
+      active: true,
+    });
+    await run(updateReviewComment, {
+      ...recording,
+      commentId: created.id,
+      body: "Edited around Clips",
+    });
+    await run(resolveReviewThread, {
+      ...recording,
+      threadId: created.threadId,
+      status: "resolved",
+    });
+
+    expect(emails.sendRecordingCommentEmails.mock.calls.length).toBe(sent + 2);
+    const listed = await as(OWNER, () =>
+      listComments.run({ recordingId: "rec-kit-write" }),
+    );
+    expect(listed.comments).toHaveLength(2);
+    expect(listed.comments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: created.id,
+          content: "Edited around Clips",
+          videoTimestampMs: 7_000,
+          emojiReactionsJson: JSON.stringify({ "👀": [OWNER] }),
+          resolved: true,
+        }),
+        expect.objectContaining({
+          id: replied.id,
+          parentId: created.id,
+          videoTimestampMs: 7_000,
+          resolved: true,
+        }),
+      ]),
+    );
+
+    await run(deleteReviewComment, { ...recording, commentId: created.id });
+    expect((await stored(replied.id))?.status).toBe("deleted");
   });
 });
 
 describe("Clips' comment access through the review kit", () => {
-  beforeAll(() => {
-    const { commentsWrittenByApp: _writtenByClips, ...openToTheKit } =
-      review.recordingReviewResource;
-    registerReviewableResource(openToTheKit);
-  });
-  afterAll(() => {
-    registerReviewableResource(review.recordingReviewResource);
-  });
-
   async function outcome(run: () => Promise<unknown>): Promise<boolean> {
     try {
       await run();
@@ -883,6 +934,37 @@ describe("Clips' comment access through the review kit", () => {
 
     expect(await compareAccess("acc-off", OWNER)).toEqual(both(true, false));
     expect(await compareAccess("acc-off", EDITOR)).toEqual(both(false, false));
+  });
+
+  it("lets a viewer delete their own reply after the owner turns comments off", async () => {
+    await createRecording("acc-off-later", { shares: [[VIEWER, "viewer"]] });
+    const thread = await as(OWNER, () =>
+      addComment.run({
+        recordingId: "acc-off-later",
+        content: "Owner's note",
+        videoTimestampMs: 0,
+      }),
+    );
+    const reply = await as(VIEWER, () =>
+      addComment.run({
+        recordingId: "acc-off-later",
+        content: "Viewer's reply",
+        videoTimestampMs: 0,
+        threadId: thread.threadId,
+        parentId: thread.id,
+      }),
+    );
+    const { getDb, schema } = dbModule;
+    await getDb()
+      .update(schema.recordings)
+      .set({ enableComments: false })
+      .where(eq(schema.recordings.id, "acc-off-later"));
+
+    await expect(
+      as(VIEWER, () => deleteComment.run({ id: reply.id })),
+    ).resolves.toMatchObject({ deletedCommentIds: [reply.id] });
+    expect((await stored(reply.id))?.status).toBe("deleted");
+    expect((await stored(thread.id))?.status).toBe("open");
   });
 
   it("lets a thread's author or an editor resolve it, and moves no one's comment in time", async () => {
