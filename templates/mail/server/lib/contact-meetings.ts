@@ -14,9 +14,12 @@ import { peerAppTarget, peerAppUrl } from "./peer-apps.js";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const UPCOMING_DAYS = 60;
 const PAST_DAYS = 90;
+const UPCOMING_WINDOW_DAYS = [14, UPCOMING_DAYS];
 const PAST_WINDOW_DAYS = [14, PAST_DAYS];
 const CALENDAR_DEADLINE_MS = 5_000;
-const CALENDAR_MAX_PAGES = 3;
+const CALENDAR_MAX_PAGES = 4;
+const GOOGLE_PAGE_SIZE = 250;
+const GOOGLE_MAX_PAGES = 4;
 const NOT_MEETINGS = new Set([
   "workingLocation",
   "outOfOffice",
@@ -25,7 +28,6 @@ const NOT_MEETINGS = new Set([
 ]);
 
 const calendarInventorySchema = z.object({
-  resolvedAccounts: z.array(z.string()),
   accounts: z.array(
     z.object({
       accountEmail: z.string(),
@@ -42,6 +44,7 @@ const calendarInventorySchema = z.object({
   ),
   items: z.array(
     z.object({
+      key: z.string(),
       id: z.string(),
       title: z.string(),
       start: z.string(),
@@ -53,7 +56,6 @@ const calendarInventorySchema = z.object({
       calendarSourceKey: z.string().optional(),
       organizer: z.object({ email: z.string().optional() }).optional(),
       attendees: z.array(z.object({ email: z.string().optional() })),
-      attendeesComplete: z.boolean(),
     }),
   ),
   page: z.object({
@@ -71,6 +73,8 @@ type FoundMeetings = Pick<
   ContactMeetings,
   "upcoming" | "recent" | "failedAccounts"
 >;
+type Clock = { now: Date; today: string };
+type Deadline = { expired: boolean };
 
 type GoogleCalendarEvent = {
   id?: string;
@@ -106,10 +110,29 @@ function sameEmail(value: string | undefined, email: string) {
   return value?.trim().toLowerCase() === email;
 }
 
+function dateIn(now: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((entry) => entry.type === type)?.value;
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
 async function readCalendarPage(
   auth: CalendarAuth,
   input: Record<string, unknown>,
+  deadline: Deadline,
 ): Promise<CalendarInventory> {
+  if (deadline.expired) {
+    throw new CalendarSkipped(
+      "unavailable",
+      new Error("Calendar ran out of time"),
+    );
+  }
   let response: Awaited<ReturnType<typeof invokeAgentAction>>;
   try {
     response = await invokeAgentAction({
@@ -140,11 +163,12 @@ async function readCalendarPage(
     throw new CalendarSkipped("unavailable", parsed.error);
   }
   const inventory = parsed.data;
-  const notConnected = inventory.sourceCoverage.some(
-    (entry) =>
-      entry.source === "google" && entry.error?.code === "NOT_CONNECTED",
-  );
-  if (notConnected || inventory.resolvedAccounts.length === 0) {
+  if (
+    inventory.sourceCoverage.some(
+      (entry) =>
+        entry.source === "google" && entry.error?.code === "NOT_CONNECTED",
+    )
+  ) {
     throw new CalendarSkipped("not_connected");
   }
   if (
@@ -165,26 +189,30 @@ async function readCalendarPage(
   return inventory;
 }
 
-async function readCalendarRange(
+async function readCalendarWindow(
   auth: CalendarAuth,
   email: string,
   from: Date,
   to: Date,
-  firstPageOnly: boolean,
+  deadline: Deadline,
 ) {
   const items: CalendarItem[] = [];
   const failed = new Map<string, string>();
   let cursor: string | undefined;
   for (let page = 0; page < CALENDAR_MAX_PAGES; page += 1) {
-    const inventory = await readCalendarPage(auth, {
-      from: from.toISOString(),
-      to: to.toISOString(),
-      query: email,
-      sources: ["google"],
-      format: "inventory",
-      pageSize: 100,
-      ...(cursor ? { cursor } : {}),
-    });
+    const inventory = await readCalendarPage(
+      auth,
+      {
+        from: from.toISOString(),
+        to: to.toISOString(),
+        query: email,
+        sources: ["google"],
+        format: "inventory",
+        pageSize: 100,
+        ...(cursor ? { cursor } : {}),
+      },
+      deadline,
+    );
     items.push(...inventory.items);
     for (const account of inventory.accounts) {
       if (account.status === "error") {
@@ -194,14 +222,14 @@ async function readCalendarRange(
         );
       }
     }
-    if (firstPageOnly || !inventory.page.hasMore) return { items, failed };
+    if (!inventory.page.hasMore) return { items, failed };
     cursor = inventory.page.nextCursor;
     if (!cursor) break;
   }
   throw new CalendarSkipped(
     "unavailable",
     new Error(
-      `Calendar returned more than ${CALENDAR_MAX_PAGES} pages of events with ${email}`,
+      `Calendar has more than ${CALENDAR_MAX_PAGES} pages of events mentioning ${email} between ${from.toISOString()} and ${to.toISOString()}`,
     ),
   );
 }
@@ -215,8 +243,7 @@ function calendarMeeting(
   if (item.eventType && NOT_MEETINGS.has(item.eventType)) return undefined;
   const withPerson =
     sameEmail(item.organizer?.email, email) ||
-    item.attendees.some((attendee) => sameEmail(attendee.email, email)) ||
-    !item.attendeesComplete;
+    item.attendees.some((attendee) => sameEmail(attendee.email, email));
   if (!withPerson) return undefined;
   const link = buildDeepLink({
     app: "calendar",
@@ -267,7 +294,13 @@ function googleMeeting(
   };
 }
 
-function splitMeetings(meetings: ContactMeeting[], now: Date, limit: number) {
+function isOver(meeting: ContactMeeting, clock: Clock) {
+  return meeting.allDay
+    ? meeting.end.slice(0, 10) <= clock.today
+    : Date.parse(meeting.end) <= clock.now.getTime();
+}
+
+function splitMeetings(meetings: ContactMeeting[], clock: Clock) {
   const unique = new Map<string, ContactMeeting>();
   for (const meeting of meetings) {
     const key = `${meeting.start}|${meeting.end}|${meeting.title}`;
@@ -275,17 +308,23 @@ function splitMeetings(meetings: ContactMeeting[], now: Date, limit: number) {
   }
   const all = [...unique.values()];
   const startOf = (meeting: ContactMeeting) => Date.parse(meeting.start);
-  const isOver = (meeting: ContactMeeting) =>
-    Date.parse(meeting.end) <= now.getTime();
   return {
     upcoming: all
-      .filter((meeting) => !isOver(meeting))
-      .sort((a, b) => startOf(a) - startOf(b))
-      .slice(0, limit),
+      .filter((meeting) => !isOver(meeting, clock))
+      .sort((a, b) => startOf(a) - startOf(b)),
     recent: all
-      .filter(isOver)
-      .sort((a, b) => startOf(b) - startOf(a))
-      .slice(0, limit),
+      .filter((meeting) => isOver(meeting, clock))
+      .sort((a, b) => startOf(b) - startOf(a)),
+  };
+}
+
+function firstOf(
+  meetings: ReturnType<typeof splitMeetings>,
+  limit: number,
+): Pick<FoundMeetings, "upcoming" | "recent"> {
+  return {
+    upcoming: meetings.upcoming.slice(0, limit),
+    recent: meetings.recent.slice(0, limit),
   };
 }
 
@@ -298,52 +337,77 @@ function failedList(failed: Map<string, string>) {
 
 async function readFromCalendar(
   email: string,
-  now: Date,
+  clock: Clock,
   limit: number,
   calendarUrl: string | undefined,
+  deadline: Deadline,
 ): Promise<FoundMeetings> {
-  const auth = await resolveA2ACallerAuth();
+  let auth: Awaited<ReturnType<typeof resolveA2ACallerAuth>>;
+  try {
+    auth = await resolveA2ACallerAuth();
+  } catch (error) {
+    throw new CalendarSkipped("unavailable", error);
+  }
   const userEmail = auth.userEmail;
-  if (!userEmail) throw new CalendarSkipped("unavailable");
+  if (!userEmail) {
+    throw new CalendarSkipped(
+      "unavailable",
+      new Error("No signed-in user to send to Calendar"),
+    );
+  }
   const signedIn = { ...auth, userEmail };
   const toMeetings = (items: CalendarItem[]) =>
     items.flatMap((item) => calendarMeeting(item, email, calendarUrl) ?? []);
 
-  const readUpcoming = readCalendarRange(
-    signedIn,
-    email,
-    now,
-    addDays(now, UPCOMING_DAYS),
-    true,
-  );
-  const readPast = async () => {
+  const read = async (direction: "upcoming" | "recent") => {
     const items: CalendarItem[] = [];
     const failed = new Map<string, string>();
-    let to = now;
-    for (const days of PAST_WINDOW_DAYS) {
-      const from = addDays(now, -days);
-      const range = await readCalendarRange(signedIn, email, from, to, false);
-      items.push(...range.items);
-      for (const [account, message] of range.failed) {
+    let reached = 0;
+    const windows =
+      direction === "upcoming" ? UPCOMING_WINDOW_DAYS : PAST_WINDOW_DAYS;
+    for (const days of windows) {
+      const from =
+        direction === "upcoming"
+          ? addDays(clock.now, reached)
+          : addDays(clock.now, -days);
+      const to =
+        direction === "upcoming"
+          ? addDays(clock.now, days)
+          : addDays(clock.now, -reached);
+      const window = await readCalendarWindow(
+        signedIn,
+        email,
+        from,
+        to,
+        deadline,
+      );
+      items.push(...window.items);
+      for (const [account, message] of window.failed) {
         failed.set(account, message);
       }
-      if (splitMeetings(toMeetings(items), now, limit).recent.length >= limit) {
-        break;
-      }
-      to = from;
+      const settled = splitMeetings(toMeetings(items), clock)[
+        direction
+      ].filter(
+        (meeting) =>
+          direction === "upcoming" ||
+          Date.parse(meeting.start) >= from.getTime(),
+      );
+      if (settled.length >= limit) break;
+      reached = days;
     }
     return { items, failed };
   };
 
-  const [upcoming, past] = await Promise.all([readUpcoming, readPast()]);
-  const failed = new Map([...upcoming.failed, ...past.failed]);
+  const [upcoming, past] = await Promise.all([
+    read("upcoming"),
+    read("recent"),
+  ]);
   return {
-    ...splitMeetings(
-      toMeetings([...upcoming.items, ...past.items]),
-      now,
+    ...firstOf(
+      splitMeetings(toMeetings([...upcoming.items, ...past.items]), clock),
       limit,
     ),
-    failedAccounts: failedList(failed),
+    failedAccounts: failedList(new Map([...upcoming.failed, ...past.failed])),
   };
 }
 
@@ -354,10 +418,43 @@ function googleCalendarError(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
+async function readGoogleEvents(
+  accessToken: string,
+  email: string,
+  clock: Clock,
+) {
+  const events: GoogleCalendarEvent[] = [];
+  let pageToken: string | undefined;
+  for (let page = 0; page < GOOGLE_MAX_PAGES; page += 1) {
+    const response = (await calendarListEvents(accessToken, "primary", {
+      q: email,
+      timeMin: addDays(clock.now, -PAST_DAYS).toISOString(),
+      timeMax: addDays(clock.now, UPCOMING_DAYS).toISOString(),
+      singleEvents: "true",
+      orderBy: "startTime",
+      maxResults: GOOGLE_PAGE_SIZE,
+      ...(pageToken ? { pageToken } : {}),
+    })) as {
+      kind?: string;
+      items?: GoogleCalendarEvent[];
+      nextPageToken?: string;
+    } | null;
+    if (response?.kind !== "calendar#events") {
+      throw new Error("Google Calendar didn't return a list of events.");
+    }
+    events.push(...(response.items ?? []));
+    pageToken = response.nextPageToken;
+    if (!pageToken) return events;
+  }
+  throw new Error(
+    `More than ${GOOGLE_MAX_PAGES * GOOGLE_PAGE_SIZE} events mention ${email}, so Mail couldn't read them all.`,
+  );
+}
+
 async function readFromMail(
   ownerEmail: string,
   email: string,
-  now: Date,
+  clock: Clock,
   limit: number,
 ): Promise<FoundMeetings & { source: "mail" | "none" }> {
   const { clients, errors } = await getClientsWithErrors(ownerEmail);
@@ -369,15 +466,8 @@ async function readFromMail(
   await Promise.all(
     clients.map(async (client) => {
       try {
-        const page = (await calendarListEvents(client.accessToken, "primary", {
-          q: email,
-          timeMin: addDays(now, -PAST_DAYS).toISOString(),
-          timeMax: addDays(now, UPCOMING_DAYS).toISOString(),
-          singleEvents: "true",
-          orderBy: "startTime",
-          maxResults: 250,
-        })) as { items?: GoogleCalendarEvent[] } | null;
-        for (const event of page?.items ?? []) {
+        const events = await readGoogleEvents(client.accessToken, email, clock);
+        for (const event of events) {
           const meeting = googleMeeting(event, email, client.email);
           if (meeting) meetings.push(meeting);
         }
@@ -396,27 +486,30 @@ async function readFromMail(
   }
   return {
     source: "mail",
-    ...splitMeetings(meetings, now, limit),
+    ...firstOf(splitMeetings(meetings, clock), limit),
     failedAccounts: failedList(failed),
   };
 }
 
-async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
+async function withDeadline<T>(
+  work: (deadline: Deadline) => Promise<T>,
+  ms: number,
+): Promise<T> {
+  const deadline: Deadline = { expired: false };
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () =>
-        reject(
-          new CalendarSkipped(
-            "unavailable",
-            new Error(`Calendar didn't answer within ${ms} ms`),
-          ),
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      deadline.expired = true;
+      reject(
+        new CalendarSkipped(
+          "unavailable",
+          new Error(`Calendar didn't answer within ${ms} ms`),
         ),
-      ms,
-    );
+      );
+    }, ms);
   });
   try {
-    return await Promise.race([work, deadline]);
+    return await Promise.race([work(deadline), timeout]);
   } finally {
     clearTimeout(timer);
   }
@@ -425,6 +518,7 @@ async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
 export async function listContactMeetings(
   email: string,
   limit: number,
+  timeZone = "UTC",
 ): Promise<ContactMeetings> {
   const ownerEmail = getRequestUserEmail();
   if (!ownerEmail) {
@@ -434,12 +528,14 @@ export async function listContactMeetings(
     });
   }
   const now = new Date();
+  const clock = { now, today: dateIn(now, timeZone) };
   const calendarUrl = peerAppUrl("calendar");
   const link = calendarUrl ? { calendarUrl } : {};
   let calendar: CalendarSkipped["state"];
   try {
     const found = await withDeadline(
-      readFromCalendar(email, now, limit, calendarUrl),
+      (deadline) =>
+        readFromCalendar(email, clock, limit, calendarUrl, deadline),
       CALENDAR_DEADLINE_MS,
     );
     return { source: "calendar", calendar: "connected", ...link, ...found };
@@ -454,7 +550,7 @@ export async function listContactMeetings(
     }
   }
   return {
-    ...(await readFromMail(ownerEmail, email, now, limit)),
+    ...(await readFromMail(ownerEmail, email, clock, limit)),
     calendar,
     ...link,
   };

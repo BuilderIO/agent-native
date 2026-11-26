@@ -105,8 +105,9 @@ throws when Gmail fails; an empty list means the person really sent no files.
 
 `list-contact-meetings --email=<address>` returns the user's meetings with
 that person: `upcoming` (next 60 days, soonest first) and `recent` (last 90
-days, newest first), each with a `url` that opens the event. It asks Agent
-Native Calendar first (`source: "calendar"`) and falls back to the Google
+days, newest first), each with a `url` that opens the event. Pass the user's
+IANA `--timeZone` so an all-day event stays upcoming until their day ends. It
+asks Agent-Native Calendar first (`source: "calendar"`) and falls back to the Google
 Calendar of each account connected to Mail (`source: "mail"`) when Calendar
 has no Google account (`calendar: "not_connected"`) or doesn't answer in a few
 seconds (`calendar: "unavailable"`). `source: "none"` means no calendar is

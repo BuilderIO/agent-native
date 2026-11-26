@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { isValidTimezone } from "@agent-native/core/jobs/cron";
 import { z } from "zod";
 
 import { listContactMeetings } from "../server/lib/contact-meetings.js";
@@ -30,6 +31,13 @@ export default defineAction({
       .max(10)
       .optional()
       .describe("Max meetings in each list (default: 3)"),
+    timeZone: z
+      .string()
+      .refine(isValidTimezone, "Unknown time zone")
+      .optional()
+      .describe(
+        "The user's IANA time zone, so an all-day event stays upcoming until the end of its local day (default: UTC)",
+      ),
   }),
   outputSchema: z.object({
     source: z.enum(["calendar", "mail", "none"]),
@@ -44,5 +52,6 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   mcpTool: "search",
-  run: (args) => listContactMeetings(args.email, args.limit ?? 3),
+  run: (args) =>
+    listContactMeetings(args.email, args.limit ?? 3, args.timeZone),
 });

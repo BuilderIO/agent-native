@@ -461,7 +461,10 @@ function MeetingsBody({
     );
   }
 
-  const empty = data.upcoming.length === 0 && data.recent.length === 0;
+  const empty =
+    data.upcoming.length === 0 &&
+    data.recent.length === 0 &&
+    data.failedAccounts.length === 0;
   return (
     <>
       {empty && (

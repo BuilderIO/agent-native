@@ -465,7 +465,7 @@ describe("googleFetch quota handling", () => {
 
     await expect(
       googleFetch(
-        "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+        "https://www.googleapis.com/calendar/v3/calendars/primary/events?q=bot%40gmail.googleapis.com",
         "quota-token-calendar",
       ),
     ).rejects.toMatchObject({ status: 429 });

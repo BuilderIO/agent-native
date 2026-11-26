@@ -93,7 +93,10 @@ export function useContactMeetings(email: string, enabled: boolean) {
     queryFn: () =>
       callAction(
         "list-contact-meetings",
-        { email },
+        {
+          email,
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        },
         { method: "GET" },
       ) as Promise<ContactMeetings>,
     enabled: enabled && Boolean(email),

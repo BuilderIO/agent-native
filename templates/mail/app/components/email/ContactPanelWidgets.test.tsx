@@ -401,6 +401,7 @@ describe("MeetingsWidget", () => {
     });
     render(<MeetingsWidget email="priya@northwind.example" />);
     expect(screen.getByText("Some calendars couldn't be read.")).not.toBeNull();
+    expect(screen.queryByText("No meetings")).toBeNull();
   });
 
   it("says meetings couldn't load instead of showing none", () => {

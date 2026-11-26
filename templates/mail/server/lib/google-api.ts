@@ -271,7 +271,8 @@ export async function googleFetch(
   const maxRetries = 3;
   const method = requestOptions.method?.toUpperCase() ?? "GET";
   const canRetry = method === "GET" || method === "HEAD";
-  const gmailRequest = url.includes("gmail.googleapis.com");
+  const gmailRequest =
+    URL.canParse(url) && new URL(url).hostname === "gmail.googleapis.com";
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     signal?.throwIfAborted();
@@ -1007,6 +1008,7 @@ export function calendarListEvents(
     singleEvents?: "true";
     orderBy?: "startTime";
     maxResults?: number;
+    pageToken?: string;
   },
 ) {
   return googleFetch(
