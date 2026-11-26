@@ -44,7 +44,6 @@ import {
   revokeOrgServiceToken,
 } from "../connect-store.js";
 import { McpCredentialIssuanceError } from "../credential-issuance.js";
-import { assertOrgCredentialIssuableTo } from "../local-dev-credential-gate.js";
 import {
   allowedActionsSchema,
   assertOwnerIsOrgMember,
@@ -95,7 +94,6 @@ export default defineAction({
     summary: () => "Created or re-minted an organization service token.",
   }),
   run: async (args, ctx) => {
-    assertOrgCredentialIssuableTo(ctx?.userEmail);
     const caller = await requireServiceTokenCaller({
       userEmail: ctx?.userEmail,
       orgId: ctx?.orgId,

@@ -6,10 +6,14 @@ vi.mock("./loopback.js", () => ({
     (event as { loopback?: boolean }).loopback === true,
 }));
 
+const { runWithRequestContext } = await import("./request-context.js");
 const {
+  assertLocalDevCredentialIssuable,
   isLocalDevIdentityEmail,
   LEGACY_LOCAL_DEV_IDENTITY_EMAIL,
+  LOCAL_DEV_CREDENTIAL_REFUSED_MESSAGE,
   LOCAL_DEV_IDENTITY_EMAIL,
+  LocalDevCredentialRefusedError,
   refusesLocalDevCredential,
 } = await import("./local-dev-identity.js");
 
@@ -61,5 +65,89 @@ describe("refusesLocalDevCredential", () => {
     expect(refusesLocalDevCredential("person@example.com", undefined)).toBe(
       false,
     );
+  });
+});
+
+// oracle-change(packages/core/src/mcp/local-dev-credential-gate.spec.ts): the org-token gate folded into refusesLocalDevCredential; its cases moved here
+describe("refusesLocalDevCredential from the request context", () => {
+  it("refuses the dev identity with no request context", () => {
+    expect(refusesLocalDevCredential("dev@local.test", "request-context")).toBe(
+      true,
+    );
+  });
+
+  it("refuses the dev identity on a non-loopback request", async () => {
+    for (const isLoopbackRequest of [false, undefined]) {
+      await runWithRequestContext({ isLoopbackRequest }, () => {
+        expect(
+          refusesLocalDevCredential(" DEV@Local ", "request-context"),
+        ).toBe(true);
+      });
+    }
+  });
+
+  it("allows the dev identity on a loopback request", async () => {
+    await runWithRequestContext({ isLoopbackRequest: true }, () => {
+      expect(
+        refusesLocalDevCredential("dev@local.test", "request-context"),
+      ).toBe(false);
+    });
+  });
+
+  it("never refuses another identity", async () => {
+    expect(
+      refusesLocalDevCredential("person@example.com", "request-context"),
+    ).toBe(false);
+    await runWithRequestContext({ isLoopbackRequest: false }, () => {
+      expect(
+        refusesLocalDevCredential("person@example.com", "request-context"),
+      ).toBe(false);
+    });
+  });
+});
+
+describe("refusesLocalDevCredential in a background worker", () => {
+  it("refuses the dev identity even when the request reads as loopback", async () => {
+    await runWithRequestContext(
+      { isLoopbackRequest: true, run: { isBackgroundWorker: true } },
+      () => {
+        expect(
+          refusesLocalDevCredential("dev@local.test", "request-context"),
+        ).toBe(true);
+        expect(refusesLocalDevCredential("dev@local.test", loopbackEvent)).toBe(
+          true,
+        );
+        expect(
+          refusesLocalDevCredential("person@example.com", loopbackEvent),
+        ).toBe(false);
+      },
+    );
+  });
+});
+
+describe("assertLocalDevCredentialIssuable", () => {
+  it("throws a 403 with the shared message exactly when the check refuses", async () => {
+    expect(() =>
+      assertLocalDevCredentialIssuable("dev@local.test", hostedEvent),
+    ).toThrow(LocalDevCredentialRefusedError);
+    expect(() =>
+      assertLocalDevCredentialIssuable("dev@local.test", "request-context"),
+    ).toThrow(
+      expect.objectContaining({
+        statusCode: 403,
+        message: LOCAL_DEV_CREDENTIAL_REFUSED_MESSAGE,
+      }),
+    );
+    expect(() =>
+      assertLocalDevCredentialIssuable("dev@local.test", loopbackEvent),
+    ).not.toThrow();
+    await runWithRequestContext({ isLoopbackRequest: true }, () => {
+      expect(() =>
+        assertLocalDevCredentialIssuable("dev@local.test", "request-context"),
+      ).not.toThrow();
+    });
+    expect(() =>
+      assertLocalDevCredentialIssuable("person@example.com", undefined),
+    ).not.toThrow();
   });
 });

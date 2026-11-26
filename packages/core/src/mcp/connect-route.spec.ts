@@ -966,6 +966,17 @@ describe("handleMcpConnect", () => {
           mint,
         ),
       ).rejects.toMatchObject({ statusCode: 403 });
+      await expect(
+        runWithRequestContext(
+          {
+            userEmail: "dev@local.test",
+            requestOrigin: "http://localhost:8080",
+            isLoopbackRequest: true,
+            run: { isBackgroundWorker: true },
+          },
+          mint,
+        ),
+      ).rejects.toMatchObject({ statusCode: 403 });
       expect(tokenRows).toHaveLength(0);
     });
 
