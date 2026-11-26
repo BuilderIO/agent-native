@@ -370,14 +370,7 @@ export function getA2ATaskRecoveryLimits() {
 
 function unsignedProcessorHandoffAccepted(event: H3Event | undefined): boolean {
   if (isA2AProductionRuntime()) return false;
-  let baseUrl: string;
-  try {
-    baseUrl = resolveSelfDispatchBaseUrl(event);
-  } catch {
-    // coercion-ok: no resolvable self-dispatch URL means the handoff cannot be sent, so async is refused.
-    return false;
-  }
-  return acceptsUnsignedSelfDispatch(baseUrl);
+  return acceptsUnsignedSelfDispatch(resolveSelfDispatchBaseUrl(event));
 }
 
 async function fireProcessTaskDispatch(

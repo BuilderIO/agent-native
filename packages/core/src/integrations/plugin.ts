@@ -9,6 +9,7 @@ import {
 import { createError, getRequestHeader, isError } from "h3";
 import type { EventHandler } from "h3";
 
+import { isTrustedLocalRequest } from "../a2a/auth-policy.js";
 import {
   AGENT_BACKGROUND_PROCESSOR_FIELD,
   AGENT_BACKGROUND_PROCESSOR_INTEGRATION,
@@ -2147,18 +2148,14 @@ export function createIntegrationsPlugin(
         // by guessing or sniffing its id (C3 in the webhook security audit).
         // The atomic SQL claim only prevents *double*-processing, not the
         // first attacker-driven processing.
-        //
-        // In dev we keep the loose posture so contributors don't have to
-        // configure A2A_SECRET to play with the integration locally.
         if (!process.env.A2A_SECRET) {
-          if (process.env.NODE_ENV === "production") {
+          if (!isTrustedLocalRequest(event)) {
             setResponseStatus(event, 503);
             return {
               error:
-                "A2A_SECRET not configured — internal token signing is required to process integration tasks in production.",
+                "A2A_SECRET not configured — internal token signing is required to process integration tasks outside local development.",
             };
           }
-          // Dev: fall through unsigned (the atomic claim still gates double-processing).
         } else {
           const tok = extractBearerToken(
             getRequestHeader(event, "authorization"),
@@ -2773,11 +2770,11 @@ export function createIntegrationsPlugin(
         }
 
         if (!process.env.A2A_SECRET) {
-          if (process.env.NODE_ENV === "production") {
+          if (!isTrustedLocalRequest(event)) {
             setResponseStatus(event, 503);
             return {
               error:
-                "A2A_SECRET not configured — internal token signing is required to process A2A continuations in production.",
+                "A2A_SECRET not configured — internal token signing is required to process A2A continuations outside local development.",
             };
           }
         } else {

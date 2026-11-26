@@ -3528,6 +3528,32 @@ describe("handleJsonRpc", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("reports a malformed self-dispatch URL instead of asking for A2A_SECRET", async () => {
+    vi.stubEnv("A2A_SECRET", "");
+    vi.stubEnv("AGENT_NATIVE_SELF_DISPATCH_URL", "not-a-url");
+    const fetchMock = vi.fn(async () => new Response("ok"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      handleJsonRpc(
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "message/send",
+          params: {
+            async: true,
+            message: { role: "user", parts: [{ type: "text", text: "go" }] },
+          },
+        },
+        mockEvent(),
+        customHandler,
+      ),
+    ).rejects.toThrow(
+      "AGENT_NATIVE_SELF_DISPATCH_URL must be an absolute http(s) URL",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("self-dispatches async A2A tasks under APP_BASE_PATH", async () => {
     vi.stubEnv("A2A_SECRET", "test-secret-at-least-32-characters-long");
     process.env.APP_BASE_PATH = "/docs";
