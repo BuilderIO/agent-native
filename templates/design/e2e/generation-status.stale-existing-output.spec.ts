@@ -175,6 +175,142 @@ test("completed generation without output stays retryable", async ({
   await page.unroute(outputStatusRoute);
 });
 
+test("completed image edit with saved output shows no failure", async ({
+  app,
+  page,
+}) => {
+  const designId = await app.seed(
+    "<!doctype html><html><body><main><img alt='imported' src='data:image/gif;base64,R0lGODlhAQABAAAAACw='></main></body></html>",
+    { title: "completed-image-edit-with-output" },
+  );
+  app.allowFailure(
+    new RegExp(
+      `unexpected page load: .*/design/${designId} loaded without the test navigating`,
+    ),
+    "the editor reloads to attach the run listener",
+  );
+  await page.goto(appPath(`/design/${designId}`), {
+    waitUntil: "domcontentloaded",
+  });
+  await expect(
+    page.locator('[data-design-bottom-toolbar] button[aria-label="Edit"]'),
+  ).toHaveAttribute("aria-pressed", "true");
+  const pendingKey = `design.pending-generation.${designId}`;
+  let runTabId: string | null = null;
+  await expect
+    .poll(
+      async () => {
+        runTabId = await page.evaluate((id) => {
+          const browserTabId = sessionStorage.getItem(
+            "agent-native:browser-tab-id",
+          );
+          if (!browserTabId) return null;
+          return localStorage.getItem(
+            `agent-chat-active-thread:design:scope:design:${id}:tab:${browserTabId}`,
+          );
+        }, designId);
+        return Boolean(runTabId);
+      },
+      { timeout: 20_000 },
+    )
+    .toBe(true);
+  if (!runTabId) throw new Error("Design editor did not persist a chat thread");
+
+  let outputStatusRequested = false;
+  const activeRunRoute = /\/_agent-native\/agent-chat\/runs\/active(?:\?|$)/;
+  await page.route(activeRunRoute, async (route) => {
+    const threadId = new URL(route.request().url()).searchParams.get(
+      "threadId",
+    );
+    if (threadId === runTabId) {
+      await route.fulfill({
+        json: {
+          active: false,
+          status: "completed",
+          runId: "e2e-image-edit",
+          turnId: "e2e-image-edit-turn",
+        },
+      });
+      return;
+    }
+    await route.continue();
+  });
+  const outputStatusRoute =
+    /\/_agent-native\/actions\/get-design-generation-output(?:\?|$)/;
+  await page.route(outputStatusRoute, async (route) => {
+    outputStatusRequested = true;
+    await route.fulfill({ json: { status: "has_output" } });
+  });
+  await page.evaluate(
+    ({ key, runTabId }) => {
+      const now = Date.now();
+      sessionStorage.setItem(
+        key,
+        JSON.stringify({
+          prompt: "Edit the imported image to remove the background",
+          createdAt: now,
+          startedAt: now,
+          runTabId,
+          currentRunId: "e2e-image-edit",
+          currentTurnId: "e2e-image-edit-turn",
+          previousRunBaselineVerified: true,
+          outputBaselineFiles: [],
+        }),
+      );
+    },
+    { key: pendingKey, runTabId },
+  );
+  await page.addInitScript(() => {
+    const state = window as Window & { __chatRunningListenerCount?: number };
+    const addEventListener = window.addEventListener;
+    Object.defineProperty(window, "addEventListener", {
+      configurable: true,
+      value: new Proxy(addEventListener, {
+        apply(target, thisArg, args) {
+          if (args[0] === "agentNative.chatRunning") {
+            state.__chatRunningListenerCount =
+              (state.__chatRunningListenerCount ?? 0) + 1;
+          }
+          return Reflect.apply(target, thisArg, args);
+        },
+      }),
+    });
+  });
+  await page.reload();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as Window & { __chatRunningListenerCount?: number })
+            .__chatRunningListenerCount ?? 0,
+      ),
+    )
+    .toBeGreaterThan(0);
+  await page.evaluate(
+    ({ tabId, runId, turnId }) => {
+      window.dispatchEvent(
+        new CustomEvent("agentNative.chatRunning", {
+          detail: { isRunning: true, tabId, runId, turnId },
+        }),
+      );
+    },
+    { tabId: runTabId, runId: "e2e-image-edit", turnId: "e2e-image-edit-turn" },
+  );
+
+  await expect
+    .poll(() => outputStatusRequested, { timeout: 45_000 })
+    .toBe(true);
+  await expect
+    .poll(() => page.evaluate((key) => sessionStorage.getItem(key), pendingKey))
+    .toBeNull();
+  const notifications = page.getByRole("region", {
+    name: "Notifications alt+T",
+  });
+  await expect(notifications).not.toContainText("Generation");
+  await page.unroute(activeRunRoute);
+  await page.unroute(outputStatusRoute);
+});
+
 test("unknown output verification preserves pending generation without offering retry", async ({
   app,
   page,
