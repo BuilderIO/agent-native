@@ -2991,12 +2991,20 @@ export function createAgentChatPlugin(
               }
             }
           }
+          // The interactive path scopes engine and Builder gateway lookups to
+          // the verified caller and their org; a delegated run must resolve the
+          // same workspace connection rather than whatever the ambient context
+          // happens to carry.
           const a2aEngine = await resolveEngine({
             engineOption: options?.engine,
             apiKey: ownerApiKey,
             apiKeyEnvVar: ownerApiKeyEnvVar,
             apiKeyProvenance: ownerApiKeyProvenance,
             appId: options?.appId,
+            credentialIdentity: {
+              userEmail,
+              orgId: getRequestOrgId(),
+            },
           });
 
           const devActive = isDevMode();
