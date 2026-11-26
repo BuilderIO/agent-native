@@ -142,14 +142,16 @@ describe("placeBlockMenu", () => {
   });
 
   it("scrolls in the roomier space above or below before covering the block", () => {
+    const block = rect(28, 200, 340, 380);
     const placement = placeBlockMenu({
       grip: rect(4, 202, 24, 24),
-      block: rect(28, 200, 340, 380),
+      block,
       pageLeft: 0,
       viewport: { width: 375, height: 720 },
     });
 
     expect(placement.side).toBe("top");
+    expect(placement.anchor).toEqual(block);
     expect(placement.zone).toEqual({
       left: 0,
       top: 0,
