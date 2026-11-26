@@ -841,25 +841,28 @@ export async function createSource(
   return source;
 }
 
-export function manualSourceWhere(title: string) {
+export async function findManualSource(title = "Manual imports") {
+  const db = getDb();
+  const userEmail = requireUserEmail();
   const orgId = getRequestOrgId();
-  return and(
-    eq(schema.brainSources.ownerEmail, requireUserEmail()),
+  const where = and(
+    eq(schema.brainSources.ownerEmail, userEmail),
     eq(schema.brainSources.provider, "manual"),
     eq(schema.brainSources.title, title),
     orgId
       ? eq(schema.brainSources.orgId, orgId)
       : isNull(schema.brainSources.orgId),
   );
-}
-
-export async function ensureManualSource(title = "Manual imports") {
-  const db = getDb();
   const [existing] = await db
     .select()
     .from(schema.brainSources)
-    .where(manualSourceWhere(title))
+    .where(where)
     .limit(1);
+  return existing;
+}
+
+export async function ensureManualSource(title = "Manual imports") {
+  const existing = await findManualSource(title);
   if (existing) return existing;
   return createSource({ title, provider: "manual" });
 }
@@ -3500,12 +3503,11 @@ export async function writeKnowledgeRecordInTransaction(
   };
 }
 
-export async function knowledgeWriteMayTouchCanonical(
-  input: Pick<
-    WriteKnowledgeInput,
-    "knowledgeId" | "supersedesId" | "publishCanonical"
-  >,
-) {
+export async function knowledgeWriteMayTouchCanonical(input: {
+  knowledgeId?: string | undefined;
+  supersedesId?: string | undefined;
+  publishCanonical?: boolean | undefined;
+}) {
   const peeked = input.knowledgeId
     ? await peekKnowledgeRow(input.knowledgeId)
     : null;
