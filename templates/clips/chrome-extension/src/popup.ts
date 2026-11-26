@@ -14,11 +14,13 @@ import { captureExtensionError, initExtensionSentry } from "./sentry";
 initExtensionSentry("popup");
 
 type CaptureSurface = "browser" | "window" | "monitor" | "camera";
+type CaptureQuality = "normal" | "motion";
 type RecordingModeChoice = "screen-camera" | "screen" | "camera";
 
 type ExtensionSettings = {
   clipsBaseUrl: string;
   captureSurface: CaptureSurface;
+  captureQuality: CaptureQuality;
   includeCamera: boolean;
   includeMicrophone: boolean;
   includeDeveloperLogs: boolean;
@@ -72,6 +74,7 @@ type PopupStatusResponse = {
   activeRecording?: NativeRecording | null;
   arming?: boolean;
   error?: string;
+  agentArmed?: boolean;
 };
 
 type AuthStatus = "checking" | "signed-in" | "signed-out" | "unavailable";
@@ -111,6 +114,29 @@ export function recordingControlVisibility(
   };
 }
 
+export function agentCaptureControlVisibility(
+  authStatus: AuthStatus,
+  agentArmed: boolean,
+  recordingActive: boolean,
+): { armHidden: boolean; disarmHidden: boolean } {
+  return {
+    armHidden: agentArmed || recordingActive || authStatus !== "signed-in",
+    disarmHidden: !agentArmed,
+  };
+}
+
+export function normalizeCaptureQuality(value: unknown): CaptureQuality {
+  return value === "motion" ? "motion" : "normal";
+}
+
+export function captureQualityControlDisabled(
+  agentArmed: boolean,
+  recordingActive: boolean,
+  arming: boolean,
+): boolean {
+  return agentArmed || recordingActive || arming;
+}
+
 export function popupStartAuthDecision(
   authStatus: AuthStatus,
 ): "start" | "sign-in" | "retry" {
@@ -138,6 +164,7 @@ type FeedbackFormSchema = {
 const DEFAULT_SETTINGS: ExtensionSettings = {
   clipsBaseUrl: "https://clips.agent-native.com",
   captureSurface: "browser",
+  captureQuality: "normal",
   includeCamera: true,
   includeMicrophone: true,
   includeDeveloperLogs: true,
@@ -149,6 +176,11 @@ const SOURCE_LABELS: Record<Exclude<CaptureSurface, "camera">, string> = {
   browser: "Browser tab",
   window: "Window",
   monitor: "Full screen",
+};
+
+const QUALITY_LABELS: Record<CaptureQuality, string> = {
+  normal: "Normal · 24 fps",
+  motion: "Motion · 60 fps",
 };
 
 const FEEDBACK_URL =
@@ -326,6 +358,7 @@ function readSettings(): Promise<ExtensionSettings> {
             ? value.clipsBaseUrl.trim()
             : DEFAULT_SETTINGS.clipsBaseUrl,
         captureSurface: normalizeSurface(value.captureSurface),
+        captureQuality: normalizeCaptureQuality(value.captureQuality),
         includeCamera:
           typeof value.includeCamera === "boolean"
             ? value.includeCamera
@@ -682,6 +715,22 @@ function renderSource(settings: ExtensionSettings): void {
   }
 }
 
+function renderQuality(settings: ExtensionSettings): void {
+  byId<HTMLSpanElement>("quality-label").textContent =
+    QUALITY_LABELS[settings.captureQuality];
+  for (const button of document.querySelectorAll<HTMLButtonElement>(
+    ".row-menu-item[data-quality]",
+  )) {
+    const selected =
+      normalizeCaptureQuality(button.dataset.quality) ===
+      settings.captureQuality;
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-checked", selected ? "true" : "false");
+    const check = button.querySelector<HTMLSpanElement>(".row-menu-check");
+    if (check) check.textContent = selected ? "✓" : "";
+  }
+}
+
 let inputDevices: InputDevices = {
   cameras: [],
   microphones: [],
@@ -798,6 +847,7 @@ function renderDevicePickers(settings: ExtensionSettings): void {
 function render(settings: ExtensionSettings): void {
   renderMode(settings);
   renderSource(settings);
+  renderQuality(settings);
   renderDevicePickers(settings);
   const includeCamera = byId<HTMLButtonElement>("include-camera");
   const includeMicrophone = byId<HTMLButtonElement>("include-microphone");
@@ -911,6 +961,8 @@ async function init(): Promise<void> {
   }
   const sourceButton = byId<HTMLButtonElement>("source-button");
   const sourceMenu = byId<HTMLDivElement>("source-menu");
+  const qualityButton = byId<HTMLButtonElement>("quality-button");
+  const qualityMenu = byId<HTMLDivElement>("quality-menu");
   const cameraDeviceButton = byId<HTMLButtonElement>("camera-device-button");
   const cameraDeviceMenu = byId<HTMLDivElement>("camera-device-menu");
   const microphoneDeviceButton = byId<HTMLButtonElement>(
@@ -920,6 +972,8 @@ async function init(): Promise<void> {
   const includeCamera = byId<HTMLButtonElement>("include-camera");
   const includeMicrophone = byId<HTMLButtonElement>("include-microphone");
   const start = byId<HTMLButtonElement>("start");
+  const agentArm = byId<HTMLButtonElement>("agent-arm");
+  const agentDisarm = byId<HTMLButtonElement>("agent-disarm");
   const stop = byId<HTMLButtonElement>("stop");
   const discard = byId<HTMLButtonElement>("discard");
   const openRecording = byId<HTMLButtonElement>("open-recording");
@@ -1032,6 +1086,7 @@ async function init(): Promise<void> {
   const closeDeviceMenus = (): void => {
     cameraDeviceMenu.hidden = true;
     microphoneDeviceMenu.hidden = true;
+    qualityMenu.hidden = true;
   };
 
   const activeTab = await queryActiveTab();
@@ -1045,12 +1100,31 @@ async function init(): Promise<void> {
       void refreshDevices();
     });
   }
+  let agentArmed = false;
+  const renderAgentCapture = (): void => {
+    const visibility = agentCaptureControlVisibility(
+      authStatus,
+      agentArmed,
+      Boolean(activeRecording),
+    );
+    agentArm.hidden = visibility.armHidden;
+    agentDisarm.hidden = visibility.disarmHidden;
+    if (agentArmed) start.disabled = true;
+    qualityButton.disabled = captureQualityControlDisabled(
+      agentArmed,
+      Boolean(activeRecording),
+      arming,
+    );
+    if (qualityButton.disabled) qualityMenu.hidden = true;
+  };
   const refreshActiveRecording = async (): Promise<void> => {
     const status =
       await sendSimpleMessage<PopupStatusResponse>("CLIPS_POPUP_STATUS");
     activeRecording = status.activeRecording ?? null;
     arming = Boolean(status.arming);
+    agentArmed = status.agentArmed === true;
     renderActiveRecording(activeRecording, arming, authStatus);
+    renderAgentCapture();
   };
   await refreshActiveRecording();
   if (activeRecording || arming) {
@@ -1076,6 +1150,24 @@ async function init(): Promise<void> {
     sourceMenu.hidden = !sourceMenu.hidden;
   });
 
+  qualityButton.addEventListener("click", () => {
+    const opening = qualityMenu.hidden;
+    closeDeviceMenus();
+    sourceMenu.hidden = true;
+    qualityMenu.hidden = !opening;
+  });
+
+  for (const button of document.querySelectorAll<HTMLButtonElement>(
+    ".row-menu-item[data-quality]",
+  )) {
+    button.addEventListener("click", () => {
+      settings.captureQuality = normalizeCaptureQuality(button.dataset.quality);
+      qualityMenu.hidden = true;
+      render(settings);
+      void saveSettings(settings);
+    });
+  }
+
   for (const button of document.querySelectorAll<HTMLButtonElement>(
     ".row-menu-item[data-surface]",
   )) {
@@ -1090,6 +1182,7 @@ async function init(): Promise<void> {
 
   cameraDeviceButton.addEventListener("click", () => {
     sourceMenu.hidden = true;
+    qualityMenu.hidden = true;
     microphoneDeviceMenu.hidden = true;
     cameraDeviceMenu.hidden = !cameraDeviceMenu.hidden;
   });
@@ -1107,6 +1200,7 @@ async function init(): Promise<void> {
 
   microphoneDeviceButton.addEventListener("click", () => {
     sourceMenu.hidden = true;
+    qualityMenu.hidden = true;
     cameraDeviceMenu.hidden = true;
     microphoneDeviceMenu.hidden = !microphoneDeviceMenu.hidden;
   });
@@ -1131,6 +1225,13 @@ async function init(): Promise<void> {
       !sourceButton.contains(target)
     ) {
       sourceMenu.hidden = true;
+    }
+    if (
+      !qualityMenu.hidden &&
+      !qualityMenu.contains(target) &&
+      !qualityButton.contains(target)
+    ) {
+      qualityMenu.hidden = true;
     }
     if (
       !cameraDeviceMenu.hidden &&
@@ -1283,6 +1384,7 @@ async function init(): Promise<void> {
     if (probeId !== authProbeId) return;
     authStatus = nextStatus;
     renderActiveRecording(activeRecording, arming, authStatus);
+    renderAgentCapture();
     if (authStatus === "signed-out") {
       setStatus(signingIn ? SIGN_IN_PENDING_MESSAGE : "");
     } else if (authStatus === "unavailable") {
@@ -1306,6 +1408,46 @@ async function init(): Promise<void> {
     if (authStatus !== "signed-in" && !arming) void refreshAuth();
   });
 
+  const armAgentCapture = async (): Promise<void> => {
+    agentArm.disabled = true;
+    const result = await sendRuntimeMessage<{ ok?: boolean; hostId?: string }>({
+      type: "CLIPS_AGENT_ARM",
+      settings,
+    });
+    agentArm.disabled = false;
+    agentArmed = result.ok === true;
+    renderAgentCapture();
+    setStatus(
+      result.ok
+        ? "Surface armed for one agent capture. Disarm to release it."
+        : result.error || "Could not arm capture.",
+      result.ok ? undefined : "error",
+    );
+  };
+  const disarmAgentCapture = async (): Promise<void> => {
+    agentDisarm.disabled = true;
+    const result = await sendRuntimeMessage<{ ok?: boolean }>({
+      type: "CLIPS_AGENT_DISARM",
+    });
+    agentDisarm.disabled = false;
+    if (result.ok) {
+      agentArmed = false;
+      start.disabled = arming;
+    }
+    renderAgentCapture();
+    setStatus(
+      result.ok
+        ? "Agent capture released."
+        : result.error || "Could not release capture.",
+      result.ok ? undefined : "error",
+    );
+  };
+  agentArm.addEventListener("click", () => {
+    void armAgentCapture();
+  });
+  agentDisarm.addEventListener("click", () => {
+    void disarmAgentCapture();
+  });
   start.addEventListener("click", async () => {
     start.disabled = true;
     signIn.hidden = true;

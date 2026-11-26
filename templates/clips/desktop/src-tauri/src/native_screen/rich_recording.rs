@@ -70,12 +70,12 @@ extern "C" {
     fn mach_timebase_info(info: *mut MachTimebaseInfo) -> i32;
 }
 
-fn host_ticks() -> u64 {
+pub(super) fn host_ticks() -> u64 {
     // SAFETY: takes no arguments and only reads the clock.
     unsafe { mach_absolute_time() }
 }
 
-fn host_timebase() -> (u32, u32) {
+pub(super) fn host_timebase() -> (u32, u32) {
     let mut info = MachTimebaseInfo { numer: 0, denom: 0 };
     // SAFETY: writes the two fields of the struct it is given.
     let status = unsafe { mach_timebase_info(&mut info) };

@@ -14,6 +14,7 @@ async function restoreRecording(
   windows: Record<number, number>,
   moveOnAttach?: number,
   failLookup?: (tabId: number, attached: number[]) => boolean,
+  recordingFields: Record<string, unknown> = {},
 ) {
   vi.resetModules();
   vi.spyOn(Date, "now").mockReturnValue(NOW);
@@ -41,6 +42,7 @@ async function restoreRecording(
       startedAtMs: NOW,
       includeDeveloperLogs: true,
       status: "recording",
+      ...recordingFields,
     },
     recentTabActivations: activations,
   };
@@ -178,6 +180,10 @@ async function restoreRecording(
     cancel: () =>
       new Promise((resolve) =>
         onMessage?.({ type: "CLIPS_OVERLAY_CANCEL" }, {}, resolve),
+      ),
+    restart: () =>
+      new Promise((resolve) =>
+        onMessage?.({ type: "CLIPS_OVERLAY_RESTART" }, {}, resolve),
       ),
     activate: (tabId: number, windowId: number) =>
       activatedListeners.forEach((listener) => listener({ tabId, windowId })),
@@ -386,7 +392,11 @@ describe("background debugger restore", () => {
     result.browserDetach(1);
     expect(await result.interaction(1)).toEqual({ ok: false });
     result.releaseDetach(2);
-    expect(await cancellation).toEqual({ ok: true });
+    expect(await cancellation).toEqual({
+      ok: true,
+      clipRemoved: false,
+      clipError: expect.any(String),
+    });
     expect(result.detached).toEqual([1, 2, 3]);
     expect([...result.debuggerTabs]).toEqual([3]);
     expect(result.stored).not.toHaveProperty("activeNativeRecording");
@@ -411,5 +421,28 @@ describe("background debugger restore", () => {
     );
     expect(result.attached).toEqual([1, 7]);
     expect(result.detached).toEqual([7]);
+  });
+});
+
+describe("background agent capture retake", () => {
+  it("refuses Retake for an agent take so a replacement never reuses its identity", async () => {
+    const harness = await restoreRecording(
+      [{ tabId: 1, windowId: 1, lastActiveMs: NOW }],
+      { 1: 1 },
+      undefined,
+      undefined,
+      { agentCapture: true },
+    );
+
+    await expect(harness.restart()).resolves.toEqual({
+      ok: false,
+      error:
+        "Retake is unavailable during an agent capture. Stop or discard this recording first.",
+    });
+    expect(harness.stored.activeNativeRecording).toMatchObject({
+      sessionId: "session-1",
+      recordingId: "recording-1",
+      status: "recording",
+    });
   });
 });

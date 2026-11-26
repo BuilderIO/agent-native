@@ -3,8 +3,20 @@ import {
   BROWSER_DIAGNOSTIC_LOOKBACK_MS,
   sanitizeBrowserDiagnosticNavigationUrl,
 } from "@shared/browser-diagnostics";
+import {
+  createCaptureHostRunner,
+  CaptureTeardownUnconfirmedError,
+} from "@shared/capture-host-runner";
 import { buildRecordingShareUrl } from "@shared/recording-link";
 
+import { waitForAgentReady } from "./agent-ready";
+import {
+  abortable,
+  type AgentTakeCancellation,
+  discardAgentTake,
+  skippableDelay,
+  startGatedAgentTake,
+} from "./agent-take";
 import {
   type AppActivityRead,
   buildAppActivity,
@@ -94,6 +106,7 @@ type UploadMode = "streaming" | "buffered";
 type ExtensionSettings = {
   clipsBaseUrl: string;
   captureSurface: CaptureSurface;
+  captureQuality: "normal" | "motion";
   includeCamera: boolean;
   includeMicrophone: boolean;
   includeDeveloperLogs: boolean;
@@ -208,6 +221,8 @@ type NativeRecording = {
   startedAt: string;
   startedAtMs: number;
   captureSurface: CaptureSurface;
+  captureQuality?: "normal" | "motion";
+  agentCapture?: boolean;
   includeCamera: boolean;
   includeMicrophone: boolean;
   includeDeveloperLogs: boolean;
@@ -236,6 +251,12 @@ type OffscreenStatusMessage = {
   savedToDisk?: boolean;
   savedFilename?: string;
   recordingStep?: string;
+  startedAtMs?: number;
+  startUncertaintyMs?: number;
+  captureMode?: "normal" | "motion";
+  requestedFrameRate?: number;
+  trackReportedFrameRate?: number | null;
+  observedFrameRate?: number | null;
   mimeType?: string;
 };
 
@@ -321,6 +342,7 @@ type StoredAuth = {
 const DEFAULT_SETTINGS: ExtensionSettings = {
   clipsBaseUrl: DEFAULT_CLIPS_BASE_URL,
   captureSurface: "browser",
+  captureQuality: "normal",
   includeCamera: true,
   includeMicrophone: true,
   includeDeveloperLogs: true,
@@ -845,6 +867,7 @@ async function readSettings(
   const stored = await storageGet([
     "clipsBaseUrl",
     "captureSurface",
+    "captureQuality",
     "includeCamera",
     "includeMicrophone",
     "includeDeveloperLogs",
@@ -855,6 +878,10 @@ async function readSettings(
     clipsBaseUrl: normalizeBaseUrl(
       overrides?.clipsBaseUrl ?? stored.clipsBaseUrl,
     ),
+    captureQuality:
+      (overrides?.captureQuality ?? stored.captureQuality) === "motion"
+        ? "motion"
+        : "normal",
     captureSurface: normalizeSurface(
       overrides?.captureSurface ?? stored.captureSurface,
     ),
@@ -1000,7 +1027,11 @@ async function cancelRecoveredOffscreenSession(
   }
 }
 
-async function setArmingGuard(sessionId: string | null): Promise<void> {
+let armingGuardGeneration = 0;
+
+async function setArmingGuard(sessionId: string | null): Promise<number> {
+  armingGuardGeneration += 1;
+  const generation = armingGuardGeneration;
   armingNativeRecordingSessionId = sessionId;
   if (sessionId) {
     await sessionStorageSet({
@@ -1011,6 +1042,11 @@ async function setArmingGuard(sessionId: string | null): Promise<void> {
       () => undefined,
     );
   }
+  return generation;
+}
+
+async function releaseArmingGuard(generation: number): Promise<void> {
+  if (generation === armingGuardGeneration) await setArmingGuard(null);
 }
 
 function persistedArmingSessionId(rawValue: unknown): string | null {
@@ -1326,6 +1362,7 @@ function settingsFromRecording(recording: NativeRecording): ExtensionSettings {
   return {
     clipsBaseUrl: recording.clipsBaseUrl,
     captureSurface: recording.captureSurface,
+    captureQuality: recording.captureQuality ?? "normal",
     includeCamera: recording.includeCamera,
     includeMicrophone: recording.includeMicrophone,
     includeDeveloperLogs: recording.includeDeveloperLogs,
@@ -1420,6 +1457,397 @@ async function handlePopupStart(message: PopupStartMessage) {
   return startRecordingFromTab({ tab, settings });
 }
 
+let agentCaptureRunner: ReturnType<typeof createCaptureHostRunner> | null =
+  null;
+let agentPreparedSessionId: string | null = null;
+let agentReady: {
+  sessionId: string;
+  startedAtMs: number;
+  uncertaintyMs: number;
+  observedFrameRate?: number;
+} | null = null;
+let agentReadinessError: string | null = null;
+
+function readAgentReady() {
+  return agentReady;
+}
+
+function readAgentReadinessError() {
+  return agentReadinessError;
+}
+
+async function armAgentCapture(overrides?: Partial<ExtensionSettings>) {
+  if (
+    agentCaptureRunner ||
+    activeNativeRecording ||
+    armingNativeRecordingSessionId
+  )
+    throw new Error("Stop or disarm the current capture first.");
+  const settings = await readSettings(overrides);
+  const tab = await queryActiveTab();
+  if (!tab || typeof tab.id !== "number")
+    throw new Error("Choose a visible tab first.");
+  if (settings.captureSurface === "camera")
+    throw new Error("Agent motion capture requires a screen surface.");
+  const sessionId = crypto.randomUUID();
+  let runner: ReturnType<typeof createCaptureHostRunner> | null = null;
+  const armGuard = await setArmingGuard(sessionId);
+  try {
+    await ensureOffscreenDocument();
+    await sendOffscreenMessage({
+      type: "CLIPS_OFFSCREEN_ACQUIRE",
+      sessionId,
+      mode: "screen",
+      surface: settings.captureSurface,
+      captureQuality: settings.captureQuality,
+      includeMicrophone: settings.includeMicrophone,
+      includeCamera: settings.includeCamera,
+      videoDeviceId: settings.videoDeviceId,
+      audioDeviceId: settings.audioDeviceId,
+    });
+    agentPreparedSessionId = sessionId;
+    runner = createCaptureHostRunner({
+      kind: "chrome-extension",
+      label: "Chrome — selected capture surface",
+      surface: `${settings.captureSurface}; ${settings.captureQuality}; user-selected Chrome capture stream`,
+      call: (action, args) => postAction(settings, action, args),
+      onError: (error) => console.warn("[clips-agent-capture]", error.message),
+      cancelStartup: async () => {
+        await sendOffscreenMessage({
+          type: "CLIPS_OFFSCREEN_CANCEL",
+          sessionId,
+        });
+      },
+      start: async (captureSession, signal, gate) => {
+        const abortCountdown = () => {
+          void sendOffscreenMessage({
+            type: "CLIPS_OFFSCREEN_CANCEL",
+            sessionId,
+            failureCode: "user_cancelled",
+            reason: "Agent capture was stopped before recording began",
+          }).catch(() => undefined);
+        };
+        signal.addEventListener("abort", abortCountdown, { once: true });
+        try {
+          const { recordingId, ready } = await startGatedAgentTake(
+            {
+              arm: async (armSignal) => {
+                if (agentPreparedSessionId !== sessionId)
+                  throw new Error(
+                    "Surface permission was released. Arm a new capture.",
+                  );
+                if (captureSession.captureMode !== settings.captureQuality)
+                  throw new Error(
+                    agentCaptureRearmMessage(
+                      settings.captureQuality,
+                      captureSession.captureMode,
+                    ),
+                  );
+                await assertAgentSurfaceLive(
+                  sessionId,
+                  settings.captureQuality,
+                );
+                armSignal.throwIfAborted();
+                agentReady = null;
+                agentReadinessError = null;
+                const startGuard = await setArmingGuard(sessionId);
+                let result: Awaited<ReturnType<typeof armRecording>>;
+                try {
+                  result = await armRecording({
+                    sessionId,
+                    tab,
+                    settings,
+                    allowPermissionRecovery: false,
+                    preAcquired: true,
+                    agentCapture: true,
+                    maxDurationMs: captureSession.maxDurationMs,
+                    signal: armSignal,
+                  });
+                } finally {
+                  await releaseArmingGuard(startGuard);
+                }
+                if (!("recordingId" in result))
+                  throw new Error("Prepared capture could not start.");
+                if (agentSurfaceEndedSessionId === sessionId)
+                  throw new Error(AGENT_SURFACE_ENDED);
+                return {
+                  recordingId: result.recordingId,
+                  startDelayMs: result.startDelayMs,
+                };
+              },
+              countdown: async (delayMs, countdownSignal) => {
+                const countdown = skippableDelay(delayMs, countdownSignal);
+                agentCountdownSkip = { sessionId, skip: countdown.skip };
+                try {
+                  await countdown.done;
+                } finally {
+                  releaseAgentCountdownSkip(countdown.skip);
+                }
+              },
+              begin: async (beginSignal) => {
+                const begun = await abortable(
+                  sendOffscreenMessage<{ started?: boolean; error?: string }>({
+                    type: "CLIPS_OFFSCREEN_START_NOW",
+                    sessionId,
+                  }),
+                  beginSignal,
+                );
+                if (begun.started !== true) {
+                  throw new Error(
+                    begun.error || "The recorder did not begin the take.",
+                  );
+                }
+              },
+              waitForReady: (readySignal) =>
+                waitForAgentReady(
+                  () => {
+                    const current = readAgentReady();
+                    if (current?.sessionId === sessionId) return current;
+                    const readinessError = readAgentReadinessError();
+                    if (readinessError) throw new Error(readinessError);
+                    if (
+                      agentPreparedSessionId !== sessionId ||
+                      activeNativeRecording?.sessionId !== sessionId ||
+                      activeNativeRecording.status === "error"
+                    ) {
+                      throw new Error(
+                        activeNativeRecording?.error ||
+                          "Recorder readiness was lost.",
+                      );
+                    }
+                    return null;
+                  },
+                  readySignal,
+                  {
+                    timeoutMs: 30_000,
+                    timeoutMessage:
+                      "Recorder did not acknowledge capture within 30 seconds.",
+                  },
+                ),
+              tearDown: async () => {
+                try {
+                  await tearDownAgentStartup(sessionId);
+                } finally {
+                  if (runner) scheduleAgentCaptureRelease(runner);
+                }
+              },
+            },
+            signal,
+            gate,
+          );
+          return {
+            recordingId,
+            startedAtMs: ready.startedAtMs,
+            startUncertaintyMs: ready.uncertaintyMs,
+            ...(ready.observedFrameRate === undefined
+              ? {}
+              : { observedFrameRate: ready.observedFrameRate }),
+            readMediaTime: () => ({
+              mediaTimeMs:
+                overlayBaseElapsedMs +
+                (overlayPhase === "recording"
+                  ? Math.max(0, nowMs() - overlayBaseEpochMs)
+                  : 0),
+              uncertaintyMs: ready.uncertaintyMs,
+            }),
+            stop: async () => {
+              agentPreparedSessionId = null;
+              if (runner) scheduleAgentCaptureRelease(runner);
+              if (!activeNativeRecording) return;
+              if (activeNativeRecording.sessionId !== sessionId) {
+                throw new Error(
+                  "Capture ended outside this host; inspect the retained recording status.",
+                );
+              }
+              const stopped = await stopRecording(true);
+              if (!stopped.ok)
+                throw new CaptureTeardownUnconfirmedError(
+                  stopped.error || "Recorder stop could not be confirmed.",
+                );
+            },
+            discard: async () => {
+              agentPreparedSessionId = null;
+              if (runner) scheduleAgentCaptureRelease(runner);
+              if (activeNativeRecording?.sessionId === sessionId) {
+                await discardAgentTake(() => cancelRecording(true, true));
+                return;
+              }
+              await discardAgentTake(async () => {
+                const clipError = await trashRecordingError(
+                  settings,
+                  recordingId,
+                );
+                return { ok: true, clipRemoved: clipError === null, clipError };
+              });
+            },
+          };
+        } finally {
+          signal.removeEventListener("abort", abortCountdown);
+        }
+      },
+    });
+    agentCaptureRunner = runner;
+    await assertAgentSurfaceLive(sessionId, settings.captureQuality);
+    const hostId = await runner.arm();
+    await assertAgentSurfaceLive(sessionId, settings.captureQuality);
+    await releaseArmingGuard(armGuard);
+    if (agentSurfaceEndedSessionId === sessionId) {
+      throw new Error(AGENT_SURFACE_ENDED);
+    }
+    await chrome.action.setBadgeText({ text: "ARM" });
+    return { ok: true, hostId };
+  } catch (error) {
+    await sendOffscreenMessage({
+      type: "CLIPS_OFFSCREEN_CANCEL",
+      sessionId,
+    }).catch(() => undefined);
+    await runner?.disarm().catch(() => undefined);
+    agentCaptureRunner = null;
+    agentPreparedSessionId = null;
+    agentReady = null;
+    agentReadinessError = null;
+    throw error;
+  } finally {
+    await releaseArmingGuard(armGuard);
+  }
+}
+
+let agentSurfaceEndedSessionId: string | null = null;
+const AGENT_SURFACE_ENDED =
+  "The shared surface ended while agent capture was arming. Arm a new capture.";
+
+let agentCountdownSkip: { sessionId: string; skip: () => void } | null = null;
+
+function releaseAgentCountdownSkip(skip: () => void): void {
+  if (agentCountdownSkip?.skip === skip) agentCountdownSkip = null;
+}
+
+async function assertAgentSurfaceLive(
+  sessionId: string,
+  captureQuality: "normal" | "motion",
+): Promise<void> {
+  const prepared = await sendOffscreenMessage<{
+    preparedSessionId?: string;
+    preparedCaptureMode?: "normal" | "motion";
+    preparedVideoLive?: boolean;
+  }>({ type: "CLIPS_OFFSCREEN_STATUS" });
+  if (agentSurfaceEndedSessionId === sessionId)
+    throw new Error(AGENT_SURFACE_ENDED);
+  if (
+    prepared.preparedSessionId !== sessionId ||
+    prepared.preparedCaptureMode !== captureQuality ||
+    prepared.preparedVideoLive !== true
+  ) {
+    throw new Error("Prepared surface is no longer live. Arm a new capture.");
+  }
+}
+
+function agentCaptureRearmMessage(
+  armedQuality: "normal" | "motion",
+  requestedQuality: "normal" | "motion",
+): string {
+  const label = (quality: "normal" | "motion") =>
+    quality === "motion" ? "Motion · 60 fps" : "Normal · 24 fps";
+  return `This surface was armed for ${label(armedQuality)}, but the agent asked for ${label(requestedQuality)}. Choose ${label(requestedQuality)} from the quality menu in the Clips popup, then arm agent capture again.`;
+}
+
+async function tearDownAgentStartup(sessionId: string): Promise<void> {
+  try {
+    if (activeNativeRecording?.sessionId === sessionId) {
+      const cancelled = await cancelRecording(true, true);
+      if (!cancelled.ok) {
+        throw new Error(
+          cancelled.error || "Clips refused to cancel the recording.",
+        );
+      }
+      if (!cancelled.clipRemoved) {
+        console.warn(
+          "[clips-agent-capture] the cancelled take's Clip could not be removed:",
+          cancelled.clipError,
+        );
+      }
+    } else {
+      await sendOffscreenMessage({
+        type: "CLIPS_OFFSCREEN_CANCEL",
+        sessionId,
+      });
+    }
+  } catch (error) {
+    throw new CaptureTeardownUnconfirmedError(
+      `Recorder teardown is unconfirmed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+async function releaseAgentCapture(
+  runner: ReturnType<typeof createCaptureHostRunner>,
+  reason: string,
+): Promise<void> {
+  if (agentCaptureRunner !== runner) return;
+  agentCaptureRunner = null;
+  const preparedSessionId = agentPreparedSessionId;
+  agentPreparedSessionId = null;
+  agentReady = null;
+  agentReadinessError = null;
+  await runner.disarm().catch((error) => {
+    console.warn(`[clips-agent-capture] release after ${reason}:`, error);
+  });
+  if (
+    preparedSessionId &&
+    activeNativeRecording?.sessionId !== preparedSessionId
+  ) {
+    await sendOffscreenMessage({
+      type: "CLIPS_OFFSCREEN_CANCEL",
+      sessionId: preparedSessionId,
+    }).catch(() => undefined);
+  }
+  if (!activeNativeRecording) await chrome.action.setBadgeText({ text: "" });
+}
+
+function scheduleAgentCaptureRelease(
+  runner: ReturnType<typeof createCaptureHostRunner>,
+): void {
+  setTimeout(() => {
+    void releaseAgentCapture(runner, "the agent take ended");
+  }, 0);
+}
+
+async function releaseUnusedAgentArm(sessionId: string, reason: string) {
+  const runner = agentCaptureRunner;
+  if (
+    !runner ||
+    agentPreparedSessionId !== sessionId ||
+    activeNativeRecording?.sessionId === sessionId ||
+    armingNativeRecordingSessionId === sessionId
+  ) {
+    return;
+  }
+  await releaseAgentCapture(runner, reason);
+}
+
+async function disarmAgentCapture() {
+  const runner = agentCaptureRunner;
+  let releaseError: Error | null = null;
+  try {
+    await runner?.disarm();
+  } catch (error) {
+    releaseError = error instanceof Error ? error : new Error(String(error));
+  }
+  if (agentPreparedSessionId) {
+    await sendOffscreenMessage({
+      type: "CLIPS_OFFSCREEN_CANCEL",
+      sessionId: agentPreparedSessionId,
+    }).catch(() => undefined);
+  }
+  agentPreparedSessionId = null;
+  agentReady = null;
+  agentReadinessError = null;
+  if (releaseError) throw releaseError;
+  agentCaptureRunner = null;
+  await chrome.action.setBadgeText({ text: "" });
+  return { ok: true };
+}
+
 async function startRecordingFromTab(args: {
   tab: ChromeTab;
   settings: ExtensionSettings;
@@ -1436,6 +1864,7 @@ async function startRecordingFromTab(args: {
     armingNativeRecordingSessionId = null;
   }
   if (
+    agentCaptureRunner ||
     activeNativeRecording ||
     armingNativeRecordingSessionId ||
     persistedArmingSessionId
@@ -1450,7 +1879,7 @@ async function startRecordingFromTab(args: {
   }
 
   const sessionId = crypto.randomUUID();
-  await setArmingGuard(sessionId);
+  const guard = await setArmingGuard(sessionId);
   try {
     await storageSet(settings);
     return await armRecording({
@@ -1460,9 +1889,7 @@ async function startRecordingFromTab(args: {
       allowPermissionRecovery,
     });
   } finally {
-    if (armingNativeRecordingSessionId === sessionId) {
-      await setArmingGuard(null);
-    }
+    await releaseArmingGuard(guard);
   }
 }
 
@@ -1553,6 +1980,10 @@ async function armRecording(args: {
   tab: ChromeTab;
   settings: ExtensionSettings;
   allowPermissionRecovery: boolean;
+  preAcquired?: boolean;
+  agentCapture?: boolean;
+  maxDurationMs?: number;
+  signal?: AbortSignal;
 }) {
   const { sessionId, tab, settings, allowPermissionRecovery } = args;
   const mode: CaptureMode =
@@ -1563,32 +1994,35 @@ async function armRecording(args: {
 
   await ensureOffscreenDocument();
 
-  let acq: { ok: boolean; width: number; height: number };
-  try {
-    acq = await withWorkerKeepAlive(() =>
-      sendOffscreenMessage<{ ok: boolean; width: number; height: number }>({
-        type: "CLIPS_OFFSCREEN_ACQUIRE",
-        sessionId,
-        mode,
-        surface,
-        includeMicrophone: settings.includeMicrophone,
-        includeCamera: settings.includeCamera,
-        videoDeviceId: settings.videoDeviceId,
-        audioDeviceId: settings.audioDeviceId,
-      }),
-    );
-  } catch (err) {
-    if (err instanceof MediaPermissionRequiredError) {
-      return recoverMissingMediaPermission({
-        error: err,
-        tab,
-        settings,
-        openPermissionPage: allowPermissionRecovery,
-      });
+  let acq: { ok: boolean; width: number; height: number } | undefined;
+  if (!args.preAcquired) {
+    try {
+      acq = await withWorkerKeepAlive(() =>
+        sendOffscreenMessage<{ ok: boolean; width: number; height: number }>({
+          type: "CLIPS_OFFSCREEN_ACQUIRE",
+          sessionId,
+          mode,
+          surface,
+          captureQuality: settings.captureQuality,
+          includeMicrophone: settings.includeMicrophone,
+          includeCamera: settings.includeCamera,
+          videoDeviceId: settings.videoDeviceId,
+          audioDeviceId: settings.audioDeviceId,
+        }),
+      );
+    } catch (err) {
+      if (err instanceof MediaPermissionRequiredError) {
+        return recoverMissingMediaPermission({
+          error: err,
+          tab,
+          settings,
+          openPermissionPage: allowPermissionRecovery,
+        });
+      }
+      throw err;
     }
-    throw err;
+    console.log("[clips-bg] arm: acquired stream", acq);
   }
-  console.log("[clips-bg] arm: acquired stream", acq);
 
   const cameraInvolved = mode === "camera" || settings.includeCamera;
   setActionPopup("");
@@ -1623,29 +2057,40 @@ async function armRecording(args: {
   };
   let created: CreatedRecording;
   try {
-    created = await postAction<CreatedRecording>(settings, "create-recording", {
-      title: tab.title || "Untitled recording",
-      titleSource: tab.title ? "context" : "default",
-      sourceAppName: "Chrome",
-      recordingPlatform: "extension",
-      sourceWindowTitle: tab.title ?? null,
-      hasCamera: cameraInvolved,
-      hasAudio: settings.includeMicrophone,
-      mimeType: "video/webm",
-      requestStreaming: true,
-    });
+    const creating = postAction<CreatedRecording>(
+      settings,
+      "create-recording",
+      {
+        title: tab.title || "Untitled recording",
+        titleSource: tab.title ? "context" : "default",
+        sourceAppName: "Chrome",
+        recordingPlatform: "extension",
+        sourceWindowTitle: tab.title ?? null,
+        hasCamera: cameraInvolved,
+        hasAudio: settings.includeMicrophone,
+        mimeType: "video/webm",
+        requestStreaming: true,
+      },
+    );
+    created = args.signal
+      ? await abortable(creating, args.signal, (late) => {
+          if (late.id) void trashRecordingError(settings, late.id);
+        })
+      : await creating;
   } catch (err) {
-    captureExtensionError(err, {
-      tags: {
-        surface: "background",
-        recordingStep: "create-recording",
-      },
-      extra: {
-        captureSurface: settings.captureSurface,
-        includeCamera: settings.includeCamera,
-        includeMicrophone: settings.includeMicrophone,
-      },
-    });
+    if (!args.signal?.aborted) {
+      captureExtensionError(err, {
+        tags: {
+          surface: "background",
+          recordingStep: "create-recording",
+        },
+        extra: {
+          captureSurface: settings.captureSurface,
+          includeCamera: settings.includeCamera,
+          includeMicrophone: settings.includeMicrophone,
+        },
+      });
+    }
     await abortArming();
     throw err;
   }
@@ -1670,6 +2115,8 @@ async function armRecording(args: {
     startedAt: new Date().toISOString(),
     startedAtMs: nowMs(),
     captureSurface: settings.captureSurface,
+    captureQuality: settings.captureQuality,
+    ...(args.agentCapture ? { agentCapture: true } : {}),
     includeCamera: settings.includeCamera,
     includeMicrophone: settings.includeMicrophone,
     includeDeveloperLogs: settings.includeDeveloperLogs,
@@ -1700,11 +2147,15 @@ async function armRecording(args: {
     activeNativeRecording?.sessionId !== sessionId
   ) {
     await abortArming();
+    await postAction(settings, "trash-recording", { id: created.id }).catch(
+      () => undefined,
+    );
     await clearNativeRecording();
     throw new Error("Clips recording start was cancelled.");
   }
   try {
-    await sendOffscreenMessage({
+    args.signal?.throwIfAborted();
+    const beginning = sendOffscreenMessage({
       type: "CLIPS_OFFSCREEN_BEGIN",
       sessionId,
       recordingId: created.id,
@@ -1713,9 +2164,12 @@ async function armRecording(args: {
       maxClipDurationMs: parseClipDurationLimitMs(created.maxClipDurationMs),
       hasCamera: cameraInvolved,
       startDelayMs,
+      deferStart: args.agentCapture === true,
+      maxDurationMs: args.maxDurationMs,
       authToken,
       transcriptUrl: actionUrl(settings, "save-browser-transcript"),
     });
+    await (args.signal ? abortable(beginning, args.signal) : beginning);
   } catch (err) {
     console.error("[clips-bg] arm: BEGIN failed", err);
     captureExtensionError(err, {
@@ -1730,7 +2184,7 @@ async function armRecording(args: {
         includeMicrophone: settings.includeMicrophone,
       },
     });
-    await cancelRecording(true);
+    await cancelRecording(true, args.agentCapture === true);
     throw err;
   }
   setActionPopup("src/popup.html");
@@ -1741,16 +2195,25 @@ async function armRecording(args: {
   await chrome.action.setBadgeText({ text: "REC" });
   console.log("[clips-bg] arm: done — countdown, parts:", desiredParts());
 
-  return { ok: true, sessionId, recordingId: created.id, native: true };
+  return {
+    ok: true,
+    sessionId,
+    recordingId: created.id,
+    native: true,
+    startDelayMs,
+  };
 }
 
-async function markRecordingStarted() {
+async function markRecordingStarted(actualStartedAtMs?: number) {
   if (overlayPhase !== "countdown") return;
   console.log("[clips-bg] recorder started → phase=recording");
   clearCountdownTimer();
   overlayPhase = "recording";
   overlayBaseElapsedMs = 0;
-  overlayBaseEpochMs = nowMs();
+  overlayBaseEpochMs =
+    typeof actualStartedAtMs === "number" && Number.isFinite(actualStartedAtMs)
+      ? actualStartedAtMs
+      : nowMs();
   const session = activeNativeRecording
     ? sessions.get(activeNativeRecording.sessionId)
     : null;
@@ -1781,6 +2244,12 @@ async function markRecordingStarted() {
 
 async function handleOverlaySkip() {
   if (overlayPhase !== "countdown" || !activeNativeRecording) {
+    return { ok: true };
+  }
+  if (activeNativeRecording.agentCapture) {
+    if (agentCountdownSkip?.sessionId === activeNativeRecording.sessionId) {
+      agentCountdownSkip.skip();
+    }
     return { ok: true };
   }
   await sendOffscreenMessage({
@@ -1856,6 +2325,16 @@ function handleOverlayResume() {
 async function handleOverlayRestart() {
   const recording = activeNativeRecording;
   if (!recording) return { ok: true };
+  if (
+    recording.agentCapture ||
+    recording.sessionId === agentPreparedSessionId
+  ) {
+    return {
+      ok: false,
+      error:
+        "Retake is unavailable during an agent capture. Stop or discard this recording first.",
+    };
+  }
   try {
     await sendOffscreenMessage({
       type: "CLIPS_OFFSCREEN_RESTART",
@@ -1984,7 +2463,15 @@ async function finishSaving(
   }
 }
 
-async function stopRecording() {
+async function stopRecording(fromAgentRunner = false) {
+  if (
+    !fromAgentRunner &&
+    agentCaptureRunner &&
+    activeNativeRecording?.sessionId === agentPreparedSessionId
+  ) {
+    await agentCaptureRunner.stop();
+    return { ok: true };
+  }
   const recording = activeNativeRecording;
   console.log("[clips-bg] stopRecording — active:", !!recording);
   if (!recording) return { ok: false, error: "No active Clips recording." };
@@ -2046,32 +2533,79 @@ async function stopRecording() {
   }
 }
 
-async function cancelRecording(force = false) {
+async function cancelRecording(
+  force = false,
+  fromAgentRunner = false,
+): Promise<AgentTakeCancellation> {
   const recording = activeNativeRecording;
-  if (overlayPhase === "saving") return { ok: false };
+  if (overlayPhase === "saving") return { ok: false, clipRemoved: false };
   if (!force && armingNativeRecordingSessionId) {
-    return { ok: false, error: "Clips recording is still starting." };
+    return {
+      ok: false,
+      error: "Clips recording is still starting.",
+      clipRemoved: false,
+    };
   }
+  const agentRunner =
+    !fromAgentRunner && recording?.sessionId === agentPreparedSessionId
+      ? agentCaptureRunner
+      : null;
   resetOverlay();
   await broadcastUnmount();
   broadcastOverlayState();
   await chrome.action.setBadgeText({ text: "" });
   if (!recording) {
     await clearNativeRecording();
-    return { ok: true };
+    return { ok: true, clipRemoved: true };
   }
-  await sendOffscreenMessage({
-    type: "CLIPS_OFFSCREEN_CANCEL",
-    sessionId: recording.sessionId,
-    failureCode: "user_cancelled",
-    reason: "Recording cancelled by user",
-  }).catch(() => undefined);
+  let cancelError: string | null = null;
+  try {
+    await sendOffscreenMessage({
+      type: "CLIPS_OFFSCREEN_CANCEL",
+      sessionId: recording.sessionId,
+      failureCode: "user_cancelled",
+      reason: "Recording cancelled by user",
+    });
+  } catch (error) {
+    cancelError = error instanceof Error ? error.message : String(error);
+  }
   await deleteSession(recording.sessionId);
-  await postAction(settingsFromRecording(recording), "trash-recording", {
-    id: recording.recordingId,
-  }).catch(() => undefined);
+  const clipError = await trashRecordingError(
+    settingsFromRecording(recording),
+    recording.recordingId,
+  );
   await clearNativeRecording();
-  return { ok: true };
+  if (agentRunner) {
+    agentPreparedSessionId = null;
+    agentReady = null;
+    agentReadinessError = null;
+    try {
+      await agentRunner.abandon(
+        cancelError
+          ? `Recording discarded by the user; recorder teardown is unconfirmed: ${cancelError}`
+          : "Recording discarded by the user.",
+      );
+    } finally {
+      await agentRunner.disarm().catch(() => undefined);
+      if (agentCaptureRunner === agentRunner) agentCaptureRunner = null;
+    }
+  }
+  const clip = { clipRemoved: clipError === null, clipError };
+  if (cancelError && (agentRunner || fromAgentRunner)) {
+    return { ok: false, error: cancelError, ...clip };
+  }
+  return { ok: true, ...clip };
+}
+
+async function trashRecordingError(
+  settings: ExtensionSettings,
+  recordingId: string,
+): Promise<string | null> {
+  return postAction(settings, "trash-recording", { id: recordingId }).then(
+    () => null,
+    (error: unknown) =>
+      error instanceof Error ? error.message : String(error),
+  );
 }
 
 async function saveNativeDiagnostics(
@@ -2210,6 +2744,7 @@ async function handlePopupStatus() {
     ok: true,
     activeRecording: activeNativeRecording,
     arming: Boolean(armingNativeRecordingSessionId),
+    agentArmed: Boolean(agentCaptureRunner),
   };
 }
 
@@ -3240,6 +3775,46 @@ async function dispatchRuntimeMessage(
 
   if (type === "CLIPS_NATIVE_STATUS") {
     const status = message as OffscreenStatusMessage;
+    if (
+      status.status === "recording" &&
+      status.sessionId === agentPreparedSessionId &&
+      !agentReady
+    ) {
+      if (
+        status.captureMode === activeNativeRecording?.captureQuality &&
+        typeof status.startedAtMs === "number" &&
+        typeof status.startUncertaintyMs === "number"
+      ) {
+        agentReady = {
+          sessionId: status.sessionId,
+          startedAtMs: status.startedAtMs,
+          uncertaintyMs: status.startUncertaintyMs,
+          ...(typeof status.observedFrameRate === "number"
+            ? { observedFrameRate: status.observedFrameRate }
+            : {}),
+        };
+      } else {
+        agentReadinessError =
+          "Recorder started without matching capture timing and quality fields.";
+      }
+    }
+    if (
+      status.sessionId === agentPreparedSessionId &&
+      (status.status === "error" || status.status === "complete")
+    ) {
+      agentReadinessError =
+        status.error ||
+        "Prepared capture ended before readiness was established.";
+    }
+    if (
+      agentCaptureRunner &&
+      status.sessionId === agentPreparedSessionId &&
+      status.status === "error"
+    ) {
+      const runner = agentCaptureRunner;
+      await runner.abandon(status.error || "Recorder failed.");
+      void releaseAgentCapture(runner, "a recorder error");
+    }
     console.log(
       "[clips-bg] status:",
       status.status,
@@ -3298,7 +3873,7 @@ async function dispatchRuntimeMessage(
       }
       await saveActiveNativeRecording();
       if (status.status === "recording" && overlayPhase === "countdown") {
-        await markRecordingStarted();
+        await markRecordingStarted(status.startedAtMs);
       }
       if (status.status === "complete" && overlayPhase === "saving") {
         await finishSaving(
@@ -3314,11 +3889,24 @@ async function dispatchRuntimeMessage(
         await chrome.action.setBadgeText({ text: "" });
       }
     }
+    if (
+      agentCaptureRunner &&
+      status.sessionId === agentPreparedSessionId &&
+      status.status === "complete"
+    ) {
+      const runner = agentCaptureRunner;
+      if (activeNativeRecording) {
+        overlayPhase = "saving";
+        await finishSaving(activeNativeRecording, status.recordingId);
+      }
+      await runner.stop();
+    }
     return { ok: true };
   }
 
   if (type === "CLIPS_NATIVE_ENDED") {
     const sessionId = (message as { sessionId?: string }).sessionId;
+    if (typeof sessionId === "string") agentSurfaceEndedSessionId = sessionId;
     if (
       activeNativeRecording &&
       activeNativeRecording.sessionId === sessionId &&
@@ -3326,6 +3914,18 @@ async function dispatchRuntimeMessage(
       overlayPhase !== "saving"
     ) {
       return stopRecording();
+    }
+    if (typeof sessionId === "string") {
+      await releaseUnusedAgentArm(sessionId, "the shared surface ended");
+    }
+    return { ok: true };
+  }
+
+  if (type === "CLIPS_PREPARED_EXPIRED") {
+    const sessionId = (message as { sessionId?: string }).sessionId;
+    if (typeof sessionId === "string") {
+      agentSurfaceEndedSessionId = sessionId;
+      await releaseUnusedAgentArm(sessionId, "the armed surface expired");
     }
     return { ok: true };
   }
@@ -3350,6 +3950,12 @@ async function dispatchRuntimeMessage(
   }
 
   switch (type) {
+    case "CLIPS_AGENT_ARM":
+      return armAgentCapture(
+        (message as { settings?: Partial<ExtensionSettings> }).settings,
+      );
+    case "CLIPS_AGENT_DISARM":
+      return disarmAgentCapture();
     case "CLIPS_POPUP_START":
       return handlePopupStart(message as PopupStartMessage);
     case "CLIPS_POPUP_STATUS":

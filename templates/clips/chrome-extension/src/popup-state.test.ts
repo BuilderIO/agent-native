@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  agentCaptureControlVisibility,
+  captureQualityControlDisabled,
   classifyAuthProbe,
+  normalizeCaptureQuality,
   popupStartAuthDecision,
   recordFirstUrl,
   recordingControlVisibility,
@@ -61,6 +64,7 @@ describe("record first without storage", () => {
     includeDeveloperLogs: false,
     videoDeviceId: "",
     audioDeviceId: "",
+    captureQuality: "normal" as const,
   };
 
   it("opens the Clips recorder preset to the popup's screen choice", () => {
@@ -133,5 +137,51 @@ describe("popup start auth recheck", () => {
     expect(popupStartAuthDecision("signed-out")).toBe("sign-in");
     expect(popupStartAuthDecision("unavailable")).toBe("retry");
     expect(popupStartAuthDecision("checking")).toBe("retry");
+  });
+});
+
+describe("popup agent capture controls", () => {
+  it.each(["signed-out", "checking", "unavailable"] as const)(
+    "hides the arm control while the user is %s",
+    (authStatus) => {
+      expect(agentCaptureControlVisibility(authStatus, false, false)).toEqual({
+        armHidden: true,
+        disarmHidden: true,
+      });
+    },
+  );
+
+  it("offers arming only to a signed-in user with no capture running", () => {
+    expect(agentCaptureControlVisibility("signed-in", false, false)).toEqual({
+      armHidden: false,
+      disarmHidden: true,
+    });
+    expect(agentCaptureControlVisibility("signed-in", false, true)).toEqual({
+      armHidden: true,
+      disarmHidden: true,
+    });
+  });
+
+  it("keeps disarm reachable for an armed capture even after sign-out", () => {
+    expect(agentCaptureControlVisibility("signed-out", true, false)).toEqual({
+      armHidden: true,
+      disarmHidden: false,
+    });
+  });
+});
+
+describe("popup capture quality", () => {
+  it("keeps 24 fps unless Motion was chosen", () => {
+    expect(normalizeCaptureQuality(undefined)).toBe("normal");
+    expect(normalizeCaptureQuality("60")).toBe("normal");
+    expect(normalizeCaptureQuality("normal")).toBe("normal");
+    expect(normalizeCaptureQuality("motion")).toBe("motion");
+  });
+
+  it("freezes the choice while a surface is armed, arming or recording", () => {
+    expect(captureQualityControlDisabled(false, false, false)).toBe(false);
+    expect(captureQualityControlDisabled(true, false, false)).toBe(true);
+    expect(captureQualityControlDisabled(false, true, false)).toBe(true);
+    expect(captureQualityControlDisabled(false, false, true)).toBe(true);
   });
 });

@@ -7,6 +7,7 @@ import {
   IconCalendar,
   IconCalendarEvent,
   IconCircleCheck,
+  IconChevronDown,
   IconExternalLink,
   IconFlask,
   IconPencil,
@@ -25,7 +26,11 @@ import {
 } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import {
+  availableMonitors,
+  getCurrentWindow,
+  type Monitor,
+} from "@tauri-apps/api/window";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import {
   type ReactNode,
@@ -72,6 +77,11 @@ import { Input } from "@/components/ui/input";
 import { Switch as UiSwitch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
+import {
+  createCaptureHostRunner,
+  type CaptureStartGate,
+  type OwnedCapture,
+} from "../../shared/capture-host-runner";
 import { type FileUploadStatusProbe } from "../../shared/file-upload-status";
 import {
   CLIPS_LABS,
@@ -81,6 +91,7 @@ import {
   CLIPS_VOICE_DICTATION,
   isLabEnabled,
 } from "../../shared/labs";
+import { type MotionCaptureSession } from "../../shared/motion-capture";
 import { rememberLookbackSeconds } from "../../shared/screen-history-context";
 import { BackToApp } from "./components/BackToApp";
 import {
@@ -103,7 +114,15 @@ import { ShortcutKeycaps } from "./components/ShortcutKeycaps";
 import { SourceRow, type CaptureSource } from "./components/SourceRow";
 import { Switch } from "./components/Switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./components/Tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "./components/ui/dropdown-menu";
 import { UpdateBanner } from "./components/UpdateBanner";
+import { useRowMenu } from "./components/useRowMenu";
 import { useMediaDevices } from "./hooks/useMediaDevices";
 import { useMeetingTranscription } from "./hooks/useMeetingTranscription";
 import { stopAllMicMeters } from "./hooks/useMicMeter";
@@ -117,9 +136,14 @@ import { useSystemAccessRows } from "./hooks/useSystemAccessRows";
 import { useWhisperSettings } from "./hooks/useWhisperSettings";
 import {
   desktopAuthCopy,
+  desktopCaptureQualityCopy,
   desktopRecoveryCopy,
   desktopRecordingFailureCopy,
 } from "./i18n/en-US";
+import {
+  agentCaptureSourceRefusal,
+  richTracksForCapture,
+} from "./lib/agent-capture-policy";
 import { createAudioCue } from "./lib/audio-cue";
 import { startBubbleFramePump } from "./lib/bubble-pump";
 import { shouldKeepBubbleSession } from "./lib/bubble-session";
@@ -167,6 +191,10 @@ import {
   getCameraStreamWithFallback,
   isMediaConstraintFailure,
 } from "./lib/media-capture-constraints";
+import {
+  isTypedCaptureStartError,
+  NativeCaptureError,
+} from "./lib/native-capture-errors";
 import { sendNativeNotification } from "./lib/native-notification";
 import { openMeetingJoinUrl } from "./lib/open-meeting-join-url";
 import type { MacosPrivacyPane } from "./lib/permission-status";
@@ -199,6 +227,7 @@ import {
   forgetRewindClipOriginIfNoRequest,
   getRewindClipOrigin,
   listBrowserRecordingBackups,
+  pickFullscreenRecordingDisplay,
   queueRecordFirstUpload,
   retryBrowserRecordingBackup,
   scheduleNativeBackupCleanupAfterProcessing,
@@ -826,6 +855,99 @@ function readNewInstallVoiceEngine(): VoiceEngine | null {
   }
 }
 
+type CaptureQuality = "normal" | "motion";
+
+function captureMonitorDescriptor(monitor: Monitor): string {
+  return JSON.stringify({
+    name: monitor.name,
+    x: monitor.position.x,
+    y: monitor.position.y,
+    width: monitor.size.width,
+    height: monitor.size.height,
+    scaleFactor: monitor.scaleFactor,
+  });
+}
+
+function captureMonitorTopology(monitors: Monitor[]): string {
+  return monitors.map(captureMonitorDescriptor).sort().join("|");
+}
+
+const CAPTURE_QUALITY_LABELS: Record<CaptureQuality, string> = {
+  normal: desktopCaptureQualityCopy.normal,
+  motion: desktopCaptureQualityCopy.motion,
+};
+
+function CaptureQualityRow({
+  value,
+  onChange,
+  disabled,
+  richTracksExcluded,
+}: {
+  value: CaptureQuality;
+  onChange: (quality: CaptureQuality) => void;
+  disabled: boolean;
+  richTracksExcluded: boolean;
+}) {
+  const { open, onOpenChange } = useRowMenu();
+
+  return (
+    <>
+      <div className="row row-on">
+        <span className="row-icon" aria-hidden>
+          <IconAdjustmentsHorizontal size={20} stroke={1.75} />
+        </span>
+        <DropdownMenu open={open} onOpenChange={onOpenChange}>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="row-button disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={disabled}
+              aria-label={`Choose capture quality: ${CAPTURE_QUALITY_LABELS[value]}`}
+            >
+              <span className="row-label">{CAPTURE_QUALITY_LABELS[value]}</span>
+              <span className="row-flex" aria-hidden />
+              <IconChevronDown
+                className="row-chev"
+                size={16}
+                stroke={1.75}
+                aria-hidden
+              />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            sideOffset={6}
+            data-popover-resize-overlay="true"
+            className="recorder-menu w-[216px] rounded-[10px]"
+          >
+            <DropdownMenuRadioGroup
+              value={value}
+              onValueChange={(nextValue) => {
+                onChange(nextValue === "motion" ? "motion" : "normal");
+              }}
+            >
+              <DropdownMenuRadioItem value="normal">
+                {CAPTURE_QUALITY_LABELS.normal}
+              </DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="motion">
+                {CAPTURE_QUALITY_LABELS.motion}
+              </DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      {richTracksExcluded ? (
+        <p
+          className="px-3 pb-1 text-[11px] leading-tight text-muted-foreground"
+          role="note"
+        >
+          {desktopCaptureQualityCopy.motionExcludesRichTracks}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
 function formatMeetingWhen(meeting: PopoverMeeting): string {
   const startMs = Date.parse(meeting.scheduledStart ?? "");
   if (Number.isNaN(startMs)) return "Upcoming";
@@ -1113,6 +1235,8 @@ export function App({
   const [source, setSource] = useState<CaptureSource>(() =>
     normalizeCaptureSource(loadString(SOURCE_KEY, "full-screen")),
   );
+  const [captureQuality, setCaptureQuality] =
+    useState<CaptureQuality>("normal");
   const [cameraOn, setCameraOn] = useState<boolean>(
     initialCaptureSetup.cameraOn,
   );
@@ -1277,6 +1401,30 @@ export function App({
   ] = useState<Record<string, RewindMeetingHistoryAvailability>>({});
   const [activeMeetingId, setActiveMeetingId] = useState<string | null>(null);
   const [recorder, setRecorder] = useState<RecorderHandle | null>(null);
+  const captureHostRunnerRef = useRef<ReturnType<
+    typeof createCaptureHostRunner
+  > | null>(null);
+  const captureHostDisarmingRef = useRef(false);
+  const agentOwnedRecorderRef = useRef<RecorderHandle | null>(null);
+  const agentCaptureMediaTimeRef = useRef<{
+    elapsedMs: number;
+    paused: boolean;
+    observedAtMs: number;
+  } | null>(null);
+  const [agentCaptureState, setAgentCaptureState] = useState<
+    | "idle"
+    | "arming"
+    | "armed"
+    | "starting"
+    | "recording"
+    | "disarming"
+    | "error"
+  >("idle");
+  const [agentCaptureMessage, setAgentCaptureMessage] = useState<string | null>(
+    null,
+  );
+  const [armedAgentCaptureSelectionKey, setArmedAgentCaptureSelectionKey] =
+    useState<string | null>(null);
   const recorderRef = useRef<RecorderHandle | null>(recorder);
   recorderRef.current = recorder;
   const recordingStartAttemptRef = useRef<RecordingStartAttempt | null>(null);
@@ -1361,6 +1509,14 @@ export function App({
   const handleStartRecordingRef = useRef<
     (options?: {
       resumeCapture?: RestartHandoff;
+      displayAlreadyPicked?: boolean;
+      captureQuality?: CaptureQuality;
+      signal?: AbortSignal;
+      maxDurationMs?: number;
+      displayId?: number;
+      confirmBegin?: () => Promise<void>;
+      onCaptureIdentity?: (captureIdentity: string) => void;
+      onRecordingIdChosen?: (recordingId: string) => void;
     }) => Promise<RecorderHandle | null>
   >(async () => null);
   const bubbleActiveRef = useRef(false);
@@ -1384,6 +1540,18 @@ export function App({
     setCameraError,
     setRecError,
   });
+  const agentCaptureSelectionKey = JSON.stringify({
+    mode,
+    source,
+    cameraOn,
+    cameraId,
+    micOn,
+    micId: selectedMicId,
+    systemAudioOn,
+    captureQuality,
+  });
+  const agentCaptureSelectionKeyRef = useRef(agentCaptureSelectionKey);
+  agentCaptureSelectionKeyRef.current = agentCaptureSelectionKey;
   const meetingsLabEnabled =
     authStatus === "authed" && isLabEnabled(labValues, CLIPS_MEETINGS);
   const voiceDictationLabEnabled =
@@ -3229,8 +3397,15 @@ export function App({
     null,
   );
   const finishRecordingStopRef = useRef<
-    (handle: RecorderHandle, recordingId?: string | null) => Promise<void>
+    (
+      handle: RecorderHandle,
+      recordingId?: string | null,
+      options?: { rethrow?: boolean },
+    ) => Promise<void>
   >(async () => {});
+  const discardAgentTakeRef = useRef<(handle: RecorderHandle) => Promise<void>>(
+    async () => {},
+  );
 
   function ensureRecorderStopListener() {
     if (!recorderStopListenerPromiseRef.current) {
@@ -3259,6 +3434,13 @@ export function App({
           }
           const activeRecorder = recorderRef.current;
           if (!activeRecorder) return;
+          const agentRunner = captureHostRunnerRef.current;
+          if (agentOwnedRecorderRef.current === activeRecorder && agentRunner) {
+            void agentRunner.stop().catch((error) => {
+              console.warn("[clips-popover] agent capture stop failed:", error);
+            });
+            return;
+          }
           void finishRecordingStopRef.current(
             activeRecorder,
             sessionRecordingIdRef.current,
@@ -3815,7 +3997,36 @@ export function App({
     }
   }
 
-  finishRecordingStopRef.current = async (handle, stoppingRecordingId) => {
+  discardAgentTakeRef.current = async (handle) => {
+    recordingCancelInFlightRef.current = true;
+    removeLookbackContext();
+    try {
+      await handle.cancel();
+    } finally {
+      recordingCancelInFlightRef.current = false;
+      if (agentOwnedRecorderRef.current === handle) {
+        agentOwnedRecorderRef.current = null;
+      }
+      if (recorderRef.current === handle) {
+        (window as unknown as { clipsForceAlive?: boolean }).clipsForceAlive =
+          false;
+        bubbleStreamTransferredToRecorder.current = false;
+        bubbleStreamRef.current = null;
+        recordingFlowGateRef.current = false;
+        recorderRef.current = null;
+        setRecorder(null);
+        setRecordingFlowActive(false);
+        setBubbleSessionEpoch((epoch) => epoch + 1);
+      }
+      invoke("set_recording_state", { active: false }).catch(() => {});
+    }
+  };
+
+  finishRecordingStopRef.current = async (
+    handle,
+    stoppingRecordingId,
+    stopOptions,
+  ) => {
     recordingStopFinalizingRef.current = true;
     setRecordingStopFinalizing(true);
     bubbleStreamTransferredToRecorder.current = false;
@@ -3867,7 +4078,11 @@ export function App({
         }).catch(() => {});
       }
       await loadPendingUploads();
+      if (stopOptions?.rethrow) throw err;
     } finally {
+      if (agentOwnedRecorderRef.current === handle) {
+        agentOwnedRecorderRef.current = null;
+      }
       settleLookbackContextAfterStop(
         stoppingRecordingId ?? stopResult?.recordingId,
         stopResult !== null,
@@ -4243,6 +4458,14 @@ export function App({
 
   async function handleStartRecording(options?: {
     resumeCapture?: RestartHandoff;
+    displayAlreadyPicked?: boolean;
+    captureQuality?: CaptureQuality;
+    signal?: AbortSignal;
+    maxDurationMs?: number;
+    displayId?: number;
+    confirmBegin?: () => Promise<void>;
+    onCaptureIdentity?: (captureIdentity: string) => void;
+    onRecordingIdChosen?: (recordingId: string) => void;
   }): Promise<RecorderHandle | null> {
     const recordingClickAt = performance.now();
     if (recordingStopFinalizingRef.current) {
@@ -4300,6 +4523,11 @@ export function App({
     recordingStartAttemptRef.current = attempt;
     recordingStartAttemptIdRef.current = startAttemptId;
     captureStartedDuringStartRef.current = false;
+    const abortAgentStartup = () => attempt.cancel();
+    options?.signal?.addEventListener("abort", abortAgentStartup, {
+      once: true,
+    });
+    if (options?.signal?.aborted) attempt.cancel();
     recordingFlowGateRef.current = true;
     setRecordingStartPending(true);
     let handle: RecorderHandle | null = null;
@@ -4340,7 +4568,9 @@ export function App({
       if (nativeCaptureRecordingActive) {
         await prepareNativeRecordingStart(attempt, {
           windowCapture: nativeWindowRecordingActive,
-          resumeCapture: Boolean(options?.resumeCapture),
+          resumeCapture: Boolean(
+            options?.resumeCapture || options?.displayAlreadyPicked,
+          ),
           microphone: micOn,
         });
       }
@@ -4382,8 +4612,15 @@ export function App({
           systemAudioOn,
           voiceCleanupEnabled,
           lookbackEnabled: lookbackSecondsForRecording > 0,
-          richTracks: richRecordingsLabEnabled,
+          richTracks: richTracksForCapture({
+            captureQuality: options?.captureQuality ?? captureQuality,
+            richTracksLabEnabled: richRecordingsLabEnabled,
+          }),
           localRecordingMode: recordingLocalMode,
+          captureQuality: options?.captureQuality ?? captureQuality,
+          maxDurationMs: options?.maxDurationMs,
+          displayId: options?.displayId,
+          confirmBegin: options?.confirmBegin,
           preAcquiredCameraStream,
           preAcquiredDisplayStream:
             options?.resumeCapture?.displayStream ?? null,
@@ -4394,7 +4631,9 @@ export function App({
           countdownAttemptId: startAttemptId,
           onCaptureIdentityAvailable: (captureIdentity) => {
             sessionCaptureIdentityRef.current = captureIdentity;
+            options?.onCaptureIdentity?.(captureIdentity);
           },
+          onRecordingIdChosen: options?.onRecordingIdChosen,
           onCaptureStartRequested: (recordingId, captureIdentity) => {
             console.log(
               `[recording-start-latency] click to capture request ${Math.round(performance.now() - recordingClickAt)}ms`,
@@ -4441,11 +4680,15 @@ export function App({
         await boundedCleanup(started.cancel());
         attempt.ensureActive();
       }
-      // Capture already began: an abandoned start stops and keeps the take.
       if (
         (stopRequestedDuringStart || attempt.signal.aborted) &&
         captureStartRequestedDuringStart
       ) {
+        if (options?.signal) {
+          await discardAgentTakeRef.current(started);
+          attempt.ensureActive();
+          throw new Error("Recording stopped before it was ready.");
+        }
         stoppedDuringStart = true;
         await finishRecordingStopRef.current(
           started,
@@ -4470,6 +4713,7 @@ export function App({
         });
       }
     } finally {
+      options?.signal?.removeEventListener("abort", abortAgentStartup);
       if (!audioCueTransferred) audioCue.cleanup();
       if (parkPopoverTimer !== null) {
         window.clearTimeout(parkPopoverTimer);
@@ -4508,6 +4752,25 @@ export function App({
     if (stoppedDuringStart) return null;
 
     console.error("[clips-popover] handleStartRecording failed:", startError);
+
+    if (options?.signal) {
+      const failure =
+        startError instanceof Error ? startError.message : String(startError);
+      if (isTypedCaptureStartError(startError)) {
+        setRecError(failure);
+        throw startError;
+      }
+      const actionableMessage =
+        startError instanceof ScreenRecordingPermissionError
+          ? MACOS_SCREEN_PERMISSION_MESSAGE
+          : isHardCapturePermissionError(failure)
+            ? isMacPlatform()
+              ? MACOS_CAPTURE_PERMISSION_MESSAGE
+              : DESKTOP_CAPTURE_PERMISSION_MESSAGE
+            : failure;
+      setRecError(actionableMessage);
+      throw new Error(actionableMessage);
+    }
 
     if (startError instanceof ScreenRecordingPermissionError) {
       setRecError(MACOS_SCREEN_PERMISSION_MESSAGE);
@@ -4564,6 +4827,33 @@ export function App({
 
   useEffect(() => {
     let cancelled = false;
+    let unlisten: (() => void) | null = null;
+    void listen<{ paused?: boolean; elapsedMs?: number }>(
+      "clips:recorder-state",
+      (event) => {
+        const elapsedMs = event.payload.elapsedMs;
+        if (typeof elapsedMs !== "number" || !Number.isFinite(elapsedMs))
+          return;
+        agentCaptureMediaTimeRef.current = {
+          elapsedMs: Math.max(0, elapsedMs),
+          paused: event.payload.paused === true,
+          observedAtMs: Date.now(),
+        };
+      },
+    )
+      .then((nextUnlisten) => {
+        if (cancelled) nextUnlisten();
+        else unlisten = nextUnlisten;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
     const unlisteners: Array<() => void> = [];
     const cancelStart = () => {
       // Once capture has begun only the pill's confirmed discard deletes it.
@@ -4609,6 +4899,11 @@ export function App({
     options?: Parameters<typeof handleStartRecording>[0],
     beginOptions?: { revealPopoverIfMicOff?: boolean },
   ) {
+    if (captureHostRunnerRef.current && !options?.displayAlreadyPicked) {
+      setRecError("Disarm agent capture before starting a recording yourself.");
+      invoke("show_popover").catch(() => {});
+      return;
+    }
     if (!micOn) {
       if (beginOptions?.revealPopoverIfMicOff) {
         invoke("show_popover").catch(() => {});
@@ -4752,6 +5047,10 @@ export function App({
           return;
         recordingCancelInFlightRef.current = true;
         removeLookbackContext();
+        const agentRunner =
+          agentOwnedRecorderRef.current === recorder
+            ? captureHostRunnerRef.current
+            : null;
         const cancelDone = recorder.cancel();
         // Optimistic feedback: bring the popover back and clear the tray's
         // recording state the moment the cancel is dispatched — the recorder
@@ -4765,6 +5064,14 @@ export function App({
         }
         try {
           await cancelDone;
+          if (agentRunner) {
+            agentOwnedRecorderRef.current = null;
+            try {
+              await agentRunner.abandon("Recording cancelled by the user.");
+            } finally {
+              await disarmAgentCapture(agentRunner).catch(() => {});
+            }
+          }
         } catch (err) {
           setRecError(err instanceof Error ? err.message : String(err));
         } finally {
@@ -4793,6 +5100,13 @@ export function App({
         )
           return;
         if (restartInFlightRef.current) return;
+        if (agentOwnedRecorderRef.current === recorder) {
+          setRecError(
+            "Retake is unavailable during an agent capture. Stop or discard this recording first.",
+          );
+          invoke("show_popover").catch(() => {});
+          return;
+        }
         restartInFlightRef.current = true;
         pendingRestartStopRef.current = new Set();
         restartCancelledRef.current = false;
@@ -4894,6 +5208,308 @@ export function App({
     videoStorageStatus,
   ]);
 
+  async function disarmAgentCapture(
+    expectedRunner = captureHostRunnerRef.current,
+    { releaseOnFailure = false }: { releaseOnFailure?: boolean } = {},
+  ): Promise<void> {
+    if (!expectedRunner || captureHostDisarmingRef.current) return;
+    captureHostDisarmingRef.current = true;
+    setAgentCaptureState("disarming");
+    setAgentCaptureMessage("Stopping agent control and releasing this screen…");
+    try {
+      await expectedRunner.disarm();
+      await invoke("set_recording_display_override", { displayId: null });
+      if (captureHostRunnerRef.current === expectedRunner) {
+        captureHostRunnerRef.current = null;
+      }
+      setArmedAgentCaptureSelectionKey(null);
+      setAgentCaptureState("idle");
+      setAgentCaptureMessage(null);
+    } catch (err) {
+      await invoke("set_recording_display_override", {
+        displayId: null,
+      }).catch(() => {});
+      if (releaseOnFailure) {
+        if (captureHostRunnerRef.current === expectedRunner) {
+          captureHostRunnerRef.current = null;
+        }
+        setArmedAgentCaptureSelectionKey(null);
+      }
+      const message = err instanceof Error ? err.message : String(err);
+      setAgentCaptureState("error");
+      setAgentCaptureMessage(`Could not disarm agent capture: ${message}`);
+      throw err;
+    } finally {
+      captureHostDisarmingRef.current = false;
+    }
+  }
+
+  async function armAgentCapture(): Promise<void> {
+    const sourceRefusal = agentCaptureSourceRefusal({
+      source,
+      mode,
+      nativeFullscreenAvailable: nativeFullscreenRecordingActive,
+    });
+    if (sourceRefusal) {
+      setAgentCaptureState("error");
+      setAgentCaptureMessage(sourceRefusal.message);
+      return;
+    }
+    if (
+      authStatus !== "authed" ||
+      localRecordingMode !== "off" ||
+      videoStorageStatus !== "configured"
+    ) {
+      setAgentCaptureState("error");
+      setAgentCaptureMessage(
+        "Sign in and connect video storage before arming agent capture.",
+      );
+      return;
+    }
+    if (recorder || recordingFlowGateRef.current || recordingStopFinalizing) {
+      setAgentCaptureState("error");
+      setAgentCaptureMessage(
+        "Finish the current recording before arming agent capture.",
+      );
+      return;
+    }
+
+    const existingRunner = captureHostRunnerRef.current;
+    if (existingRunner) {
+      try {
+        await disarmAgentCapture(existingRunner);
+      } catch {
+        return;
+      }
+    }
+
+    setAgentCaptureState("arming");
+    setAgentCaptureMessage("Choose the screen this one agent capture may use.");
+    let runner: ReturnType<typeof createCaptureHostRunner> | null = null;
+    try {
+      const monitorsAtArm = await availableMonitors();
+      const monitorTopologyAtArm = captureMonitorTopology(monitorsAtArm);
+      const displaySelection: { displayId: number | null } = {
+        displayId: null,
+      };
+      const unlistenDisplaySelection = await listen<{
+        displayId?: number | null;
+      }>("clips:monitor-picker-selected", (event) => {
+        if (typeof event.payload.displayId === "number") {
+          displaySelection.displayId = event.payload.displayId;
+        }
+      });
+      try {
+        await pickFullscreenRecordingDisplay();
+      } finally {
+        unlistenDisplaySelection();
+      }
+      const armedDisplayId =
+        displaySelection.displayId ??
+        (await invoke<number | null>("native_recording_display_id"));
+      if (armedDisplayId === null) {
+        throw new NativeCaptureError(
+          "display_unavailable",
+          "NativeCaptureDisplayUnavailableError",
+          "display_unavailable: Could not tell which screen agent capture should record. Arm agent capture again and choose a screen.",
+        );
+      }
+      const onlyMonitor =
+        monitorsAtArm.length === 1 ? monitorsAtArm[0] : undefined;
+      const selectedMonitorIdentity =
+        displaySelection.displayId !== null
+          ? `display-id:${displaySelection.displayId}`
+          : onlyMonitor
+            ? `single-monitor:${captureMonitorDescriptor(onlyMonitor)}`
+            : null;
+      if (!selectedMonitorIdentity) {
+        throw new Error(
+          "Could not retain the screen selected for agent capture.",
+        );
+      }
+      const selectionKey = agentCaptureSelectionKey;
+      const surface = `desktop:${source}:${mode}:${selectedMonitorIdentity}`;
+      let startupCaptureIdentity: string | null = null;
+      let startupRecordingId: string | null = null;
+      const releaseAfterTake = () => {
+        window.setTimeout(() => {
+          if (!captureHostDisarmingRef.current && runner) {
+            void disarmAgentCapture(runner, { releaseOnFailure: true }).catch(
+              () => {},
+            );
+          }
+        }, 0);
+      };
+      const startAgentTake = async (
+        session: MotionCaptureSession,
+        signal: AbortSignal,
+        gate: CaptureStartGate,
+      ): Promise<OwnedCapture> => {
+        if (
+          captureHostRunnerRef.current !== runner ||
+          captureHostDisarmingRef.current
+        ) {
+          throw new Error("This desktop capture host is no longer armed.");
+        }
+        if (agentCaptureSelectionKeyRef.current !== selectionKey) {
+          throw new Error(
+            "Recorder settings changed after arming. Arm agent capture again for the new selection.",
+          );
+        }
+        const currentMonitorTopology = captureMonitorTopology(
+          await availableMonitors(),
+        );
+        if (currentMonitorTopology !== monitorTopologyAtArm) {
+          throw new Error(
+            "Connected displays changed after arming. Arm agent capture again and choose the screen.",
+          );
+        }
+        if (recorderRef.current || recordingFlowGateRef.current) {
+          throw new Error("Clips is already recording another capture.");
+        }
+        setAgentCaptureState("starting");
+        setAgentCaptureMessage("Agent capture is starting…");
+        agentCaptureMediaTimeRef.current = null;
+        const handle = await handleStartRecordingRef.current({
+          displayAlreadyPicked: true,
+          captureQuality: session.captureMode,
+          signal,
+          maxDurationMs: session.maxDurationMs,
+          displayId: armedDisplayId,
+          confirmBegin: () => gate.confirmBegin(),
+          onCaptureIdentity: (captureIdentity) => {
+            startupCaptureIdentity = captureIdentity;
+          },
+          onRecordingIdChosen: (recordingId) => {
+            startupRecordingId = recordingId;
+          },
+        });
+        if (!handle) throw new Error("Desktop recording did not start.");
+        const info = handle.getCaptureInfo();
+        if (!info) {
+          await handle.cancel().catch(() => {});
+          throw new Error(
+            "Desktop recording started without capture timing information.",
+          );
+        }
+        agentOwnedRecorderRef.current = handle;
+        setAgentCaptureState("recording");
+        setAgentCaptureMessage(
+          `Agent capture is recording ${info.recordingId}. Stop remains available here.`,
+        );
+        return {
+          recordingId: info.recordingId,
+          startedAtMs: info.startedAtMs,
+          startUncertaintyMs: info.startUncertaintyMs,
+          observedFrameRate: info.observedFrameRate ?? undefined,
+          readMediaTime: () => {
+            const latest = agentCaptureMediaTimeRef.current;
+            if (!latest) {
+              const ageMs = Math.max(0, Date.now() - info.startedAtMs);
+              return {
+                mediaTimeMs: ageMs,
+                uncertaintyMs: info.startUncertaintyMs + ageMs,
+              };
+            }
+            const ageMs = Math.max(0, Date.now() - latest.observedAtMs);
+            return {
+              mediaTimeMs: latest.elapsedMs + (latest.paused ? 0 : ageMs),
+              uncertaintyMs: info.startUncertaintyMs + ageMs,
+            };
+          },
+          stop: async () => {
+            try {
+              await finishRecordingStopRef.current(handle, info.recordingId, {
+                rethrow: true,
+              });
+            } finally {
+              releaseAfterTake();
+            }
+          },
+          discard: async () => {
+            try {
+              await discardAgentTakeRef.current(handle);
+            } finally {
+              releaseAfterTake();
+            }
+          },
+        };
+      };
+      runner = createCaptureHostRunner({
+        call: callClipsAction,
+        kind: "desktop",
+        label: "Clips Desktop",
+        surface,
+        startupRecordingId: () => startupRecordingId,
+        cancelStartup: async () => {
+          if (!startupCaptureIdentity) return;
+          await invoke("native_fullscreen_recording_cancel", {
+            expectedRecordingId: startupCaptureIdentity,
+            confirmTeardown: true,
+          });
+        },
+        onError: (err) => {
+          setAgentCaptureState("error");
+          setAgentCaptureMessage(err.message);
+        },
+        start: async (session, signal, gate) => {
+          try {
+            return await startAgentTake(session, signal, gate);
+          } catch (cause) {
+            releaseAfterTake();
+            throw cause;
+          }
+        },
+      });
+      captureHostRunnerRef.current = runner;
+      await runner.arm();
+      setArmedAgentCaptureSelectionKey(selectionKey);
+      setAgentCaptureState("armed");
+      setAgentCaptureMessage(
+        "Armed for one agent-controlled Full screen capture with the current camera and audio settings.",
+      );
+    } catch (err) {
+      if (runner && captureHostRunnerRef.current === runner) {
+        await runner.disarm().catch(() => {});
+        captureHostRunnerRef.current = null;
+      }
+      await invoke("set_recording_display_override", {
+        displayId: null,
+      }).catch(() => {});
+      const message = err instanceof Error ? err.message : String(err);
+      setArmedAgentCaptureSelectionKey(null);
+      setAgentCaptureState("error");
+      setAgentCaptureMessage(message);
+    }
+  }
+
+  useEffect(() => {
+    if (
+      !armedAgentCaptureSelectionKey ||
+      armedAgentCaptureSelectionKey === agentCaptureSelectionKey ||
+      agentOwnedRecorderRef.current
+    ) {
+      return;
+    }
+    setAgentCaptureMessage(
+      "Recorder settings changed. Releasing the previously armed screen…",
+    );
+    void disarmAgentCapture().catch(() => {});
+  }, [agentCaptureSelectionKey, armedAgentCaptureSelectionKey]);
+
+  useEffect(
+    () => () => {
+      const runner = captureHostRunnerRef.current;
+      captureHostDisarmingRef.current = true;
+      captureHostRunnerRef.current = null;
+      if (runner) void runner.disarm().catch(() => {});
+      void invoke("set_recording_display_override", {
+        displayId: null,
+      }).catch(() => {});
+    },
+    [],
+  );
+
   const showSourceRow = mode !== "camera";
   const imminentMeeting = meetings.find(meetingCanStartNotes) ?? null;
   const recordingReadinessPending =
@@ -4908,6 +5524,36 @@ export function App({
       : localRecordingMode === "off"
         ? "Start recording"
         : "Start local recording";
+  const agentCaptureSourceProblem = agentCaptureSourceRefusal({
+    source,
+    mode,
+    nativeFullscreenAvailable: nativeFullscreenRecordingActive,
+  });
+  const agentCaptureConfigured =
+    agentCaptureSourceProblem === null &&
+    authStatus === "authed" &&
+    localRecordingMode === "off" &&
+    videoStorageStatus === "configured";
+  const agentCaptureHasHost =
+    armedAgentCaptureSelectionKey !== null ||
+    agentCaptureState === "starting" ||
+    agentCaptureState === "recording" ||
+    agentCaptureState === "disarming";
+  const captureQualityLocked =
+    Boolean(recorder) ||
+    recordingFlowActive ||
+    recordingStopFinalizing ||
+    agentCaptureState === "arming" ||
+    agentCaptureHasHost;
+  const agentCaptureUnavailableReason = agentCaptureSourceProblem
+    ? agentCaptureSourceProblem.message
+    : authStatus !== "authed" ||
+        localRecordingMode !== "off" ||
+        videoStorageStatus !== "configured"
+      ? "Sign in and connect video storage before arming agent capture."
+      : recorder || recordingFlowActive || recordingStopFinalizing
+        ? "Finish the current recording before arming agent capture."
+        : null;
 
   const localRecoveryFiles = mapRecordFirstFilesForRecovery(
     [...recordFirstFiles, ...unclaimedRecordFirstFiles],
@@ -5461,11 +6107,21 @@ export function App({
 
         <div className="panel" inert={recordingStartPending}>
           {showSourceRow ? (
-            <SourceRow
-              value={source}
-              onChange={setSource}
-              includeRegion={isMacPlatform()}
-            />
+            <>
+              <SourceRow
+                value={source}
+                onChange={setSource}
+                includeRegion={isMacPlatform()}
+              />
+              <CaptureQualityRow
+                value={captureQuality}
+                onChange={setCaptureQuality}
+                disabled={captureQualityLocked}
+                richTracksExcluded={
+                  captureQuality === "motion" && richRecordingsLabEnabled
+                }
+              />
+            </>
           ) : null}
 
           <MediaDeviceRow
@@ -5511,6 +6167,57 @@ export function App({
           ) : null}
         </div>
 
+        <Alert className="p-2 text-xs">
+          <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+            <div className="min-w-0">
+              <AlertTitle className="mb-0">Agent capture</AlertTitle>
+              <AlertDescription
+                className="text-[11px] leading-tight"
+                role={agentCaptureState === "error" ? "alert" : "status"}
+              >
+                {agentCaptureMessage ??
+                  agentCaptureUnavailableReason ??
+                  "Arm one Full screen capture with the current camera and audio settings. You can stop it at any time."}
+              </AlertDescription>
+            </div>
+            <Button
+              type="button"
+              variant={agentCaptureHasHost ? "outline" : "secondary"}
+              size="sm"
+              className="h-7 shrink-0 px-2 text-xs"
+              disabled={
+                agentCaptureState === "arming" ||
+                agentCaptureState === "starting" ||
+                agentCaptureState === "disarming" ||
+                (!agentCaptureHasHost && !agentCaptureConfigured) ||
+                (!agentCaptureHasHost &&
+                  (Boolean(recorder) ||
+                    recordingFlowActive ||
+                    recordingStopFinalizing))
+              }
+              onClick={() => {
+                if (agentCaptureHasHost) {
+                  void disarmAgentCapture().catch(() => {});
+                } else {
+                  void armAgentCapture();
+                }
+              }}
+            >
+              {agentCaptureState === "arming"
+                ? "Choosing…"
+                : agentCaptureState === "starting"
+                  ? "Starting…"
+                  : agentCaptureState === "disarming"
+                    ? "Disarming…"
+                    : agentCaptureHasHost
+                      ? agentCaptureState === "recording"
+                        ? "Stop + disarm"
+                        : "Disarm"
+                      : "Arm"}
+            </Button>
+          </div>
+        </Alert>
+
         {!isRecording ? (
           <button
             data-recovery-focus-fallback
@@ -5521,7 +6228,8 @@ export function App({
             disabled={
               recordingReadinessPending ||
               recordingStopFinalizing ||
-              recordingStartPending
+              recordingStartPending ||
+              agentCaptureHasHost
             }
             aria-busy={
               recordingReadinessPending ||

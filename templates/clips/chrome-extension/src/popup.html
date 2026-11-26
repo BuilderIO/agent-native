@@ -197,6 +197,67 @@
               </div>
             </div>
 
+            <div id="quality-row" class="row row-on">
+              <span class="row-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="8"
+                    stroke="currentColor"
+                    stroke-width="1.75"
+                  />
+                  <path
+                    d="M12 8v4l3 2"
+                    stroke="currentColor"
+                    stroke-width="1.75"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </span>
+              <button
+                id="quality-button"
+                type="button"
+                class="row-button"
+                aria-label="Capture quality"
+              >
+                <span id="quality-label" class="row-label"
+                  >Normal · 24 fps</span
+                >
+                <span class="row-flex" aria-hidden="true"></span>
+                <span class="row-chev" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none">
+                    <path
+                      d="M6 9l6 6 6-6"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                </span>
+              </button>
+              <div id="quality-menu" class="row-menu" hidden>
+                <button
+                  class="row-menu-item"
+                  type="button"
+                  data-quality="normal"
+                >
+                  <span class="row-menu-check" aria-hidden="true"></span>
+                  <span class="row-menu-label">Normal · 24 fps</span>
+                </button>
+                <button
+                  class="row-menu-item"
+                  type="button"
+                  data-quality="motion"
+                >
+                  <span class="row-menu-check" aria-hidden="true"></span>
+                  <span class="row-menu-label">Motion · 60 fps</span>
+                </button>
+              </div>
+            </div>
+
             <div id="camera-row" class="row row-on">
               <span class="row-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="none">
@@ -347,6 +408,12 @@
         <button id="start" class="primary start" type="button" hidden>
           <span class="rec-dot" aria-hidden="true"></span>
           <span class="start-label">Start recording</span>
+        </button>
+        <button id="agent-arm" class="secondary-action" type="button" hidden>
+          Arm agent capture
+        </button>
+        <button id="agent-disarm" class="secondary-action" type="button" hidden>
+          Disarm agent capture
         </button>
         <button id="sign-in" class="primary start" type="button" hidden>
           Sign in to Clips

@@ -1,3 +1,4 @@
+import type { RecordingCaptureMetadata } from "../../../shared/recording-capture";
 import type { CaptureTitleResult } from "./recording-title";
 
 export const RECORDING_SESSION_EXPIRED = "SESSION_EXPIRED";
@@ -17,6 +18,7 @@ export interface NativeRecordingRequestOptions {
   expectedOwnerEmail?: string;
   /** A saved file's fingerprint; the server returns this account's clip of it. */
   sourceHeadSha256?: string;
+  captureMetadata?: RecordingCaptureMetadata;
 }
 
 export function buildCreateRecordingRequestHeaders(
@@ -107,6 +109,9 @@ export function buildCreateRecordingRequestBody(
       : {}),
     ...(options?.sourceHeadSha256
       ? { sourceHeadSha256: options.sourceHeadSha256 }
+      : {}),
+    ...(options?.captureMetadata
+      ? { captureMetadata: options.captureMetadata }
       : {}),
     ...(options?.requestStreaming
       ? {
