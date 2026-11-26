@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { placeBlockMenu } from "./block-menu-placement";
+import {
+  BLOCK_MENU_GAP,
+  BLOCK_MENU_PADDING,
+  BLOCK_MENU_WIDTH,
+  placeBlockMenu,
+  type Box,
+} from "./block-menu-placement";
 
 const rect = (left: number, top: number, width: number, height: number) => ({
   left,
@@ -8,6 +14,15 @@ const rect = (left: number, top: number, width: number, height: number) => ({
   width,
   height,
 });
+
+const inset = (box: Box, by: number) =>
+  rect(box.left + by, box.top + by, box.width - 2 * by, box.height - 2 * by);
+
+const overlaps = (a: Box, b: Box) =>
+  a.left < b.left + b.width &&
+  b.left < a.left + a.width &&
+  a.top < b.top + b.height &&
+  b.top < a.top + a.height;
 
 const grip = rect(496, 220, 24, 24);
 const paragraph = rect(520, 218, 640, 27);
@@ -105,6 +120,92 @@ describe("placeBlockMenu", () => {
 
     expect(placement.side).toBe("left");
     expect(placement.zone.width).toBe(290);
+  });
+
+  it("covers the grip, not the text, when only the space beside the text is clear", () => {
+    const block = rect(272, 100, 480, 600);
+    const placement = placeBlockMenu({
+      grip: rect(248, 102, 24, 24),
+      block,
+      pageLeft: 240,
+      viewport: { width: 800, height: 768 },
+    });
+
+    expect(placement.side).toBe("left");
+    expect(placement.anchor).toEqual({ ...block, width: 0 });
+    expect(placement.zone).toEqual({
+      left: 0,
+      top: 0,
+      width: 274,
+      height: 768,
+    });
+  });
+
+  it("scrolls in the roomier space above or below before covering the block", () => {
+    const placement = placeBlockMenu({
+      grip: rect(4, 202, 24, 24),
+      block: rect(28, 200, 340, 380),
+      pageLeft: 0,
+      viewport: { width: 375, height: 720 },
+    });
+
+    expect(placement.side).toBe("top");
+    expect(placement.zone).toEqual({
+      left: 0,
+      top: 0,
+      width: 375,
+      height: 200,
+    });
+  });
+
+  it("keeps the menu off the block's text whenever there's room for it elsewhere", () => {
+    const misses: string[] = [];
+    for (const viewport of [
+      { width: 800, height: 600 },
+      { width: 800, height: 768 },
+      { width: 1024, height: 768 },
+      { width: 1280, height: 800 },
+      { width: 1440, height: 900 },
+    ]) {
+      for (const pageLeft of [0, 240]) {
+        for (const gutter of [32, 96]) {
+          for (const top of [8, 120, 400]) {
+            for (const height of [24, 160, 520, 1200]) {
+              const width = Math.min(
+                700,
+                viewport.width - pageLeft - 2 * gutter,
+              );
+              const left = pageLeft + (viewport.width - pageLeft - width) / 2;
+              const block = rect(left, top, width, height);
+              const placement = placeBlockMenu({
+                grip: rect(left - 24, top + 2, 24, 24),
+                block,
+                pageLeft,
+                viewport,
+              });
+              const roomAround = Math.max(
+                top - BLOCK_MENU_GAP - BLOCK_MENU_PADDING,
+                viewport.height -
+                  BLOCK_MENU_PADDING -
+                  (top + height) -
+                  BLOCK_MENU_GAP,
+              );
+              const roomBeside = left - BLOCK_MENU_GAP - BLOCK_MENU_PADDING;
+              const cornered =
+                roomAround < 120 && roomBeside < BLOCK_MENU_WIDTH;
+              const space = inset(placement.zone, BLOCK_MENU_PADDING);
+              if (overlaps(space, block) !== cornered) {
+                misses.push(
+                  JSON.stringify({ viewport, pageLeft, gutter, top, height }),
+                );
+              }
+            }
+          }
+        }
+      }
+    }
+
+    expect(misses).toEqual([]);
   });
 
   it("falls back to under the grip when nothing beside or around the block is clear", () => {
