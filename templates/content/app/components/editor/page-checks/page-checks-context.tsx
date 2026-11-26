@@ -3,7 +3,10 @@ import { useT } from "@agent-native/core/client/i18n";
 import {
   PAGE_CHECK_TYPING_PAUSE_MS,
   type PageCheckList,
+  type PageCheckQuestionInput,
   type PageCheckScope,
+  type PageCheckSure,
+  type PageCheckTry,
   type PageCheckView,
 } from "@shared/page-checks";
 import { useQueryClient } from "@tanstack/react-query";
@@ -34,7 +37,11 @@ export interface PageCheckSaveInput {
   checkId?: string | undefined;
   sentence: string;
   scope: PageCheckScope;
+  questions?: PageCheckQuestionInput[] | undefined;
+  sure?: PageCheckSure | undefined;
 }
+
+export type PageCheckTryInput = Omit<PageCheckSaveInput, "checkId">;
 
 export interface PageChecksActions {
   enabled: boolean;
@@ -46,6 +53,7 @@ export interface PageChecksActions {
   focusCheck: (checkId: string) => void;
   runNow: () => void;
   save: (input: PageCheckSaveInput) => Promise<boolean>;
+  tryCheck: (input: PageCheckTryInput) => Promise<PageCheckTry>;
   setPaused: (checkId: string, paused: boolean) => Promise<void>;
   remove: (checkId: string) => Promise<boolean>;
   skip: (args: {
@@ -98,6 +106,13 @@ export function PageChecksProvider({
     </ActionsContext.Provider>
   );
 }
+
+const SAVE_ERRORS = {
+  PAGE_CHECK_LIMIT: "pageChecks.limit",
+  PAGE_CHECK_NO_MODEL: "pageChecks.noModel",
+  PAGE_CHECK_VAGUE: "pageChecks.vagueSaveFailed",
+  PAGE_CHECK_QUESTION_UNWRITTEN: "pageChecks.unwritten",
+} as const;
 
 const SAVE_WAITS = 3;
 const SAVE_WAIT_MS = 1_000;
@@ -248,30 +263,39 @@ export function usePageChecks(args: {
         void run({ editorSaved: false, quiet: false });
       },
       async save(input) {
+        const wording = {
+          documentId,
+          sentence: input.sentence,
+          scope: input.scope,
+          questions: input.questions,
+          sure: input.sure,
+        };
         try {
           const next = input.checkId
             ? await callAction("update-page-check", {
-                documentId,
+                ...wording,
                 checkId: input.checkId,
-                sentence: input.sentence,
-                scope: input.scope,
               })
-            : await callAction("add-page-check", {
-                documentId,
-                sentence: input.sentence,
-                scope: input.scope,
-              });
+            : await callAction("add-page-check", wording);
           putList(next as PageCheckList);
           return true;
         } catch (error) {
+          const code = (error as { errorCode?: unknown } | null)?.errorCode;
           toast.error(
-            (error as { errorCode?: unknown } | null)?.errorCode ===
-              "PAGE_CHECK_LIMIT"
-              ? t("pageChecks.limit")
-              : t("pageChecks.saveFailed"),
+            t(
+              typeof code === "string" && code in SAVE_ERRORS
+                ? SAVE_ERRORS[code as keyof typeof SAVE_ERRORS]
+                : "pageChecks.saveFailed",
+            ),
           );
           return false;
         }
+      },
+      async tryCheck(input) {
+        return (await callAction("try-page-check", {
+          documentId,
+          ...input,
+        })) as PageCheckTry;
       },
       async setPaused(checkId, paused) {
         try {

@@ -1927,6 +1927,19 @@ export const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS content_page_check_skips_document_idx
         ON content_page_check_skips (document_id)`,
     },
+    {
+      version: 147,
+      name: "content-page-check-questions",
+      sql: `ALTER TABLE content_page_checks
+        ADD COLUMN IF NOT EXISTS sure TEXT NOT NULL DEFAULT 'balanced';
+      CREATE TABLE IF NOT EXISTS content_page_check_usage (
+        document_id TEXT NOT NULL,
+        day TEXT NOT NULL,
+        questions INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_page_check_usage_day_idx
+        ON content_page_check_usage (document_id, day)`,
+    },
   ],
   { table: "content_migrations" },
 );

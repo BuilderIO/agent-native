@@ -11,23 +11,39 @@ import { nanoid } from "../../actions/_property-utils.js";
 import { identityBlockIds } from "../../shared/block-identity-ids.js";
 import {
   checkPageCheckPlace,
+  hasPageCheckQuestion,
   isFreshPageCheckResult,
+  isRetryablePageCheckResult,
   PAGE_CHECK_LIMIT,
+  PAGE_CHECK_SURE_SETTINGS,
   pageCheckAnswers,
   pageCheckHeadings,
   pageCheckPlaces,
   pageCheckWordingHash,
-  readablePageCheckParts,
   readPageCheckSentence,
   type PageCheck,
   type PageCheckPart,
+  type PageCheckPlace,
+  type PageCheckProblem,
+  type PageCheckQuestionInput,
+  type PageCheckQuestionPart,
   type PageCheckResult,
   type PageCheckScope,
   type PageCheckSkip,
+  type PageCheckSure,
   type PageCheckView,
 } from "../../shared/page-checks.js";
 import { getDb, schema } from "../db/index.js";
 import { firstRow } from "./first-row.js";
+import {
+  askPageCheckQuestions,
+  clearOldPageCheckUsage,
+  eachAtOnce,
+  PAGE_CHECK_RUN_BUDGET_MS,
+  pageCheckDecider,
+  pageCheckDeciderName,
+  writePageCheckQuestions,
+} from "./page-check-questions.js";
 
 type CheckRow = typeof schema.contentPageChecks.$inferSelect;
 type ResultRow = typeof schema.contentPageCheckResults.$inferSelect;
@@ -123,6 +139,9 @@ function checkFromRow(row: CheckRow): PageCheck {
     parts: parseJson<PageCheckPart[]>(row.parts, []),
     scope: parseJson<PageCheckScope>(row.scope, { kind: "page" }),
     wordingHash: row.wordingHash,
+    sure:
+      PAGE_CHECK_SURE_SETTINGS.find((setting) => setting === row.sure) ??
+      "balanced",
     paused: row.paused,
     createdBy: row.createdBy,
     createdAt: row.createdAt,
@@ -219,13 +238,42 @@ function unreadableSentence(sentence: string): ActionContractError {
   return new ActionContractError(
     reading.tooManyParts
       ? "A check can have at most three parts."
-      : 'Content can\'t read every part of this check yet. It reads counts of words, sentences or paragraphs, like "Under 120 words".',
+      : 'Write what the text should keep, like "Under 120 words".',
     {
       errorCode: "PAGE_CHECK_UNREADABLE",
       statusCode: 400,
       details: { parts: reading.parts, tooManyParts: reading.tooManyParts },
     },
   );
+}
+
+function problemError(
+  problem: PageCheckProblem,
+  sentence: string,
+): ActionContractError {
+  switch (problem.kind) {
+    case "unreadable":
+      return unreadableSentence(sentence);
+    case "vague":
+      return new ActionContractError(
+        `"${problem.text}" is too vague to answer the same way twice. Try something sharper, like "${problem.examples[0]}" or "${problem.examples[1]}".`,
+        { errorCode: "PAGE_CHECK_VAGUE", statusCode: 400, details: problem },
+      );
+    case "unwritten":
+      return new ActionContractError(
+        "Content couldn't write a yes/no question for every part of this check. Try again, or pass each part's question.",
+        {
+          errorCode: "PAGE_CHECK_QUESTION_UNWRITTEN",
+          statusCode: 503,
+          details: problem,
+        },
+      );
+    case "no_model":
+      return new ActionContractError(
+        "No decision model is ready to answer yes/no checks here. Counts of words, sentences and paragraphs still work.",
+        { errorCode: "PAGE_CHECK_NO_MODEL", statusCode: 409 },
+      );
+  }
 }
 
 function checkNotFound(): ActionContractError {
@@ -235,34 +283,210 @@ function checkNotFound(): ActionContractError {
   });
 }
 
+function questionParts(parts: readonly PageCheckPart[]) {
+  return parts.filter(
+    (part): part is PageCheckQuestionPart => part.kind === "question",
+  );
+}
+
+/** A check's questions, kept when its sentence is edited around them. */
+function questionsOf(
+  parts: readonly PageCheckPart[],
+): PageCheckQuestionInput[] {
+  return questionParts(parts).map(({ text, question, passes }) => ({
+    text,
+    question,
+    passes,
+  }));
+}
+
+/** The model this page's yes/no checks already ask, if any. */
+async function pageQuestionDecider(documentId: string) {
+  const rows = await getDb()
+    .select({ parts: schema.contentPageChecks.parts })
+    .from(schema.contentPageChecks)
+    .where(eq(schema.contentPageChecks.documentId, documentId));
+  return questionParts(
+    rows.flatMap((row) => parseJson<PageCheckPart[]>(row.parts, [])),
+  ).find(() => true)?.decider;
+}
+
+/**
+ * A sentence's parts: counts as read, and each other part as a yes/no
+ * question, kept from `questions` or written by the workspace's AI model.
+ */
+async function resolvePageCheckParts(args: {
+  documentId: string;
+  sentence: string;
+  questions?: readonly PageCheckQuestionInput[] | undefined;
+  current?: readonly PageCheckPart[] | undefined;
+  ownerEmail: string;
+}): Promise<
+  | { parts: PageCheckPart[]; problem: null }
+  | { parts: null; problem: PageCheckProblem }
+> {
+  const reading = readPageCheckSentence(args.sentence);
+  if (reading.tooManyParts || reading.parts.length === 0) {
+    return {
+      parts: null,
+      problem: { kind: "unreadable", tooManyParts: reading.tooManyParts },
+    };
+  }
+  const unread = reading.parts.flatMap((part) =>
+    part.kind === "unread" ? [part.text] : [],
+  );
+  const decider =
+    unread.length === 0
+      ? null
+      : await pageCheckDecider(
+          args.ownerEmail,
+          questionParts(args.current ?? []).find(() => true)?.decider ??
+            (await pageQuestionDecider(args.documentId)),
+        );
+  if (unread.length > 0 && !decider) {
+    return { parts: null, problem: { kind: "no_model" } };
+  }
+  const given = new Map(
+    (args.questions ?? []).map((question) => [question.text.trim(), question]),
+  );
+  const written = await writePageCheckQuestions(
+    unread.filter((text) => !given.has(text)),
+  );
+  if (written.status === "vague") {
+    return {
+      parts: null,
+      problem: {
+        kind: "vague",
+        text: written.text,
+        examples: written.examples,
+      },
+    };
+  }
+  if (written.status === "ok") {
+    for (const question of written.questions) {
+      given.set(question.text, question);
+    }
+  }
+  const parts: PageCheckPart[] = [];
+  for (const part of reading.parts) {
+    const question = part.kind === "unread" ? given.get(part.text) : undefined;
+    if (part.kind !== "unread") parts.push(part);
+    else if (question && decider) {
+      parts.push({
+        kind: "question",
+        text: part.text,
+        question: question.question.trim(),
+        passes: question.passes,
+        decider,
+      });
+    }
+  }
+  if (parts.length < reading.parts.length) {
+    return {
+      parts: null,
+      problem: {
+        kind: "unwritten",
+        texts: unread.filter((text) => !given.has(text)),
+      },
+    };
+  }
+  return { parts, problem: null };
+}
+
+async function resolvedPartsOrThrow(
+  args: Parameters<typeof resolvePageCheckParts>[0],
+) {
+  const resolved = await resolvePageCheckParts(args);
+  if (!resolved.parts) throw problemError(resolved.problem, args.sentence);
+  return resolved.parts;
+}
+
+function partsDecider(parts: readonly PageCheckPart[]) {
+  const decider = questionParts(parts).find(() => true)?.decider;
+  return decider ? pageCheckDeciderName(decider) : null;
+}
+
+/**
+ * Checks each place, asking yes/no parts a few places at a time. A check
+ * with only counts needs no model and no deadline.
+ */
+async function checkPlaces(input: {
+  ownerEmail: string;
+  documentId: string;
+  parts: readonly PageCheckPart[];
+  sure: PageCheckSure;
+  places: readonly PageCheckPlace[];
+  deadline: number;
+  found: (
+    place: PageCheckPlace,
+    found: ReturnType<typeof checkPageCheckPlace>,
+  ) => Promise<void> | void;
+}) {
+  const asks = hasPageCheckQuestion(input.parts);
+  await eachAtOnce(
+    input.places,
+    asks ? input.deadline : Number.POSITIVE_INFINITY,
+    async (place) => {
+      const asked = asks
+        ? await askPageCheckQuestions({ ...input, place })
+        : undefined;
+      await input.found(place, checkPageCheckPlace(input.parts, place, asked));
+    },
+  );
+}
+
 export async function tryPageCheck(args: {
   documentId: string;
   sentence: string;
   scope: PageCheckScopeInput;
+  questions?: readonly PageCheckQuestionInput[] | undefined;
+  sure?: PageCheckSure | undefined;
 }) {
+  const ownerEmail = currentUserEmail();
   const { markdown, idsByPath } = await savedBody(args.documentId, {
     minRole: "editor",
   });
   const reading = readPageCheckSentence(args.sentence);
-  const parts = readablePageCheckParts(args.sentence);
-  if (!parts) return { reading, answers: null };
+  const resolved = await resolvePageCheckParts({ ...args, ownerEmail });
+  if (!resolved.parts) {
+    return {
+      reading,
+      parts: null,
+      answers: null,
+      problem: resolved.problem,
+      decider: null,
+    };
+  }
+  const parts = resolved.parts;
+  const sure = args.sure ?? "balanced";
   const scope = resolveScope(args.scope, markdown, idsByPath);
   const wordingHash = pageCheckWordingHash({ parts, scope });
   const places = pageCheckPlaces(markdown, scope, idsByPath);
-  const results =
-    places.status === "ok"
-      ? places.places.map((place) => ({
-          placeKey: place.key,
-          wordingHash,
-          textHash: place.textHash,
-          checkedBy: "",
-          checkedAt: "",
-          ...checkPageCheckPlace(parts, place),
-        }))
-      : [];
+  const results: PageCheckResult[] = [];
+  await checkPlaces({
+    ownerEmail,
+    documentId: args.documentId,
+    parts,
+    sure,
+    places: places.status === "ok" ? places.places : [],
+    deadline: Date.now() + PAGE_CHECK_RUN_BUDGET_MS,
+    found: (place, found) => {
+      results.push({
+        placeKey: place.key,
+        wordingHash,
+        textHash: place.textHash,
+        checkedBy: "",
+        checkedAt: "",
+        ...found,
+      });
+    },
+  });
   return {
     reading,
-    answers: pageCheckAnswers({ wordingHash }, places, results, []),
+    parts,
+    answers: pageCheckAnswers({ wordingHash, sure }, places, results, []),
+    problem: null,
+    decider: partsDecider(parts),
   };
 }
 
@@ -270,11 +494,14 @@ async function checkStalePlaces(args: {
   documentId: string;
   markdown: string;
   idsByPath: Record<string, string>;
-  checkIds?: string[];
+  checkIds?: string[] | undefined;
   checkedBy: string;
+  retry: boolean;
 }) {
   const db = getDb();
   const loaded = await loadPageChecks(args.documentId, args.checkIds);
+  const deadline = Date.now() + PAGE_CHECK_RUN_BUDGET_MS;
+  let clearedUsage = false;
   for (const { check, results } of loaded) {
     if (check.paused) continue;
     const places = pageCheckPlaces(args.markdown, check.scope, args.idsByPath);
@@ -282,36 +509,57 @@ async function checkStalePlaces(args: {
     const resultsByKey = new Map(
       results.map((result) => [result.placeKey, result]),
     );
-    const checkedAt = nowIso();
-    for (const place of places.places) {
-      if (isFreshPageCheckResult(resultsByKey.get(place.key), check, place)) {
-        continue;
-      }
-      const found = checkPageCheckPlace(check.parts, place);
-      const values = {
-        wordingHash: check.wordingHash,
-        textHash: place.textHash,
-        finding: found.finding,
-        parts: JSON.stringify(found.parts),
-        checkedBy: args.checkedBy,
-        checkedAt,
-      };
-      await db
-        .insert(schema.contentPageCheckResults)
-        .values({
-          checkId: check.id,
-          documentId: args.documentId,
-          placeKey: place.key,
-          ...values,
-        })
-        .onConflictDoUpdate({
-          target: [
-            schema.contentPageCheckResults.checkId,
-            schema.contentPageCheckResults.placeKey,
-          ],
-          set: values,
-        });
+    const stale = places.places.filter((place) => {
+      const result = resultsByKey.get(place.key);
+      return (
+        !isFreshPageCheckResult(result, check, place) ||
+        (args.retry &&
+          result !== undefined &&
+          isRetryablePageCheckResult(result))
+      );
+    });
+    if (
+      !clearedUsage &&
+      stale.length > 0 &&
+      hasPageCheckQuestion(check.parts)
+    ) {
+      clearedUsage = true;
+      await clearOldPageCheckUsage(args.documentId);
     }
+    const checkedAt = nowIso();
+    await checkPlaces({
+      ownerEmail: args.checkedBy,
+      documentId: args.documentId,
+      parts: check.parts,
+      sure: check.sure,
+      places: stale,
+      deadline,
+      found: async (place, found) => {
+        const values = {
+          wordingHash: check.wordingHash,
+          textHash: place.textHash,
+          finding: found.finding,
+          parts: JSON.stringify(found.parts),
+          checkedBy: args.checkedBy,
+          checkedAt,
+        };
+        await db
+          .insert(schema.contentPageCheckResults)
+          .values({
+            checkId: check.id,
+            documentId: args.documentId,
+            placeKey: place.key,
+            ...values,
+          })
+          .onConflictDoUpdate({
+            target: [
+              schema.contentPageCheckResults.checkId,
+              schema.contentPageCheckResults.placeKey,
+            ],
+            set: values,
+          });
+      },
+    });
     const keys = places.places.map((place) => place.key);
     for (const table of [
       schema.contentPageCheckResults,
@@ -339,7 +587,15 @@ export async function runPageChecks(args: {
     minRole: "editor",
     editorSaved: args.editorSaved,
   });
-  await checkStalePlaces({ ...args, markdown, idsByPath, checkedBy });
+  // The open editor's typing pause checks only changed text; anyone else's
+  // run also asks again where a model failed or the day's limit ran out.
+  await checkStalePlaces({
+    ...args,
+    markdown,
+    idsByPath,
+    checkedBy,
+    retry: !args.editorSaved,
+  });
   const loaded = await loadPageChecks(args.documentId);
   return {
     documentId: args.documentId,
@@ -396,11 +652,14 @@ export async function addPageCheck(args: {
   documentId: string;
   sentence: string;
   scope: PageCheckScopeInput;
+  questions?: readonly PageCheckQuestionInput[] | undefined;
+  sure?: PageCheckSure | undefined;
 }) {
   const createdBy = currentUserEmail();
   const sentence = args.sentence.trim();
-  const parts = readablePageCheckParts(sentence);
-  if (!parts) throw unreadableSentence(sentence);
+  if (readPageCheckSentence(sentence).tooManyParts) {
+    throw unreadableSentence(sentence);
+  }
   const { markdown, idsByPath } = await savedBody(args.documentId, {
     minRole: "editor",
   });
@@ -416,6 +675,12 @@ export async function addPageCheck(args: {
       { errorCode: "PAGE_CHECK_LIMIT", statusCode: 409 },
     );
   }
+  const parts = await resolvedPartsOrThrow({
+    documentId: args.documentId,
+    sentence,
+    questions: args.questions,
+    ownerEmail: createdBy,
+  });
   const id = nanoid();
   const at = nowIso();
   await db.insert(schema.contentPageChecks).values({
@@ -426,6 +691,7 @@ export async function addPageCheck(args: {
     parts: JSON.stringify(parts),
     scope: JSON.stringify(scope),
     wordingHash: pageCheckWordingHash({ parts, scope }),
+    sure: args.sure ?? "balanced",
     paused: false,
     createdAt: at,
     updatedAt: at,
@@ -443,19 +709,28 @@ export async function updatePageCheck(args: {
   checkId: string;
   sentence?: string;
   scope?: PageCheckScopeInput;
+  questions?: readonly PageCheckQuestionInput[] | undefined;
+  sure?: PageCheckSure | undefined;
   paused?: boolean;
 }) {
+  const ownerEmail = currentUserEmail();
   const { markdown, idsByPath } = await savedBody(args.documentId, {
     minRole: "editor",
   });
   const row = await loadCheckRow(args.documentId, args.checkId);
   const current = checkFromRow(row);
   const sentence = args.sentence?.trim() ?? current.sentence;
+  // Only new words ask for new questions; How sure alone never asks.
   const parts =
-    args.sentence === undefined
+    args.sentence === undefined && args.questions === undefined
       ? current.parts
-      : readablePageCheckParts(sentence);
-  if (!parts) throw unreadableSentence(sentence);
+      : await resolvedPartsOrThrow({
+          documentId: args.documentId,
+          sentence,
+          questions: args.questions ?? questionsOf(current.parts),
+          current: current.parts,
+          ownerEmail,
+        });
   const scope = args.scope
     ? resolveScope(args.scope, markdown, idsByPath)
     : current.scope;
@@ -466,6 +741,7 @@ export async function updatePageCheck(args: {
       parts: JSON.stringify(parts),
       scope: JSON.stringify(scope),
       wordingHash: pageCheckWordingHash({ parts, scope }),
+      sure: args.sure ?? current.sure,
       paused: args.paused ?? current.paused,
       updatedAt: nowIso(),
     })

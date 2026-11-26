@@ -1380,6 +1380,7 @@ export const contentPageChecks = table(
     scope: text("scope").notNull(),
     wordingHash: text("wording_hash").notNull(),
     paused: boolean("paused").notNull().default(false),
+    sure: text("sure").notNull().default("balanced"),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
   },
@@ -1429,6 +1430,22 @@ export const contentPageCheckSkips = table(
       skip.placeKey,
     ),
     index("content_page_check_skips_document_idx").on(skip.documentId),
+  ],
+);
+
+/** Yes/no questions a page's checks asked the model, per UTC day. */
+export const contentPageCheckUsage = table(
+  "content_page_check_usage",
+  {
+    documentId: text("document_id").notNull(),
+    day: text("day").notNull(),
+    questions: integer("questions").notNull().default(0),
+  },
+  (usage) => [
+    uniqueIndex("content_page_check_usage_day_idx").on(
+      usage.documentId,
+      usage.day,
+    ),
   ],
 );
 

@@ -8,8 +8,8 @@ order: 34
 roadmap_status: "partially_implemented"
 summary: "Put checks on a page so its writing keeps pointing at what doesn't pass, without anything changing the text."
 example_workflow: 'An editor adds "Under 120 words" to a post''s intro, sees "183 words, 63 over" before saving the check, cuts the intro, and watches the dot beside it disappear a few seconds after they stop typing.'
-works_today: "Count checks on the page, the intro, a section or each paragraph, with dots beside the text, a Checks list in Info, a header count, Check now, a recheck after typing stops, Skip here and Comment."
-remains: "Yes/no questions answered by a model with How sure and limits, checks on each section with Only where, and checks on Collection rows."
+works_today: "Count and yes/no checks on the page, the intro, a section or each paragraph, with dots beside the text, a Checks list in Info, a header count, Check now, a recheck after typing stops, Skip here and Comment. Yes/no parts name the model that answers them and offer How sure."
+remains: "Checks on each section with Only where, and checks on Collection rows."
 required_capabilities: ["content.check.page"]
 enhancing_capabilities: []
 increments: []
