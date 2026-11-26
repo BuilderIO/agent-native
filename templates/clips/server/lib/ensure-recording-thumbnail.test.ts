@@ -28,6 +28,10 @@ vi.mock("@agent-native/core/application-state", () => ({
 vi.mock("./recording-leases.js", () => ({
   claimLease: (...args: unknown[]) => mocks.claimLease(...args),
   releaseLease: (...args: unknown[]) => mocks.releaseLease(...args),
+  writeUnderLease: (_lease: unknown, write: (held: string) => unknown) =>
+    write("lease-held"),
+  isLeaseLost: (error: unknown) =>
+    (error as { code?: unknown } | null)?.code === "lease_lost",
 }));
 vi.mock("@agent-native/core/file-upload", () => ({
   deleteUploadedFile: (...args: unknown[]) => mocks.deleteUploadedFile(...args),

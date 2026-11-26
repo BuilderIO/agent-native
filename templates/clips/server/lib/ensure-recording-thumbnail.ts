@@ -6,7 +6,7 @@ import {
   deleteUploadedFile,
   type FileUploadResult,
 } from "@agent-native/core/file-upload";
-import { and, eq, isNull, ne, or } from "drizzle-orm";
+import { and, eq, isNull, ne, or, type SQL } from "drizzle-orm";
 
 import { parseEdits } from "../../app/lib/timestamp-mapping.js";
 import { RECORDING_THUMBNAIL_AT_MS } from "../../shared/agent-context.js";
@@ -18,7 +18,9 @@ import {
 } from "./public-agent-context.js";
 import {
   claimLease,
+  isLeaseLost,
   releaseLease,
+  writeUnderLease,
   type RecordingLease,
 } from "./recording-leases.js";
 import { deleteStoredMediaUrl } from "./recording-media-cleanup.js";
@@ -361,16 +363,21 @@ async function setThumbnailStatus(
   recordingId: string,
   status: "none" | "failed",
   reason: string,
+  lease?: RecordingThumbnailLease,
 ): Promise<void> {
-  try {
-    await getDb()
+  const write = (held?: SQL) =>
+    getDb()
       .update(schema.recordings)
       .set({
         thumbnailStatus: status,
         thumbnailFailureReason: reason.slice(0, 300),
       })
-      .where(eq(schema.recordings.id, recordingId));
+      .where(and(eq(schema.recordings.id, recordingId), held))
+      .returning({ id: schema.recordings.id });
+  try {
+    await (lease ? writeUnderLease(lease, write) : write());
   } catch (error) {
+    if (isLeaseLost(error)) throw error;
     console.warn("[clips] recording thumbnail status persist failed", {
       recordingId,
       status,
@@ -441,14 +448,19 @@ async function ensureRecordingThumbnailOnce(
     let mimeType = normalizeMimeType(params.mimeType, recording.videoFormat);
     if (!bytes && !suppliedThumbnailBytes) {
       if (!recording.videoUrl) {
-        await setThumbnailStatus(recordingId, "none", "skipped-no-media");
+        await setThumbnailStatus(
+          recordingId,
+          "none",
+          "skipped-no-media",
+          lease,
+        );
         return { recordingId, status: "skipped-no-media", changed: false };
       }
       try {
         const embedProvider = recordingEmbedProvider(recording);
         if (embedProvider) {
           const status = `skipped-${embedProvider}-embed` as const;
-          await setThumbnailStatus(recordingId, "none", status);
+          await setThumbnailStatus(recordingId, "none", status, lease);
           return { recordingId, status, changed: false };
         }
         const media = await loadRecordingMediaBytes(recording);
@@ -470,7 +482,7 @@ async function ensureRecordingThumbnailOnce(
     }
 
     if (!bytes?.byteLength && !suppliedThumbnailBytes) {
-      await setThumbnailStatus(recordingId, "none", "skipped-no-media");
+      await setThumbnailStatus(recordingId, "none", "skipped-no-media", lease);
       return { recordingId, status: "skipped-no-media", changed: false };
     }
 
@@ -535,35 +547,36 @@ async function ensureRecordingThumbnailOnce(
 
     let updated: Array<{ id: string; thumbnailUrl: string | null }>;
     try {
-      updated = await getDb()
-        .update(schema.recordings)
-        .set({
-          thumbnailUrl: url,
-          thumbnailStatus: "generated",
-          thumbnailFailureReason: null,
-          updatedAt: new Date().toISOString(),
-        })
-        .where(
-          and(
-            eq(schema.recordings.id, recordingId),
-            ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
-            recording.videoUrl
-              ? eq(schema.recordings.videoUrl, recording.videoUrl)
-              : isNull(schema.recordings.videoUrl),
-            recording.thumbnailUrl !== null && replaceExisting
-              ? eq(schema.recordings.thumbnailUrl, recording.thumbnailUrl)
-              : recording.thumbnailUrl == null
-                ? isNull(schema.recordings.thumbnailUrl)
-                : eq(schema.recordings.thumbnailUrl, recording.thumbnailUrl),
-            recording.editsJson == null
-              ? isNull(schema.recordings.editsJson)
-              : eq(schema.recordings.editsJson, recording.editsJson),
-          ),
-        )
-        .returning({
-          id: schema.recordings.id,
-          thumbnailUrl: schema.recordings.thumbnailUrl,
-        });
+      updated = await writeUnderLease(lease, (held) =>
+        getDb()
+          .update(schema.recordings)
+          .set({
+            thumbnailUrl: url,
+            thumbnailStatus: "generated",
+            thumbnailFailureReason: null,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(
+            and(
+              held,
+              eq(schema.recordings.id, recordingId),
+              ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+              recording.videoUrl
+                ? eq(schema.recordings.videoUrl, recording.videoUrl)
+                : isNull(schema.recordings.videoUrl),
+              recording.thumbnailUrl !== null && replaceExisting
+                ? eq(schema.recordings.thumbnailUrl, recording.thumbnailUrl)
+                : recording.thumbnailUrl == null
+                  ? isNull(schema.recordings.thumbnailUrl)
+                  : eq(schema.recordings.thumbnailUrl, recording.thumbnailUrl),
+              eq(schema.recordings.editsJson, recording.editsJson),
+            ),
+          )
+          .returning({
+            id: schema.recordings.id,
+            thumbnailUrl: schema.recordings.thumbnailUrl,
+          }),
+      );
     } catch (error) {
       if (uploaded) {
         await cleanupUnreferencedThumbnail(uploaded, recordingId, ownerEmail);
@@ -607,6 +620,14 @@ async function ensureRecordingThumbnailOnce(
       status: "generated",
       changed: true,
       thumbnailUrl: url,
+    };
+  } catch (error) {
+    if (!isLeaseLost(error)) throw error;
+    return {
+      recordingId,
+      status: "skipped-lease",
+      changed: false,
+      detail: "Another thumbnail producer took this recording over.",
     };
   } finally {
     await releaseRecordingThumbnailLease(lease);

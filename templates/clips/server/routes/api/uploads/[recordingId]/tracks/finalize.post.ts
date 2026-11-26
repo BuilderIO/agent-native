@@ -34,6 +34,8 @@ import {
 } from "../../../../../lib/pending-redactions.js";
 import {
   claimLease,
+  holdsLease,
+  leaseHeld,
   releaseLease,
   renewLease,
 } from "../../../../../lib/recording-leases.js";
@@ -561,6 +563,7 @@ export async function handleFinalizeTracks(event: H3Event) {
                   eq(schema.recordings.mediaFormat, "flat"),
                   editsUnchanged,
                   attemptUnchanged,
+                  leaseHeld(lease),
                 ),
               )
               .for("update")
@@ -592,6 +595,9 @@ export async function handleFinalizeTracks(event: H3Event) {
               ? ("kept" as const)
               : ("changed" as const);
           });
+          if (kept === "changed" && !(await holdsLease(lease))) {
+            return lapsed();
+          }
           if (kept === "stopped") {
             // No finalize keeps this track now, so its upload goes too, unless
             // a stored track already points to the same file.
@@ -692,6 +698,7 @@ export async function handleFinalizeTracks(event: H3Event) {
                 // A redaction marked since the read would make these tracks stale.
                 editsUnchanged,
                 attemptUnchanged,
+                leaseHeld(lease),
               ),
             )
             .for("update")
@@ -711,6 +718,9 @@ export async function handleFinalizeTracks(event: H3Event) {
             .where(recordingWhere);
           return "rich" as const;
         });
+        if (flipped === "changed" && !(await holdsLease(lease))) {
+          return lapsed();
+        }
         if (flipped !== "rich") {
           // Another finalize finished first, the recording's edits changed, or
           // a burn stopped its tracks; this manifest copy is surplus either way.
