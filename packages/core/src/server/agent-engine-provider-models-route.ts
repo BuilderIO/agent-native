@@ -328,20 +328,22 @@ function listingFor(
         isRejection: isAuthStatus,
       };
     }
-    case "openai":
-      return openAiBaseUrl
-        ? openAiStyleListing(`${openAiBaseUrl}/models`, key, {
-            filterNonChat: false,
-            userEndpoint: { allowedPrivateOrigins: [] },
-            gateway: true,
-          })
-        : openAiStyleListing(`${OPENAI_DEFAULT_BASE_URL}/models`, key, {
-            filterNonChat: true,
-          });
-    case "groq":
-      return openAiStyleListing("https://api.groq.com/openai/v1/models", key, {
+    case "openai": {
+      const firstUrl = openAiBaseUrl
+        ? `${openAiBaseUrl.replace(/\/$/, "")}/models`
+        : "https://api.openai.com/v1/models";
+      return openAiStyleListing(firstUrl, key, {
         filterNonChat: true,
+        ...(openAiBaseUrl
+          ? {
+              userEndpoint: {
+                allowedPrivateOrigins: [new URL(openAiBaseUrl).origin],
+              },
+              gateway: true,
+            }
+          : {}),
       });
+    }
     case "mistral":
       return {
         firstUrl: "https://api.mistral.ai/v1/models",
@@ -599,7 +601,9 @@ async function validateEndpoint(
     });
   }
   if (!requested) return null;
-  const validated = await validateProviderBaseUrl(requested);
+  const validated = await validateProviderBaseUrl(requested, {
+    allowPrivate: isTrustedSelfHostedRuntime(),
+  });
   return isCustomOpenAiBaseUrl(validated) ? validated : null;
 }
 
