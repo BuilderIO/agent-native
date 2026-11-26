@@ -898,6 +898,7 @@ const messages = {
         "Enlazar al sitio web de la empresa y a la página de LinkedIn de esta persona",
       addNote: "Añadir una nota",
       notesLoadError: "No se pudieron cargar las notas.",
+      notesContentUnreachable: "No se pudo conectar con Content.",
       noteSaveError: "No se pudo guardar la nota.",
       savedToMailNotes: "Guardado en Notas de Mail",
       open: "Abrir",

@@ -830,6 +830,7 @@ const messages = {
       exampleLinks: "連結到此人公司的網站和 LinkedIn 頁面",
       addNote: "新增備註",
       notesLoadError: "無法載入備註。",
+      notesContentUnreachable: "無法連線到 Content。",
       noteSaveError: "無法儲存備註。",
       savedToMailNotes: "已儲存到 Mail 備註",
       open: "開啟",

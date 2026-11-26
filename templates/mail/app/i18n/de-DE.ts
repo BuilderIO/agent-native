@@ -907,6 +907,7 @@ const messages = {
         "Auf die Firmenwebsite und LinkedIn-Seite dieser Person verlinken",
       addNote: "Notiz hinzufügen",
       notesLoadError: "Notizen konnten nicht geladen werden.",
+      notesContentUnreachable: "Content ist nicht erreichbar.",
       noteSaveError: "Die Notiz konnte nicht gespeichert werden.",
       savedToMailNotes: "In Mail-Notizen gespeichert",
       open: "Öffnen",

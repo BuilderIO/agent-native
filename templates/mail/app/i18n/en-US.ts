@@ -866,6 +866,7 @@ const messages = {
       exampleLinks: "Link to this person's company website and LinkedIn page",
       addNote: "Add a note",
       notesLoadError: "Couldn't load notes.",
+      notesContentUnreachable: "Couldn't reach Content.",
       noteSaveError: "Couldn't save the note.",
       savedToMailNotes: "Saved to Mail notes",
       open: "Open",

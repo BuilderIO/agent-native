@@ -943,6 +943,15 @@ export interface PublicAgentActionConfig {
   title?: string;
   description?: string;
   allowRawQueryInput?: boolean;
+  /**
+   * Lets another app call this write action directly over A2A, as the verified
+   * signed-in user, without running this app's agent. Direct A2A calls are
+   * otherwise read-only. Requires `readOnly: false` and `requiresAuth: true`,
+   * and is refused for consequential actions and actions that need approval.
+   * Keep it to one narrow, owner-scoped, non-destructive write that a sibling
+   * app makes on the user's behalf; the action is left off the agent card.
+   */
+  directWrite?: boolean;
 }
 
 export type ActionPlanModeEffect = "read" | "write" | "unknown";

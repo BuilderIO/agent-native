@@ -833,6 +833,7 @@ const messages = {
       exampleLinks: "链接到此人公司的网站和 LinkedIn 页面",
       addNote: "添加备注",
       notesLoadError: "无法加载备注。",
+      notesContentUnreachable: "无法连接到 Content。",
       noteSaveError: "无法保存备注。",
       savedToMailNotes: "已保存到 Mail 备注",
       open: "打开",

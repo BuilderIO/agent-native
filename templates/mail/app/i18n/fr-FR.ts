@@ -906,6 +906,7 @@ const messages = {
         "Lier le site web de l’entreprise de cette personne et sa page LinkedIn",
       addNote: "Ajouter une note",
       notesLoadError: "Impossible de charger les notes.",
+      notesContentUnreachable: "Impossible de joindre Content.",
       noteSaveError: "Impossible d’enregistrer la note.",
       savedToMailNotes: "Enregistré dans les notes Mail",
       open: "Ouvrir",

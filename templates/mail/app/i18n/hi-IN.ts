@@ -860,6 +860,7 @@ const messages = {
       exampleLinks: "इस व्यक्ति की कंपनी की वेबसाइट और LinkedIn पेज के लिंक दें",
       addNote: "नोट जोड़ें",
       notesLoadError: "नोट्स लोड नहीं हो सके।",
+      notesContentUnreachable: "Content तक नहीं पहुँच सके।",
       noteSaveError: "नोट सहेजा नहीं जा सका।",
       savedToMailNotes: "Mail नोट्स में सहेजा गया",
       open: "खोलें",

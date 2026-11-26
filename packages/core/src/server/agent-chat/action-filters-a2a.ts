@@ -109,8 +109,8 @@ export function filterDelegatedRegistry(
 }
 
 export interface A2AExternalAgentSurface {
-  connectorCatalog?: string[];
-  externalAgents?: ExternalAgentPolicy;
+  connectorCatalog?: string[] | undefined;
+  externalAgents?: ExternalAgentPolicy | undefined;
 }
 
 export function filterDirectA2AActions(
@@ -148,6 +148,33 @@ export function filterDirectA2AActions(
   );
 }
 
+export function filterDirectA2AWriteActions(
+  actions: Record<string, ActionEntry>,
+  options: A2AExternalAgentSurface,
+): Record<string, ActionEntry> {
+  const catalog = new Set(options.connectorCatalog ?? []);
+  const denied = new Set(options.externalAgents?.denyActions ?? []);
+
+  return Object.fromEntries(
+    Object.entries(actions).filter(([name, entry]) => {
+      const exposure = entry.publicAgent;
+      return (
+        (isMcpToolServed(entry.mcpTool) || catalog.has(name)) &&
+        !denied.has(name) &&
+        isActionExposedToExternalAgents(entry) &&
+        entry.readOnly !== true &&
+        exposure?.expose === true &&
+        exposure.readOnly === false &&
+        exposure.directWrite === true &&
+        exposure.requiresAuth === true &&
+        (entry.needsApproval === undefined || entry.needsApproval === false) &&
+        exposure.isConsequential !== true &&
+        (!hasRawQueryInput(entry) || exposure.allowRawQueryInput === true)
+      );
+    }),
+  );
+}
+
 export function filterDelegatedA2ACapabilityActions(
   actions: Record<string, ActionEntry>,
   options: A2AExternalAgentSurface,
@@ -163,6 +190,7 @@ export function filterDelegatedA2ACapabilityActions(
         entry.readOnly !== true &&
         exposure?.expose === true &&
         exposure.readOnly === false &&
+        exposure.directWrite !== true &&
         exposure.requiresAuth === true
       );
     }),

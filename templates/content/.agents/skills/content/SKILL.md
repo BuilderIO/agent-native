@@ -41,6 +41,10 @@ actions, and local folders that sync into the same collection model.
   its exact title, then inspect it with `get-content-database` before creating
   or submitting anything. Do not create a second collection when the canonical
   one already exists.
+- "Mail notes" in the user's Personal space is the collection Mail's Notes
+  widget writes: one private page per person, keyed by the Email property,
+  each note a dated line linking back to the email. Read and edit it like any
+  collection; keep the Email key, since Mail finds a person's page by it.
 - Local folders are sources attached to a space's canonical Files collection.
   Imported pages are normal SQL-backed Content documents; the trusted local
   bridge handles pull, export, stable file identity, and conflict review.

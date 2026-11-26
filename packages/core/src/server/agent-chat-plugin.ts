@@ -569,6 +569,7 @@ import {
   filterMcpOnlyActions,
   filterPublicAgentActions,
   filterDirectA2AActions,
+  filterDirectA2AWriteActions,
   filterReadOnlyActions,
   isSelectedA2AReceiver,
   shouldSelectedA2AReceiverOwnObjective,
@@ -2786,16 +2787,15 @@ export function createAgentChatPlugin(
         connect: options?.connectApps,
         durableBackgroundRuns: options?.durableBackgroundRuns,
         executeReadOnlyAction: async ({ action, input, invocationId }) => {
-          const actions = filterDirectA2AActions(
-            externalFullActions ?? externalActions,
-            mcpOptions,
-          );
-          const entry = actions[action];
+          const exposed = externalFullActions ?? externalActions;
+          const entry =
+            filterDirectA2AActions(exposed, mcpOptions)[action] ??
+            filterDirectA2AWriteActions(exposed, mcpOptions)[action];
           if (!entry) {
             return {
               status: "failed" as const,
               output:
-                "Unknown or unavailable read-only action. Direct cross-app action mode only accepts explicitly exposed read-only operations; retry creates, updates, deletes, sends, saves, publishes, and other side effects with a natural-language message.",
+                "Unknown or unavailable direct action. Direct cross-app action mode only accepts explicitly exposed read-only operations and writes the receiving app opted in by name; retry creates, updates, deletes, sends, saves, publishes, and other side effects with a natural-language message.",
             };
           }
 
@@ -2814,7 +2814,7 @@ export function createAgentChatPlugin(
           if (result.status === "approval_required") {
             return {
               status: "failed" as const,
-              output: "Read-only action unexpectedly requires approval",
+              output: "Direct action unexpectedly requires approval",
             };
           }
           return a2aActionResult(result);

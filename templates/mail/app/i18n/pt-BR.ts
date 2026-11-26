@@ -896,6 +896,7 @@ const messages = {
         "Criar links para o site da empresa e a página do LinkedIn desta pessoa",
       addNote: "Adicionar uma nota",
       notesLoadError: "Não foi possível carregar as notas.",
+      notesContentUnreachable: "Não foi possível acessar o Content.",
       noteSaveError: "Não foi possível salvar a nota.",
       savedToMailNotes: "Salvo em Notas do Mail",
       open: "Abrir",

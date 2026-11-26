@@ -877,6 +877,7 @@ const messages = {
         "この人の会社のウェブサイトと LinkedIn ページへのリンクを表示",
       addNote: "メモを追加",
       notesLoadError: "メモを読み込めませんでした。",
+      notesContentUnreachable: "Content に接続できませんでした。",
       noteSaveError: "メモを保存できませんでした。",
       savedToMailNotes: "Mail のメモに保存しました",
       open: "開く",

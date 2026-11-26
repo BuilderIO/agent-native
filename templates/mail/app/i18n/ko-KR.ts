@@ -865,6 +865,7 @@ const messages = {
       exampleLinks: "이 사람의 회사 웹사이트와 LinkedIn 페이지 링크 표시",
       addNote: "메모 추가",
       notesLoadError: "메모를 불러오지 못했습니다.",
+      notesContentUnreachable: "Content에 연결하지 못했습니다.",
       noteSaveError: "메모를 저장하지 못했습니다.",
       savedToMailNotes: "Mail 메모에 저장됨",
       open: "열기",

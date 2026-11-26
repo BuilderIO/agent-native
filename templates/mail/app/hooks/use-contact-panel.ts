@@ -86,6 +86,11 @@ export function useContactAttachments(email: string, enabled: boolean) {
   });
 }
 
+function localDate(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 export function useContactNote(email: string, enabled: boolean) {
   return useQuery<ContactNoteResult>({
     queryKey: ["contact-note", email],
@@ -112,6 +117,7 @@ export function useAddContactNote(email: string) {
     }) =>
       callAction("add-contact-note", {
         email,
+        date: localDate(new Date()),
         ...args,
       }) as Promise<AddContactNoteResult>,
     onSuccess: (result) => {

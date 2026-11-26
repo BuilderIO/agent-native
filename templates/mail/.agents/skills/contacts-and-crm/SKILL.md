@@ -103,6 +103,15 @@ sent, newest first, each with the `threadId`, subject and date of its email,
 so you can open or cite it. It searches Gmail when an account is connected and
 throws when Gmail fails; an empty list means the person really sent no files.
 
+Notes live in Content, not Mail: one private page per person in a "Mail
+notes" collection in the user's Personal space, keyed by email address.
+`get-contact-note --email=<address>` reads that page (`note: null` means no
+notes yet). `add-contact-note` with `email`, `text`, and the open email's
+`threadId` and `subject` adds a dated line that links back to the email; the
+first note creates the page, titled with `name` when you pass it. Both fail
+loudly when Content can't be reached (`content_unavailable`) or the page is in
+Trash (`mail_note_trashed`); say so rather than reporting no notes.
+
 ## Related Skills
 
 - `email-drafts` — use resolved contacts and CRM context when composing.

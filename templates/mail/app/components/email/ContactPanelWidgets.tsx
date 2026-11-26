@@ -167,6 +167,12 @@ function NoteLink({ label, url }: { label: string; url: string }) {
   );
 }
 
+function errorCodeOf(error: unknown) {
+  return error instanceof Error && "errorCode" in error
+    ? error.errorCode
+    : undefined;
+}
+
 function openExternal(url: string) {
   window.open(url, "_blank", "noopener,noreferrer");
 }
@@ -263,7 +269,11 @@ export function NotesWidget({
         <WidgetSkeleton rows={2} />
       ) : note.isError ? (
         <WidgetError
-          message={t("mail.contactPanel.notesLoadError")}
+          message={
+            errorCodeOf(note.error) === "content_unavailable"
+              ? t("mail.contactPanel.notesContentUnreachable")
+              : t("mail.contactPanel.notesLoadError")
+          }
           retrying={note.isFetching}
           onRetry={() => void note.refetch()}
         />

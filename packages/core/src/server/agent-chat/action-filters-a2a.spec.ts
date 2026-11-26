@@ -26,6 +26,7 @@ import {
   filterDelegatedA2ACapabilityActions,
   filterDelegatedRegistry,
   filterDirectA2AActions,
+  filterDirectA2AWriteActions,
   filterMcpOnlyActions,
   resolveInitialToolNames,
   runA2AAgentLoop,
@@ -732,6 +733,56 @@ describe("filterDirectA2AActions", () => {
         }),
       ),
     ).toEqual(["allowed"]);
+  });
+});
+
+describe("filterDirectA2AWriteActions", () => {
+  const directWrite = (
+    overrides: Partial<ActionEntry> = {},
+    exposure: Partial<NonNullable<ActionEntry["publicAgent"]>> = {},
+  ) =>
+    action({
+      http: { method: "POST" },
+      readOnly: false,
+      mcpTool: true,
+      publicAgent: {
+        expose: true,
+        readOnly: false,
+        requiresAuth: true,
+        directWrite: true,
+        ...exposure,
+      },
+      ...overrides,
+    });
+
+  it("admits only writes that opt in by name and need a signed-in user", () => {
+    const actions = {
+      "add-note": directWrite(),
+      "not-opted-in": directWrite({}, { directWrite: undefined }),
+      "no-auth": directWrite({}, { requiresAuth: false }),
+      consequential: directWrite({}, { isConsequential: true }),
+      approval: directWrite({ needsApproval: true }),
+      "not-served": directWrite({ mcpTool: false }),
+      "ui-only": directWrite({ uiOnly: true }),
+      denied: directWrite(),
+      "read-claims-write": directWrite({ readOnly: true }),
+    };
+
+    expect(
+      Object.keys(
+        filterDirectA2AWriteActions(actions, {
+          externalAgents: { denyActions: ["denied"] },
+        }),
+      ),
+    ).toEqual(["add-note"]);
+  });
+
+  it("keeps an opted-in write out of the read-only path and off the agent card", () => {
+    const actions = { "add-note": directWrite() };
+
+    expect(filterDirectA2AActions(actions, {})).toEqual({});
+    expect(filterDelegatedA2ACapabilityActions(actions, {})).toEqual({});
+    expect(buildAuthenticatedAgentA2ASkills(actions, {})).toEqual([]);
   });
 });
 

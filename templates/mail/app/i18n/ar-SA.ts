@@ -860,6 +860,7 @@ const messages = {
       exampleLinks: "اربط بموقع شركة هذا الشخص وصفحته على LinkedIn",
       addNote: "إضافة ملاحظة",
       notesLoadError: "تعذّر تحميل الملاحظات.",
+      notesContentUnreachable: "تعذّر الوصول إلى Content.",
       noteSaveError: "تعذّر حفظ الملاحظة.",
       savedToMailNotes: "حُفظت في ملاحظات Mail",
       open: "فتح",
