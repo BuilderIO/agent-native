@@ -185,12 +185,13 @@ function nodeMarkdown(node: PMNode): string {
 
 const EMPTY_PARAGRAPH_MARKDOWN = nodeMarkdown({ type: "paragraph" });
 
-export function snapshotBlocksFieldMarkdown(
-  markdown: string,
-): BlocksFieldBlockSnapshot[] {
-  const snapshots: BlocksFieldBlockSnapshot[] = [];
-  const doc = nfmToDoc(markdown);
-
+export function visitBlocksFieldBlocks(
+  doc: PMNode,
+  visitor: (
+    node: PMNode,
+    place: { path: string; parentPath: string | null; position: number },
+  ) => void,
+): void {
   function visit(nodes: PMNode[] | undefined, parentPath: string | null) {
     let blockPosition = 0;
     for (let index = 0; index < (nodes?.length ?? 0); index++) {
@@ -200,12 +201,27 @@ export function snapshotBlocksFieldMarkdown(
         parentPath === null
           ? `${blockPosition}`
           : `${parentPath}.${blockPosition}`;
+      visitor(node, { path, parentPath, position: blockPosition });
+      visit(node.content, path);
+      blockPosition++;
+    }
+  }
+  visit(doc.content, null);
+}
+
+export function snapshotBlocksFieldMarkdown(
+  markdown: string,
+): BlocksFieldBlockSnapshot[] {
+  const snapshots: BlocksFieldBlockSnapshot[] = [];
+  visitBlocksFieldBlocks(
+    nfmToDoc(markdown),
+    (node, { path, parentPath, position }) => {
       const canonical = JSON.stringify(stableNodeValue(node));
       snapshots.push({
         path,
         parentPath,
         kind: node.type,
-        position: blockPosition,
+        position,
         addressable: !NON_ADDRESSABLE_NODE_TYPES.has(node.type),
         contentHash: `block_${hashString(canonical)}`,
         markdown: nodeMarkdown(node),
@@ -215,13 +231,55 @@ export function snapshotBlocksFieldMarkdown(
             ? node.attrs.blockId
             : null,
       });
-      visit(node.content, path);
-      blockPosition++;
-    }
-  }
-
-  visit(doc.content, null);
+    },
+  );
   return snapshots;
+}
+
+export function blocksFieldShape(
+  places: Iterable<{ path: string; kind: string }>,
+): string {
+  const lines: string[] = [];
+  for (const { path, kind } of places) lines.push(`${path}:${kind}`);
+  return `shape_${hashString(lines.join("\n"))}`;
+}
+
+export function blocksFieldTreeShape(doc: PMNode): string {
+  const places: { path: string; kind: string }[] = [];
+  visitBlocksFieldBlocks(doc, (node, { path }) =>
+    places.push({ path, kind: node.type }),
+  );
+  return blocksFieldShape(places);
+}
+
+export function isAddressableBlocksFieldKind(kind: string): boolean {
+  return BLOCK_NODE_TYPES.has(kind) && !NON_ADDRESSABLE_NODE_TYPES.has(kind);
+}
+
+export function blocksFieldPathsById(
+  blocks: readonly Pick<BlocksFieldBlock, "id" | "parentId" | "position">[],
+): Map<string, string> {
+  const byId = new Map(blocks.map((block) => [block.id, block]));
+  const paths = new Map<string, string>();
+  const resolving = new Set<string>();
+  const pathOf = (id: string): string | null => {
+    const known = paths.get(id);
+    if (known !== undefined) return known;
+    const block = byId.get(id);
+    if (!block || resolving.has(id)) return null;
+    resolving.add(id);
+    const parentPath = block.parentId === null ? null : pathOf(block.parentId);
+    resolving.delete(id);
+    if (block.parentId !== null && parentPath === null) return null;
+    const path =
+      parentPath === null
+        ? `${block.position}`
+        : `${parentPath}.${block.position}`;
+    paths.set(id, path);
+    return path;
+  };
+  for (const block of blocks) pathOf(block.id);
+  return paths;
 }
 
 function deterministicBlockId(
@@ -441,9 +499,19 @@ export function reconcileBlocksFieldIdentity(args: {
   const previousLiveById = new Map(
     previousLive.map((block, index) => [block.id, index]),
   );
+  const previousDeletedById = new Map(
+    previousDeleted.map((block) => [block.id, block]),
+  );
+  const recoveredIds = new Set<string>();
   for (let nextIndex = 0; nextIndex < snapshots.length; nextIndex++) {
     const explicitId = args.preferredIdsByPath?.[snapshots[nextIndex]!.path];
     if (!explicitId) continue;
+    const deleted = previousDeletedById.get(explicitId);
+    if (deleted && !recoveredIds.has(explicitId)) {
+      recoveredIds.add(explicitId);
+      assigned.set(nextIndex, deleted);
+      continue;
+    }
     const previousIndex = previousLiveById.get(explicitId);
     if (previousIndex === undefined || matchedPrevious.has(previousIndex)) {
       continue;
@@ -462,7 +530,13 @@ export function reconcileBlocksFieldIdentity(args: {
   );
   for (const [key, previousIndex] of previousExact) {
     const nextIndex = nextExact.get(key);
-    if (nextIndex === undefined) continue;
+    if (
+      nextIndex === undefined ||
+      matchedPrevious.has(previousIndex) ||
+      assigned.has(nextIndex)
+    ) {
+      continue;
+    }
     matchedPrevious.add(previousIndex);
     assigned.set(nextIndex, previousLive[previousIndex]!);
   }
@@ -698,7 +772,6 @@ export function reconcileBlocksFieldIdentity(args: {
     previousDeleted,
     (block) => `${block.kind}\0${block.contentHash}`,
   );
-  const recoveredIds = new Set<string>();
   const idByPath = new Map<string, string>();
   const nextBlocks = snapshots.map((snapshot, nextIndex) => {
     const explicitId = args.preferredIdsByPath?.[snapshot.path];
@@ -707,12 +780,14 @@ export function reconcileBlocksFieldIdentity(args: {
       const recoveredIndex = recoverable.get(
         `${snapshot.kind}\0${snapshot.contentHash}`,
       );
-      if (recoveredIndex !== undefined) {
-        previous = previousDeleted[recoveredIndex];
-        if (previous) {
-          recoveredIds.add(previous.id);
-          recoverable.delete(`${snapshot.kind}\0${snapshot.contentHash}`);
-        }
+      const recovered =
+        recoveredIndex === undefined
+          ? undefined
+          : previousDeleted[recoveredIndex];
+      if (recovered && !recoveredIds.has(recovered.id)) {
+        previous = recovered;
+        recoveredIds.add(recovered.id);
+        recoverable.delete(`${snapshot.kind}\0${snapshot.contentHash}`);
       }
     }
     if (explicitId && usedIds.has(explicitId) && explicitId !== previous?.id) {
@@ -781,6 +856,29 @@ export function reconcileBlocksFieldIdentity(args: {
   };
 }
 
+export function catchUpBlocksFieldIdentity(
+  stored: StoredBlocksFieldIdentity,
+  markdown: string,
+): StoredBlocksFieldIdentity {
+  let provisionalIndex = 0;
+  const taken = new Set(stored.blocks.map((block) => block.id));
+  const createId = () => {
+    let id: string;
+    do {
+      id = `block_${hashString(`${stored.fieldId}\0${markdown}\0${provisionalIndex++}`)}`;
+    } while (taken.has(id));
+    taken.add(id);
+    return id;
+  };
+  return reconcileBlocksFieldIdentity({
+    documentId: "stale-read",
+    propertyId: stored.fieldId,
+    previous: stored,
+    markdown,
+    createId,
+  });
+}
+
 export function exposeBlocksFieldIdentity(
   stored: StoredBlocksFieldIdentity,
   markdown: string,
@@ -789,15 +887,7 @@ export function exposeBlocksFieldIdentity(
   if (currentHash === stored.contentHash) {
     return publicIdentity(stored, "materialized");
   }
-  let provisionalIndex = 0;
-  const reconciled = reconcileBlocksFieldIdentity({
-    documentId: "stale-read",
-    propertyId: stored.fieldId,
-    previous: stored,
-    markdown,
-    createId: () =>
-      `block_${hashString(`${stored.fieldId}\0${markdown}\0${provisionalIndex++}`)}`,
-  });
+  const reconciled = catchUpBlocksFieldIdentity(stored, markdown);
   return publicIdentity({ ...reconciled, revision: stored.revision }, "stale");
 }
 

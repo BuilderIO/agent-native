@@ -133,7 +133,7 @@ describe("apply (release runtime)", () => {
       /migration "broken" failed/,
     );
     const { rows } = await getDbExec().execute({
-      sql: `SELECT name FROM ${STORE_MIGRATIONS_TABLE} WHERE store_id = ?`,
+      sql: "SELECT name FROM _an_store_migrations WHERE store_id = ?",
       args: [store.id],
     });
     expect(rows.map((row) => row.name)).toEqual(["baseline"]);
@@ -264,7 +264,7 @@ describe("hosted runtime without release migrations", () => {
     });
     if (rows[0]?.present) {
       const recorded = await getDbExec().execute({
-        sql: `SELECT name FROM ${STORE_MIGRATIONS_TABLE} WHERE store_id = ?`,
+        sql: "SELECT name FROM _an_store_migrations WHERE store_id = ?",
         args: [table],
       });
       expect(recorded.rows).toEqual([]);
@@ -347,6 +347,128 @@ describe("database switch", () => {
 });
 
 describe("local and self-hosted runtimes", () => {
+  it("shares in-flight readiness and reuses it after the migration succeeds", async () => {
+    const table = `widgets_${++seq}`;
+    const migrationStarted = Promise.withResolvers<void>();
+    const finishMigration = Promise.withResolvers<void>();
+    const migrate = vi.fn(async () => {
+      migrationStarted.resolve();
+      await finishMigration.promise;
+    });
+    const store = defineStore({
+      id: table,
+      migrations: [{ name: "baseline", run: migrate }],
+    });
+    const real = getDbExec();
+    const execute = vi.fn(real.execute.bind(real));
+    const { withDbExec } = await import("./client.js");
+
+    await withDbExec({ execute }, async () => {
+      const first = store.ready();
+      await migrationStarted.promise;
+      const second = store.ready();
+      finishMigration.resolve();
+      await Promise.all([first, second]);
+      const queriesAfterReady = execute.mock.calls.length;
+
+      await store.ready();
+
+      expect(migrate).toHaveBeenCalledTimes(1);
+      expect(execute).toHaveBeenCalledTimes(queriesAfterReady);
+    });
+  });
+
+  it("retries a failed migration rather than retaining its rejected readiness", async () => {
+    const table = "widgets_retry_failed_migration";
+    const migrate = vi
+      .fn(async (exec: ReturnType<typeof getDbExec>) => {
+        await exec.execute(
+          "CREATE TABLE widgets_retry_failed_migration (id TEXT)",
+        );
+      })
+      .mockRejectedValueOnce(new Error("transient migration failure"));
+    const store = defineStore({
+      id: table,
+      migrations: [{ name: "baseline", run: migrate }],
+    });
+
+    await expect(store.ready()).rejects.toThrow("transient migration failure");
+    expect(await tableExists(table)).toBe(false);
+    const before = await getDbExec().execute({
+      sql: "SELECT name FROM _an_store_migrations WHERE store_id = ?",
+      args: [table],
+    });
+    expect(before.rows).toEqual([]);
+
+    await store.ready();
+
+    expect(migrate).toHaveBeenCalledTimes(2);
+    expect(await tableExists(table)).toBe(true);
+    const after = await getDbExec().execute({
+      sql: "SELECT name FROM _an_store_migrations WHERE store_id = ?",
+      args: [table],
+    });
+    expect(after.rows).toEqual([{ name: "baseline" }]);
+  });
+
+  it("uses the enclosing transaction for readiness and retries after rollback", async () => {
+    const { createGetDb } = await import("./create-get-db.js");
+    const { withDbExec } = await import("./client.js");
+    const db = await createGetDb({})();
+    const table = "widgets_transaction_readiness";
+    const migrate = vi.fn(async () => {
+      await getDbExec().execute(
+        "CREATE TABLE widgets_transaction_readiness (id TEXT)",
+      );
+    });
+    const store = defineStore({
+      id: table,
+      migrations: [{ name: "baseline", run: migrate }],
+    });
+    await widgetStore().store.ready();
+
+    await expect(
+      db.transaction(async () => {
+        await withDbExec(
+          {
+            execute: async () => {
+              throw new Error("wrong executor");
+            },
+          },
+          () => store.ready(),
+        );
+        expect(await tableExists(table)).toBe(true);
+        const { rows } = await getDbExec().execute({
+          sql: "SELECT name FROM _an_store_migrations WHERE store_id = ?",
+          args: [table],
+        });
+        expect(rows).toEqual([{ name: "baseline" }]);
+        throw new Error("roll back readiness");
+      }),
+    ).rejects.toThrow("roll back readiness");
+
+    expect(await tableExists(table)).toBe(false);
+    const rolledBack = await getDbExec().execute({
+      sql: "SELECT name FROM _an_store_migrations WHERE store_id = ?",
+      args: [table],
+    });
+    expect(rolledBack.rows).toEqual([]);
+
+    await db.transaction(async () => {
+      await store.ready();
+      expect(await tableExists(table)).toBe(true);
+    });
+    await store.ready();
+
+    expect(migrate).toHaveBeenCalledTimes(2);
+    expect(await tableExists(table)).toBe(true);
+    const committed = await getDbExec().execute({
+      sql: "SELECT name FROM _an_store_migrations WHERE store_id = ?",
+      args: [table],
+    });
+    expect(committed.rows).toEqual([{ name: "baseline" }]);
+  });
+
   it("creates tables on first use without a release step", async () => {
     const { table, store } = widgetStore();
 

@@ -56,6 +56,7 @@ const suggestion = {
 };
 
 vi.mock("../../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => client,
   isProductionServerlessFunctionRuntime: () => false,
 }));

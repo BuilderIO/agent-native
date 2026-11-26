@@ -37,7 +37,7 @@ const read = (state: ServerRunState): RunAuthorityRead => ({
   state,
 });
 
-const DRAINED = { runId: "run-1", attempts: 1, readToEnd: true };
+const DRAINED = { runId: "run-1", attempts: 3 };
 
 describe("run lifecycle transitions", () => {
   const error = { code: "stale_run", message: "interrupted" };
@@ -271,7 +271,7 @@ describe("decideAfterStreamClosed", () => {
     const attempt = (attempts: number) =>
       decideAfterStreamClosed(
         completed,
-        context({ drain: { runId: "run-1", attempts, readToEnd: false } }),
+        context({ drain: { runId: "run-1", attempts } }),
       );
     expect(attempt(1)).toMatchObject({
       type: "resubscribe",
@@ -279,17 +279,16 @@ describe("decideAfterStreamClosed", () => {
       delayMs: 250,
     });
     expect(attempt(2)).toMatchObject({ type: "resubscribe", drain: true });
-    expect(attempt(3)).toEqual({ type: "terminal", outcome: "succeeded" });
+    // oracle-change: a completed run whose terminal event never arrived is unverified, not succeeded
+    expect(attempt(3)).toMatchObject({
+      type: "terminal",
+      outcome: "unverified",
+      error: { code: "run_events_incomplete", message: RUN_UNVERIFIED_MESSAGE },
+    });
   });
 
   it("ends a drained run with the server's recorded outcome", () => {
     const drained = context({ drain: DRAINED });
-    expect(
-      decideAfterStreamClosed(
-        read({ status: "completed", runId: "run-1", terminalReason: "done" }),
-        drained,
-      ),
-    ).toEqual({ type: "terminal", outcome: "succeeded" });
     expect(
       decideAfterStreamClosed(
         read({

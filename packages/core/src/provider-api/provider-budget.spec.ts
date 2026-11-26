@@ -7,6 +7,7 @@ vi.mock("../db/client.js", async () => {
   const { storeLedgerResult } =
     await import("../db/store-ledger.test-helpers.js");
   return {
+    getEnclosingTransactionDbExec: () => undefined,
     getDbExec: () => ({
       execute: async (input: string | { sql: string; args?: unknown[] }) => {
         if (databaseFault.unavailable) throw new Error("database unavailable");

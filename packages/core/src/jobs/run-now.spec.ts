@@ -30,7 +30,10 @@ vi.mock("../server/self-dispatch.js", () => ({
   fireInternalDispatch: fireInternalDispatchMock,
 }));
 
-vi.mock("../db/client.js", () => ({ isLocalDatabase: () => true }));
+vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
+  isLocalDatabase: () => true,
+}));
 
 vi.mock("../agent/durable-background.js", () => ({
   AGENT_CHAT_BACKGROUND_RUN_FIELD: "__backgroundRun",

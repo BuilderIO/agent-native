@@ -950,6 +950,7 @@ function reviewAgentAttachments(attachments: readonly ReviewCommentImage[]) {
 const WORKING_AREA_CHROME_SELECTOR =
   '[data-design-chrome-region="left-shell"], [data-design-chrome-region="right-panel"], [data-design-chrome-region="top-bar"]';
 const BOTTOM_TOOLBAR_SELECTOR = "[data-design-bottom-toolbar]";
+const CAMERA_SETTLE_RESCAN_MS = 150;
 // The Pin comment tool, which the label cannot find: it is translated.
 const COMMENT_TOOL_SELECTOR = `${BOTTOM_TOOLBAR_SELECTOR} [data-design-toolbar-group="comment"] button`;
 const MAIN_SURFACE_SELECTOR =
@@ -1124,6 +1125,7 @@ export function ReviewCanvasPins({
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const [layoutTick, setLayoutTick] = useState(0);
+  const rendersNothingRef = useRef(true);
   const [draftPin, setDraftPin] = useState<ReviewDraftPin | null>(null);
   const [draftAttachments, setDraftAttachments] = useState<
     ReviewCommentImage[]
@@ -1659,23 +1661,41 @@ export function ReviewCanvasPins({
     if (!canvas) return;
     let animationFrame = 0;
     const resizeObserver = new ResizeObserver(() => bump());
-    // Chrome that mounted after the last pass is picked up on the next bump.
-    const observeChrome = () => {
-      document
-        .querySelectorAll(
-          `${WORKING_AREA_CHROME_SELECTOR}, ${BOTTOM_TOOLBAR_SELECTOR}`,
-        )
-        .forEach((region) => resizeObserver.observe(region));
+    const watchedRegions = new Set<Element>();
+    const observeChrome = (rescan: boolean) => {
+      if (rescan || [...watchedRegions].some((region) => !region.isConnected)) {
+        watchedRegions.clear();
+        document
+          .querySelectorAll(
+            `${WORKING_AREA_CHROME_SELECTOR}, ${BOTTOM_TOOLBAR_SELECTOR}`,
+          )
+          .forEach((region) => {
+            watchedRegions.add(region);
+            resizeObserver.observe(region);
+          });
+      }
       const surface = canvas.closest(MAIN_SURFACE_SELECTOR);
       if (surface) resizeObserver.observe(surface);
     };
-    const bump = () => {
+    let rescanChrome = false;
+    const bump = (cameraOnly = false) => {
+      if (!cameraOnly) rescanChrome = true;
       if (animationFrame) return;
       animationFrame = window.requestAnimationFrame(() => {
         animationFrame = 0;
-        observeChrome();
-        setLayoutTick((current) => current + 1);
+        observeChrome(rescanChrome);
+        rescanChrome = false;
+        if (!rendersNothingRef.current) setLayoutTick((current) => current + 1);
       });
+    };
+    let settleTimer: number | null = null;
+    const bumpCamera = () => {
+      bump(true);
+      if (settleTimer !== null) window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(() => {
+        settleTimer = null;
+        bump();
+      }, CAMERA_SETTLE_RESCAN_MS);
     };
     resizeObserver.observe(canvas);
     const iframe = canvas.querySelector<HTMLIFrameElement>(
@@ -1684,7 +1704,7 @@ export function ReviewCanvasPins({
     if (iframe) resizeObserver.observe(iframe);
     const frameShell = canvas.closest<HTMLElement>("[data-frame-shell]");
     if (frameShell) resizeObserver.observe(frameShell);
-    observeChrome();
+    observeChrome(true);
     const layoutOwners = new Set<HTMLElement>();
     for (const owner of [
       canvas.querySelector<HTMLElement>("[data-multi-screen-canvas-world]"),
@@ -1694,23 +1714,28 @@ export function ReviewCanvasPins({
       if (owner) layoutOwners.add(owner);
     }
     const mutationObservers = [...layoutOwners].map((owner) => {
-      const observer = new MutationObserver(bump);
+      const observer = new MutationObserver(bumpCamera);
       observer.observe(owner, {
         attributes: true,
         attributeFilter: ["style"],
       });
       return observer;
     });
-    window.addEventListener("resize", bump);
-    window.addEventListener("scroll", bump, { capture: true, passive: true });
-    iframe?.addEventListener("load", bump);
+    const bumpResize = () => bump();
+    window.addEventListener("resize", bumpResize);
+    window.addEventListener("scroll", bumpCamera, {
+      capture: true,
+      passive: true,
+    });
+    iframe?.addEventListener("load", bumpResize);
     return () => {
       if (animationFrame) window.cancelAnimationFrame(animationFrame);
+      if (settleTimer !== null) window.clearTimeout(settleTimer);
       resizeObserver.disconnect();
       mutationObservers.forEach((observer) => observer.disconnect());
-      window.removeEventListener("resize", bump);
-      window.removeEventListener("scroll", bump, true);
-      iframe?.removeEventListener("load", bump);
+      window.removeEventListener("resize", bumpResize);
+      window.removeEventListener("scroll", bumpCamera, true);
+      iframe?.removeEventListener("load", bumpResize);
     };
   }, [canvas]);
 
@@ -2981,6 +3006,17 @@ export function ReviewCanvasPins({
     if (!planeMounted) clearHoverNode();
   }, [clearHoverNode, planeMounted]);
 
+  const rendersNothing =
+    hidden ||
+    !canvas ||
+    (!active &&
+      !draftPin &&
+      !deleteCandidate &&
+      !threads.some((thread) => thread.root.anchor));
+  rendersNothingRef.current = rendersNothing;
+  useEffect(() => {
+    if (!rendersNothing) setLayoutTick((current) => current + 1);
+  }, [rendersNothing]);
   if (hidden || !canvas) return null;
   if (
     !active &&

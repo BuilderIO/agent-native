@@ -4,6 +4,7 @@ import { getRequestContext } from "../server/request-context.js";
 
 const executeMock = vi.hoisted(() => vi.fn());
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: executeMock }),
 }));
 

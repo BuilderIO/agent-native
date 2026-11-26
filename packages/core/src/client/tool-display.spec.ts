@@ -4,6 +4,7 @@ import {
   humanizeToolLabelText,
   humanizeToolName,
   isCallAgentToolCallShadowed,
+  isHiddenToolCall,
   resolveToolCallRowContext,
   runningToolLabel,
   shadowedCallAgentToolCallIds,
@@ -183,5 +184,26 @@ describe("tool display labels", () => {
     expect(isCallAgentToolCallShadowed(unmatched, 0)).toBe(false);
     expect(isCallAgentToolCallShadowed(differentTarget, 0)).toBe(false);
     expect(shadowedCallAgentToolCallIds(differentTarget)).toEqual(new Set());
+  });
+
+  it("hides only calls tagged unknown_tool", () => {
+    const parts = [
+      {
+        type: "tool-call",
+        toolCallId: "bad",
+        toolName: "tool-search_tool_bm25",
+        isError: true,
+        errorCode: "unknown_tool",
+      },
+      {
+        type: "tool-call",
+        toolCallId: "gone",
+        toolName: "editor-format",
+        isError: true,
+      },
+    ];
+
+    expect(isHiddenToolCall(parts, 0)).toBe(true);
+    expect(isHiddenToolCall(parts, 1)).toBe(false);
   });
 });

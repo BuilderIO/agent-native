@@ -15,7 +15,6 @@ const messages = {
       starred: "Starred",
       snoozed: "Snoozed",
       sent: "Sent",
-      draftQueue: "下書きキュー",
       scheduled: "Scheduled",
       drafts: "Drafts",
       archive: "アーカイブ",
@@ -47,7 +46,7 @@ const messages = {
         "この傾向を重要度または自動アーカイブのルールにできます。",
       priorityFeedbackAskAgent: "エージェントにルールを提案してもらう",
       aiSetupTitle: "AI 受信トレイを設定",
-      aiSetupTagLabel: "AI タグを作成",
+      aiSetupTagLabel: "AI ラベルを作成",
       aiSetupImportanceLabel: "重要なメール",
       aiSetupSpamLabel: "スパム",
       aiSetupArchiveLabel: "受信トレイをスキップ",
@@ -116,7 +115,7 @@ const messages = {
       aiSetupSortInbox: "受信トレイを整理",
       aiSetupImportantExample: "上司の Priya（priya@company.com）からのメール…",
       aiSetupTagsDescription:
-        "AIが一致するメールにタグを付け、受信トレイの横にタグごとのタブを作成します。",
+        "AIが一致するメールにラベルを付け、受信トレイの横にラベルごとのタブを作成します。",
       aiSetupImportantDescription:
         "AIが一致するメールに「重要」ラベルを付け、重要タブに表示します。",
       aiSetupSkipInboxDescription:
@@ -154,7 +153,7 @@ const messages = {
       accounts: "Accounts",
       closeSidebar: "サイドバーを閉じる",
       settings: "設定",
-      aiSettings: "タグとルールを管理",
+      aiSettings: "ラベルとルールを管理",
     },
     search: {
       label: "検索",
@@ -179,7 +178,7 @@ const messages = {
       combinedInbox: "統合受信トレイ",
       allTab: "すべてタブ",
       help: "選んだビュー、ラベル、保存済みフィルタを受信トレイの個別のタブとして表示します。オフにすると、受信トレイのメールをすべて1つのタブで表示します。",
-      aiSetup: "AI タグとルールを設定",
+      aiSetup: "AI ラベルとルールを設定",
     },
     accounts: {
       remove: "削除",
@@ -199,6 +198,7 @@ const messages = {
       moveToTrash: "ゴミ箱へ移動",
       star: "スターを付ける",
       unstar: "スターを外す",
+      copyLink: "リンクをコピー",
     },
     labels: {
       labelAsPlaceholder: "ラベルを付ける…",
@@ -322,14 +322,10 @@ const messages = {
       close: "閉じる",
     },
     integrations: {
-      addIntegration: "連携を追加",
       checking: "確認中...",
       connect: "接続",
       disconnect: "切断",
       getApiKey: "API キーを取得するには:",
-      newIntegration: "新しい連携",
-      newIntegrationPlaceholder:
-        "例: Salesforce CRM — 連絡先の商談ステージと最近のアクティビティを表示",
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "連絡先の補強と会社データ",
       hubspotDescription: "CRM 連絡先、商談、チケット",
@@ -344,8 +340,6 @@ const messages = {
       experience: "経歴",
       tickets: "チケット",
       save: "保存",
-      submit: "Submit",
-      submitShortcut: "Submit ({{shortcut}})",
       updateKey: "キーを更新",
     },
     recipients: {
@@ -460,10 +454,13 @@ const messages = {
       tryDifferentKeywords: "別のキーワードを試してください",
       nothingHere: "まだ何もありません",
       loadingMore: "さらに読み込み中...",
+      loadOlder: "以前の会話を読み込む",
       openAllMailForOlder: "古いメッセージはすべてのメールで開く",
     },
     toasts: {
       noEmailSelected: "メールが選択されていません。",
+      linkCopied: "リンクをコピーしました。",
+      linkCopyFailed: "リンクをコピーできませんでした。",
       reportedSpam: "迷惑メールとして報告しました。",
       reportedSpamBlocked: "Reported as spam & blocked {{email}}.",
       noThreadSelected: "スレッドが選択されていません。",
@@ -559,8 +556,14 @@ const messages = {
       tryAgain: "再試行",
       rateLimitTitle: "Gmail のレート制限に達しました",
       loadTitle: "メールを読み込めません",
+      staleSaved:
+        "メールを更新できませんでした。保存済みの会話を表示しています。",
       rateLimitDescription:
         "Google への最近のリクエストが多すぎます。少し待ってから再試行します。",
+      limitedListFrom:
+        "最終更新: {{time}}。一部のメールが表示されていない可能性があります。Google が Mail のリクエストを制限しています。",
+      limitedList:
+        "一部のメールが表示されていない可能性があります。Google が Mail のリクエストを制限しています。",
       failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",
       failedToParseJson: "No se pudo analizar JSON",
       missingGoogleCredentials:
@@ -661,7 +664,7 @@ const messages = {
       instructionsTitle: "指示",
       instructionCount: "{{count}} 件の指示",
       instructionPlaceholder:
-        "例：「question for you, Steve」のような件名は不要",
+        "例：「quick question for you」のような件名は不要",
       addInstruction: "追加",
       noInstructions: "指示はまだありません。",
       instructionExample: "「政治キャンペーンのメールはすべて不要」を試す",
@@ -702,23 +705,23 @@ const messages = {
       autoArchiveMode: "自動アーカイブ",
       skipInboxMode: "受信トレイをスキップ",
       spamMode: "スパム",
-      tagMode: "タグ",
-      aiTagsTitle: "AIタグ",
+      tagMode: "ラベル",
+      aiTagsTitle: "AIラベル",
       ruleHelpLabel: "{{mode}}ルールの説明",
       aiTagRuleHelp:
-        "自然な言葉で指示を書きます。一致したメールにこのタグを付けます。",
+        "自然な言葉で指示を書きます。一致したメールにこのラベルを付けます。",
       importantRuleHelp:
         "自然な言葉で指示を書きます。一致したメールを重要としてマークします。",
       skipInboxRuleHelp:
         "自然な言葉で指示を書きます。一致したメールをアーカイブして受信トレイをスキップします。",
       spamRuleHelp:
-        "自然な言葉で指示を書きます。Jev は一致したメールに agent-native-filtered ラベルを付けてアーカイブします。Gmail の迷惑メールには送信しません。",
+        "自然な言葉で指示を書きます。Mail は一致したメールに agent-native-filtered ラベルを付けてアーカイブします。Gmail の迷惑メールには送信しません。",
       filteredMode: "フィルター済み",
       manageSettings: "管理",
-      askJev: "Jev に相談",
+      askJev: "Mail のエージェントに相談",
       askJevPrompt:
         "この Mail ルールを調整してください: {{condition}}。変更したい内容を質問してから更新してください。",
-      composerPlaceholder: "Jev に受信トレイの整理を頼む…",
+      composerPlaceholder: "Mail のエージェントに受信トレイの整理を頼む…",
       chatSuggestionFilter: "このようなメッセージをフィルタする",
       chatSuggestionPriority: "次の差出人のメールを優先…",
       chatSuggestionArchive: "ボット通知を自動でアーカイブ",
@@ -748,7 +751,7 @@ const messages = {
       importantPlaceholder: "例：返信が必要なメールや期限のあるメール",
       ruleAdded: "AI ルールを追加しました。",
       instructionHelp: "自然な言葉で入力",
-      tagNamePlaceholder: "タグ名",
+      tagNamePlaceholder: "ラベル名",
       spamLabelHint: "一致したメールにラベルを付け、受信トレイから移動します。",
       spamPlaceholder: "例：明らかに宣伝目的または不要なメッセージ",
       tagPlaceholder: "例：オンラインショップの領収書や注文確認",
@@ -776,8 +779,8 @@ const messages = {
       previewEmpty: "プレビューを実行すると一致候補が表示されます。",
       previewFailed: "最近のメールをプレビューできませんでした。",
       promptRulesCleared: "トリアージルールを削除しました。",
-      tagTabsHelp: "各タグが受信トレイのタブになります",
-      addTag: "タグを追加",
+      tagTabsHelp: "各ラベルが受信トレイのタブになります",
+      addTag: "ラベルを追加",
       triageTitle: "AIトリアージ",
       connectJev: "AIプロバイダーを接続",
       connectJevToRunTriage:
@@ -790,7 +793,7 @@ const messages = {
       addOpenAiApiKey: "OpenAI APIキーを追加",
     },
     draftQueue: {
-      title: "Cola de borradores",
+      title: "依頼された下書き",
       queueDraft: "Poner borrador en cola",
       reviewer: "Revisor",
       chooseMember: "Elegir miembro",
@@ -815,15 +818,19 @@ const messages = {
       send: "Enviar",
       awaitingApproval: "Pendiente de aprobación",
       newDraftRequest: "Nueva solicitud de borrador",
-      needsOrg: "La cola de borradores necesita una organización activa.",
+      needsOrg: "下書きの依頼には有効な組織が必要です。",
       openSettings: "Abrir ajustes",
       statusInReview: "en revisión",
       awaitingApprovalCount: "承認待ちの下書き {{count}} 件",
       requestedCount: "作成した下書きリクエスト {{count}} 件",
+      requested: "依頼された下書き",
+      askedBy: "{{name}} さんの依頼:",
+      toReview: "要確認",
+      moreOptions: "下書きのその他のオプション",
     },
     routeTitles: {
       notFound: "No encontrado - Mail",
-      draftQueue: "Cola de borradores - Mail",
+      draftQueue: "依頼された下書き - Mail",
       settings: "Ajustes - Mail",
       team: "Equipo - Mail",
       emailThread: "Conversación de email",
@@ -850,13 +857,47 @@ const messages = {
     contacts: {
       noContactSelected: "連絡先が選択されていません",
     },
+    contactPanel: {
+      addToPanel: "このパネルに追加",
+      builtIn: "組み込み",
+      connections: "接続",
+      yourWidgets: "自分のウィジェット",
+      notes: "メモ",
+      attachments: "添付ファイル",
+      recent: "最近",
+      connected: "オン",
+      buildYourOwn: "自分で作成…",
+      buildYourOwnTitle: "自分で作成",
+      back: "戻る",
+      widgetSees:
+        "ウィジェットは、この人の名前とメールアドレス、開いている会話を参照できます。",
+      widgetDoes:
+        "Mail のデータを表示したり、保存したキーで他のサービスを呼び出したり、独自のメモを保存したりできます。",
+      examplePrompt:
+        '開いているメールの横のパネル（スロット "{{slotId}}"）用のウィジェットを作成して、パネルに追加して: {{idea}}',
+      exampleDeals: "Salesforce でこの人の進行中の商談を表示",
+      exampleLinks:
+        "この人の会社のウェブサイトと LinkedIn ページへのリンクを表示",
+      addNote: "メモを追加",
+      notesLoadError: "メモを読み込めませんでした。",
+      notesContentUnreachable: "Content に接続できませんでした。",
+      olderNotesInContent: "以前のメモは Content のページにあります。",
+      noteSaveError: "メモを保存できませんでした。",
+      savedToMailNotes: "Mail のメモに保存しました",
+      open: "開く",
+      openInContent: "Content で開く",
+      attachmentsLoadError: "ファイルを読み込めませんでした。",
+      noAttachments: "ファイルはまだありません",
+      moreAttachments: "他 {{count}} 件",
+    },
     readingPane: {
       empty: "メールが選択されていません",
       resizeList: "メールリストのサイズを変更",
     },
   },
   agent: {
-    emptyState: "メールについて何でも聞いてください",
+    emptyState:
+      "Mail のエージェントです。メールについて質問したり、整理を頼んだりできます。",
     suggestionSummarize: "未読メールを要約して",
     suggestionReplies: "今日返信が必要なものは？",
     suggestionWidget: "受信トレイ用のカスタムウィジェットを作成して",
@@ -922,6 +963,7 @@ const messages = {
     autocomplete: "自動補完",
     sendAndMarkDone: "送信して完了にする",
     autocompleteSaveFailed: "自動補完の設定を保存できませんでした。",
+    signaturePlaceholder: "よろしくお願いいたします。\n名前",
     writingStylePlaceholder: "短く、具体的に、温かく。形式的な埋め草は避ける。",
     saveDraftingSettings: "下書き設定を保存",
     reset: "リセット",
@@ -950,8 +992,8 @@ const messages = {
     slackDraftRequests: "下書きリクエスト",
     slackDraftQueue: "Slack から下書きをキューに追加",
     slackDraftQueueDescription:
-      "チームメンバーが Slack でエージェントにメンションすると、メールの下書きをリクエストできます。下書きは確認のため下書きキューで待機します。",
-    openDraftQueue: "下書きキューを開く",
+      "チームメンバーが Slack でエージェントにメンションすると、メールの下書きをリクエストできます。各下書きは送信前にあなたが確認します。",
+    openDraftQueue: "依頼された下書きを開く",
     aiFilter: "AIトリアージ",
     gmailFilters: "Gmail フィルター",
     aliases: "エイリアス",

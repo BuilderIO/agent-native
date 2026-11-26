@@ -13,6 +13,7 @@ vi.mock("../org/membership.js", () => ({
   }),
 }));
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({
     execute: async () => ({
       rows: state.revoked ? [{ revoked_before: Date.now() }] : [],

@@ -70,6 +70,12 @@ export {
 } from "./scheduled-refresh.js";
 
 export {
+  getDataProgramDetails,
+  listDataProgramSummaries,
+  type DataProgramReader,
+} from "./read.js";
+
+export {
   createDataProgramActions,
   type CreateDataProgramActionsOptions,
 } from "./actions.js";

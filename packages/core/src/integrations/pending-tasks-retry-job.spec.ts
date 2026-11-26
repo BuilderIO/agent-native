@@ -12,6 +12,7 @@ const hasActiveIntegrationCampaignMock = vi.hoisted(() =>
 );
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: executeMock }),
 }));
 

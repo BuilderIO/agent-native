@@ -20,7 +20,7 @@ import { IconLayoutBoard, IconRefresh } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
-import { ImageLightbox } from "@/components/editor/ImageLightbox";
+import { ImageLightbox, usePageImage } from "@/components/editor/ImageLightbox";
 import { imageDisplaySrc } from "@/components/editor/private-media-src";
 import { Button } from "@/components/ui/button";
 import { SourceEmbedFrame } from "@/components/ui/source-embed-frame";
@@ -55,6 +55,11 @@ function UnreadableScreen() {
   );
 }
 
+function focusScreenButton(image: HTMLImageElement) {
+  image.closest("button")?.focus({ preventScroll: true });
+  image.scrollIntoView({ block: "nearest" });
+}
+
 function ScreenPicture({
   image,
   alt,
@@ -67,7 +72,7 @@ function ScreenPicture({
   const t = useT();
   const [failed, setFailed] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [opener, setOpener] = useState<HTMLElement | null>(null);
+  const [pageImage, setPageImage] = usePageImage(focusScreenButton);
   const src = imageDisplaySrc(image.src);
   if (failed) {
     return (
@@ -86,14 +91,12 @@ function ScreenPicture({
         type="button"
         aria-haspopup="dialog"
         title={t("editor.media.expandImage")}
-        onClick={(event) => {
-          setOpener(event.currentTarget);
-          setExpanded(true);
-        }}
+        onClick={() => setExpanded(true)}
         style={{ maxWidth: screenWidth }}
         className="mx-auto block w-full cursor-zoom-in rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <img
+          ref={setPageImage}
           src={src}
           alt={alt}
           width={image.width}
@@ -110,7 +113,7 @@ function ScreenPicture({
         onOpenChange={setExpanded}
         src={src}
         alt={alt}
-        returnFocus={opener}
+        origin={pageImage}
       />
     </>
   );

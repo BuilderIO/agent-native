@@ -12,6 +12,7 @@ import {
   ReviewCommentEmptyError,
   ReviewCommentLinkConflictError,
   ReviewCommentRevisionConflictError,
+  ReviewCommentSubmissionConflictError,
   ReviewCursorError,
 } from "./errors.js";
 import {
@@ -514,6 +515,46 @@ export async function getReviewDiscussionStateForComments(
   return { reactions, threadPreferences };
 }
 
+const REACTORS_PER_STATEMENT = 1_000;
+
+/**
+ * Who reacted to each comment, by reaction, in the order they reacted. Every
+ * comment asked about has an entry, empty when no one reacted.
+ */
+export async function listReviewCommentReactors(
+  commentIds: readonly string[],
+): Promise<Record<string, Record<string, string[]>>> {
+  const ids = [...new Set(commentIds)];
+  const reactors = new Map<string, Map<string, string[]>>(
+    ids.map((id) => [id, new Map()]),
+  );
+  if (!ids.length) return {};
+  await ensureReviewTables();
+  for (let start = 0; start < ids.length; start += REACTORS_PER_STATEMENT) {
+    const batch = ids.slice(start, start + REACTORS_PER_STATEMENT);
+    // raw-sql-ok: the IN list is placeholders only; every value is bound.
+    const { rows } = await getDbExec().execute({
+      sql: `SELECT comment_id,reaction,actor_email FROM agent_review_comment_reactions WHERE comment_id IN (${batch.map(() => "?").join(",")}) ORDER BY comment_id,created_at,actor_email`,
+      args: batch,
+    });
+    for (const row of rows) {
+      const byReaction = reactors.get(String(row.comment_id));
+      if (!byReaction) continue;
+      const reaction = String(row.reaction);
+      byReaction.set(reaction, [
+        ...(byReaction.get(reaction) ?? []),
+        String(row.actor_email),
+      ]);
+    }
+  }
+  return Object.fromEntries(
+    [...reactors].map(([id, byReaction]) => [
+      id,
+      Object.fromEntries(byReaction),
+    ]),
+  );
+}
+
 export async function filterUnmutedReviewThreadRecipients(
   threadId: string,
   recipients: string[],
@@ -591,12 +632,13 @@ export async function reviewCommentNotificationCompleted(
 
 export async function markReviewCommentNotificationCompleted(
   id: string,
-): Promise<void> {
+): Promise<boolean> {
   await ensureReviewTables();
-  await getDbExec().execute({
+  const result = await getDbExec().execute({
     sql: "UPDATE agent_review_comments SET notification_completed_at = ? WHERE id = ? AND notification_completed_at IS NULL",
     args: [new Date().toISOString(), id],
   });
+  return result.rowsAffected > 0;
 }
 
 export async function claimReviewNotificationDelivery(
@@ -872,9 +914,7 @@ async function assertMatchingReplyRouteTarget(
     args: [commentId],
   });
   if (result.rows?.[0]?.reply_route_target !== routeTarget) {
-    throw new Error(
-      "Review comment submission ID conflicts with another submission",
-    );
+    throw new ReviewCommentSubmissionConflictError();
   }
 }
 
@@ -1211,9 +1251,7 @@ function assertMatchingReviewCommentReceipt(
       (field) => !reviewReceiptValueEquals(existing[field], submitted[field]),
     )
   ) {
-    throw new Error(
-      "Review comment submission ID conflicts with another submission",
-    );
+    throw new ReviewCommentSubmissionConflictError();
   }
 }
 
@@ -2190,6 +2228,16 @@ export async function deleteReviewComment(
         now,
       )),
     );
+    for (
+      let start = 0;
+      start < deletedIds.length;
+      start += DELETED_REPLIES_PER_STATEMENT
+    ) {
+      await tx.execute(sql`DELETE FROM agent_review_comment_reactions
+          WHERE comment_id IN ${sql.in(
+            deletedIds.slice(start, start + DELETED_REPLIES_PER_STATEMENT),
+          )}`);
+    }
     if (target && deletedIds.length > 0) {
       const resourceType = String(target.resource_type);
       await runReviewCommentWriteHook(

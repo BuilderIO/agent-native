@@ -10,7 +10,7 @@ import { rememberPointer } from "../server/lib/pointers-store.js";
 
 export default defineAction({
   description:
-    'Remember that a name the user uses (an alias such as "todo list") points to a specific object in a workspace app, such as a doc, deck, or board. Call it when the user says "X is my Y" or "my Y is this <app item or link>". Later requests that mention the alias open that object instead of the app the request would otherwise route to.',
+    'Save a user-defined alias (such as "todo list") pointing to a specific workspace app object (such as a doc, deck, or board) by app id and object id or URL.',
   schema: z
     .object({
       alias: z

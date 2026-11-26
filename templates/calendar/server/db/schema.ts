@@ -32,6 +32,8 @@ export const bookings = table("bookings", {
   createdAt: text("created_at").notNull(),
   ownerEmail: text("owner_email").notNull().default("local@localhost"),
   orgId: text("org_id"),
+  reminderHandledAt: text("reminder_handled_at"),
+  reminderNextAttemptAt: text("reminder_next_attempt_at"),
 });
 
 export const bookingLinks = table("booking_links", {
@@ -46,6 +48,7 @@ export const bookingLinks = table("booking_links", {
   conferencing: text("conferencing"),
   color: text("color"),
   isActive: boolean("is_active").notNull().default(true),
+  reminderMinutes: integer("reminder_minutes").notNull().default(1440),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
   ...ownableColumns(),

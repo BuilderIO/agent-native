@@ -5,6 +5,7 @@ import {
   serializeBlocksFieldsManifest,
 } from "./blocks-fields-manifest.js";
 import { matchInlineMathAt } from "./inline-math.js";
+import { linkCardsAsPlainLinks } from "./link-card-block.js";
 import { KATEX_STYLESHEET_URL, renderMathToHtml } from "./math-rendering.js";
 import {
   matchNfmExportBlock,
@@ -172,25 +173,45 @@ function restoreTokenSources(
   );
 }
 
-function inlineMarkdownSegmentToHtml(
-  text: string,
-  tokens: InlineExportToken[],
-): string {
-  return escapeHtml(text)
-    .replace(
-      /!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;[^&]*&quot;)?\)/g,
-      (_m, alt, src) => {
-        return `<img src="${safeExportUrl(src, "image")}" alt="${restoreTokenSources(alt, tokens)}" />`;
-      },
-    )
-    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, label, href) => {
-      return `<a href="${safeExportUrl(href, "link")}">${label}</a>`;
-    })
+function emphasisToHtml(html: string): string {
+  return html
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/__([^_]+)__/g, "<strong>$1</strong>")
     .replace(/~~([^~]+)~~/g, "<s>$1</s>")
     .replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>")
     .replace(/(^|[^_])_([^_]+)_/g, "$1<em>$2</em>");
+}
+
+const BARE_URL = /^https?:\/\/\S+$/;
+
+function inlineMarkdownSegmentToHtml(
+  text: string,
+  tokens: InlineExportToken[],
+): string {
+  let mark = "\uE002";
+  while (text.includes(mark)) mark += "\uE002";
+  const elements: string[] = [];
+  const keep = (html: string) => `${mark}${elements.push(html) - 1}${mark}`;
+  const kept = new RegExp(`${mark}(\\d+)${mark}`, "g");
+  const restore = (html: string) =>
+    html.replace(kept, (_m, index: string) => elements[Number(index)] ?? "");
+  return restore(
+    emphasisToHtml(
+      escapeHtml(text)
+        .replace(
+          /!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;[^&]*&quot;)?\)/g,
+          (_m, alt, src) =>
+            keep(
+              `<img src="${safeExportUrl(src, "image")}" alt="${restoreTokenSources(alt, tokens)}" />`,
+            ),
+        )
+        .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, label, href) =>
+          keep(
+            `<a href="${safeExportUrl(href, "link")}">${BARE_URL.test(label) ? label : restore(emphasisToHtml(label))}</a>`,
+          ),
+        ),
+    ),
+  );
 }
 
 function isEscapedDelimiter(text: string, index: number): boolean {
@@ -746,7 +767,8 @@ export function buildDocumentExport(
 ): DocumentExportPayload {
   const title = normalizeTitle(input.title);
   const filename = exportFilename(title, input.format);
-  const markdown = markdownWithTitle(title, input.content);
+  const body = linkCardsAsPlainLinks(input.content ?? "");
+  const markdown = markdownWithTitle(title, body);
   const isHtmlLike = input.format === "html" || input.format === "pdf";
   const manifest = input.blocksFields?.length
     ? serializeBlocksFieldsManifest(input.blocksFields)
@@ -754,7 +776,7 @@ export function buildDocumentExport(
   let content = isHtmlLike
     ? buildHtmlDocument({
         title,
-        content: input.content ?? "",
+        content: body,
         updatedAt: input.updatedAt,
         print: input.format === "pdf",
       })

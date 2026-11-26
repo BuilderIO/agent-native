@@ -11,6 +11,7 @@ const executorContext = new AsyncLocalStorage<Pick<DbExec, "execute">>();
 vi.mock("../db/client.js", () => ({
   isLocalDatabase: () => false,
   isProductionServerlessFunctionRuntime: () => false,
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => {
     const executor = executorContext.getStore();
     if (!executor)

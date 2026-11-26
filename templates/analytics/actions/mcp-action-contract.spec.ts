@@ -10,6 +10,7 @@ import {
 import { generateActionRegistryForProject } from "@agent-native/core/vite";
 import { describe, expect, it } from "vitest";
 
+import { filterDirectA2AActions } from "../../../packages/core/src/server/agent-chat/action-filters-a2a.js";
 import { ANALYTICS_MCP } from "../server/lib/analytics-mcp";
 
 const projectRoot = path.resolve(
@@ -29,7 +30,7 @@ type ActionDefinition = {
   needsApproval?:
     | boolean
     | ((args: Record<string, unknown>, ctx?: { caller: string }) => unknown);
-  publicAgent?: { expose?: boolean };
+  publicAgent?: { expose?: boolean; allowRawQueryInput?: boolean };
   tool: {
     description: string;
     parameters?: { properties?: Record<string, unknown> };
@@ -81,8 +82,10 @@ const DIRECT_MCP_READS = [
   "list-session-recordings",
   "list-sql-dashboards",
   "match-error-issues",
+  "query-warehouse",
   "search-analytics-query-catalog",
   "search-dashboard-references",
+  "search-warehouse-schema",
 ];
 
 // Each takes expectedUpdatedAt and idempotencyKey; archive and hide are the
@@ -359,6 +362,33 @@ describe("Analytics direct MCP tools", () => {
     expect(terse).toEqual([]);
   });
 
+  it("opts only query-warehouse and mutate-dashboard into raw SQL input", () => {
+    const optedIn = Object.entries(actions)
+      .filter(([, action]) => action.publicAgent?.allowRawQueryInput === true)
+      .map(([name]) => name)
+      .sort();
+    expect(optedIn).toEqual(["mutate-dashboard", "query-warehouse"]);
+  });
+
+  it("tells outside agents to try saved definitions and dashboards before one aggregate warehouse query", () => {
+    const order = [
+      "find-data",
+      "list-sql-dashboards",
+      "search-warehouse-schema",
+      "query-warehouse",
+    ].map((name) => ANALYTICS_MCP.instructions.indexOf(name));
+    expect(order.every((index) => index >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(ANALYTICS_MCP.instructions).toMatch(/aggregate/i);
+    expect(ANALYTICS_MCP.instructions).not.toMatch(/not warehouse row queries/);
+  });
+
+  it("tells outside agents to report a dbt metric with no definition rather than compute it", () => {
+    expect(ANALYTICS_MCP.instructions).toMatch(
+      /dbt is connected but has no definition for a metric[^.]*do not compute that metric yourself from warehouse data unless the user asks/,
+    );
+  });
+
   it("names only tools a read-scoped token receives in keyToolNames and instructions", () => {
     const mentioned = Object.keys(actions).filter((name) =>
       new RegExp(`(?<![\\w-])${name}(?![\\w-])`).test(
@@ -396,6 +426,44 @@ describe("Analytics MCP tools/list", () => {
     );
     for (const name of [...VETOED, "estimate-query-cost"]) {
       expect(served, name).not.toContain(name);
+    }
+  }, 60_000);
+
+  it("serves the warehouse tools over MCP only, never as direct A2A actions, because sibling apps ask Analytics in words", async () => {
+    const registry = loadActionsFromStaticRegistry(actionsRegistry);
+    const direct = Object.keys(
+      filterDirectA2AActions(registry, {
+        connectorCatalog: [...DIRECT_MCP_READS, ...ANALYTICS_MCP.keyToolNames],
+        externalAgents: { authenticatedReads: "auto" },
+      }),
+    );
+    expect(direct).toContain("get-onboarding-journey");
+    expect(direct).not.toContain("query-warehouse");
+    expect(direct).not.toContain("search-warehouse-schema");
+    expect(
+      ["query-warehouse", "search-warehouse-schema"].map(
+        (name) => actions[name].publicAgent?.expose,
+      ),
+    ).toEqual([false, false]);
+    expect(actions["query-warehouse"].publicAgent?.allowRawQueryInput).toBe(
+      true,
+    );
+    const served = await listAppTools(["mcp:read"]);
+    expect(served).toContain("query-warehouse");
+    expect(served).toContain("search-warehouse-schema");
+  }, 60_000);
+
+  it("serves the bounded query tool to a read token and keeps every other raw-SQL read off", async () => {
+    const served = await listAppTools(["mcp:read"]);
+    expect(served).toContain("query-warehouse");
+    expect(served).toContain("search-warehouse-schema");
+    for (const name of [
+      "bigquery",
+      "estimate-query-cost",
+      "query-agent-native-analytics",
+      "search-bigquery-schema",
+    ]) {
+      expect(served).not.toContain(name);
     }
   }, 60_000);
 });

@@ -4,21 +4,39 @@ import { and, eq } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
 import { documentAttributionActor } from "../server/lib/document-attribution.js";
 import { firstRow } from "../server/lib/first-row.js";
+import { assertInteractiveHtmlBlocks } from "../server/lib/interactive-html-blocks.js";
 import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
-import { contentDatabaseSourceFieldsAllowLocalWrite } from "../shared/source-field-policy.js";
+import {
+  isBlocksPropertyType,
+  parsePropertyOptions,
+  type DocumentPropertyType,
+} from "../shared/properties.js";
+import {
+  contentDatabaseSourceFieldAllowsValueEdit,
+  contentDatabaseSourceFieldSavesEditsToSource,
+  contentDatabaseSourceFieldsAllowLocalWrite,
+  contentDatabaseSourceWritebackValueError,
+} from "../shared/source-field-policy.js";
 import { persistBlocksFieldIdentity } from "./_blocks-field-identity.js";
+import type { CallProvenance } from "./_document-agent-lock.js";
 import { nanoid } from "./_property-utils.js";
 
 export async function assertPropertyWritableByRowMutation(
   db: ReturnType<typeof getDb>,
   databaseId: string,
   definition: typeof schema.documentPropertyDefinitions.$inferSelect,
+  write?: { value: unknown },
 ) {
   const sourceFields = await db
     .select({
       writeOwner: schema.contentDatabaseSourceFields.writeOwner,
       readOnly: schema.contentDatabaseSourceFields.readOnly,
+      mappingType: schema.contentDatabaseSourceFields.mappingType,
+      sourceFieldKey: schema.contentDatabaseSourceFields.sourceFieldKey,
+      sourceType: schema.contentDatabaseSources.sourceType,
+      sourceTable: schema.contentDatabaseSources.sourceTable,
+      sourceMetadataJson: schema.contentDatabaseSources.metadataJson,
     })
     .from(schema.contentDatabaseSourceFields)
     .innerJoin(
@@ -34,7 +52,39 @@ export async function assertPropertyWritableByRowMutation(
         eq(schema.contentDatabaseSourceFields.propertyId, definition.id),
       ),
     );
-  if (contentDatabaseSourceFieldsAllowLocalWrite(sourceFields)) return;
+  const plainValue =
+    definition.type !== "relation" &&
+    !isBlocksPropertyType(definition.type as DocumentPropertyType);
+  if (
+    plainValue
+      ? sourceFields
+          .map(contentDatabaseSourceFieldAllowsValueEdit)
+          .every(Boolean)
+      : contentDatabaseSourceFieldsAllowLocalWrite(sourceFields)
+  ) {
+    const reason =
+      write && sourceFields.some(contentDatabaseSourceFieldSavesEditsToSource)
+        ? contentDatabaseSourceWritebackValueError(
+            definition.type,
+            write.value,
+            parsePropertyOptions(definition.optionsJson).options,
+          )
+        : null;
+    if (!reason) return;
+    throw new ActionContractError(
+      `Invalid value for property "${definition.name}": ${reason}`,
+      {
+        errorCode: "INVALID_PROPERTY_VALUE",
+        details: {
+          propertyId: definition.id,
+          propertyName: definition.name,
+          propertyType: definition.type,
+          reason,
+        },
+        statusCode: 400,
+      },
+    );
+  }
   throw new ActionContractError(
     `Property "${definition.name}" is not writable by database row mutations.`,
     {
@@ -80,6 +130,7 @@ export async function writeStoredBlocksField(
     content: string;
     expectedRevision: number | undefined;
     now: string;
+    ctx: CallProvenance | undefined;
   },
 ): Promise<void> {
   const previousContent = await readStoredBlocksField(
@@ -88,6 +139,7 @@ export async function writeStoredBlocksField(
     args.propertyId,
   );
   assertNoNewlySharedVideoIds(previousContent, args.content);
+  assertInteractiveHtmlBlocks(args.ctx, previousContent, args.content);
   await db
     .insert(schema.documentBlockFieldContents)
     .values({

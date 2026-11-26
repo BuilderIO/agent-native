@@ -6130,6 +6130,116 @@ it("lets an empty body Builder published replace a saved body through hydration"
   expect(values).not.toHaveProperty(BUILDER_CMS_UNPUBLISHED_CHANGES_KEY);
 });
 
+it.each([
+  { status: "error", retryable: 1, retryTerminal: undefined, read: true },
+  { status: "error", retryable: 0, retryTerminal: undefined, read: false },
+  { status: "error", retryable: 0, retryTerminal: true, read: true },
+  {
+    status: "unavailable",
+    retryable: 0,
+    retryTerminal: undefined,
+    read: false,
+  },
+  { status: "unavailable", retryable: 0, retryTerminal: true, read: true },
+])(
+  "reads a failed body again for its article: $status, $retryable retryable, $retryTerminal terminal",
+  async ({ status, retryable, retryTerminal, read }) => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    const key = `retry_terminal_${status}_${retryable}_${retryTerminal ?? false}`;
+    const databaseDocId = `doc_db_${key}`;
+    const documentId = `doc_${key}`;
+    const itemId = `item_${key}`;
+    const sourceId = `src_${key}`;
+
+    await db.insert(schema.documents).values([
+      {
+        id: databaseDocId,
+        ownerEmail: OWNER,
+        title: "DB retry terminal",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: documentId,
+        ownerEmail: OWNER,
+        parentId: databaseDocId,
+        title: "Retry terminal",
+        content: "",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+    await db.insert(schema.contentDatabases).values({
+      id: `db_${key}`,
+      ownerEmail: OWNER,
+      documentId: databaseDocId,
+      title: "DB retry terminal",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseSources).values({
+      id: sourceId,
+      ownerEmail: OWNER,
+      databaseId: `db_${key}`,
+      sourceType: "builder-cms",
+      sourceName: "collection-explicit-retry",
+      sourceTable: "collection-explicit-retry",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseItems).values({
+      id: itemId,
+      ownerEmail: OWNER,
+      databaseId: `db_${key}`,
+      documentId,
+      position: 0,
+      bodyHydrationStatus: status,
+      bodyHydrationError: "Content could not construct a Builder body.",
+      bodyHydrationReason: "conversion_failed",
+      bodyHydrationProviderStatus: "local_source_record",
+      bodyHydrationAttemptCount: 5,
+      bodyHydrationRetryable: retryable,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(schema.contentDatabaseSourceRows).values({
+      id: `row_${key}`,
+      ownerEmail: OWNER,
+      sourceId,
+      databaseItemId: itemId,
+      documentId,
+      sourceRowId: "entry_explicit_retry",
+      sourceQualifiedId:
+        "builder-cms://collection-explicit-retry/entry_explicit_retry",
+      sourceDisplayKey: "Retry terminal",
+      sourceValuesJson: JSON.stringify({
+        "data.title": "Explicit retry",
+        "data.url": "/blog/explicit-retry",
+        lastUpdated: "2026-01-01T00:00:00.000Z",
+      }),
+      provenance: "Builder CMS read adapter",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const result = await hydrateQueuedBodies({
+      sourceId,
+      documentId,
+      limit: 1,
+      retryFailed: true,
+      retryTerminal,
+    });
+
+    expect(result).toMatchObject({ succeeded: read ? 1 : 0, failed: 0 });
+    const [item] = await db
+      .select({ status: schema.contentDatabaseItems.bodyHydrationStatus })
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.id, itemId));
+    expect(item.status).toBe(read ? "hydrated" : status);
+  },
+);
+
 it("explicitly retries a terminal retryable Builder hydration while preserving evidence until processing", async () => {
   const db = getDb();
   const now = new Date().toISOString();

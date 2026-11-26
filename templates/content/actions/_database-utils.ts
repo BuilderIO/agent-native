@@ -1553,6 +1553,8 @@ export async function getContentDatabaseResponse(
               database,
               definitions: propertySchema.definitions,
               sourceManagedPropertyIds: propertySchema.sourceManagedPropertyIds,
+              sourceWritebackPropertyIds:
+                propertySchema.sourceWritebackPropertyIds,
             },
           },
         ).then(async (mutationContract) => ({

@@ -37,6 +37,7 @@ import {
 } from "@/lib/files-navigation";
 
 import {
+  cachedPathParentId,
   type FirstPin,
   firstPinsToDraw,
   useFirstPins,
@@ -167,6 +168,35 @@ describe("Move to in the Files tree", () => {
     expect(ids(queryClient)).toEqual(["folder"]);
     expect(ids(queryClient, "folder")).toEqual(["page"]);
     expect(invalidated(branchKey())).toBe(true);
+  });
+
+  it("names the open page's new parent in its cached path when the move settles, and keeps the old one when it fails", () => {
+    const pathKey = [
+      "action",
+      "get-content-navigation-context",
+      { id: "page" },
+    ];
+    queryClient.setQueryData(pathKey, {
+      path: [
+        { id: "page", parentId: null },
+        { id: "child", parentId: "page" },
+      ],
+    });
+    useMoveDocument();
+    const options = mutationOptions("move-document");
+    const variables = { id: "page", parentId: "folder" };
+
+    const failed = options.onMutate(variables);
+    options.onSettled(undefined, new Error("refused"), variables, failed);
+    expect(cachedPathParentId(queryClient, "page", "page")).toBeNull();
+
+    const context = options.onMutate(variables);
+    options.onSuccess({ id: "page" }, variables, context);
+    options.onSettled({ id: "page" }, null, variables, context);
+    expect(cachedPathParentId(queryClient, "page", "page")).toBe("folder");
+    expect(cachedPathParentId(queryClient, "page", "child")).toBe("page");
+    expect(cachedPathParentId(queryClient, "page", "unlisted")).toBeUndefined();
+    expect(cachedPathParentId(queryClient, "other", "page")).toBeUndefined();
   });
 
   it("leaves the cached tree as it was when the move fails", () => {

@@ -69,6 +69,7 @@ import {
 import { processWithConcurrency } from "./_batch-utils.js";
 import { favoritesSystemIds } from "./_content-favorites.js";
 import { softDeletedDatabaseDocumentExclusions } from "./_document-discovery-query.js";
+import { linkedNestedLocalFile } from "./_document-source.js";
 import { LOCAL_FOLDER_SOURCE_TYPE } from "./_local-folder-source.js";
 import {
   parseDatabaseViewConfig,
@@ -964,7 +965,7 @@ function navigationAccessContext(
   return { userEmail, ...(database.orgId ? { orgId: database.orgId } : {}) };
 }
 
-type LocalFolderSources = { sourceIds: string[]; rootPaths: string[] };
+type LocalFolderSources = { databaseId: string; rootPaths: string[] };
 
 type FolderLevel = {
   folders: LocalFolderSources;
@@ -976,7 +977,6 @@ async function localFolderSources(
 ): Promise<LocalFolderSources> {
   const rows = await getDb()
     .select({
-      id: schema.contentDatabaseSources.id,
       rootPath: schema.contentDatabaseSources.sourceTable,
     })
     .from(schema.contentDatabaseSources)
@@ -987,31 +987,15 @@ async function localFolderSources(
       ),
     );
   return {
-    sourceIds: rows.map((row) => row.id),
+    databaseId,
     rootPaths: [...new Set(rows.map((row) => row.rootPath))],
   };
 }
 
-const LOCAL_FOLDER_FILE_PATTERN = "^[^/]+(/[^/]+)+$";
-const DOT_SEGMENT_PATTERN = "(^|/)[.][.]?(/|$)";
-
 function inLocalFolder(folders: LocalFolderSources) {
-  const documents = schema.documents;
-  const sourceRows = schema.contentDatabaseSourceRows;
   return and(
-    isNull(documents.parentId),
-    eq(documents.sourceMode, "local-files"),
-    eq(documents.sourceKind, "file"),
-    inArray(documents.sourceRootPath, folders.rootPaths),
-    sql`${documents.sourcePath} ~ ${LOCAL_FOLDER_FILE_PATTERN}`,
-    sql`${documents.sourcePath} !~ ${DOT_SEGMENT_PATTERN}`,
-    inArray(
-      documents.id,
-      getDb()
-        .select({ documentId: sourceRows.documentId })
-        .from(sourceRows)
-        .where(inArray(sourceRows.sourceId, folders.sourceIds)),
-    ),
+    isNull(schema.documents.parentId),
+    linkedNestedLocalFile(getDb(), folders.databaseId),
   );
 }
 
@@ -1456,6 +1440,8 @@ export async function getContentDatabaseNavigationPage(args: {
     icon: schema.documents.icon,
     spaceId: schema.documents.spaceId,
     sourceKind: schema.documents.sourceKind,
+    sourceMode: schema.documents.sourceMode,
+    sourcePath: schema.documents.sourcePath,
     ownerEmail: schema.documents.ownerEmail,
     createdAt: schema.documents.createdAt,
     updatedAt: schema.documents.updatedAt,
@@ -1918,6 +1904,28 @@ export async function getContentDatabaseNavigationPage(args: {
     const hasMore = folders.length + rows.length > args.limit;
     const folderRows = folders.slice(0, args.limit);
     const pageRows = rows.slice(0, args.limit - folderRows.length);
+    const candidates = pageRows.filter(
+      (row) =>
+        row.sourceMode === "local-files" &&
+        row.sourceKind === "file" &&
+        localSourceFileDirectory(row.sourcePath),
+    );
+    const linkedRows =
+      candidates.length > 0
+        ? await db
+            .select({ id: schema.documents.id })
+            .from(schema.documents)
+            .where(
+              and(
+                inArray(
+                  schema.documents.id,
+                  candidates.map((row) => row.documentId),
+                ),
+                linkedNestedLocalFile(db),
+              ),
+            )
+        : [];
+    const immovable = new Set(linkedRows.map((row) => row.id));
     const folderPath = (name: string) =>
       level?.directory ? `${level.directory.path}/${name}` : name;
     const last =
@@ -1972,12 +1980,15 @@ export async function getContentDatabaseNavigationPage(args: {
             ownerEmail,
             sharedEditor,
             sharedManager,
+            sourceMode: _sourceMode,
+            sourcePath: _sourcePath,
             ...row
           }) => {
             const isOwner =
               ownerEmail.toLowerCase() === args.userEmail.toLowerCase();
             return {
               ...row,
+              ...(immovable.has(row.documentId) ? { canMove: false } : {}),
               ...(level?.directory ? { parentId } : {}),
               canEdit: isOwner || sharedEditor,
               canManage: isOwner || sharedManager,

@@ -265,6 +265,15 @@ describe("WorkspaceAppKeepAlive", () => {
     expect(calendarEntry?.classList.contains("hidden")).toBe(false);
     expect(calendarEntry?.querySelector("iframe")).not.toBeNull();
     expect(container.querySelectorAll("iframe")).toHaveLength(2);
+    for (const iframe of container.querySelectorAll("iframe")) {
+      expect(iframe.getAttribute("allow")?.split(/;\s*/)).toEqual(
+        expect.arrayContaining([
+          "clipboard-read",
+          "clipboard-write",
+          "fullscreen",
+        ]),
+      );
+    }
     expect(
       clientState.actionQueryParams.find(
         (query) => query.name === "list-workspace-apps",

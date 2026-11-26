@@ -1087,6 +1087,7 @@ const messages = {
     visibilityDescription:
       "应用于你创建的录制内容。你可以在任意录制内容上更改。",
     useOrgDefault: "使用 {{org}} 的默认设置（{{visibility}}）",
+    enforceOrgDefault: "成员无法设置自己的默认值",
     useDefault: "使用默认设置（{{visibility}}）",
     transcriptExport: "转录导出",
     logoDescription: "显示在分享邮件和公开 Clip 页面中。",

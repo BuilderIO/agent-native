@@ -37,8 +37,9 @@ plain-language `sentence`, and `mode: "tag" | "important" | "notify" |
 AI rule, pins tag labels as inbox tabs, and queues bounded recent-mail
 application. Inspect existing rules and update a matching rule before creating
 a duplicate. Update a rule with its `id`, revised `sentence`, and `mode` (and
-`tagName` for a tag). The inbox-tab cog lists AI tags first; unchecking a tag
-only hides its tab and never deletes its rule.
+`tagName` for tag mode). The app calls the labels tag mode adds AI labels; say
+"label", not "tag", to the user. The inbox-tab cog lists AI labels first;
+unchecking one only hides its tab and never deletes its rule.
 
 For a direct request to add or change one rule, make one `manage-email-rules`
 create/update call and report its structured result. It saves the rule and

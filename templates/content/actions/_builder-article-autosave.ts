@@ -38,7 +38,10 @@ import {
   resolveBuilderCmsExecutionPushMode,
   resolveBuilderCmsWriteEffect,
 } from "./_builder-cms-write-adapter.js";
-import { resolveDatabaseForSourceMutation } from "./_database-source-utils.js";
+import {
+  resolveDatabaseForSourceMutation,
+  type BuilderUnreadBody,
+} from "./_database-source-utils.js";
 import { accessibleDocumentIds } from "./_document-access.js";
 
 type DatabaseRecord = NonNullable<
@@ -77,6 +80,8 @@ const REASON_VALUES = [
   "builder_editor_changes",
   "checking_last_save",
   "another_save_running",
+  "builder_body_unread",
+  "builder_body_unreadable",
   "published",
   "needs_review",
   "edit_conflict",
@@ -381,7 +386,8 @@ function autosaveStatus(args: {
       due = nowMs - updatedMs >= BUILDER_EXECUTION_CLAIM_TIMEOUT_MS;
     } else if (
       state === "waiting" ||
-      (state === "review" && reason === "unconfirmed_save")
+      (state === "review" && reason === "unconfirmed_save") ||
+      (state === "failed" && reason === "builder_body_unreadable")
     ) {
       due = nowMs - updatedMs >= BUILDER_ARTICLE_AUTOSAVE_RECHECK_MS;
     } else if (state !== "failed" && state !== "review") {
@@ -733,6 +739,7 @@ export interface BuilderArticleAutosaveDeps {
     database: DatabaseRecord;
     sourceId: string;
     documentId: string;
+    unreadBodies: Map<string, BuilderUnreadBody>;
   }) => Promise<ContentDatabaseSource | null>;
   prepareReview: (args: {
     databaseId: string;
@@ -745,6 +752,10 @@ export interface BuilderArticleAutosaveDeps {
   refreshSource: (args: {
     databaseId: string;
     sourceId: string;
+  }) => Promise<unknown>;
+  readBody: (args: {
+    sourceId: string;
+    documentId: string;
   }) => Promise<unknown>;
 }
 
@@ -829,10 +840,12 @@ async function saveArticle(args: {
 }): Promise<SaveOutcome> {
   const { database, row, deps } = args;
   const { sourceId } = row;
+  const unreadBodies = new Map<string, BuilderUnreadBody>();
   const snapshot = await deps.getSourceSnapshot({
     database,
     sourceId,
     documentId: row.documentId,
+    unreadBodies,
   });
   if (!snapshot || snapshot.sourceType !== "builder-cms") {
     return {
@@ -885,10 +898,20 @@ async function saveArticle(args: {
       !hasExecution(candidate, ["succeeded"]),
   );
   const changeSet = firstOf(pending);
-  const moreToSave = pending.length > 1;
+  const unreadBody = unreadBodies.get(row.documentId);
   if (!changeSet) {
-    return { state: row.record?.lastSavedAt ? "saved" : "idle" };
+    if (!unreadBody) {
+      return { state: row.record?.lastSavedAt ? "saved" : "idle" };
+    }
+    return unreadBody.failed
+      ? {
+          state: "failed",
+          reason: "builder_body_unreadable",
+          error: unreadBody.error,
+        }
+      : { state: "waiting", reason: "builder_body_unread" };
   }
+  const moreToSave = pending.length > 1 || !!unreadBody;
   const sourceRow = snapshot.rows.find(
     (candidate) => candidate.documentId === row.documentId,
   );
@@ -1031,10 +1054,20 @@ export async function runBuilderArticleAutosaveWithDeps(
   if (!claim) return status();
   let outcome: SaveOutcome;
   try {
-    if (args.retry && row.record?.reason === "builder_changed") {
+    if (
+      args.retry &&
+      (row.record?.reason === "builder_changed" ||
+        row.record?.reason === "builder_body_unreadable")
+    ) {
       await deps.refreshSource({
         databaseId: database.id,
         sourceId: row.sourceId,
+      });
+    }
+    if (args.retry && row.record?.reason === "builder_body_unreadable") {
+      await deps.readBody({
+        sourceId: row.sourceId,
+        documentId: row.documentId,
       });
     }
     outcome = await saveArticle({ database, row, deps });

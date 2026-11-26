@@ -844,6 +844,75 @@ describe("Builder hosted user OAuth", () => {
     );
   });
 
+  it("marks a dispatch grant for reconnect only when Builder rejects the refresh, not on a transient failure", async () => {
+    resolveAccessStateMock.mockResolvedValue({
+      state: { kind: "connected", credential: credentials() },
+      accessToken: "<ACCESS_TOKEN_EXAMPLE>",
+    });
+
+    await resolveBuilderOAuthRequestAccessState({
+      ownerEmail,
+      requiredScope: BUILDER_OAUTH_SCOPE,
+      orgId: null,
+    });
+
+    const refreshFailurePolicy =
+      resolveAccessStateMock.mock.calls[0]?.[0]
+        ?.shouldMarkReconnectRequiredOnRefreshFailure;
+    expect(refreshFailurePolicy?.(new TypeError("fetch failed"))).toBe(false);
+    expect(
+      refreshFailurePolicy?.(
+        new OAuthError(OAuthErrorCode.ServerError, "token endpoint failed"),
+      ),
+    ).toBe(false);
+    expect(
+      refreshFailurePolicy?.(
+        new OAuthError(OAuthErrorCode.InvalidGrant, "refresh token revoked"),
+      ),
+    ).toBe(true);
+  });
+
+  it("reports a transient dispatch refresh failure as retryable, not as an unusable grant", async () => {
+    resolveAccessStateMock.mockResolvedValue({
+      state: { kind: "expired", credential: credentials() },
+      accessToken: null,
+      refreshFailure: "transient",
+    });
+
+    await expect(
+      resolveBuilderOAuthRequestAccessState({
+        ownerEmail,
+        requiredScope: BUILDER_OAUTH_SCOPE,
+        orgId: null,
+      }),
+    ).rejects.toBeInstanceOf(McpOAuthRefreshUnavailableError);
+  });
+
+  it("runs on the org grant when the personal grant refresh is temporarily unavailable", async () => {
+    resolveAccessStateMock.mockImplementation(async (options) =>
+      options.scope === "user"
+        ? {
+            state: { kind: "expired", credential: credentials() },
+            accessToken: null,
+            refreshFailure: "transient",
+          }
+        : {
+            state: { kind: "connected", credential: credentials() },
+            accessToken: "<ORG_ACCESS_TOKEN_EXAMPLE>",
+          },
+    );
+
+    await expect(
+      resolveBuilderOAuthRequestAccessState({
+        ownerEmail,
+        requiredScope: BUILDER_OAUTH_SCOPE,
+      }),
+    ).resolves.toMatchObject({
+      kind: "available",
+      access: { accessToken: "<ORG_ACCESS_TOKEN_EXAMPLE>", scope: "org" },
+    });
+  });
+
   it("force-refreshes only the Builder grant selected for the request", async () => {
     resolveOrgMock.mockResolvedValue("org-acme");
     resolveAccessStateMock.mockResolvedValue({

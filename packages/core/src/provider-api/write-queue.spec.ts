@@ -22,6 +22,7 @@ vi.mock("../db/client.js", async () => {
   const { storeLedgerResult } =
     await import("../db/store-ledger.test-helpers.js");
   return {
+    getEnclosingTransactionDbExec: () => undefined,
     isLocalDatabase: () => true,
     isProductionServerlessFunctionRuntime: () => false,
     getDbExec: () => ({

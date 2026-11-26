@@ -85,6 +85,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
+  mcpScript: "read",
   run: async (
     {
       databaseId,

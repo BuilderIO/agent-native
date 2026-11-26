@@ -3,11 +3,35 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-24
+
+### Added
+
+- Dashboard panels and the agent can now query a connected PostgreSQL database.
+
+## 2026-11-23
+
+### Added
+
+- The Content view counts daily.dev visits per blog article, and can track your YouTube channels' videos once you save a YouTube Data API key under Data Sources.
+
+## 2026-11-22
+
+### Added
+
+- Connected MCP agents can now run their own read-only BigQuery SELECT on Analytics' reviewed warehouse datasets with query-warehouse, and find tables and columns with search-warehouse-schema, counted against the same daily outside-agent BigQuery budget.
+
 ## 2026-11-21
 
 ### Improved
 
 - When connected MCP agents reach your first $1 of BigQuery for the day, Analytics now asks you once on its review page to allow up to $5 until 00:00 UTC, instead of stopping them.
+
+## 2026-11-20
+
+### Fixed
+
+- Stacked combo charts now display bar series correctly alongside target lines.
 
 ## 2026-11-19
 
@@ -36,6 +60,10 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 ### Added
 
 - Connected MCP agents can now edit, archive, and restore dashboards and analyses; each write applies only to the version the agent read, a retried request never writes twice, and every edit can be undone: from history, or by unarchiving, unhiding, or moving it back.
+
+### Fixed
+
+- Dashboard name conflicts now explain how to resolve them instead of returning a server error.
 
 ## 2026-11-14
 
@@ -1311,118 +1339,5 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 - Daily dashboard email captures authenticate with a session cookie, fall back to a lighter panel set, and record page diagnostics when a capture fails.
 - Long-running cross-app analyses now continue reliably in the background and can use synced workspace provider credentials.
-
-## 2026-07-13
-
-### Added
-
-- A full Agent page now brings context, files, connections, jobs, and external access together
-
-### Improved
-
-- Chart legends can filter to one series or hide a series on hover.
-- Session replay links now support Cmd-click and middle-click to open in a new tab
-
-### Fixed
-
-- All-time dashboard filters no longer send invalid dates to BigQuery
-- Analytics answers can use built-in first-party event data
-- Ask app now uses the current core agent loop and response guards in production MCP runs.
-- Daily dashboard emails recover more reliably from serverless browser failures and report image errors accurately.
-- Dashboard charts now honor the selected time range by default and reject accidental unbounded first-party queries
-- Error issue titles wrap instead of overflowing
-- GPT 5.6 Luna answers now recover normally instead of showing an unrelated data-source warning.
-- Analytics incident lookups now use first-party session, error, and replay evidence instead of incorrectly asking you to connect a data source.
-- Keep real authorized identities in Analytics incident lookups when browser Demo mode is enabled
-- Saving a new dashboard view no longer fails with a server error
-- Session replay cursors stay hidden until their first recorded position
-- Session replays keep a visible Mac-style cursor over the visitor's recorded actions
-- The Analytics Agents tab is available again from the main navigation.
-
-## 2026-07-12
-
-### Added
-
-- Connected external agents can now look up sessions, error issues, and sanitized replay timelines directly, with the app agent remaining the default path.
-
-### Improved
-
-- Analytics uses the full in-app agent for multi-step incident investigations, with direct read tools available for focused lookups.
-- Command menu loading placeholders now stay below available results without flashing.
-- Demo mode line and area charts now show unique upward trends while preserving each series' original range and volatility.
-- Named session incident investigations now start with session, replay, and error evidence
-- Session replays load faster in demo mode while visitor emails stay anonymized.
-
-### Fixed
-
-- Analytics chat retries before showing a generic no-data message
-- Analytics sessions search no longer loses fast keystrokes, and agent incident lookups no longer stall after background dispatch failures.
-- Dashboard charts only select for chat when the chat sidebar is already open.
-- Command menu search now finds settings, prioritizes the best match, and keeps keyboard selection aligned with each query.
-- Daily dashboard emails reliably include the complete dashboard image.
-- Demo mode trend charts now preserve the source series' real spikes, dips, and smooth stretches.
-- Fixed session replays that appeared ultra-wide, hid recorded menus, or skipped captured cursor movement.
-- Incident lookups include network and stuck-run evidence even when no JavaScript error is recorded
-- Replay storage settings stay readable at narrow widths.
-- Session identities stay visible when Demo mode is off
-- Session replays preserve recorded styling and keep malformed ultra-wide captures readable.
-- Session replays now show activity inside extensions and email content.
-
-### Security
-
-- Demo mode now reliably anonymizes email addresses throughout error reports.
-
-## 2026-07-11
-
-### Added
-
-- The Agent-Native dashboard now shows explicit thumbs feedback trends and sentiment by model.
-- The Agent-Native dashboard now shows optional inferred message sentiment overall, over time, and by main model.
-
-### Improved
-
-- Analytics chats now start faster by loading metric definitions only when they are needed
-- Analytics only asks for replay storage when you enable session replay, with Builder.io as the primary setup path.
-- The command palette now responds instantly, and SQL previews expand and collapse smoothly.
-- Session filters now stay compact in a settings menu at medium widths.
-- Session replays load large recordings faster and surface failed network and scroll activity in the timeline.
-
-### Fixed
-
-- Analytics no longer repeatedly restarts background requests when the app initializes or syncs changes.
-- Charts now show their loading skeleton while refreshing.
-- Command search now reports loading failures and lets you retry instead of hiding unavailable results.
-- Dashboard navigation now loads faster and reports request failures instead of appearing empty.
-- Microphone settings from realtime voice mode now open the Voice Transcription settings reliably.
-- More dashboard edit paths are now safe against simultaneous agent and UI edits
-- Realtime voice now shows a clear connection indicator, completes its greeting, and can navigate the Analytics app.
-- Renaming a dashboard is now safe against simultaneous agent and UI edits
-- Renaming an analysis is now safe against simultaneous edits
-- Replay event counts stay hidden until recordings finish loading
-- Session replay storage key mismatches now show actionable setup guidance instead of a low-level encryption error.
-- Replay timelines group continuous scrolling, and Dev Tools counts and expanded details stay accurate and compact.
-- Session replay console errors now link to matching issues or a filtered Monitoring search.
-- Session replays preserve recorded styles and use one consistent viewport so previews match the original browser more closely.
-- Session replays stay centered instead of clipping wide recordings
-- Workspace-mounted Analytics now opens Ask reliably and routes between pages correctly.
-
-## 2026-07-10
-
-### Improved
-
-- Agent-created uptime monitors now return a direct link to their Analytics detail view
-- Analytics answers simple time-bounded metrics without unnecessary follow-up queries.
-- Context chips can now be selected and removed one at a time with Backspace from the start of the Ask composer.
-- Slack data-source setup now favors workspace connections and identifies raw bot tokens as a legacy local fallback.
-
-### Fixed
-
-- Analytics chat reliably uses connected data sources across supported models
-- Chat threads now stay clear of top actions and fade smoothly beneath them while scrolling.
-- Dashboard edits from the agent and the UI at the same time no longer overwrite each other
-- Dashboard email reports still arrive when screenshot capture temporarily fails.
-- The Ask composer no longer carries dashboard or panel context after leaving a dashboard.
-- The Ask section stays highlighted while its chat history is expanded.
-- Timed-out BigQuery jobs are now cancelled so they stop consuming warehouse quota.
 
 For the full list of updates, see the [changelog folder](./changelog/).

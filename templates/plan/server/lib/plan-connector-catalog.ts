@@ -17,6 +17,7 @@ export const PLAN_CONNECTOR_CATALOG: string[] = [
   "consume-plan-feedback",
   "reply-to-plan-comment",
   "resolve-plan-comment",
+  "react-to-plan-comment",
   "delete-plan-comment",
   "list-plan-versions",
   "get-plan-version",

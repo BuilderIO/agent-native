@@ -100,6 +100,8 @@ export default defineAction({
           brandColor: schema.organizationSettings.brandColor,
           brandLogoUrl: schema.organizationSettings.brandLogoUrl,
           defaultVisibility: schema.organizationSettings.defaultVisibility,
+          enforceDefaultVisibility:
+            schema.organizationSettings.enforceDefaultVisibility,
         })
         .from(organizations)
         .leftJoin(
@@ -230,6 +232,7 @@ export default defineAction({
         brandColor: org.brandColor ?? "#18181B",
         brandLogoUrl: org.brandLogoUrl ?? null,
         defaultVisibility: org.defaultVisibility ?? "public",
+        enforceDefaultVisibility: org.enforceDefaultVisibility ?? false,
         createdAt: Number(org.createdAt),
       },
       members: membersWithProfiles,

@@ -235,3 +235,140 @@ describe("reloading a thread whose saved reply differs from the stream", () => {
     ).toBe("Worked for 5s");
   });
 });
+
+describe("returning before the final chat snapshot is saved", () => {
+  it.each([false, true])(
+    "renders the replayed completion within 15s (partial reply saved: %s)",
+    async (partialReplySaved) => {
+      const claim = "Created the presentation: ocean-tides-marker.";
+      let releaseReplay: (response: Response) => void = () => {
+        throw new Error("Replay has not started");
+      };
+      const replay = new Promise<Response>((resolve) => {
+        releaseReplay = resolve;
+      });
+      const requests: string[] = [];
+      const fetcher: typeof fetch = async (input, init) => {
+        const url = String(input);
+        requests.push(`${init?.method ?? "GET"} ${url}`);
+        if (url.endsWith(`/threads/${threadId}`))
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({
+              messages: [
+                {
+                  message: {
+                    id: promptId,
+                    role: "user",
+                    content: [{ type: "text", text: "Create ocean tides" }],
+                    metadata: { custom: { submittedRunId: runId } },
+                  },
+                },
+                ...(partialReplySaved
+                  ? [
+                      {
+                        message: {
+                          id: streamedId,
+                          role: "assistant",
+                          content: [
+                            { type: "text", text: "Created the presentation:" },
+                          ],
+                          status: { type: "incomplete", reason: "error" },
+                          metadata: { runId },
+                        },
+                      },
+                    ]
+                  : []),
+              ],
+            }),
+            runLifecycles: {
+              queriedRunIds: [runId],
+              runs: [
+                {
+                  id: runId,
+                  status: "running",
+                  startedAt,
+                  completedAt: null,
+                  errorCode: null,
+                  abortReason: null,
+                  terminalReason: null,
+                },
+              ],
+            },
+          });
+        if (url.includes("/runs/active?") || url.includes("/runs/latest?"))
+          return json({ active: false, status: "completed", runId, turnId });
+        if (url.endsWith(`/runs/${runId}/events?after=0`)) return replay;
+        throw new Error(
+          `Unexpected chat request: ${init?.method ?? "GET"} ${url}`,
+        );
+      };
+      const transport = createAgentNativeAgentKitTransport({ fetch: fetcher });
+      const chatClient = new AgentKitClient({ transport });
+      client = chatClient;
+      try {
+        await act(async () =>
+          root.render(
+            <AgentKitProvider controller={chatClient} threadId={threadId}>
+              <AgentKitChat composer={false} />
+            </AgentKitProvider>,
+          ),
+        );
+        const reopenedAt = performance.now();
+        const loading = chatClient.loadThread(threadId);
+        await act(async () => {
+          await vi.waitFor(() =>
+            expect(requests).toContain(
+              `GET /_agent-native/agent-chat/threads/${threadId}`,
+            ),
+          );
+        });
+        expect(container.textContent).not.toContain(claim);
+        await act(async () => {
+          releaseReplay(
+            new Response(
+              [
+                { type: "text", text: claim, seq: 1 },
+                { type: "done", reason: "complete", seq: 2 },
+              ]
+                .map((value) => `data: ${JSON.stringify(value)}\n\n`)
+                .join(""),
+              { headers: { "content-type": "text/event-stream" } },
+            ),
+          );
+          await loading;
+        });
+        await vi.waitFor(
+          () => {
+            const replies = container.querySelectorAll(
+              '[data-message-id][data-role="assistant"]',
+            );
+            expect([...replies].map((reply) => reply.textContent)).toEqual([
+              expect.stringContaining(claim),
+            ]);
+          },
+          { timeout: 15_000 },
+        );
+        // wall-clock-ok: Completion must be visible within 15s of reopening the conversation.
+        expect(performance.now() - reopenedAt).toBeLessThan(15_000);
+        expect(requests).toContain(
+          `GET /_agent-native/agent-chat/runs/${runId}/events?after=0`,
+        );
+        expect(chatClient.getThread(threadId).runs[runId]?.status).toBe(
+          "completed",
+        );
+        expect(
+          container.querySelectorAll('[data-running="true"]'),
+        ).toHaveLength(0);
+        expect(requests.every((request) => request.startsWith("GET "))).toBe(
+          true,
+        );
+      } finally {
+        releaseReplay(new Response(""));
+        await act(async () => root.unmount());
+        await chatClient.shutdown();
+        await transport.dispose();
+      }
+    },
+  );
+});

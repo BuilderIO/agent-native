@@ -117,7 +117,47 @@ describe("partitionInboxItems", () => {
   };
   const tabs = resolveInboxTabs(config, new Map());
 
-  it("puts a thread in every matching custom (label/filter) tab", () => {
+  it("partitions a large mixed inbox without promoting automated priority mail", () => {
+    const mixedTabs = resolveInboxTabs(
+      { ...config, pinnedLabels: ["automated notifications", "github"] },
+      new Map(),
+    );
+    const messages = Array.from({ length: 3000 }, (_, index) =>
+      item({
+        id: `synthetic-${index}`,
+        isAutomated: index < 1997,
+        labelIds:
+          index < 997
+            ? ["automated notifications", "agent-native-important"]
+            : index < 1997
+              ? ["github", "agent-native-important"]
+              : index < 2997
+                ? ["pitch"]
+                : [],
+      }),
+    );
+    const byTab = partitionInboxItems(messages, mixedTabs);
+    expect(byTab.get("important")).toHaveLength(3);
+    expect(
+      byTab.get("important")?.every((message) => !message.isAutomated),
+    ).toBe(true);
+    expect(byTab.get("automated notifications")).toHaveLength(997);
+    expect(byTab.get("github")).toHaveLength(1000);
+    expect(byTab.get("f1")).toHaveLength(1000);
+    expect(byTab.get("other")).toHaveLength(0);
+  });
+
+  it("assigns an overlapping conversation to every matching split", () => {
+    const overlapping = item({
+      labelIds: ["automated notifications", "pitch"],
+    });
+    const byTab = partitionInboxItems([overlapping], tabs);
+    expect(byTab.get("automated notifications")).toEqual([overlapping]);
+    expect(byTab.get("f1")).toEqual([overlapping]);
+    expect(byTab.get("important")).toEqual([]);
+  });
+
+  it("puts a thread in each matching custom tab", () => {
     const dual = item({
       id: "dual",
       labelIds: ["automated notifications", "pitch"],
@@ -143,25 +183,32 @@ describe("partitionInboxItems", () => {
     expect(byTab.get("important")).not.toContain(unmatched);
   });
 
-  it("routes AI Important mail to Important even when automated", () => {
+  it("routes automated priority mail to Other", () => {
     const important = item({
       isAutomated: true,
       labelIds: ["agent-native-important"],
     });
     const byTab = partitionInboxItems([important], tabs);
 
-    expect(byTab.get("important")).toContain(important);
-    expect(byTab.get("other")).not.toContain(important);
+    expect(byTab.get("important")).not.toContain(important);
+    expect(byTab.get("other")).toContain(important);
   });
 
-  it("keeps AI Important mail in Important alongside matching custom tabs", () => {
+  it("routes priority mail to its matching custom tab", () => {
     const important = item({
       labelIds: ["agent-native-important", "pitch"],
     });
     const byTab = partitionInboxItems([important], tabs);
 
-    expect(byTab.get("important")).toContain(important);
+    expect(byTab.get("important")).not.toContain(important);
     expect(byTab.get("f1")).toContain(important);
+  });
+
+  it("keeps unclassified mail out of Important", () => {
+    const unknown = item({ isAutomated: null });
+    const byTab = partitionInboxItems([unknown], tabs);
+    expect(byTab.get("important")).not.toContain(unknown);
+    expect(byTab.get("other")).toContain(unknown);
   });
 
   it("matches label: queries against the hyphenated Gmail search form", () => {

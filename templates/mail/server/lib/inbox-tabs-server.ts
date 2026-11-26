@@ -1,6 +1,4 @@
 import { AI_FILTER_LABEL } from "@shared/ai-filter.js";
-import { AI_IMPORTANT_LABEL } from "@shared/ai-priority.js";
-import { mailLabelsInclude } from "@shared/gmail-labels.js";
 import {
   ALL_TAB_ID,
   ALL_INBOX_TAB_ID,
@@ -11,9 +9,10 @@ import {
   type InboxThreadItem,
 } from "@shared/inbox-threads.js";
 import { emailMessageMatchesSearch } from "@shared/search.js";
+import { isSelfAddressedThread } from "@shared/self-notes.js";
 import type { EmailMessage } from "@shared/types.js";
 
-import { classifyAutomated } from "./inbox-classify.js";
+import { automationFlag, classifyAutomated } from "./inbox-classify.js";
 
 const COLLAPSIBLE_VIEW_IDS = new Set([
   "unread",
@@ -26,6 +25,7 @@ const COLLAPSIBLE_VIEW_IDS = new Set([
 ]);
 
 const LOCAL_CATEGORY_TO_GMAIL_LABEL: Record<string, string> = {
+  personal: "CATEGORY_PERSONAL",
   promotions: "CATEGORY_PROMOTIONS",
   social: "CATEGORY_SOCIAL",
   updates: "CATEGORY_UPDATES",
@@ -41,6 +41,7 @@ export type ResolvedInboxTab = {
 
 export function buildLocalInboxItems(
   emails: EmailMessage[],
+  ownerEmail: string,
 ): InboxThreadItem[] {
   const byThread = new Map<string, EmailMessage[]>();
   for (const email of emails) {
@@ -58,11 +59,14 @@ export function buildLocalInboxItems(
         new Date(b.date).getTime() > new Date(a.date).getTime() ? b : a,
       );
       const labelIds = [...new Set(messages.flatMap((m) => m.labelIds))];
-      const isAutomated = classifyAutomated({
-        headers: [],
-        labelIds: labelIds.map((l) => LOCAL_CATEGORY_TO_GMAIL_LABEL[l] ?? l),
-        fromEmail: latest.from?.email ?? "",
-      });
+      const isAutomated = automationFlag(
+        classifyAutomated({
+          headers: [],
+          labelIds: labelIds.map((l) => LOCAL_CATEGORY_TO_GMAIL_LABEL[l] ?? l),
+          fromEmail: latest.from.email,
+          selfAddressed: isSelfAddressedThread(messages, new Set([ownerEmail])),
+        }),
+      );
       return {
         ...latest,
         labelIds,
@@ -132,21 +136,18 @@ export function inboxTabsForItem(
   if (tabs.length === 1 && tabs[0].kind === "inbox") return [tabs[0].id];
 
   const allTab = tabs.find((tab) => tab.kind === "all");
-  const isAiImportant = mailLabelsInclude(item.labelIds, AI_IMPORTANT_LABEL);
-
-  const matched = tabs
-    .filter((tab) => tab.kind === "label" || tab.kind === "filter")
-    .filter((tab) => emailMessageMatchesSearch(item, tab.query!))
-    .map((tab) => tab.id);
-  if (isAiImportant) matched.unshift(IMPORTANT_TAB_ID);
-  if (matched.length > 0) {
-    if (allTab) matched.unshift(allTab.id);
-    return matched;
-  }
+  const matched = tabs.filter(
+    (tab) =>
+      (tab.kind === "label" || tab.kind === "filter") &&
+      tab.query !== undefined &&
+      emailMessageMatchesSearch(item, tab.query),
+  );
 
   return [
     ...(allTab ? [allTab.id] : []),
-    item.isAutomated ? OTHER_TAB_ID : IMPORTANT_TAB_ID,
+    ...(matched.length
+      ? matched.map((tab) => tab.id)
+      : [item.isAutomated === false ? IMPORTANT_TAB_ID : OTHER_TAB_ID]),
   ];
 }
 

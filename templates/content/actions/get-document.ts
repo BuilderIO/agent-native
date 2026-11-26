@@ -54,6 +54,10 @@ import {
 } from "./_document-edit-mutation.js";
 import { serializeDocumentSource } from "./_document-source.js";
 import { refreshGitHubPageBeforeRead } from "./_github-source-freshness.js";
+import {
+  interactiveHtmlBlockLinks,
+  type InteractiveHtmlBlockLink,
+} from "./_interactive-html-blocks.js";
 import { previewDocumentDraftAnswer } from "./_preview-document-draft.js";
 import {
   propertyChangeIdsFor,
@@ -183,6 +187,7 @@ type GetDocumentResult = {
   privateMediaLinks?: NonNullable<
     Awaited<ReturnType<typeof privateMediaAgentLinks>>
   >;
+  interactiveBlocks?: InteractiveHtmlBlockLink[];
   description: string;
   icon: string | null;
   position: number;
@@ -220,7 +225,7 @@ type GetDocumentResult = {
 
 export default defineAction({
   description:
-    'Read one access-scoped document by its stable ID, including the full Markdown body and description in MCP structuredContent; the text preview may be shortened. Private images appear in the body as /api/private-media/<id>; privateMediaLinks gives each one a link that opens it without signing in for an hour. Fields leave out display settings, option colors and block maps, and the page body\'s own field says valueIsContent instead of repeating the body; detail: "full" returns them. Use list-documents or search-documents first when the ID is unknown.',
+    "Read one access-scoped document by its stable ID, including the full Markdown body and description in MCP structuredContent; the text preview may be shortened. Private images appear in the body as /api/private-media/<id>; privateMediaLinks gives each one a link that opens it without signing in for an hour. interactiveBlocks lists the body's interactive HTML blocks in order, each with its title, its block ID and the link that opens it full screen, so a link someone gives you names one of them. Fields leave out display settings, option colors and block maps, and the page body's own field says valueIsContent instead of repeating the body; detail: \"full\" returns them. Use list-documents or search-documents first when the ID is unknown.",
   deferLoading: false,
   mcpTool: true,
   schema: z.object({
@@ -265,6 +270,7 @@ export default defineAction({
     destructiveHint: false,
     openWorldHint: false,
   },
+  mcpScript: "read",
   run: async (args, ctx): Promise<GetDocumentResult> => {
     if (!args.id) throw new Error("--id is required");
 
@@ -562,8 +568,11 @@ export default defineAction({
         })
       : undefined;
 
-    const agentRead =
-      args.detail !== "full" && !!ctx && AGENT_READ_CALLERS.has(ctx.caller);
+    const agentCaller = !!ctx && AGENT_READ_CALLERS.has(ctx.caller);
+    const interactiveBlocks = agentCaller
+      ? await interactiveHtmlBlockLinks(doc.id, doc.content)
+      : [];
+    const agentRead = args.detail !== "full" && agentCaller;
     const readProperties = hasPropertyDatabaseAccess
       ? properties
       : properties.map((property) => ({
@@ -603,6 +612,7 @@ export default defineAction({
       writePath: (await liveBodyWriterGate(doc.id)).writePath,
       contentHash: documentContentHash(doc.content ?? ""),
       ...(privateMediaLinks ? { privateMediaLinks } : {}),
+      ...(interactiveBlocks.length > 0 ? { interactiveBlocks } : {}),
       description: doc.description,
       icon: doc.icon,
       position: doc.position,

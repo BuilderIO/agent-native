@@ -1,5 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
-import { listDataPrograms } from "@agent-native/core/data-programs";
+import { listDataProgramSummaries } from "@agent-native/core/data-programs";
 import { getCredentialContext } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 
@@ -18,26 +18,8 @@ export default defineAction({
     const ctx = getCredentialContext();
     if (!ctx)
       throw new Error("No authenticated context for list-data-programs.");
-
-    const programs = await listDataPrograms(
-      ANALYTICS_APP_ID,
-      { userEmail: ctx.userEmail, orgId: ctx.orgId ?? undefined },
-      { includeArchived: args.includeArchived },
-    );
-
-    return {
-      programs: programs.map((p) => ({
-        id: p.id,
-        name: p.name,
-        title: p.title,
-        description: p.description,
-        refreshMode: p.refreshMode,
-        refreshTtlMs: p.refreshTtlMs,
-        background: p.background,
-        archivedAt: p.archivedAt,
-        updatedAt: p.updatedAt,
-        columns: p.outputColumns ? JSON.parse(p.outputColumns) : [],
-      })),
-    };
+    return listDataProgramSummaries(ANALYTICS_APP_ID, ctx, {
+      includeArchived: args.includeArchived,
+    });
   },
 });

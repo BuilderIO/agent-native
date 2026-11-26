@@ -2148,8 +2148,7 @@ export function buildOnboardingJourneyPersonFollowupSql(
   const isDirectAuthUserId = (value: string) =>
     value.length > 0 && value.trim() === value && !/^org:/i.test(value);
   const sessionIds = new Set<string>();
-  const memberPayloads: string[] = [];
-  const aliasPayloads: string[] = [];
+  const cohortPayloads: string[] = [];
   for (const member of members) {
     const app = member.app.toLowerCase();
     const authUserId = member.authUserId;
@@ -2178,51 +2177,33 @@ export function buildOnboardingJourneyPersonFollowupSql(
       throw new Error("Invalid onboarding person follow-up member");
     }
     sessionIds.add(member.sessionId);
-    memberPayloads.push(
-      JSON.stringify({
-        sessionId: member.sessionId,
-        stepKey: member.stepKey,
-        app,
-        timestamp: new Date(member.tsMs).toISOString(),
-        authUserId,
-        emailHash,
-      }),
-    );
-    for (const value of authUserIds) {
-      aliasPayloads.push(
+    const authValues = [...authUserIds];
+    const emailValues = [...emailHashes];
+    const rows = Math.max(1, authValues.length, emailValues.length);
+    for (let index = 0; index < rows; index++) {
+      cohortPayloads.push(
         JSON.stringify({
           sessionId: member.sessionId,
-          authUserId: value,
-          emailHash: null,
-        }),
-      );
-    }
-    for (const value of emailHashes) {
-      aliasPayloads.push(
-        JSON.stringify({
-          sessionId: member.sessionId,
-          authUserId: null,
-          emailHash: value,
+          stepKey: member.stepKey,
+          app,
+          timestamp: new Date(member.tsMs).toISOString(),
+          identityStatus:
+            authUserIds.size + emailHashes.size > 0
+              ? "identified"
+              : "unavailable",
+          sessionKey: index === 0 ? member.sessionId : null,
+          authUserId: authValues[index] ?? null,
+          emailHash: emailValues[index] ?? null,
         }),
       );
     }
   }
-  // An all-unavailable cohort has no aliases; one row that matches nothing
-  // keeps the CTE valid.
-  if (!aliasPayloads.length) {
-    aliasPayloads.push(
-      JSON.stringify({ sessionId: null, authUserId: null, emailHash: null }),
-    );
-  }
-  const unionRows = (payloads: readonly string[], column: string) =>
-    payloads
-      .map(
-        (payload, index) =>
-          `SELECT ${sqlStringLiteral(payload)}${index === 0 ? ` AS ${column}` : ""}`,
-      )
-      .join(" UNION ALL ");
-  const terminalRows = unionRows(memberPayloads, "member_payload");
-  const aliasRows = unionRows(aliasPayloads, "alias_payload");
+  const cohortRows = cohortPayloads
+    .map(
+      (payload, index) =>
+        `SELECT ${sqlStringLiteral(payload)}${index === 0 ? " AS member_payload" : ""}`,
+    )
+    .join(" UNION ALL ");
 
   const dateRange = onboardingJourneyPersonFollowupDateRange(
     filters,
@@ -2240,30 +2221,35 @@ export function buildOnboardingJourneyPersonFollowupSql(
     ? `\n    AND NOT ${nonProductionHostSql("e")}`
     : "";
 
-  const query = `WITH terminal_members AS (
-  SELECT ROW_NUMBER() OVER (
-      ORDER BY terminal_row.member_payload::jsonb ->> 'timestamp',
-        terminal_row.member_payload::jsonb ->> 'sessionId',
-        terminal_row.member_payload::jsonb ->> 'stepKey'
-    ) AS member_id,
-    terminal_row.member_payload::jsonb ->> 'sessionId' AS session_id,
-    terminal_row.member_payload::jsonb ->> 'stepKey' AS terminal_step_key,
-    terminal_row.member_payload::jsonb ->> 'app' AS terminal_app,
-    (terminal_row.member_payload::jsonb ->> 'timestamp')::timestamptz AS terminal_at,
-    terminal_row.member_payload::jsonb ->> 'authUserId' AS auth_user_id,
-    CASE WHEN terminal_row.member_payload::jsonb ->> 'authUserId' IS NULL
-      AND terminal_row.member_payload::jsonb ->> 'emailHash' IS NULL
-      THEN 'unavailable' ELSE 'identified' END AS identity_status
+  // guard:allow-unbounded-read — its CTEs read the cohort's literal rows and the date-bounded events, not a table
+  const query = `WITH match_kinds AS (
+  SELECT 'auth' AS match_kind
+  UNION ALL SELECT 'email'
+  UNION ALL SELECT 'session'
+  UNION ALL SELECT 'unnamed_session'
+), cohort_rows AS (
+  SELECT cohort_row.member_payload::jsonb ->> 'sessionId' AS session_id,
+    cohort_row.member_payload::jsonb ->> 'stepKey' AS terminal_step_key,
+    cohort_row.member_payload::jsonb ->> 'app' AS terminal_app,
+    (cohort_row.member_payload::jsonb ->> 'timestamp')::timestamptz AS terminal_at,
+    cohort_row.member_payload::jsonb ->> 'identityStatus' AS identity_status,
+    cohort_row.member_payload::jsonb ->> 'sessionKey' AS session_key,
+    cohort_row.member_payload::jsonb ->> 'authUserId' AS auth_user_id,
+    cohort_row.member_payload::jsonb ->> 'emailHash' AS email_hash
   FROM (
-  {{terminalRows}}
-  ) terminal_row
-), member_aliases AS (
-  SELECT alias_row.alias_payload::jsonb ->> 'sessionId' AS session_id,
-    alias_row.alias_payload::jsonb ->> 'authUserId' AS auth_user_id,
-    alias_row.alias_payload::jsonb ->> 'emailHash' AS email_hash
-  FROM (
-  {{aliasRows}}
-  ) alias_row
+  {{cohortRows}}
+  ) cohort_row
+), cohort_keys AS (
+  SELECT member.session_id, member.terminal_step_key, member.terminal_app,
+    member.terminal_at, member.identity_status, kind.match_kind,
+    CASE
+      WHEN kind.match_kind = 'auth' THEN member.auth_user_id
+      WHEN kind.match_kind = 'email' THEN member.email_hash
+      WHEN kind.match_kind = 'session' AND member.identity_status = 'unavailable' THEN member.session_key
+      WHEN kind.match_kind = 'unnamed_session' AND member.identity_status = 'identified' THEN member.session_key
+    END AS match_value
+  FROM cohort_rows member
+  CROSS JOIN match_kinds kind
 ), activity_events AS (
   SELECT e.session_id, e.timestamp::timestamptz AS event_at,
     lower(${appExpression}) AS activity_app,
@@ -2294,81 +2280,58 @@ export function buildOnboardingJourneyPersonFollowupSql(
   WHERE has_test = 0
     AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND has_builder = 0) OR ('{{emailFilter}}' = 'only_builder' AND has_builder = 1))
 ), filtered_activity_events AS (
-  SELECT activity.*, md5(lower(activity.funnel_user_email)) AS activity_email_hash
+  SELECT activity.session_id, activity.event_at, activity.activity_app,
+    activity.auth_user_id,
+    md5(lower(activity.funnel_user_email)) AS activity_email_hash
   FROM activity_events activity
-  WHERE ((
-    NULLIF(activity.session_id, '') IS NOT NULL
-    AND EXISTS (
-      SELECT 1 FROM included_activity_sessions included
-      WHERE included.session_id = activity.session_id
-    )
-  ) OR (
+  LEFT JOIN included_activity_sessions included
+    ON included.session_id = activity.session_id
+  WHERE included.session_id IS NOT NULL OR (
     NULLIF(activity.session_id, '') IS NULL
     AND ${FUNNEL_EMAIL_FILTER.replace(/funnel_user_email/g, "activity.funnel_user_email")}
     AND NOT ${testIdentityEmailSql("activity.funnel_user_email")}
-  ))
-    AND (
-      activity.session_id IN (
-        SELECT session_id FROM terminal_members WHERE session_id IS NOT NULL
-      )
-      OR activity.auth_user_id IN (
-        SELECT auth_user_id FROM member_aliases WHERE auth_user_id IS NOT NULL
-      )
-      OR md5(lower(activity.funnel_user_email)) IN (
-        SELECT email_hash FROM member_aliases WHERE email_hash IS NOT NULL
-      )
-    )
-), matched_activity AS (
-  SELECT member.member_id, later.session_id AS later_session_id, later.activity_app
-  FROM member_aliases alias
-  JOIN terminal_members member ON member.session_id = alias.session_id
-  JOIN filtered_activity_events later ON later.auth_user_id = alias.auth_user_id
-  WHERE later.event_at > member.terminal_at
+  )
+), event_keys AS (
+  SELECT keyed.session_id, keyed.activity_app, keyed.event_at,
+    keyed.match_kind, keyed.match_value
+  FROM (
+    SELECT later.session_id, later.activity_app, later.event_at, kind.match_kind,
+      CASE
+        WHEN kind.match_kind = 'auth' THEN later.auth_user_id
+        WHEN kind.match_kind = 'email' THEN later.activity_email_hash
+        WHEN kind.match_kind = 'session' THEN NULLIF(later.session_id, '')
+        WHEN later.auth_user_id IS NULL AND later.activity_email_hash IS NULL
+          THEN NULLIF(later.session_id, '')
+      END AS match_value
+    FROM filtered_activity_events later
+    CROSS JOIN match_kinds kind
+  ) keyed
+  WHERE keyed.match_value IS NOT NULL
+), member_evidence AS (
+  SELECT member.session_id, member.terminal_step_key, member.identity_status,
+    member.terminal_at,
+    MAX(CASE WHEN later.session_id = member.session_id
+      AND later.activity_app = member.terminal_app THEN 1 ELSE 0 END) AS selected_session_activity,
+    MAX(CASE
+      WHEN later.match_kind IS NULL THEN 0
+      WHEN later.session_id = member.session_id
+        AND later.activity_app = member.terminal_app THEN 0
+      ELSE 1
+    END) AS outside_session_or_app_activity
+  FROM cohort_keys member
+  LEFT JOIN event_keys later
+    ON later.match_kind = member.match_kind
+    AND later.match_value = member.match_value
+    AND later.event_at > member.terminal_at
     AND later.event_at < member.terminal_at + INTERVAL '${ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS} days'
-  UNION ALL
-  SELECT member.member_id, later.session_id AS later_session_id, later.activity_app
-  FROM member_aliases alias
-  JOIN terminal_members member ON member.session_id = alias.session_id
-  JOIN filtered_activity_events later ON later.activity_email_hash = alias.email_hash
-  WHERE later.event_at > member.terminal_at
-    AND later.event_at < member.terminal_at + INTERVAL '${ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS} days'
-  UNION ALL
-  SELECT member.member_id, later.session_id AS later_session_id, later.activity_app
-  FROM terminal_members member
-  JOIN filtered_activity_events later ON later.session_id = member.session_id
-  WHERE later.event_at > member.terminal_at
-    AND later.event_at < member.terminal_at + INTERVAL '${ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS} days'
-    AND (
-      member.identity_status = 'unavailable'
-      OR (later.auth_user_id IS NULL AND later.activity_email_hash IS NULL)
-    )
-), activity_evidence AS (
-  SELECT member.member_id, member.terminal_step_key, member.identity_status,
-    MAX(CASE WHEN matched.later_session_id = member.session_id
-      AND matched.activity_app = member.terminal_app THEN 1 ELSE 0 END) AS selected_session_activity,
-    MAX(CASE WHEN matched.member_id IS NOT NULL AND (
-      matched.later_session_id IS DISTINCT FROM member.session_id
-      OR matched.activity_app IS DISTINCT FROM member.terminal_app
-    ) THEN 1 ELSE 0 END) AS outside_session_or_app_activity
-  FROM terminal_members member
-  LEFT JOIN matched_activity matched ON matched.member_id = member.member_id
-  WHERE member.session_id IS NOT NULL
-  GROUP BY member.member_id, member.terminal_step_key, member.identity_status
+  GROUP BY member.session_id, member.terminal_step_key, member.identity_status,
+    member.terminal_at
 ), classified AS (
-  SELECT evidence.*,
-    CASE
-      WHEN evidence.identity_status = 'unavailable' THEN 'identity_unavailable'
-      WHEN evidence.selected_session_activity = 1 AND evidence.outside_session_or_app_activity = 1 THEN 'later_activity_in_selected_and_outside'
-      WHEN evidence.selected_session_activity = 1 THEN 'later_activity_in_selected_session'
-      WHEN evidence.outside_session_or_app_activity = 1 THEN 'later_activity_outside_selected_session_or_app'
-      WHEN NULLIF('{{observationWatermark}}', '')::timestamptz >= member.terminal_at + INTERVAL '${ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS} days'
-        THEN 'no_activity_observed_within_horizon'
-      ELSE 'right_censored_horizon'
-    END AS status,
-    CASE WHEN NULLIF('{{observationWatermark}}', '')::timestamptz >= member.terminal_at + INTERVAL '${ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS} days' THEN 1 ELSE 0 END AS horizon_fully_observed
-  FROM activity_evidence evidence
-  JOIN terminal_members member USING (member_id)
-  WHERE evidence.member_id IS NOT NULL
+  SELECT terminal_step_key, identity_status, selected_session_activity,
+    outside_session_or_app_activity,
+    CASE WHEN selected_session_activity = 1 OR outside_session_or_app_activity = 1 THEN 1 ELSE 0 END AS later_activity,
+    CASE WHEN NULLIF('{{observationWatermark}}', '')::timestamptz >= terminal_at + INTERVAL '${ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS} days' THEN 1 ELSE 0 END AS horizon_fully_observed
+  FROM member_evidence
 )
 SELECT terminal_step_key,
   SUM(CASE WHEN identity_status = 'identified' THEN 1 ELSE 0 END) AS canonical_people,
@@ -2376,20 +2339,18 @@ SELECT terminal_step_key,
   SUM(CASE WHEN identity_status = 'identified' AND selected_session_activity = 1 THEN 1 ELSE 0 END) AS later_activity_in_selected_session,
   SUM(CASE WHEN identity_status = 'identified' AND outside_session_or_app_activity = 1 THEN 1 ELSE 0 END) AS later_activity_outside_selected_session_or_app,
   SUM(CASE WHEN identity_status = 'identified' AND selected_session_activity = 1 AND outside_session_or_app_activity = 1 THEN 1 ELSE 0 END) AS later_activity_in_both_selected_and_outside,
-  SUM(CASE WHEN identity_status = 'identified' AND (selected_session_activity = 1 OR outside_session_or_app_activity = 1) THEN 1 ELSE 0 END) AS later_activity_observed_anywhere,
-  SUM(CASE WHEN identity_status = 'identified' AND status = 'no_activity_observed_within_horizon' THEN 1 ELSE 0 END) AS no_activity_observed_within_horizon,
-  SUM(CASE WHEN identity_status = 'identified' AND status = 'right_censored_horizon' THEN 1 ELSE 0 END) AS right_censored_horizon,
+  SUM(CASE WHEN identity_status = 'identified' AND later_activity = 1 THEN 1 ELSE 0 END) AS later_activity_observed_anywhere,
+  SUM(CASE WHEN identity_status = 'identified' AND later_activity = 0 AND horizon_fully_observed = 1 THEN 1 ELSE 0 END) AS no_activity_observed_within_horizon,
+  SUM(CASE WHEN identity_status = 'identified' AND later_activity = 0 AND horizon_fully_observed = 0 THEN 1 ELSE 0 END) AS right_censored_horizon,
   SUM(CASE WHEN identity_status = 'identified' AND horizon_fully_observed = 1 THEN 1 ELSE 0 END) AS fully_observed_canonical_people,
   SUM(CASE WHEN identity_status = 'unavailable' AND selected_session_activity = 1 THEN 1 ELSE 0 END) AS identity_unavailable_with_selected_session_activity,
   SUM(CASE WHEN identity_status = 'unavailable' AND outside_session_or_app_activity = 1 THEN 1 ELSE 0 END) AS identity_unavailable_with_outside_session_or_app_activity
 FROM classified
-WHERE identity_status IN ('identified', 'unavailable')
 GROUP BY terminal_step_key
 ORDER BY terminal_step_key`;
 
   return fillOnboardingJourneySql(query, {
-    terminalRows,
-    aliasRows,
+    cohortRows,
     activityStartDate,
     activityEndDate,
     activityStart,

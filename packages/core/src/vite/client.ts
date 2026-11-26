@@ -37,7 +37,11 @@ import {
   type AgentNativeConfigContext,
   type AgentNativeConfigInput,
 } from "../config.js";
-import { getRuntimeDatabaseUrl } from "../db/client.js";
+import {
+  getRuntimeDatabaseUrl,
+  isPgliteUrl,
+  pgliteDataDirFromUrl,
+} from "../db/client.js";
 import { writeAgentNativeNitroPresetMarker } from "../deploy/nitro-preset.js";
 import { findWorkspaceRoot } from "../scripts/workspace-root.js";
 import {
@@ -49,9 +53,12 @@ import {
   removeDevActionDiscoveryFile,
   writeDevActionDiscoveryFile,
 } from "../server/dev-action-bridge.js";
+import { devActionDiscoveryFilePath } from "../server/dev-action-discovery.js";
 import { validateEmbedRequestOrigin } from "../server/embed-request-origin.js";
 import { resolveEmbedSessionTokenForOrigin } from "../server/embed-session.js";
+import { isPublicDevContainer } from "../server/loopback.js";
 import { getForwardedRequestOriginFromHeaders } from "../server/request-origin.js";
+import { isAuthDisabled } from "../shared/auth-disabled.js";
 import { resolveAgentNativeBuildIdentity } from "../shared/build-id.js";
 import {
   EMBED_SESSION_COOKIE,
@@ -3259,6 +3266,61 @@ function devActionBridgePlugin(): Plugin {
   };
 }
 
+function realpathIfPresent(directory: string): string {
+  try {
+    return fs.realpathSync(directory);
+  } catch {
+    // coercion-ok: a directory that does not exist yet keeps its resolved path.
+    return directory;
+  }
+}
+
+function literalDirectoryGlob(directory: string): string {
+  return `${directory
+    .split(path.sep)
+    .join("/")
+    .replace(/[^\w/.:-]/g, "\\$&")}/**`;
+}
+
+/**
+ * Vite `server.fs.deny` patterns for local state a dev server must never
+ * serve: each served root's `.agent-native/` directory, the dev action
+ * discovery directory, and the local PGlite data directory. Scoped to those
+ * directories: an app can itself live under a `.agent-native/` directory,
+ * such as the desktop workspaces folder.
+ */
+export function agentNativeStateFsDeny(
+  cwd: string,
+  allowRoots: readonly string[],
+  {
+    databaseUrl = "pglite:./data/pglite",
+    root = ".",
+  }: { databaseUrl?: string; root?: string } = {},
+): string[] {
+  const viteRoot = path.resolve(cwd, root);
+  const directories = [
+    ...[".", ...allowRoots].flatMap((allowed) => [
+      path.resolve(cwd, allowed, ".agent-native"),
+      path.resolve(viteRoot, allowed, ".agent-native"),
+    ]),
+    path.dirname(devActionDiscoveryFilePath(cwd)),
+    path.resolve(cwd, "data", "pglite"),
+  ];
+  const pgliteDataDir = isPgliteUrl(databaseUrl)
+    ? pgliteDataDirFromUrl(databaseUrl)
+    : "memory://";
+  if (pgliteDataDir !== "memory://") {
+    directories.push(path.resolve(cwd, pgliteDataDir));
+  }
+  return [
+    ...new Set(
+      directories.flatMap((directory) =>
+        [directory, realpathIfPresent(directory)].map(literalDirectoryGlob),
+      ),
+    ),
+  ];
+}
+
 function devAppDisplayName(appRoot: string): string {
   try {
     const pkg = JSON.parse(
@@ -4539,10 +4601,38 @@ async function requestNitroDevDatabaseLifecycleEvent(
     );
   }
 
+  const on = hot.on.bind(hot);
+  const off = hot.off.bind(hot);
+  const sendPayload = hot.send.bind(hot);
+
   await new Promise<void>((resolve, reject) => {
     const cleanup = () => {
       clearTimeout(timeout);
-      hot.off?.(acknowledgementEvent, onClosed);
+      off("agent-native:dev-database-ready", onReady);
+      off(acknowledgementEvent, onClosed);
+    };
+    const send = (event: string, data?: object) => {
+      try {
+        sendPayload({ type: "custom", event, data });
+      } catch (error) {
+        cleanup();
+        reject(error);
+      }
+    };
+    const waitFor = (stage: string) =>
+      setTimeout(() => {
+        cleanup();
+        reject(
+          new NitroDevDatabaseLifecycleTimeout(
+            `Nitro dev environment did not ${stage} before restart.`,
+          ),
+        );
+      }, 5_000);
+    const onReady = () => {
+      off("agent-native:dev-database-ready", onReady);
+      clearTimeout(timeout);
+      timeout = waitFor(`acknowledge database ${operation}`);
+      send(requestEvent, { requestId });
     };
     const onClosed = (payload: any) => {
       if (payload?.requestId !== requestId) return;
@@ -4557,25 +4647,10 @@ async function requestNitroDevDatabaseLifecycleEvent(
         resolve();
       }
     };
-    const timeout = setTimeout(() => {
-      cleanup();
-      reject(
-        new NitroDevDatabaseLifecycleTimeout(
-          `Nitro dev environment did not acknowledge database ${operation} before restart.`,
-        ),
-      );
-    }, 5_000);
-    hot.on?.(acknowledgementEvent, onClosed);
-    try {
-      hot.send?.({
-        type: "custom",
-        event: requestEvent,
-        data: { requestId },
-      });
-    } catch (error) {
-      cleanup();
-      reject(error);
-    }
+    let timeout = waitFor(`report database ${operation} listeners ready`);
+    on(acknowledgementEvent, onClosed);
+    on("agent-native:dev-database-ready", onReady);
+    send("agent-native:dev-database-ready-check");
   });
 }
 
@@ -5126,6 +5201,16 @@ function createAgentNativeConfig(
   const localWorkspacePackageAllow = localWorkspacePackageDeps.map(
     (pkg) => pkg.packageDir,
   );
+  const fsAllow = [
+    ".",
+    ...monorepoPackageAllow,
+    ...monorepoNodeModulesAllow,
+    ...workspaceCoreFsAllow,
+    ...localWorkspacePackageAllow,
+    ...workspaceNodeModulesAllow,
+    ...(userConfig.server?.fs?.allow ?? []),
+    ...(options.fsAllow ?? []),
+  ];
   const localWorkspacePackageResolveAliases = localWorkspacePackageAliases(
     localWorkspacePackageDeps,
   );
@@ -5248,7 +5333,11 @@ function createAgentNativeConfig(
     },
     server: {
       ...(userConfig.server ?? {}),
-      host: userConfig.server?.host ?? "::",
+      host:
+        userConfig.server?.host ??
+        (isAuthDisabled(runtimeEnv) && !isPublicDevContainer()
+          ? "127.0.0.1"
+          : "::"),
       port: options.port ?? userConfig.server?.port ?? 8080,
       allowedHosts: options.allowedHosts ??
         userConfig.server?.allowedHosts ?? [
@@ -5274,21 +5363,16 @@ function createAgentNativeConfig(
       },
       fs: {
         ...(userConfig.server?.fs ?? {}),
-        allow: [
-          ".",
-          ...monorepoPackageAllow,
-          ...monorepoNodeModulesAllow,
-          ...workspaceCoreFsAllow,
-          ...localWorkspacePackageAllow,
-          ...workspaceNodeModulesAllow,
-          ...(userConfig.server?.fs?.allow ?? []),
-          ...(options.fsAllow ?? []),
-        ],
+        allow: fsAllow,
         deny: [
           ".env",
           ".env.*",
           "*.{crt,pem}",
           "**/.git/**",
+          ...agentNativeStateFsDeny(cwd, fsAllow, {
+            databaseUrl: getRuntimeDatabaseUrl("pglite:./data/pglite"),
+            ...(userConfig.root ? { root: userConfig.root } : {}),
+          }),
           ...(userConfig.server?.fs?.deny ?? []),
           ...(options.fsDeny ?? []),
         ],
@@ -5417,16 +5501,16 @@ function createAgentNativeConfig(
         ...arrayFrom((userConfig.resolve as { dedupe?: any })?.dedupe),
       ],
       alias: [
+        ...Object.entries(options.aliases ?? {}).map(([find, replacement]) => ({
+          find,
+          replacement,
+        })),
         ...(isBuildCommand(command) ? [] : getReactRouterAliases(cwd)),
         ...getAssistantUiAliases(cwd),
         ...(isBuildCommand(command) ? [] : getCoreSourceAliases(cwd)),
         ...localWorkspacePackageResolveAliases,
         { find: "@", replacement: path.resolve(cwd, "./app") },
         { find: "@shared", replacement: path.resolve(cwd, "./shared") },
-        ...Object.entries(options.aliases ?? {}).map(([find, replacement]) => ({
-          find,
-          replacement,
-        })),
         ...aliasArrayFrom((userConfig.resolve as { alias?: unknown })?.alias),
       ],
     },

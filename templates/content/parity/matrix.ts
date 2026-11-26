@@ -297,11 +297,13 @@ export const parityMatrix: ParityRow[] = [
       "append-to-document",
       "convert-page-to-live-copy-if-due",
       "edit-document",
+      "get-body-block-ids",
       "get-document-save-attempt",
       "pull-document",
       "record-editor-merge",
       "record-editor-mount",
       "record-live-body-parity",
+      "resolve-block-link",
       "seed-document-collab",
       "set-image-alt-text",
       "set-live-body-switch",
@@ -309,7 +311,7 @@ export const parityMatrix: ParityRow[] = [
       "update-document",
     ],
     exception:
-      "Save-attempt receipt lookup, live collaboration seeding and snapshot adoption, editor mount and merge counts, the flag-gated live-body parity count, and the per-page switch for the flag-gated live-copy writer and its backfill on an editor's open, and the block menu's Move to, which adds a block to the end of another page before the editor removes it, are browser-only editor support actions hidden from agent tools with agentTool: false.",
+      "Save-attempt receipt lookup, live collaboration seeding and snapshot adoption, editor mount and merge counts, the flag-gated live-body parity count, and the per-page switch for the flag-gated live-copy writer and its backfill on an editor's open, the block menu's Move to, which adds a block to the end of another page before the editor removes it, and Copy link's reads of the IDs a page's blocks hold and of where a linked block is now are browser-only editor support actions hidden from agent tools with agentTool: false.",
     reliabilityRisk: "none",
     spinePriority: "P0",
     testCoverage: "covered",
@@ -327,6 +329,11 @@ export const parityMatrix: ParityRow[] = [
       "app/components/editor/VisualEditor.mount-telemetry.test.tsx",
       "server/live-copy/live-copy.test.ts",
       "server/live-copy/backfill.db.test.ts",
+      "actions/block-links.db.test.ts",
+      "app/components/editor/block-links.test.tsx",
+      "app/components/editor/extensions/BlockIdentityIds.test.ts",
+      "server/live-copy/block-ids.test.ts",
+      "shared/block-identity-ids.spec.ts",
     ],
     evalScenarioIds: ["document-search-edit"],
   },
@@ -550,6 +557,35 @@ export const parityMatrix: ParityRow[] = [
     ],
   },
   {
+    id: "editor.link-cards",
+    surface: "editor",
+    label:
+      "Turn a pasted Design, Slides or Clips link into a card that shows the item's title to readers who can open it",
+    uiEntrypoints: [
+      "app/components/editor/link-card/link-card-paste.ts",
+      "app/components/editor/link-card/LinkCardBlock.tsx",
+      "app/routes/p.$id.tsx",
+    ],
+    durableEffect:
+      "The page body stores a LinkCard tag naming only the owning app and the link, never the title. Markdown, HTML and PDF exports carry the plain link.",
+    uiImplementation:
+      "Pasting a link alone on a line reads where the apps live through get-link-card-origins and swaps the line for the card as its own undo step; a link that carries a token or key stays a plain link. Each card asks read-link-summaries, which asks the owning app's read-link-summary as the signed-in reader and returns the title only when that reader can open the item; signed-out readers make no call. Agents write the same LinkCard tag with edit-document.",
+    status: "action-backed",
+    actions: ["get-link-card-origins", "read-link-summaries"],
+    exception:
+      "get-link-card-origins and read-link-summaries are hidden with agentTool: false because they serve the editor's paste handler and each reader's card; agents read and write the LinkCard tag with get-document and edit-document.",
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/link-card-actions.test.ts",
+      "shared/link-card-block.spec.ts",
+      "app/components/editor/link-card/LinkCardBlock.test.tsx",
+      "app/components/editor/link-card/link-card-paste.test.ts",
+    ],
+  },
+  {
     id: "editor.suggested-edits",
     surface: "editor",
     label: "Propose reviewable suggested edits (track changes)",
@@ -640,6 +676,36 @@ export const parityMatrix: ParityRow[] = [
     ],
   },
   {
+    id: "editor.interactive-html-block",
+    surface: "editor",
+    label:
+      "Add, edit, run, open full screen, link to and read the source of an interactive HTML block",
+    uiEntrypoints: [
+      "app/components/editor/extensions/InteractiveHtmlBlockView.tsx",
+      "app/components/editor/SlashCommandMenu.tsx",
+      "app/components/editor/block-menu-registry.ts",
+    ],
+    durableEffect:
+      "The page body holds the block's HTML as an `html interactive` code block; running it, opening it full screen and showing its source save nothing.",
+    uiImplementation:
+      "The slash menu and the block's source change the editor transaction, which the document save row persists. Agents write and edit the same fence with edit-document, which refuses a block that could not work, and read each block's link from get-document and pull-document.",
+    status: "action-backed",
+    actions: ["edit-document", "get-document", "pull-document"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "app/components/editor/interactive-html-block.spec.ts",
+      "app/components/editor/interactive-html/sealed-frame.spec.ts",
+      "shared/interactive-html.spec.ts",
+      "shared/interactive-html-fallback.spec.ts",
+      "actions/_document-edit-mutation.db.test.ts",
+      "actions/get-document.agent-read.db.test.ts",
+    ],
+  },
+  {
     id: "editor.agent-assist-prompts",
     surface: "editor",
     label: "Ask AI from slash generation or comment context",
@@ -692,6 +758,44 @@ export const parityMatrix: ParityRow[] = [
       "actions/read-document-file.db.test.ts",
     ],
     evalScenarioIds: ["local-file-source-truth"],
+  },
+  {
+    id: "sharing.titles-in-other-apps",
+    surface: "sharing",
+    label: "Show a page's title where another app links to it",
+    uiEntrypoints: ["app/routes/_app.page.$id.tsx"],
+    durableEffect:
+      "None. Content answers each request with the title the caller may see, and the asking app stores nothing.",
+    uiImplementation:
+      "Design's Built from line asks read-link-summary for the titles of the pages a design was built from, over A2A as the signed-in reader, and links each one to its page here.",
+    status: "action-backed",
+    actions: ["read-link-summary"],
+    exception:
+      "read-link-summary is for other apps only (agentTool: false, mcpTool: \"search\"), under the caller's own access. Content's own UI has no entry point for it, and its agent reads pages with get-document.",
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/read-link-summary.db.test.ts"],
+  },
+  {
+    id: "sharing.mail-notes",
+    surface: "sharing",
+    label: "Keep notes about people from Mail",
+    uiEntrypoints: ["app/routes/_app.page.$id.tsx"],
+    durableEffect:
+      "Each note is a dated line on that person's page in a private Mail notes collection in the user's Personal space, one row per email address. Mail stores no copy.",
+    uiImplementation:
+      "Mail's Notes widget reads a person's page with get-mail-note and adds a line with add-mail-note, over A2A as the signed-in user. The collection and its pages open and edit here like any other.",
+    status: "action-backed",
+    actions: ["add-mail-note", "get-mail-note"],
+    exception:
+      "get-mail-note and add-mail-note are for Mail only (agentTool: false, mcpTool: true), under the caller's own access. add-mail-note opts in to direct A2A writes (publicAgent.directWrite), the one Content write Mail can make; it only creates the caller's own Mail notes collection, a row in it and a line at the end of that row's page. Content's own agent and UI use the ordinary collection and page actions on the same pages.",
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/_mail-notes.db.test.ts"],
   },
   {
     id: "sharing.agent-text-lock",
@@ -1003,6 +1107,38 @@ export const parityMatrix: ParityRow[] = [
       "actions/resync-content-database-source.db.test.ts",
     ],
     evalScenarioIds: ["database-source-scope"],
+  },
+  {
+    id: "database.fill-column-with-ai",
+    surface: "database",
+    label:
+      "Fill a collection column with AI from each row's page, stop the fill, retry a failed cell, and follow up on a cell in chat",
+    uiEntrypoints: [
+      "app/components/editor/database/column-fill.tsx",
+      "app/components/editor/database/DatabaseView.tsx",
+      "app/components/editor/DocumentProperties.tsx",
+    ],
+    durableEffect:
+      "A fill stores its column, instruction, and each row's cell status. Each row runs one quiet agent, five at a time, that reads the row's page and saves the cell through a generation-guarded property write, so an edit made during the run stays. Runs keep going with no tab open and their chats stay out of chat history.",
+    uiImplementation:
+      "The column header menu opens Fill with AI, which shows the cell count before starting. The header shows progress with Stop, cells show waiting, running, or failed, and a cell's editor holds Edit in chat, Try again, and Open chat; all of it goes through the same Actions the agent calls.",
+    status: "action-backed",
+    actions: [
+      "fill-column-cell",
+      "list-column-fills",
+      "retry-column-fill-cell",
+      "start-column-fill",
+      "stop-column-fill",
+    ],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "server/lib/column-fill.db.test.ts",
+      "app/components/editor/database/column-fill.ui.test.tsx",
+    ],
   },
   {
     id: "database.change-webhooks",

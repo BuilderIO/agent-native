@@ -33,13 +33,16 @@ import {
   type AutoLayoutMatrixLabels,
   type AutoLayoutMatrixValue,
   type AutoLayoutSidesMixed,
+  type AutoLayoutSizingAxis,
   type ScrubInputChangeMeta,
 } from "../inspector";
 import { IconLayoutSettings } from "../inspector/design-icons";
+import type { TokenFieldBinding } from "../inspector/TokenScrubInput";
 import type { ElementInfo } from "../types";
 import {
   autoLayoutAlignmentFromStyles,
   availableSizingForElement,
+  commitElementSizeToken,
   commitFixedElementSizes,
   commitElementMinMax,
   commitElementSizing,
@@ -52,6 +55,7 @@ import {
   isParentFlex,
   isParentGrid,
   readElementMinMax,
+  resolvedPxSize,
   verticalToAlign,
 } from "./element-classification";
 import {
@@ -62,6 +66,7 @@ import {
 import { FieldTrailer, ScrubStyleInput } from "./field-primitives";
 import { joinCssLayers, splitCssLayers } from "./fill-gradient-helpers";
 import { SectionIconButton } from "./inspector-controls";
+import { authoredStyleValue } from "./interaction-state-helpers";
 import { lineGeometryForElement, lineLengthSizes } from "./line-geometry";
 import {
   INSPECTOR_GRID_ACTION_GUTTER_SPAN,
@@ -87,6 +92,52 @@ import {
   optionValue,
   parseNumericValue,
 } from "./style-options";
+
+function elementSizeTokenBinding(
+  element: ElementInfo,
+  axis: AutoLayoutSizingAxis,
+  commitPx: (px: number) => void,
+  onStyleChange: StyleChangeHandler,
+  onStylesChange?: StylesChangeHandler,
+  lockedPairPx?: (px: number) => number | undefined,
+): Omit<TokenFieldBinding, "extraGroups"> {
+  const property = axis === "horizontal" ? "width" : "height";
+  return {
+    accepts: axis === "horizontal" ? ["container", "spacing"] : ["spacing"],
+    authored: authoredStyleValue(element, property),
+    onBind: (cssVar, resolved) => {
+      const tokenPx = resolvedPxSize(resolved);
+      const px = tokenPx ?? measuredElementSize(element, axis);
+      if (px === null) return;
+      commitElementSizeToken(
+        element,
+        axis,
+        `var(${cssVar})`,
+        px,
+        onStyleChange,
+        onStylesChange,
+        tokenPx === null ? undefined : lockedPairPx?.(tokenPx),
+      );
+    },
+    onDetach: (resolved) => {
+      const resolvedPx = resolved ? resolvedPxSize(resolved) : null;
+      const measured = measuredElementSize(element, axis);
+      if (resolved && resolvedPx === null && measured !== null) {
+        commitElementSizeToken(
+          element,
+          axis,
+          resolved,
+          measured,
+          onStyleChange,
+          onStylesChange,
+        );
+        return;
+      }
+      const px = resolvedPx ?? measured;
+      if (px !== null) commitPx(px);
+    },
+  };
+}
 
 export function justifyContentForGapMode(
   gapMode: "auto" | "fixed",
@@ -693,6 +744,34 @@ function FlexContainerControls({
             meta,
           )
         }
+        sizeTokenBindings={{
+          horizontal: elementSizeTokenBinding(
+            element,
+            "horizontal",
+            (px) =>
+              commitFixedElementSizes(
+                element,
+                { horizontal: px },
+                onStyleChange,
+                onStylesChange,
+              ),
+            onStyleChange,
+            onStylesChange,
+          ),
+          vertical: elementSizeTokenBinding(
+            element,
+            "vertical",
+            (px) =>
+              commitFixedElementSizes(
+                element,
+                { vertical: px },
+                onStyleChange,
+                onStylesChange,
+              ),
+            onStyleChange,
+            onStylesChange,
+          ),
+        }}
         onChildMinMaxChange={(axis, kind, val, meta) =>
           commitElementMinMax(axis, kind, val, onStyleChange, meta)
         }
@@ -914,6 +993,12 @@ export function LayoutContextProperties({
       );
     };
 
+    const lockedPairPx =
+      (changed: "width" | "height") =>
+      (px: number): number | undefined =>
+        aspectLock.locked && canLockAspect && aspectLock.ratio
+          ? deriveLockedAspectSize(changed, px, aspectLock.ratio)
+          : undefined;
     const commitWidth = (px: number, meta?: ScrubInputChangeMeta) => {
       if (aspectLock.locked && canLockAspect && aspectLock.ratio) {
         const nextHeight = deriveLockedAspectSize(
@@ -974,14 +1059,9 @@ export function LayoutContextProperties({
             (the constrain-proportions link sits after both W
             and H, not between them). */}
         {line ? (
-          <InspectorGrid className="items-start" layout="action-pair">
+          <InspectorGrid className="items-start" layout="pair-flow">
             <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
-              <div className="flex min-w-0 flex-col gap-1">
-                <div className="flex h-4 items-center">
-                  <SubsectionLabel>
-                    {t("editPanel.labels.length")}
-                  </SubsectionLabel>
-                </div>
+              <div className="flex min-w-0 flex-col">
                 <ScrubStyleInput
                   label="L"
                   ariaLabel={t("editPanel.labels.length")}
@@ -1004,22 +1084,18 @@ export function LayoutContextProperties({
             </InspectorGridCell>
           </InspectorGrid>
         ) : (
-          <InspectorGrid className="items-start" layout="action-pair">
+          <InspectorGrid className="items-center" layout="action-pair">
             <InspectorGridCell
               span={INSPECTOR_GRID_ACTION_PAIR_SPAN}
               className="group/field relative"
             >
-              <div className="flex min-w-0 flex-col gap-1">
-                <div className="flex h-4 items-center justify-between gap-1">
-                  <SubsectionLabel>
-                    {t("editPanel.labels.width")}
-                  </SubsectionLabel>
-                  <FieldTrailer
-                    element={element}
-                    overrideProperty="width"
-                    breakpointOverrideContext={breakpointOverrideContext}
-                  />
-                </div>
+              <div className="flex min-w-0 flex-col">
+                <FieldTrailer
+                  element={element}
+                  overrideProperty="width"
+                  breakpointOverrideContext={breakpointOverrideContext}
+                  className="absolute -top-2 right-0"
+                />
                 <SizingField
                   axis="W"
                   sizingAxis="horizontal"
@@ -1043,6 +1119,14 @@ export function LayoutContextProperties({
                   onMinMaxChange={(axis, kind, val, meta) =>
                     commitElementMinMax(axis, kind, val, onStyleChange, meta)
                   }
+                  tokenBinding={elementSizeTokenBinding(
+                    element,
+                    "horizontal",
+                    commitWidth,
+                    onStyleChange,
+                    onStylesChange,
+                    lockedPairPx("width"),
+                  )}
                 />
               </div>
             </InspectorGridCell>
@@ -1054,17 +1138,13 @@ export function LayoutContextProperties({
               span={INSPECTOR_GRID_ACTION_PAIR_SPAN}
               className="group/field relative"
             >
-              <div className="flex min-w-0 flex-col gap-1">
-                <div className="flex h-4 items-center justify-between gap-1">
-                  <SubsectionLabel>
-                    {t("editPanel.labels.height")}
-                  </SubsectionLabel>
-                  <FieldTrailer
-                    element={element}
-                    overrideProperty="height"
-                    breakpointOverrideContext={breakpointOverrideContext}
-                  />
-                </div>
+              <div className="flex min-w-0 flex-col">
+                <FieldTrailer
+                  element={element}
+                  overrideProperty="height"
+                  breakpointOverrideContext={breakpointOverrideContext}
+                  className="absolute -top-2 right-0"
+                />
                 <SizingField
                   axis="H"
                   sizingAxis="vertical"
@@ -1088,6 +1168,14 @@ export function LayoutContextProperties({
                   onMinMaxChange={(axis, kind, val, meta) =>
                     commitElementMinMax(axis, kind, val, onStyleChange, meta)
                   }
+                  tokenBinding={elementSizeTokenBinding(
+                    element,
+                    "vertical",
+                    commitHeight,
+                    onStyleChange,
+                    onStylesChange,
+                    lockedPairPx("height"),
+                  )}
                 />
               </div>
             </InspectorGridCell>
@@ -1112,7 +1200,7 @@ export function LayoutContextProperties({
                     disabled={!canLockAspect}
                     onClick={toggleAspectLock}
                     className={cn(
-                      "mt-5 flex size-6 shrink-0 items-center justify-center self-start rounded-md text-muted-foreground transition-colors",
+                      "flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors",
                       "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
                       aspectLock.locked &&
                         "text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",

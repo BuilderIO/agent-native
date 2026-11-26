@@ -13,6 +13,7 @@ concurrency:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   proof:
@@ -61,6 +62,34 @@ jobs:
         uses: ./.github/actions/setup-pnpm
         with:
           restore-dist-cache: "true"
+
+      - name: Start PostgreSQL for navigation proof
+        if: steps.find.outputs.has_reports == 'true' && contains(github.event.pull_request.body, 'query-content-database-items.navigation.postgres.integration.test.ts')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          export DOCKER_CONFIG="$(mktemp -d "$RUNNER_TEMP/feedback-proof-docker.XXXXXX")"
+          trap 'rm -rf "$DOCKER_CONFIG"' EXIT
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          docker pull ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
+          docker logout ghcr.io
+          rm -rf "$DOCKER_CONFIG"
+          trap - EXIT
+          unset DOCKER_CONFIG GH_TOKEN
+          docker run --pull=never -d --name feedback-proof-postgres \
+            -e POSTGRES_DB=content_navigation_test -e POSTGRES_HOST_AUTH_METHOD=trust \
+            -p 127.0.0.1:5432:5432 ghcr.io/builderio/agent-native-ci-postgres-fallback:17-alpine
+          for attempt in {1..30}; do
+            if docker exec feedback-proof-postgres pg_isready -h 127.0.0.1 -U postgres -d content_navigation_test; then
+              echo 'CONTENT_NAVIGATION_POSTGRES_URL=postgres://postgres@127.0.0.1:5432/content_navigation_test' >> "$GITHUB_ENV"
+              echo 'CONTENT_NAVIGATION_POSTGRES_REQUIRED=1' >> "$GITHUB_ENV"
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs feedback-proof-postgres
+          exit 1
 
       - name: Re-run each report's proof
         if: steps.find.outputs.has_reports == 'true'

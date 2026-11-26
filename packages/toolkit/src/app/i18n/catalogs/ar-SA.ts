@@ -717,6 +717,8 @@ const messages: ToolkitAgentChatTranslation = {
     "كان مخطط إحدى الأدوات غير صالح، لذلك رفض النموذج الطلب قبل بدئه. يمكن تخطي الأداة غير الصالحة وإعادة محاولة الطلب.",
   "errorMessages.malformedRequest":
     "رفض مزوّد النموذج هذا الطلب لأنه غير صالح، لذلك لم تُعد المحاولة. أعد المحاولة، أو ابدأ محادثة جديدة إذا استمر الأمر.",
+  "errorMessages.requestNotRead":
+    "تعذّر على النموذج قراءة هذا الطلب لأنه كبير أو معقّد جدًا، مثل وجود أدوات كثيرة جدًا، لذلك لم تُعد المحاولة. ابدأ محادثة جديدة أو اختر نموذجًا آخر.",
   "errorMessages.requestTooLarge":
     "تجاوز هذا الطلب حد الحجم على الخادم (HTTP 413). ابدأ دردشة جديدة أو أزل المرفقات أو المراجع الكبيرة، ثم حاول مرة أخرى.",
   "errorMessages.capabilityUnavailable":
@@ -725,6 +727,8 @@ const messages: ToolkitAgentChatTranslation = {
     "لا يمكن لهذا التطبيق إعادة محاولة المطالبة المحفوظة بأمان بعد. حدّث التطبيق ثم حاول مرة أخرى.",
   "errorMessages.runInterrupted": "توقف الوكيل قبل أن يُكمل.",
   "errorMessages.runFailed": "فشل تشغيل الوكيل.",
+  "errorMessages.writeOutcomeUnknown":
+    "توقفت قبل تكرار إجراء الكتابة لأن محاولة سابقة ربما حفظت تغييرات بالفعل ولم أتمكن من تأكيد النتيجة. تحقق مما تم حفظه قبل إعادة المحاولة.",
   "errorMessages.runUnverified":
     "فقدت هذه المحادثة تتبّع الوكيل، وقد يكون لا يزال قيد التشغيل. أعد التحميل لرؤية تقدّمه.",
   "errorMessages.runSignedOut":
@@ -3729,6 +3733,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpApps.openInNewTab": "فتح في علامة تبويب جديدة",
   "mcpApps.initFailed": "تعذّرت تهيئة تطبيق MCP.",
   "mcpApps.readOnly": "تطبيق MCP المحفوظ هذا للقراءة فقط.",
+  "markdown.opensInNewTab": "(يُفتح في علامة تبويب جديدة)",
   "iframeEmbed.blocked": "تم حظر التضمين",
   "iframeEmbed.missingSrc": "المصدر مفقود",
   "iframeEmbed.crossOrigin": "عنوان URL من مصدر مختلف غير مسموح به",

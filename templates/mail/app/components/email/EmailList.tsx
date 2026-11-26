@@ -36,7 +36,14 @@ import {
   type QueryClient,
 } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+  type ReactNode,
+} from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
@@ -44,7 +51,10 @@ import { ActionTooltip } from "@/components/email/ActionTooltip";
 import { AiFilterDialog } from "@/components/email/AiFilterDialog";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { useSetHeaderActions } from "@/components/layout/HeaderActions";
-import { JevConnectionPrompt } from "@/components/settings/JevConnectionPrompt";
+import {
+  JevConnectionDialog,
+  JevConnectionMenuItem,
+} from "@/components/settings/JevConnectionPrompt";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -93,7 +103,10 @@ import {
   releaseSuppressionClaims,
   type AccountError,
 } from "@/hooks/use-emails";
-import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
+import {
+  isKeyboardShortcutTarget,
+  useKeyboardShortcuts,
+} from "@/hooks/use-keyboard-shortcuts";
 import {
   useConfirmUncertainScheduledEmail,
   useDeleteScheduledJob,
@@ -112,6 +125,7 @@ import { groupIntoThreads, type ThreadSummary } from "@/lib/threads";
 import { cn, formatShortcut } from "@/lib/utils";
 
 import { EmailListItem } from "./EmailListItem";
+import { EmailListSectionHeading } from "./EmailListSectionHeading";
 import { GmailCooldownNotice } from "./GmailCooldownNotice";
 import {
   observeNextPage,
@@ -210,8 +224,18 @@ export function rememberPriorityScore(
   }
 }
 
+export interface EmailListSection {
+  id: string;
+  title: string;
+  emails: EmailMessage[];
+  soonestFirst?: boolean;
+}
+
 interface EmailListProps {
   emails?: EmailMessage[];
+  sections?: EmailListSection[];
+  topSection?: ReactNode;
+  headerActions?: ReactNode;
   isLoading?: boolean;
   isFetching?: boolean;
   emailsError?: Error | null;
@@ -452,7 +476,7 @@ const RICH_ROW_HEIGHT_ESTIMATE = 96;
 
 function getRateLimitRetryMs(error: {
   message?: string;
-  retryAfterMs?: number;
+  retryAfterMs?: number | undefined;
 }): number {
   if (
     typeof error.retryAfterMs === "number" &&
@@ -468,20 +492,18 @@ function getRateLimitRetryMs(error: {
   return Math.min(Math.max(seconds * 1000, 15_000), 5 * 60_000);
 }
 
-function EmailErrorState({
+function EmailRetryButton({
   isQuotaError,
   message,
   retryAfterMs,
   isFetching,
   onRetry,
-  containerRef,
 }: {
   isQuotaError: boolean;
   message: string;
-  retryAfterMs?: number;
+  retryAfterMs?: number | undefined;
   isFetching: boolean;
   onRetry: () => unknown;
-  containerRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const t = useT();
   const rateLimitRetryMs = isQuotaError
@@ -521,6 +543,34 @@ function EmailErrorState({
   }
 
   return (
+    <button
+      onClick={handleClick}
+      disabled={buttonDisabled}
+      className="mt-1 inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-4 py-2 text-xs font-medium text-primary-foreground shadow-sm hover:bg-primary/90 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      {isFetching && <Spinner className="h-3 w-3" />}
+      {buttonLabel}
+    </button>
+  );
+}
+
+function EmailErrorState({
+  isQuotaError,
+  message,
+  retryAfterMs,
+  isFetching,
+  onRetry,
+  containerRef,
+}: {
+  isQuotaError: boolean;
+  message: string;
+  retryAfterMs?: number;
+  isFetching: boolean;
+  onRetry: () => unknown;
+  containerRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const t = useT();
+  return (
     <div className="flex h-full flex-col" ref={containerRef}>
       <div className="flex flex-1 flex-col items-center justify-center px-8">
         <div className="flex flex-col items-center gap-3 max-w-xs text-center">
@@ -537,14 +587,9 @@ function EmailErrorState({
               {isQuotaError ? t("mail.error.rateLimitDescription") : message}
             </p>
           </div>
-          <button
-            onClick={handleClick}
-            disabled={buttonDisabled}
-            className="mt-1 inline-flex items-center justify-center gap-1.5 rounded-md bg-primary px-4 py-2 text-xs font-medium text-primary-foreground shadow-sm hover:bg-primary/90 cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isFetching && <Spinner className="h-3 w-3" />}
-            {buttonLabel}
-          </button>
+          <EmailRetryButton
+            {...{ isQuotaError, message, retryAfterMs, isFetching, onRetry }}
+          />
         </div>
       </div>
     </div>
@@ -565,8 +610,20 @@ function AccountErrorsNotice({ errors }: { errors: AccountError[] }) {
   );
 }
 
+const LIST_NAVIGATION_KEYS = new Set([
+  "j",
+  "k",
+  "J",
+  "K",
+  "ArrowDown",
+  "ArrowUp",
+]);
+
 export function EmailList({
   emails: emailsProp,
+  sections,
+  topSection,
+  headerActions: viewHeaderActions,
   isLoading: isLoadingProp,
   isFetching: isFetchingProp,
   emailsError: emailsErrorProp,
@@ -622,6 +679,9 @@ export function EmailList({
     action: "filter" | "keep";
     targets: AiFilterTarget[];
   } | null>(null);
+  const [jevDialog, setJevDialog] = useState<"unopened" | "open" | "closed">(
+    "unopened",
+  );
 
   const {
     data: fetchedEmails = [],
@@ -701,9 +761,27 @@ export function EmailList({
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollParentRef = useRef<HTMLDivElement>(null);
 
+  const sectionedThreads = useMemo(() => {
+    if (!sections) return null;
+    const ordered: ThreadSummary[] = [];
+    const headings = new Map<number, { title: string; count: number }>();
+    for (const section of sections) {
+      const grouped = groupIntoThreads(section.emails);
+      if (grouped.length === 0) continue;
+      headings.set(ordered.length, {
+        title: section.title,
+        count: grouped.length,
+      });
+      ordered.push(...(section.soonestFirst ? grouped.reverse() : grouped));
+    }
+    return { threads: ordered, headings };
+  }, [sections]);
+  const showSectionHeadings =
+    !!sectionedThreads &&
+    sectionedThreads.headings.size + (topSection ? 1 : 0) > 1;
   const chronologicalThreads = useMemo(
-    () => groupIntoThreads(emails),
-    [emails],
+    () => sectionedThreads?.threads ?? groupIntoThreads(emails),
+    [emails, sectionedThreads],
   );
   const priorityEmails = useMemo(
     () =>
@@ -1328,6 +1406,32 @@ export function EmailList({
     [navigate, onNavigateThread, searchParams, threadId, view],
   );
 
+  const syncedThreadIdRef = useRef<string | null>(null);
+  const syncedMessageIdRef = useRef<string | null>(null);
+  const closedThreadIdRef = useRef<string | null>(null);
+
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!LIST_NAVIGATION_KEYS.has(event.key)) return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (isKeyboardShortcutTarget(event.target, event.key)) return;
+      containerRef.current?.setAttribute("data-keyboard-nav", "");
+    };
+    const onMouseMove = (event: MouseEvent) => {
+      const last = lastPointerRef.current;
+      if (last && last.x === event.clientX && last.y === event.clientY) return;
+      lastPointerRef.current = { x: event.clientX, y: event.clientY };
+      containerRef.current?.removeAttribute("data-keyboard-nav");
+    };
+    window.addEventListener("keydown", onKeyDown);
+    document.addEventListener("mousemove", onMouseMove, { passive: true });
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("mousemove", onMouseMove);
+    };
+  }, []);
+
   const moveFocus = useCallback(
     (delta: number) => {
       setSelectedIds(new Set());
@@ -1338,9 +1442,19 @@ export function EmailList({
           (t) => t.latestMessage.id === focusedIdRef.current,
         );
       }
+      const base = current === -1 ? 0 : current;
+      const baseEmail = (threads[base] as ThreadSummary | undefined)
+        ?.latestMessage;
+      const opensCurrent =
+        readingPane &&
+        !threadId &&
+        Math.abs(delta) === 1 &&
+        baseEmail !== undefined &&
+        !baseEmail.isDraft &&
+        (baseEmail.threadId || baseEmail.id) !== closedThreadIdRef.current;
       const next = Math.max(
         0,
-        Math.min(threads.length - 1, (current === -1 ? 0 : current) + delta),
+        Math.min(threads.length - 1, base + (opensCurrent ? 0 : delta)),
       );
       const nextThread = threads[next] as ThreadSummary | undefined;
       if (!nextThread) return;
@@ -1350,7 +1464,14 @@ export function EmailList({
       // Scrolling the focused row into view is handled by the effect that
       // watches `focusedIndex` and calls `rowVirtualizer.scrollToIndex`.
     },
-    [threads, setFocusedId, setSelectedIds, readingPane, previewThread],
+    [
+      threads,
+      setFocusedId,
+      setSelectedIds,
+      readingPane,
+      threadId,
+      previewThread,
+    ],
   );
 
   const extendSelection = useCallback(
@@ -2059,6 +2180,28 @@ export function EmailList({
   }, [threads, focusedId, setFocusedId]);
 
   useEffect(() => {
+    if (!threadId) {
+      if (syncedThreadIdRef.current) {
+        closedThreadIdRef.current = syncedThreadIdRef.current;
+      }
+      syncedThreadIdRef.current = null;
+      return;
+    }
+    closedThreadIdRef.current = null;
+    const open = threads.find(
+      (t) => (t.latestMessage.threadId || t.latestMessage.id) === threadId,
+    );
+    if (!open) return;
+    if (syncedThreadIdRef.current === threadId) {
+      const rowChanged = open.latestMessage.id !== syncedMessageIdRef.current;
+      if (!rowChanged || focusedId !== syncedMessageIdRef.current) return;
+    }
+    syncedThreadIdRef.current = threadId;
+    syncedMessageIdRef.current = open.latestMessage.id;
+    setFocusedId(open.latestMessage.id);
+  }, [threadId, threads, focusedId, setFocusedId]);
+
+  useEffect(() => {
     if (threads.length === 0) return;
     warmThreads(
       threads.slice(0, 3).map((t) => ({
@@ -2289,7 +2432,7 @@ export function EmailList({
     [archiveThreadKeys],
   );
 
-  const handleHoverThread = useCallback(
+  const handleFocusRow = useCallback(
     (thread: ThreadSummary) => {
       setFocusedId(thread.latestMessage.id);
     },
@@ -2298,7 +2441,8 @@ export function EmailList({
 
   const getScheduledJobId = useCallback(
     (email: EmailMessage): string | null =>
-      view === "scheduled" && email.id.startsWith("scheduled-")
+      (view === "scheduled" || view === "drafts") &&
+      email.id.startsWith("scheduled-")
         ? email.id.slice("scheduled-".length)
         : null,
     [view],
@@ -2523,7 +2667,7 @@ export function EmailList({
                 </button>
               </DropdownMenuTrigger>
             </ActionTooltip>
-            <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuContent align="end" className="min-w-44">
               <DropdownMenuItem
                 onSelect={() => onSortModeChange?.("newest")}
                 className="justify-between"
@@ -2563,18 +2707,17 @@ export function EmailList({
                   <DropdownMenuItem
                     onSelect={onJevRetry}
                     disabled={jevAvailabilityLoading}
-                    className="justify-between"
+                    className="justify-between gap-4"
                   >
                     {t("mail.sort.priority")}
-                    <span className="text-xs text-muted-foreground">
+                    <span className="whitespace-nowrap text-xs text-muted-foreground">
                       {t("mail.error.tryAgain")}
                     </span>
                   </DropdownMenuItem>
                 ) : (
-                  <JevConnectionPrompt
-                    variant="menu-item"
+                  <JevConnectionMenuItem
                     disabled={jevAvailabilityLoading}
-                    onConnected={onJevConnected}
+                    onSelect={() => setJevDialog("open")}
                   />
                 ))}
             </DropdownMenuContent>
@@ -2589,7 +2732,6 @@ export function EmailList({
       jevConfigured,
       jevAvailabilityLoading,
       jevAvailabilityError,
-      onJevConnected,
       onJevRetry,
       currentSortMode,
       onSortModeChange,
@@ -2758,24 +2900,68 @@ export function EmailList({
       selectUnstarredThreads,
     ],
   );
+  if (jevConfigured && jevDialog !== "unopened") setJevDialog("unopened");
+  const jevConnectionDialog = useMemo(
+    () =>
+      jevDialog === "unopened" ? null : (
+        <JevConnectionDialog
+          open={jevDialog === "open"}
+          onOpenChange={(open) => setJevDialog(open ? "open" : "closed")}
+          onConnected={() => onJevConnected?.()}
+        />
+      ),
+    [jevDialog, onJevConnected],
+  );
+
   const headerActions = useMemo(
     () =>
-      sortHeaderAction || bulkHeaderActions ? (
+      sortHeaderAction ||
+      bulkHeaderActions ||
+      jevConnectionDialog ||
+      viewHeaderActions ? (
         <>
           {sortHeaderAction}
-          {bulkHeaderActions}
+          {bulkHeaderActions ?? viewHeaderActions}
+          {jevConnectionDialog}
         </>
       ) : null,
-    [bulkHeaderActions, sortHeaderAction],
+    [
+      bulkHeaderActions,
+      jevConnectionDialog,
+      sortHeaderAction,
+      viewHeaderActions,
+    ],
   );
   useSetHeaderActions(headerActions);
 
+  const isQuotaError = emailsError
+    ? (emailsError as { status?: number }).status === 429 ||
+      /\((429|403)\)|quota|rate limit/i.test(emailsError.message)
+    : false;
   const cooldownNotice =
-    read && read.freshness !== "live" ? (
+    (emailsError || accountErrors?.length) && emails.length > 0 ? (
+      <div
+        role="status"
+        className="shrink-0 border-b border-border/30 bg-muted/40 px-4 py-1.5 text-xs text-muted-foreground"
+      >
+        {t("mail.error.staleSaved")}
+        {emailsError && (
+          <EmailRetryButton
+            isQuotaError={isQuotaError}
+            message={emailsError.message}
+            retryAfterMs={
+              (emailsError as { retryAfterMs?: number }).retryAfterMs
+            }
+            isFetching={isFetching}
+            onRetry={refetch}
+          />
+        )}
+      </div>
+    ) : read && read.freshness !== "live" ? (
       <GmailCooldownNotice read={read} onRetry={refetch} />
     ) : null;
 
-  if (emailsError) {
+  if (emailsError && emails.length === 0) {
     const needsCredentials =
       emailsError.message?.includes("GOOGLE_CLIENT_ID") ||
       emailsError.message?.includes("GOOGLE_CLIENT_SECRET");
@@ -2787,10 +2973,6 @@ export function EmailList({
         </div>
       );
     }
-
-    const isQuotaError =
-      (emailsError as { status?: number }).status === 429 ||
-      /\((429|403)\)|quota|rate limit/i.test(emailsError.message ?? "");
 
     return (
       <EmailErrorState
@@ -2804,7 +2986,7 @@ export function EmailList({
     );
   }
 
-  if (isLoading) {
+  if (isLoading && emails.length === 0) {
     return <MailLoadingState containerRef={containerRef} rich={readingPane} />;
   }
 
@@ -2905,6 +3087,7 @@ export function EmailList({
         {!!accountErrors?.length && (
           <AccountErrorsNotice errors={accountErrors} />
         )}
+        {topSection}
         <div className="flex flex-1 flex-col items-center justify-center">
           <div className="text-center px-8">
             <p className="text-sm font-medium text-foreground/80">
@@ -2938,6 +3121,7 @@ export function EmailList({
   return (
     <div className="flex h-full flex-col" ref={containerRef}>
       {cooldownNotice}
+      {topSection}
       <div className="flex-1 overflow-y-auto" ref={scrollParentRef}>
         <AiFilterDialog
           open={!!aiFilterDialog}
@@ -2962,6 +3146,9 @@ export function EmailList({
           {virtualItems.map((virtualRow) => {
             const thread = threads[virtualRow.index];
             if (!thread) return null;
+            const sectionHeading = showSectionHeadings
+              ? sectionedThreads.headings.get(virtualRow.index)
+              : undefined;
             return (
               <div
                 key={virtualRow.key}
@@ -2975,6 +3162,12 @@ export function EmailList({
                   transform: `translateY(${virtualRow.start}px)`,
                 }}
               >
+                {sectionHeading && (
+                  <EmailListSectionHeading
+                    title={sectionHeading.title}
+                    count={sectionHeading.count}
+                  />
+                )}
                 <EmailListItem
                   email={thread.latestMessage}
                   importanceScore={
@@ -3018,7 +3211,7 @@ export function EmailList({
                   onCancelSchedule={handleCancelScheduled}
                   onConfirmUncertainScheduled={handleConfirmUncertainScheduled}
                   onRetryUncertainScheduled={handleRetryUncertainScheduled}
-                  onHover={handleHoverThread}
+                  onFocusRow={handleFocusRow}
                   onPrefetch={prefetchThread}
                   onSwipeArchive={handleSwipeArchive}
                   onSwipeSnooze={handleSwipeSnooze}

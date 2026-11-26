@@ -421,6 +421,7 @@ export interface JourneyFollowup {
       backendStatus?: number | null;
       backendReason?: BigQueryBackendReason | null;
       backendOperation?: BigQueryBackendError["operation"] | null;
+      stoppedQuery?: JourneyStoppedQuery;
     };
     cohortSessions: number | null;
   };
@@ -491,6 +492,7 @@ export interface JourneyPersonFollowup {
       backendStatus?: number | null;
       backendReason?: BigQueryBackendReason | null;
       backendOperation?: BigQueryBackendError["operation"] | null;
+      stoppedQuery?: JourneyStoppedQuery;
     };
     terminalSessions: number | null;
     sessionsWithoutSelectedStep: number | null;
@@ -637,8 +639,7 @@ interface EventRead {
   stoppedPage: JourneyStoppedPage | null;
 }
 
-export interface JourneyStoppedPage {
-  page: number;
+export interface JourneyStoppedQuery {
   stage: BigQueryQueryStage;
   stageMs: number;
   elapsedMs: number;
@@ -646,6 +647,10 @@ export interface JourneyStoppedPage {
   staleLockCleared: boolean;
   jobs: BigQueryJobAttempt[];
   polls: number;
+}
+
+export interface JourneyStoppedPage extends JourneyStoppedQuery {
+  page: number;
 }
 
 export interface OnboardingJourneyEventPageRequest {
@@ -662,16 +667,10 @@ interface PendingJourneyPage {
   uncached: () => boolean;
 }
 
-function stoppedJourneyPage(
-  pending: PendingJourneyPage | undefined,
-  page: number,
-): JourneyStoppedPage | null {
-  if (!pending) return null;
-  const { trace } = pending;
+function stoppedJourneyQuery(trace: BigQueryQueryTrace): JourneyStoppedQuery {
   const now = performance.now();
   const ms = (value: number) => Math.round(value);
   return {
-    page,
     stage: trace.stage,
     stageMs: ms(now - trace.stageStartedAt),
     elapsedMs: ms(now - trace.startedAt),
@@ -683,6 +682,23 @@ function stoppedJourneyPage(
     jobs: trace.jobs.map((job) => ({ ...job })),
     polls: trace.polls,
   };
+}
+
+function stoppedJourneyPage(
+  pending: PendingJourneyPage | undefined,
+  page: number,
+): JourneyStoppedPage | null {
+  return pending ? { page, ...stoppedJourneyQuery(pending.trace) } : null;
+}
+
+function stoppedFollowupQuery(
+  trace: BigQueryQueryTrace,
+  failure: OnboardingJourneyReadFailureKind,
+): JourneyStoppedQuery | undefined {
+  const reachedBigQuery = trace.jobs.length > 0 || trace.stage !== "preparing";
+  return failure === "query_timeout" && reachedBigQuery
+    ? stoppedJourneyQuery(trace)
+    : undefined;
 }
 
 /**
@@ -1124,6 +1140,7 @@ function incompleteFollowup(
     backendStatus?: number | null;
     backendReason?: BigQueryBackendReason | null;
     backendOperation?: BigQueryBackendError["operation"] | null;
+    stoppedQuery?: JourneyStoppedQuery;
   } = {},
 ): JourneyFollowup {
   return {
@@ -1153,6 +1170,7 @@ function incompleteFollowup(
         ...(options.backendOperation !== undefined
           ? { backendOperation: options.backendOperation }
           : {}),
+        ...(options.stoppedQuery ? { stoppedQuery: options.stoppedQuery } : {}),
       },
       cohortSessions: null,
     },
@@ -1234,6 +1252,7 @@ async function readFollowup(
       "terminal_cohort_query_too_large",
     );
   }
+  const trace = newBigQueryQueryTrace();
   let result: Awaited<ReturnType<typeof queryFirstPartyAnalytics>>;
   try {
     result = await queryFirstPartyAnalytics(sql, scope, {
@@ -1243,6 +1262,7 @@ async function readFollowup(
       eventDateRange: onboardingJourneyEventDateRange(filters, observation),
       signal,
       resumable: {},
+      trace,
     });
   } catch (error) {
     if (signal?.aborted || isAbortError(error)) throw error;
@@ -1261,6 +1281,7 @@ async function readFollowup(
       backendStatus: failure.backendStatus,
       backendReason: failure.backendReason,
       backendOperation: failure.backendOperation,
+      stoppedQuery: stoppedFollowupQuery(trace, failure.kind),
     });
   }
   if (result.truncated) {
@@ -1600,6 +1621,7 @@ async function readPersonFollowup(
       backendStatus?: number | null;
       backendReason?: BigQueryBackendReason | null;
       backendOperation?: BigQueryBackendError["operation"] | null;
+      stoppedQuery?: JourneyStoppedQuery;
       terminalSessions?: number | null;
       sessionsWithoutSelectedStep?: number | null;
       identityJoin?: JourneyPersonFollowup["coverage"]["identityJoin"];
@@ -1627,6 +1649,7 @@ async function readPersonFollowup(
         ...(options.backendOperation !== undefined
           ? { backendOperation: options.backendOperation }
           : {}),
+        ...(options.stoppedQuery ? { stoppedQuery: options.stoppedQuery } : {}),
       },
       terminalSessions: options.terminalSessions ?? null,
       sessionsWithoutSelectedStep: options.sessionsWithoutSelectedStep ?? null,
@@ -1800,6 +1823,7 @@ async function readPersonFollowup(
   ) {
     return incomplete("terminal_cohort_too_large", baseCoverage);
   }
+  const trace = newBigQueryQueryTrace();
   let result: Awaited<ReturnType<typeof queryFirstPartyAnalytics>>;
   try {
     result = await queryFirstPartyAnalytics(sql, scope, {
@@ -1810,6 +1834,7 @@ async function readPersonFollowup(
       ...ONBOARDING_PERSON_FOLLOWUP_SOURCE_OPTIONS,
       signal,
       resumable: {},
+      trace,
     });
   } catch (error) {
     if (signal?.aborted || isAbortError(error)) throw error;
@@ -1830,6 +1855,7 @@ async function readPersonFollowup(
       backendStatus: failure.backendStatus,
       backendReason: failure.backendReason,
       backendOperation: failure.backendOperation,
+      stoppedQuery: stoppedFollowupQuery(trace, failure.kind),
     });
   }
   if (result.truncated) {

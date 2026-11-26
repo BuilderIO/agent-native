@@ -319,8 +319,11 @@ function SqlChartContent({
   // failure with nothing to show, has no result to keep and shows the skeleton.
   const isUpdating =
     !resultOverride &&
-    queryIsFetching &&
     queryResult !== undefined &&
+    (queryIsFetching ||
+      (queryResult.refreshPending === true &&
+        !queryError &&
+        !queryIsPlaceholderData)) &&
     (rawRows.length > 0 || !queryError);
   const isShowingPreviousFilters =
     !resultOverride && queryResult !== undefined && queryIsPlaceholderData;
@@ -734,6 +737,7 @@ function SqlChartContent({
           colors={seriesColors}
           yFormatter={yFormatter}
           barKeys={panel.config?.barKeys ?? []}
+          stacked={panel.config?.stacked === true}
           panel={panel}
           onDatumClick={onDatumClick}
         />,

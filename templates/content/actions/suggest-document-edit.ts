@@ -12,9 +12,15 @@ import createResourceSuggestionProposal from "@agent-native/core/review/suggesti
 import getResourceSuggestionProposalByCreationKey from "@agent-native/core/review/suggestions/actions/get-resource-suggestion-proposal-by-creation-key";
 import { roleSatisfies } from "@agent-native/core/sharing";
 import { track } from "@agent-native/core/tracking";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
+import { getDb, schema } from "../server/db/index.js";
 import { documentChangeResource } from "../server/lib/document-change-resource.js";
+import {
+  assertInteractiveHtmlBlocks,
+  savePiecesOfCheckedEdit,
+} from "../server/lib/interactive-html-blocks.js";
 import { isLiveBodyWriterPage } from "../server/lib/live-body-writer.js";
 import {
   createWithSavedUnits,
@@ -40,6 +46,60 @@ import { assertAgentsMayCommentOnPage } from "./_document-agent-lock.js";
 import { documentRevisionToken } from "./_document-edit-mutation.js";
 
 const ANCHOR_CONTEXT_CHARS = 32;
+
+async function answeredComment(
+  documentId: string,
+  ownerEmail: string,
+  commentId: string,
+) {
+  const onPage = async (rowId: string) => {
+    const rows = await getDb()
+      .select({
+        threadId: schema.documentComments.threadId,
+        fieldId: schema.documentComments.fieldId,
+        propertyId: schema.documentComments.propertyId,
+        resolved: schema.documentComments.resolved,
+      })
+      .from(schema.documentComments)
+      .where(
+        and(
+          eq(schema.documentComments.id, rowId),
+          eq(schema.documentComments.documentId, documentId),
+          eq(schema.documentComments.ownerEmail, ownerEmail),
+        ),
+      )
+      .limit(1);
+    return rows.shift();
+  };
+  const comment = await onPage(commentId);
+  const root =
+    comment && comment.threadId !== commentId
+      ? await onPage(comment.threadId)
+      : comment;
+  if (!root) {
+    throw new ActionContractError(
+      `Comment "${commentId}" is not on this page. Pass a comment's id from list-comments.`,
+      { errorCode: "SUGGESTION_COMMENT_NOT_FOUND", statusCode: 404 },
+    );
+  }
+  if (root.fieldId || root.propertyId) {
+    throw new ActionContractError(
+      "That comment is on a Property or in another Blocks field tab, and suggest-document-edit suggests on the page body only.",
+      { errorCode: "SUGGESTION_COMMENT_NOT_ON_BODY", statusCode: 400 },
+    );
+  }
+  if (root.resolved) {
+    throw new ActionContractError(
+      "That comment's thread is resolved. Answer an open comment, or leave commentId off.",
+      { errorCode: "SUGGESTION_COMMENT_RESOLVED", statusCode: 409 },
+    );
+  }
+  return {
+    sourceCommentId: commentId,
+    sourceThreadId: root.threadId,
+    sourceUrl: `/page/${encodeURIComponent(documentId)}?comment=${encodeURIComponent(root.threadId)}`,
+  };
+}
 
 const suggestDocumentEditSchema = z.object({
   id: z
@@ -83,6 +143,13 @@ const suggestDocumentEditSchema = z.object({
     .optional()
     .describe(
       "One-line description of the proposed change shown to the reviewer.",
+    ),
+  commentId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      "The comment this edit answers: its id from list-comments, a thread's first comment or a reply. It must be open and on the page body. The suggestion's card then links to it.",
     ),
 });
 
@@ -380,7 +447,7 @@ function rejectedFind(
 
 export default defineAction({
   description:
-    "Propose a reviewable suggested edit (track changes) to a document without changing the page. First call get-document, then pass its baseRevision and a caller-generated idempotencyKey. Content builds the tracked change from find/replace against the page's current text; the page stays unchanged until a reviewer accepts the pending suggestion.",
+    "Propose a reviewable suggested edit (track changes) to a document without changing the page. First call get-document, then pass its baseRevision and a caller-generated idempotencyKey. Content builds the tracked change from find/replace against the page's current text; the page stays unchanged until a reviewer accepts the pending suggestion. When the edit answers a comment, pass its commentId so the suggestion links to it.",
   deferLoading: false,
   mcpTool: true,
   agentInputSchema: externalSuggestDocumentEditSchema,
@@ -510,6 +577,8 @@ export default defineAction({
           before?.changedText === args.find &&
           after?.changedText === (args.replace ?? "") &&
           (receipt.authorEmail ?? null) === callerEmail &&
+          (receipt.suggestion.metadata?.sourceCommentId ?? null) ===
+            (args.commentId ?? null) &&
           suggestionActorKindMatchesReceipt(
             receipt.actorKind ?? null,
             callerKind,
@@ -545,6 +614,11 @@ export default defineAction({
           groupedReceipt.proposal.resourceId === id &&
           groupedReceipt.proposal.adapterKind === "content.document-markdown" &&
           groupedReceipt.proposal.summary === effectiveSummary &&
+          groupedReceipt.suggestions.every(
+            (suggestion) =>
+              (suggestion.metadata?.sourceCommentId ?? null) ===
+              (args.commentId ?? null),
+          ) &&
           (first?.metadata?.sourceProposalId ?? null) ===
             (args.proposalId ?? null) &&
           (!args.baseRevision || first?.baseRevision === args.baseRevision) &&
@@ -573,11 +647,15 @@ export default defineAction({
 
     // After the receipts, so a retry of a suggestion that landed first replays.
     assertAgentsMayCommentOnPage(existing, ctx);
+    const source = args.commentId
+      ? await answeredComment(id, existing.ownerEmail, args.commentId)
+      : undefined;
     const edit = { find: args.find, replace: args.replace ?? "" };
     const resolved = (await isLiveBodyWriterPage(id))
       ? resolveOnStoredForm(content, edit)
       : resolveDocumentTextEdits(content, [edit]);
     if (!resolved.ok) rejectedFind(resolved.error);
+    assertInteractiveHtmlBlocks(ctx, content, resolved.content);
     const range = resolved.ranges[0]!;
 
     // Where the stored form respells text beside the agent's change, the
@@ -616,38 +694,43 @@ export default defineAction({
       idempotencyKey: creationKey,
       ctx: suggestionContext,
       create: (labels) =>
-        createResourceSuggestionProposal.run(
-          {
-            resourceType: "document",
-            resourceId: id,
-            adapterKind: "content.document-markdown",
-            baseRevision:
-              args.baseRevision ||
-              documentRevisionToken(existing.bodyRevision, content),
-            summary,
-            proposalId: args.proposalId,
-            idempotencyKey: creationKey,
-            suggestions: operations.map((operation, index) => {
-              const unit =
-                operations.length > 1
-                  ? { reviewUnit: labels[index] }
-                  : undefined;
-              return {
-                summary: markdownSuggestionOperationSummary(operation),
-                operations: [{ ...operation, ordinal: 0 }],
-                metadata:
-                  index === 0
-                    ? {
-                        sourceFind: args.find,
-                        sourceReplace: args.replace ?? "",
-                        sourceProposalId: args.proposalId ?? null,
-                        ...unit,
-                      }
-                    : unit,
-              };
-            }),
-          },
-          suggestionContext,
+        savePiecesOfCheckedEdit(() =>
+          createResourceSuggestionProposal.run(
+            {
+              resourceType: "document",
+              resourceId: id,
+              adapterKind: "content.document-markdown",
+              baseRevision:
+                args.baseRevision ||
+                documentRevisionToken(existing.bodyRevision, content),
+              summary,
+              proposalId: args.proposalId,
+              idempotencyKey: creationKey,
+              suggestions: operations.map((operation, index) => {
+                const unit =
+                  operations.length > 1
+                    ? { reviewUnit: labels[index] }
+                    : undefined;
+                return {
+                  summary: markdownSuggestionOperationSummary(operation),
+                  operations: [{ ...operation, ordinal: 0 }],
+                  metadata:
+                    index === 0
+                      ? {
+                          sourceFind: args.find,
+                          sourceReplace: args.replace ?? "",
+                          sourceProposalId: args.proposalId ?? null,
+                          ...source,
+                          ...unit,
+                        }
+                      : source || unit
+                        ? { ...source, ...unit }
+                        : undefined,
+                };
+              }),
+            },
+            suggestionContext,
+          ),
         ),
     });
     const first = grouped.suggestions[0]!;

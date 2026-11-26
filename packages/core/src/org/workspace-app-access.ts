@@ -434,7 +434,7 @@ async function resolveHostedWorkspaceAppAuth(
       requestContext?.a2aIdentityAssurance === "org-member";
     const orgDomain = orgId ? await cachedOrgDomain(orgId) : null;
     const normalizedOrgDomain = orgDomain?.trim() || undefined;
-    if (orgId && !normalizedOrgDomain) {
+    if (orgId && !normalizedOrgDomain && delegatedMember) {
       return workspaceAppAccessUnavailable("org-domain-missing", { audience });
     }
     stage = "token-signing-failed";
@@ -496,6 +496,7 @@ async function resolveHostedWorkspaceAppAuth(
         audience,
         extraClaims: {
           jti: randomUUID(),
+          ...(orgId && !normalizedOrgDomain ? { org_id: orgId } : {}),
         },
       });
     }

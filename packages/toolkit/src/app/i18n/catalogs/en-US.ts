@@ -719,6 +719,8 @@ const messages = {
     "A tool schema was invalid, so the model rejected the request before it started. The invalid tool can be skipped and the request retried.",
   "errorMessages.malformedRequest":
     "The model provider rejected this request as malformed, so it was not retried. Retry, or start a new chat if it keeps happening.",
+  "errorMessages.requestNotRead":
+    "The model could not read this request because it was too large or complex, for example too many tools, so it was not retried. Start a new chat or pick a different model.",
   "errorMessages.requestTooLarge":
     "This request exceeded the server's size limit (HTTP 413). Start a new chat or remove large attachments or references, then retry.",
   "errorMessages.capabilityUnavailable":
@@ -727,6 +729,8 @@ const messages = {
     "This app can't safely retry your saved prompt yet. Update the app, then try again.",
   "errorMessages.runInterrupted": "The agent stopped before finishing.",
   "errorMessages.runFailed": "The agent run failed.",
+  "errorMessages.writeOutcomeUnknown":
+    "I stopped before running a write action again because an earlier attempt may have already saved changes and I could not confirm the result. Check what was saved before retrying.",
   "errorMessages.runUnverified":
     "This chat lost track of the agent, which may still be running. Reload to see its progress.",
   "errorMessages.runSignedOut":
@@ -3550,6 +3554,7 @@ const messages = {
   "mcpApps.openInNewTab": "Open in new tab",
   "mcpApps.initFailed": "Failed to initialize MCP App.",
   "mcpApps.readOnly": "This saved MCP App is read-only.",
+  "markdown.opensInNewTab": "(opens in a new tab)",
   "iframeEmbed.blocked": "Embed blocked",
   "iframeEmbed.missingSrc": "Missing source",
   "iframeEmbed.crossOrigin": "Cross-origin URL not allowed",

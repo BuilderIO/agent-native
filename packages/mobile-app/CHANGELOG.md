@@ -33,6 +33,90 @@
 - An invalid Clips library response shows an error instead of an empty
   library.
 
+## 0.1.213
+
+### Patch Changes
+
+- Updated dependencies [4a34f01]
+- Updated dependencies [33e0e8c]
+- Updated dependencies [7210d1c]
+- Updated dependencies [1c54a03]
+- Updated dependencies [f3976d7]
+- Updated dependencies [e466d90]
+- Updated dependencies [feadc42]
+- Updated dependencies [2573f75]
+- Updated dependencies [135e0a3]
+- Updated dependencies [1419c5a]
+- Updated dependencies [14b0089]
+- Updated dependencies [fa3a0fd]
+- Updated dependencies [fe85161]
+- Updated dependencies
+- Updated dependencies [bf2d0b4]
+- Updated dependencies [f7de4d5]
+- Updated dependencies [7f630e8]
+- Updated dependencies [e023573]
+- Updated dependencies [d1f5fae]
+- Updated dependencies [309bd05]
+- Updated dependencies [d114e46]
+- Updated dependencies [8b8f1a3]
+- Updated dependencies [0315ffa]
+- Updated dependencies [124141d]
+- Updated dependencies [e11a707]
+- Updated dependencies [559944d]
+- Updated dependencies [343d243]
+- Updated dependencies [2a4c4f5]
+- Updated dependencies [a07c17a]
+- Updated dependencies [971ad70]
+  - @agent-native/core@0.234.0
+  - @agent-native/agentkit@0.234.0
+
+## 0.1.212
+
+### Patch Changes
+
+- Updated dependencies [b049c7c]
+- Updated dependencies [c71955a]
+- Updated dependencies [b71c09c]
+- Updated dependencies [77579d5]
+- Updated dependencies [05c5e64]
+- Updated dependencies [a20bef8]
+- Updated dependencies [c862f58]
+- Updated dependencies [42b7e78]
+- Updated dependencies [b9ad2ba]
+- Updated dependencies [39871df]
+- Updated dependencies [c541b37]
+- Updated dependencies [40a841b]
+- Updated dependencies [3f67b62]
+- Updated dependencies
+- Updated dependencies [380b147]
+- Updated dependencies [6e1e604]
+- Updated dependencies [acad739]
+- Updated dependencies [244edec]
+- Updated dependencies [7550059]
+- Updated dependencies [c1f6efc]
+- Updated dependencies [99ab0f0]
+- Updated dependencies [6f96822]
+- Updated dependencies [ca51135]
+- Updated dependencies [7789e80]
+- Updated dependencies [8604fbb]
+- Updated dependencies [70a4b3f]
+- Updated dependencies [9128163]
+- Updated dependencies [15a226b]
+- Updated dependencies [98e4444]
+- Updated dependencies [0998ade]
+- Updated dependencies [b7b1029]
+- Updated dependencies [3ecdd02]
+- Updated dependencies [48793f1]
+- Updated dependencies [4b68858]
+- Updated dependencies [70a4b3f]
+- Updated dependencies [b755252]
+- Updated dependencies [b1197d4]
+- Updated dependencies [f011519]
+- Updated dependencies [8787418]
+- Updated dependencies [0c35897]
+  - @agent-native/core@0.233.0
+  - @agent-native/agentkit@0.233.0
+
 ## 0.1.211
 
 ### Patch Changes
@@ -3070,34 +3154,5 @@
 - Updated dependencies
 - Updated dependencies [a026821]
   - @agent-native/core@0.174.1
-
-## 0.1.114
-
-### Patch Changes
-
-- Updated dependencies [d9e978f]
-- Updated dependencies [b4c3864]
-- Updated dependencies [b4c3864]
-- Updated dependencies [b4c3864]
-- Updated dependencies [536e193]
-- Updated dependencies
-- Updated dependencies [b4c3864]
-- Updated dependencies [f22b29b]
-- Updated dependencies [eae6742]
-  - @agent-native/core@0.174.0
-
-## 0.1.113
-
-### Patch Changes
-
-- Updated dependencies [1417ba5]
-- Updated dependencies [191f4d3]
-- Updated dependencies
-- Updated dependencies [a4b36e0]
-- Updated dependencies [a4b36e0]
-- Updated dependencies [a4b36e0]
-- Updated dependencies [7265794]
-- Updated dependencies [1417ba5]
-  - @agent-native/core@0.173.1
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

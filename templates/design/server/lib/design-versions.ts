@@ -7,8 +7,6 @@ import {
 import { writeAppState } from "@agent-native/core/application-state";
 import {
   AGENT_CLIENT_ID,
-  CollabBaseVersionConflictError,
-  applyTextToYDoc,
   applyText,
   hasCollabState,
   loadAwarenessRowsStrict,
@@ -18,14 +16,26 @@ import {
 } from "@agent-native/core/collab";
 import {
   deletePrivateBlob,
-  putPrivateBlob,
   readPrivateBlob,
   type PrivateBlobHandle,
 } from "@agent-native/core/private-blob";
 import { captureError } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { and, asc, desc, eq, isNull, like } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  like,
+  notLike,
+  ne,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import {
@@ -36,21 +46,25 @@ import { shouldUseLiveFileContent } from "../../shared/html-content.js";
 import { getDb, schema } from "../db/index.js";
 import {
   affectedRowCount,
-  getDesignSourceMutationExec,
-  lockPreparedSourceCollaboration,
   lockDesignFilesTable,
-  readPreparedSourceText,
-  SourceWorkspaceEditConflictError,
   withDesignSourceMutationTransaction,
   withSourceFileWriteLock,
 } from "../source-workspace.js";
 import { withServerOwnedTweakSelectionsRevisionJson } from "./design-data-mutation.js";
-import { buildDesignSnapshot, type SnapshotFile } from "./design-snapshot.js";
-import { visualEditCapabilityDesignScope } from "./visual-edit-capability.js";
+import {
+  firstRow,
+  visualEditCapabilityDesignScope,
+} from "./visual-edit-capability.js";
 
 const CHAT_VERSION_LOOKBACK = 100;
-const MAX_INLINE_DESIGN_VERSION_BYTES = 256 * 1024;
 const EDITOR_CHECKPOINT_THROTTLE_MS = 5 * 60 * 1000;
+const DESIGN_VERSION_RETAINED_CHECKPOINTS = 100;
+const DESIGN_VERSION_PRUNE_BATCH = 25;
+const MANIFEST_INSERT_CHUNK = 500;
+const DESIGN_HISTORY_MANIFEST_KIND = "design-history-manifest";
+const FILE_ENTRY = "file";
+const DESIGN_STATE_ENTRY = "design";
+export const COMPONENT_DELETE_CHECKPOINT_LABEL = "Before component delete";
 
 export interface DesignVersionChatContext {
   threadId?: string;
@@ -97,25 +111,11 @@ export interface DesignVersionListEntry {
   editable: boolean;
 }
 
-export type DesignVersionCheckpointSkipReason =
-  | "blob-storage-unavailable"
-  | "checkpoint-failed";
-
-export interface DesignVersionCheckpointSkipped {
-  skipped: true;
-  reason: DesignVersionCheckpointSkipReason;
-}
-
-export type DesignVersionCheckpointResult =
-  | { id: string; createdAt: string; label: string }
-  | DesignVersionCheckpointSkipped
-  | null;
-
-export function checkpointSkippedResultField(
-  result: DesignVersionCheckpointResult,
-): { checkpoint: DesignVersionCheckpointSkipped } | Record<string, never> {
-  return result && "skipped" in result ? { checkpoint: result } : {};
-}
+export type DesignVersionCheckpointResult = {
+  id: string;
+  createdAt: string;
+  label: string;
+} | null;
 
 export class DesignVersionRestoreConflictError extends Error {
   readonly statusCode = 409;
@@ -136,15 +136,6 @@ export class DesignVersionCheckpointChangedError extends Error {
       "Design or its history changed while the checkpoint was being prepared. Retry the operation.",
     );
     this.name = "DesignVersionCheckpointChangedError";
-  }
-}
-
-class DesignCheckpointBlobUnavailableError extends Error {
-  constructor() {
-    super(
-      "Private blob storage is required for design checkpoints larger than 256 KiB.",
-    );
-    this.name = "DesignCheckpointBlobUnavailableError";
   }
 }
 
@@ -251,6 +242,13 @@ export function parseDesignVersionSnapshot(
   } catch {
     throw new Error("Design version snapshot is not valid JSON.");
   }
+  return parseDesignVersionSnapshotValue(value, expectedDesignId);
+}
+
+function parseDesignVersionSnapshotValue(
+  value: unknown,
+  expectedDesignId: string,
+): ParsedDesignVersionSnapshot {
   if (!isRecord(value)) {
     throw new Error("Design version snapshot must be a JSON object.");
   }
@@ -409,8 +407,11 @@ export async function readDesignVersionSnapshot(
   } catch {
     throw new Error("Design version snapshot is not valid JSON.");
   }
+  if (isRecord(value) && value.snapshotKind === DESIGN_HISTORY_MANIFEST_KIND) {
+    return readDesignVersionManifest(value, expectedDesignId);
+  }
   if (!isRecord(value) || value.snapshotKind !== "design-history-blob") {
-    return parseDesignVersionSnapshot(raw, expectedDesignId);
+    return parseDesignVersionSnapshotValue(value, expectedDesignId);
   }
   if (value.designId !== expectedDesignId) {
     throw new Error("Design version belongs to a different design.");
@@ -423,6 +424,212 @@ export async function readDesignVersionSnapshot(
     Buffer.from(blob.data).toString("utf8"),
     expectedDesignId,
   );
+}
+
+function manifestVersionId(
+  value: Record<string, unknown>,
+  expectedDesignId: string,
+): string {
+  if (value.designId !== expectedDesignId) {
+    throw new Error("Design version belongs to a different design.");
+  }
+  if (typeof value.versionId !== "string" || !value.versionId) {
+    throw new Error("Design version manifest reference is invalid.");
+  }
+  return value.versionId;
+}
+
+function sortSnapshotFiles(files: DesignVersionFile[]): DesignVersionFile[] {
+  return files.sort((a, b) => {
+    if (a.filename === "index.html") return -1;
+    if (b.filename === "index.html") return 1;
+    return a.filename.localeCompare(b.filename);
+  });
+}
+
+async function readDesignVersionManifest(
+  value: Record<string, unknown>,
+  expectedDesignId: string,
+): Promise<ParsedDesignVersionSnapshot> {
+  const versionId = manifestVersionId(value, expectedDesignId);
+  const db = getDb();
+  const entryCount = firstRow(
+    await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(schema.designVersionFiles)
+      .where(
+        and(
+          eq(schema.designVersionFiles.versionId, versionId),
+          eq(schema.designVersionFiles.designId, expectedDesignId),
+        ),
+      ),
+  );
+  const rows = await db
+    .select({
+      entryKind: schema.designVersionFiles.entryKind,
+      fileId: schema.designVersionFiles.fileId,
+      filename: schema.designVersionFiles.filename,
+      fileType: schema.designVersionFiles.fileType,
+      fileCreatedAt: schema.designVersionFiles.fileCreatedAt,
+      body: schema.designContents.body,
+    })
+    .from(schema.designVersionFiles)
+    .innerJoin(
+      schema.designContents,
+      and(
+        eq(schema.designContents.designId, schema.designVersionFiles.designId),
+        eq(schema.designContents.hash, schema.designVersionFiles.contentHash),
+      ),
+    )
+    .where(
+      and(
+        eq(schema.designVersionFiles.versionId, versionId),
+        eq(schema.designVersionFiles.designId, expectedDesignId),
+      ),
+    );
+  if (
+    rows.length !== Number(entryCount?.count ?? -1) ||
+    rows.length !== Number(value.fileCount) + 1
+  ) {
+    throw new Error("Design version content is missing.");
+  }
+
+  const designState = rows.find((row) => row.entryKind === DESIGN_STATE_ENTRY);
+  if (!designState) {
+    throw new Error("Design version content is missing.");
+  }
+  let state: unknown;
+  try {
+    state = JSON.parse(designState.body);
+  } catch {
+    throw new Error("Design version design state is not valid JSON.");
+  }
+  if (!isRecord(state)) {
+    throw new Error("Design version design state is invalid.");
+  }
+  return parseDesignVersionSnapshotValue(
+    {
+      designId: expectedDesignId,
+      designData: state.designData,
+      designTitle: state.designTitle,
+      designDescription: state.designDescription,
+      projectType: state.projectType,
+      designSystemId: state.designSystemId,
+      deletionGeometry: value.deletionGeometry,
+      capturedAt: value.capturedAt,
+      chatContext: value.chatContext,
+      files: sortSnapshotFiles(
+        rows
+          .filter((row) => row.entryKind === FILE_ENTRY)
+          .map((row) => ({
+            id: row.fileId,
+            filename: row.filename,
+            fileType: row.fileType,
+            content: row.body,
+            ...(row.fileCreatedAt ? { createdAt: row.fileCreatedAt } : {}),
+          })),
+      ),
+    },
+    expectedDesignId,
+  );
+}
+
+export async function readDesignVersionFile(args: {
+  designId: string;
+  versionId: string;
+  fileId: string;
+}): Promise<{
+  file?: DesignVersionFile | undefined;
+  deletionGeometry?: ComponentDeletionGeometry | undefined;
+} | null> {
+  const db = getDb();
+  const version = firstRow(
+    await db
+      .select({ snapshot: schema.designVersions.snapshot })
+      .from(schema.designVersions)
+      .where(
+        and(
+          eq(schema.designVersions.id, args.versionId),
+          eq(schema.designVersions.designId, args.designId),
+        ),
+      )
+      .limit(1),
+  );
+  if (!version) return null;
+
+  let value: unknown;
+  try {
+    value = JSON.parse(version.snapshot);
+  } catch {
+    throw new Error("Design version snapshot is not valid JSON.");
+  }
+  if (!isRecord(value) || value.snapshotKind !== DESIGN_HISTORY_MANIFEST_KIND) {
+    const snapshot = await readDesignVersionSnapshot(
+      version.snapshot,
+      args.designId,
+    );
+    return {
+      file: snapshot.files.find((candidate) => candidate.id === args.fileId),
+      deletionGeometry: snapshot.deletionGeometry,
+    };
+  }
+
+  const versionId = manifestVersionId(value, args.designId);
+  let deletionGeometry: ComponentDeletionGeometry | undefined;
+  if (value.deletionGeometry !== undefined) {
+    const parsed = componentDeletionGeometrySchema.safeParse(
+      value.deletionGeometry,
+    );
+    if (!parsed.success) {
+      throw new Error(
+        "Design version snapshot has invalid component deletion geometry.",
+      );
+    }
+    deletionGeometry = parsed.data;
+  }
+  const entry = firstRow(
+    await db
+      .select({
+        filename: schema.designVersionFiles.filename,
+        fileType: schema.designVersionFiles.fileType,
+        fileCreatedAt: schema.designVersionFiles.fileCreatedAt,
+        contentHash: schema.designVersionFiles.contentHash,
+      })
+      .from(schema.designVersionFiles)
+      .where(
+        and(
+          eq(schema.designVersionFiles.versionId, versionId),
+          eq(schema.designVersionFiles.designId, args.designId),
+          eq(schema.designVersionFiles.entryKind, FILE_ENTRY),
+          eq(schema.designVersionFiles.fileId, args.fileId),
+        ),
+      )
+      .limit(1),
+  );
+  if (!entry) return { deletionGeometry };
+  const content = firstRow(
+    await db
+      .select({ body: schema.designContents.body })
+      .from(schema.designContents)
+      .where(
+        and(
+          eq(schema.designContents.designId, args.designId),
+          eq(schema.designContents.hash, entry.contentHash),
+        ),
+      )
+      .limit(1),
+  );
+  if (!content) throw new Error("Design version content is missing.");
+  return {
+    file: {
+      id: args.fileId,
+      filename: entry.filename,
+      fileType: entry.fileType,
+      content: content.body,
+      ...(entry.fileCreatedAt ? { createdAt: entry.fileCreatedAt } : {}),
+    },
+    deletionGeometry,
+  };
 }
 
 function chatContextKey(
@@ -548,23 +755,21 @@ async function assertNoForeignCollaborators(
   }
 }
 
-function assertNoUnpersistedCollaborativeEdits(
-  storedFiles: ReadonlyArray<{ id: string; content: string }>,
-  liveSnapshot: Awaited<ReturnType<typeof buildDesignSnapshot>>,
-): void {
-  const storedById = new Map(storedFiles.map((file) => [file.id, file]));
-  for (const liveFile of liveSnapshot.files) {
-    if (liveFile.source !== "collab") continue;
-    const storedFile = storedById.get(liveFile.id);
-    if (!storedFile || storedFile.content !== liveFile.content) {
-      throw new DesignVersionRestoreConflictError(
-        "Design history cannot overwrite unsaved collaborative edits. Save or refresh the design and try again.",
-      );
-    }
+async function assertNoUnpersistedCollaborativeEdits(
+  database: DesignDatabase,
+  designId: string,
+): Promise<void> {
+  if ((await readUnpersistedCollaborativeText(database, designId)).size > 0) {
+    throw new DesignVersionRestoreConflictError(
+      "Design history cannot overwrite unsaved collaborative edits. Save or refresh the design and try again.",
+    );
   }
 }
 
-type DesignDatabase = Pick<ReturnType<typeof getDb>, "select" | "insert">;
+type DesignDatabase = Pick<
+  ReturnType<typeof getDb>,
+  "select" | "insert" | "execute"
+>;
 type LatestDesignVersion = {
   id: string;
   snapshot: string;
@@ -572,89 +777,45 @@ type LatestDesignVersion = {
   label: string | null;
   chatContext: string | null;
 };
-type DesignVersionSourceCapture = {
-  designOwnerEmail?: string;
-  designData: string;
-  designTitle: string;
-  designDescription: string | null;
-  projectType: string;
-  designSystemId: string | null;
-  liveSnapshot: Awaited<ReturnType<typeof buildDesignSnapshot>>;
-  currentStateJson: string;
-  stateHash: string;
-  sourceFingerprint: string;
-  persistedSourceFingerprint: string;
-  latest?: LatestDesignVersion;
-  collaborationVersions: ReadonlyMap<string, number>;
-};
-type DesignVersionSourceRows = {
-  design: Record<string, unknown>;
-  files: SnapshotFile[];
-  storedFiles: SnapshotFile[];
-  latest?: LatestDesignVersion;
-  collaborationVersions: ReadonlyMap<string, number>;
+
+type DesignCheckpointOptions = {
+  label: string;
+  chatContext?: DesignVersionChatContext;
+  deletionGeometry?: ComponentDeletionGeometry;
+  preferStoredFileContent?: boolean;
+  idempotencyKey?: string;
 };
 
 export interface PreparedDesignVersionCheckpoint {
   designId: string;
-  options: {
-    label: string;
-    chatContext?: DesignVersionChatContext;
-    deletionGeometry?: ComponentDeletionGeometry;
-    preferStoredFileContent?: boolean;
-    idempotencyKey?: string;
-  };
-  capture: DesignVersionSourceCapture;
-  existingVersion?: LatestDesignVersion;
-  id: string;
-  createdAt: string;
-  storedSnapshot: string | null;
-  uploadedBlob: PrivateBlobHandle | null;
-  duplicateBlob: PrivateBlobHandle | null;
-  persistenceStarted: boolean;
+  options: DesignCheckpointOptions;
 }
+
+type DesignCheckpointEntry = {
+  entryKind: typeof FILE_ENTRY | typeof DESIGN_STATE_ENTRY;
+  fileId: string;
+  filename: string;
+  fileType: string;
+  fileCreatedAt: string | null;
+  contentHash: string;
+  source: "stored" | "collab";
+};
 
 const designVersionLocks = new Map<string, Promise<unknown>>();
 
-const editorCheckpointRecentSkips = new Map<
-  string,
-  { at: number; reason: DesignVersionCheckpointSkipReason }
->();
-
-export function __clearEditorCheckpointSkipsForTests(): void {
-  editorCheckpointRecentSkips.clear();
+function sha256Hex(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
-async function latestStateMatches(
-  raw: string,
-  designId: string,
-  stateHash: string,
-  currentStateJson: string,
-): Promise<boolean> {
-  try {
-    const stored: unknown = JSON.parse(raw);
-    if (isRecord(stored) && typeof stored.stateHash === "string") {
-      return stored.stateHash === stateHash;
-    }
-    const previous = await readDesignVersionSnapshot(raw, designId);
-    const previousState = {
-      designData: previous.designData,
-      designTitle: previous.designTitle,
-      designDescription: previous.designDescription,
-      projectType: previous.projectType,
-      designSystemId: previous.designSystemId,
-      files: previous.files,
-      tweaks: previous.tweaks,
-      appliedTweaks: previous.appliedTweaks,
-      resolvedCssVars: previous.resolvedCssVars,
-      deletionGeometry: previous.deletionGeometry,
-    };
-    return stableStringify(previousState) === currentStateJson;
-    // coercion-ok: unreadable history cannot suppress a new autosave.
-  } catch {
-    // An unreadable checkpoint cannot establish equality; preserve autosave.
-    return false;
-  }
+function sqlResultRows<T>(result: unknown): T[] {
+  if (Array.isArray(result)) return result as T[];
+  const rows = (result as { rows?: unknown } | undefined)?.rows;
+  if (Array.isArray(rows)) return rows as T[];
+  throw new Error("Design history query returned an unexpected result.");
+}
+
+function designFileContentHashSql() {
+  return sql`coalesce(f.content_hash, encode(sha256(convert_to(f.content, 'UTF8')), 'hex'))`;
 }
 
 export interface PreparedDesignVersionSourceFiles {
@@ -715,249 +876,46 @@ export function withPreparedDesignVersionSourceFiles<T>(
   );
 }
 
-async function readDesignVersionSourceRows(
+async function readUnpersistedCollaborativeText(
+  database: DesignDatabase,
   designId: string,
-  options: {
-    deletionGeometry?: ComponentDeletionGeometry;
-    preferStoredFileContent?: boolean;
-  },
-  prepared: PreparedDesignVersionSourceFiles,
-): Promise<DesignVersionSourceRows> {
-  const db = getDb();
-  const [design] = await db
-    .select()
-    .from(schema.designs)
-    .where(
-      and(
-        eq(schema.designs.id, designId),
-        visualEditCapabilityDesignScope(
-          designId,
-          accessFilter(schema.designs, schema.designShares),
-        ),
+): Promise<Map<string, string>> {
+  const collabTable = firstRow(
+    sqlResultRows<{ present: boolean }>(
+      await database.execute(
+        sql`SELECT to_regclass('_collab_docs') IS NOT NULL AS "present"`,
       ),
-    )
-    .limit(1);
-  if (!design) throw new Error(`Design "${designId}" not found.`);
-
-  const fileRows = await db
-    .select()
-    .from(schema.designFiles)
-    .where(eq(schema.designFiles.designId, designId));
-  const sortedRows = [...fileRows].sort((left, right) =>
-    compareDesignFileIds(left.id, right.id),
-  );
-  const currentFileIds = sortedRows.map((file) => file.id);
-  if (
-    currentFileIds.length !== prepared.fileIds.length ||
-    currentFileIds.some((id, index) => id !== prepared.fileIds[index])
-  ) {
-    throw new DesignVersionCheckpointChangedError();
-  }
-
-  const collaborationVersions = new Map<string, number>();
-  const files: SnapshotFile[] = [];
-  const storedFiles: SnapshotFile[] = [];
-  for (const file of sortedRows) {
-    const lease = prepared.leases.get(file.id);
-    if (!lease) {
-      throw new DesignVersionCheckpointChangedError();
-    }
-    if (lease.baseVersion === null || !(await hasCollabState(file.id))) {
-      throw new DesignVersionSourceCollaborationNeedsSeedError();
-    }
-
-    const liveContent = readPreparedSourceText(lease);
-    storedFiles.push({
-      id: file.id,
-      filename: file.filename,
-      fileType: file.fileType,
-      content: file.content,
-      source: "stored",
-    });
-    const useLiveContent =
-      !options.preferStoredFileContent &&
-      shouldUseLiveFileContent({
-        liveContent,
-        storedContent: file.content,
-        fileType: file.fileType,
-      });
-    files.push({
-      id: file.id,
-      filename: file.filename,
-      fileType: file.fileType,
-      content: useLiveContent ? liveContent : file.content,
-      source: useLiveContent ? "collab" : "stored",
-      createdAt: file.createdAt,
-    });
-    collaborationVersions.set(file.id, lease.baseVersion);
-  }
-
-  const [latest] = await db
-    .select({
-      id: schema.designVersions.id,
-      snapshot: schema.designVersions.snapshot,
-      createdAt: schema.designVersions.createdAt,
-      label: schema.designVersions.label,
-      chatContext: schema.designVersions.chatContext,
-    })
-    .from(schema.designVersions)
-    .where(eq(schema.designVersions.designId, designId))
-    .orderBy(
-      asc(isNull(schema.designVersions.createdAt)),
-      desc(schema.designVersions.createdAt),
-      desc(schema.designVersions.id),
-    )
-    .limit(1);
-
-  return { design, files, storedFiles, latest, collaborationVersions };
-}
-
-function sourceFingerprintForRows(
-  designId: string,
-  options: { deletionGeometry?: ComponentDeletionGeometry },
-  rows: Pick<DesignVersionSourceRows, "design" | "files">,
-): string {
-  const designData = parseDesignData(designId, rows.design.data);
-  const designTitle =
-    typeof rows.design.title === "string" ? rows.design.title : "";
-  const designDescription =
-    typeof rows.design.description === "string" ||
-    rows.design.description === null
-      ? rows.design.description
-      : null;
-  const projectType =
-    typeof rows.design.projectType === "string"
-      ? rows.design.projectType
-      : "prototype";
-  const designSystemId =
-    typeof rows.design.designSystemId === "string" ||
-    rows.design.designSystemId === null
-      ? rows.design.designSystemId
-      : null;
-  const ownerEmail =
-    typeof rows.design.ownerEmail === "string"
-      ? rows.design.ownerEmail
-      : undefined;
-  return createHash("sha256")
-    .update(
-      stableStringify({
-        designData,
-        designTitle,
-        designDescription,
-        projectType,
-        designSystemId,
-        files: rows.files.map(
-          ({ id, filename, fileType, content, source }) => ({
-            id,
-            filename,
-            fileType,
-            contentHash: createHash("sha256").update(content).digest("hex"),
-            source,
-          }),
-        ),
-        deletionGeometry: options.deletionGeometry,
-        ownerEmail: ownerEmail ?? null,
-      }),
-    )
-    .digest("hex");
-}
-
-function persistedSourceFingerprintForRows(
-  designId: string,
-  options: { deletionGeometry?: ComponentDeletionGeometry },
-  rows: Pick<DesignVersionSourceRows, "design" | "storedFiles">,
-): string {
-  return sourceFingerprintForRows(designId, options, {
-    ...rows,
-    files: rows.storedFiles,
-  });
-}
-
-async function buildDesignVersionSourceCapture(
-  designId: string,
-  options: {
-    deletionGeometry?: ComponentDeletionGeometry;
-    preferStoredFileContent?: boolean;
-  },
-  rows: DesignVersionSourceRows,
-): Promise<DesignVersionSourceCapture> {
-  const designData = parseDesignData(designId, rows.design.data);
-  const liveSnapshot = await buildDesignSnapshot(designId, designData, {
-    preparedFiles: rows.files,
-  });
-  const designTitle =
-    typeof rows.design.title === "string" ? rows.design.title : "";
-  const designDescription =
-    typeof rows.design.description === "string" ||
-    rows.design.description === null
-      ? rows.design.description
-      : null;
-  const projectType =
-    typeof rows.design.projectType === "string"
-      ? rows.design.projectType
-      : "prototype";
-  const designSystemId =
-    typeof rows.design.designSystemId === "string" ||
-    rows.design.designSystemId === null
-      ? rows.design.designSystemId
-      : null;
-  const currentState = {
-    designData,
-    designTitle,
-    designDescription,
-    projectType,
-    designSystemId,
-    files: liveSnapshot.files.map(({ id, filename, fileType, content }) => ({
-      id,
-      filename,
-      fileType,
-      content,
-    })),
-    tweaks: liveSnapshot.tweaks,
-    appliedTweaks: liveSnapshot.appliedTweaks,
-    resolvedCssVars: liveSnapshot.resolvedCssVars,
-    deletionGeometry: options.deletionGeometry,
-  };
-  const currentStateJson = stableStringify(currentState);
-  const stateHash = createHash("sha256").update(currentStateJson).digest("hex");
-  const ownerEmail =
-    typeof rows.design.ownerEmail === "string"
-      ? rows.design.ownerEmail
-      : undefined;
-
-  return {
-    designOwnerEmail: ownerEmail,
-    designData,
-    designTitle,
-    designDescription,
-    projectType,
-    designSystemId,
-    liveSnapshot,
-    currentStateJson,
-    stateHash,
-    sourceFingerprint: sourceFingerprintForRows(designId, options, rows),
-    persistedSourceFingerprint: persistedSourceFingerprintForRows(
-      designId,
-      options,
-      rows,
     ),
-    latest: rows.latest,
-    collaborationVersions: rows.collaborationVersions,
-  };
-}
-
-function latestVersionMatches(
-  left?: LatestDesignVersion,
-  right?: LatestDesignVersion,
-) {
-  if (!left || !right) return left === right;
-  return (
-    left.id === right.id &&
-    left.snapshot === right.snapshot &&
-    left.createdAt === right.createdAt &&
-    left.label === right.label &&
-    left.chatContext === right.chatContext
   );
+  if (!collabTable?.present) return new Map();
+  const rows = sqlResultRows<{
+    id: string;
+    fileType: string;
+    storedContent: string;
+    liveContent: string;
+  }>(
+    await database.execute(sql`
+      SELECT f.id AS "id", f.file_type AS "fileType",
+        f.content AS "storedContent", c.text_snapshot AS "liveContent"
+      FROM design_files f
+      JOIN _collab_docs c ON c.doc_id = f.id
+      WHERE f.design_id = ${designId}
+        AND c.yjs_state <> ''
+        AND c.text_snapshot <> f.content`),
+  );
+  const live = new Map<string, string>();
+  for (const row of rows) {
+    if (
+      shouldUseLiveFileContent({
+        liveContent: row.liveContent,
+        storedContent: row.storedContent,
+        fileType: row.fileType,
+      })
+    ) {
+      live.set(row.id, row.liveContent);
+    }
+  }
+  return live;
 }
 
 function latestVersionStateHashCheck(
@@ -1006,227 +964,32 @@ function compareDesignFileIds(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-class DesignVersionSourceCollaborationNeedsSeedError extends Error {
-  constructor() {
-    super("Design source collaboration state must be seeded before capture.");
-    this.name = "DesignVersionSourceCollaborationNeedsSeedError";
-  }
-}
-
-async function seedDesignVersionSourceCollaboration(
-  designId: string,
-  accessLevel: "editor" | "viewer",
-): Promise<void> {
-  await withPreparedDesignVersionSourceFilesWithAccess(
-    designId,
-    async (prepared) =>
-      withDesignSourceMutationTransaction(designId, async (transaction) => {
-        await assertAccess("design", designId, accessLevel);
-        const fileRows = await transaction
-          .select()
-          .from(schema.designFiles)
-          .where(eq(schema.designFiles.designId, designId))
-          .for("update");
-        const sortedRows = [...fileRows].sort((left, right) =>
-          compareDesignFileIds(left.id, right.id),
-        );
-        if (
-          sortedRows.length !== prepared.fileIds.length ||
-          sortedRows.some((file, index) => file.id !== prepared.fileIds[index])
-        ) {
-          throw new DesignVersionCheckpointChangedError();
-        }
-
-        const transactionExec = getDesignSourceMutationExec(
-          transaction as object,
-        );
-        for (const file of sortedRows) {
-          const lease = prepared.leases.get(file.id);
-          if (!lease) throw new DesignVersionCheckpointChangedError();
-
-          let collaboration: Awaited<
-            ReturnType<typeof lockPreparedSourceCollaboration>
-          >;
-          try {
-            collaboration = await lockPreparedSourceCollaboration(
-              transactionExec,
-              file.id,
-              lease,
-            );
-          } catch (error) {
-            if (
-              lease.baseVersion === null &&
-              error instanceof SourceWorkspaceEditConflictError
-            ) {
-              throw new DesignVersionCheckpointChangedError();
-            }
-            throw error;
-          }
-          if (!collaboration.needsSeed) continue;
-
-          const storedContent = file.content ?? "";
-          applyTextToYDoc(lease.doc, "content", storedContent, "agent");
-          try {
-            await lease.persist(transactionExec, storedContent);
-          } catch (error) {
-            if (error instanceof CollabBaseVersionConflictError) {
-              throw new DesignVersionCheckpointChangedError();
-            }
-            throw error;
-          }
-        }
-      }),
-    [],
-    accessLevel,
-  );
-}
-
-async function prepareDesignVersionCheckpointWithAccess(
-  designId: string,
-  options: PreparedDesignVersionCheckpoint["options"],
-): Promise<PreparedDesignVersionCheckpoint> {
-  const readRows = (prepared: PreparedDesignVersionSourceFiles) =>
-    readDesignVersionSourceRows(designId, options, prepared);
-  const withPreparedSourceFiles = withPreparedDesignVersionSourceFiles;
-  let rows: DesignVersionSourceRows;
-  try {
-    rows = await withPreparedSourceFiles(designId, readRows);
-  } catch (error) {
-    if (!(error instanceof DesignVersionSourceCollaborationNeedsSeedError)) {
-      throw error;
-    }
-    await seedDesignVersionSourceCollaboration(designId, "editor");
-    rows = await withPreparedSourceFiles(designId, readRows);
-  }
-  const capture = await buildDesignVersionSourceCapture(
-    designId,
-    options,
-    rows,
-  );
-  const latest = capture.latest;
-  const createdAt = nextRevisionTimestamp(latest?.createdAt);
-  const deduplicated =
-    latest &&
-    latestVersionChatContextCheck(latest, options.chatContext) === "match" &&
-    (await latestStateMatches(
-      latest.snapshot,
-      designId,
-      capture.stateHash,
-      capture.currentStateJson,
-    ))
-      ? latest
-      : undefined;
-  if (deduplicated) {
-    return {
-      designId,
-      options,
-      capture,
-      existingVersion: deduplicated,
-      id: deduplicated.id,
-      createdAt: deduplicated.createdAt ?? createdAt,
-      storedSnapshot: null,
-      uploadedBlob: null,
-      duplicateBlob: null,
-      persistenceStarted: false,
-    };
-  }
-
-  const id = options.idempotencyKey
-    ? designVersionIdForIdempotencyKey(designId, options.idempotencyKey)
-    : `design-version-${createHash("sha256")
-        .update(
-          stableStringify({
-            designId,
-            previousVersionId: latest?.id ?? "initial",
-            chatContextKey: chatContextKey(options.chatContext),
-            stateHash: capture.stateHash,
-          }),
-        )
-        .digest("hex")}`;
-  const snapshot = JSON.stringify({
-    schemaVersion: 1,
-    snapshotKind: "design-history",
-    designId,
-    designData: capture.designData,
-    designTitle: capture.designTitle,
-    designDescription: capture.designDescription,
-    projectType: capture.projectType,
-    files: capture.liveSnapshot.files,
-    tweaks: capture.liveSnapshot.tweaks,
-    appliedTweaks: capture.liveSnapshot.appliedTweaks,
-    resolvedCssVars: capture.liveSnapshot.resolvedCssVars,
-    capturedAt: createdAt,
-    stateHash: capture.stateHash,
-    ...(options.chatContext ? { chatContext: options.chatContext } : {}),
-    ...(options.deletionGeometry
-      ? { deletionGeometry: options.deletionGeometry }
-      : {}),
-  });
-  let uploadedBlob: PrivateBlobHandle | null = null;
-  let storedSnapshot = snapshot;
-  if (Buffer.byteLength(snapshot, "utf8") > MAX_INLINE_DESIGN_VERSION_BYTES) {
-    const blob = await putPrivateBlob({
-      data: Buffer.from(snapshot),
-      filename: `${id}.design-history.json`,
-      mimeType: "application/json",
-      ownerEmail: capture.designOwnerEmail,
-      metadata: {
-        appId: "design",
-        resourceType: "design-version",
-        resourceId: designId,
-        versionId: id,
-      },
-    });
-    if (!blob) throw new DesignCheckpointBlobUnavailableError();
-    uploadedBlob = blob;
-    storedSnapshot = JSON.stringify({
-      schemaVersion: 2,
-      snapshotKind: "design-history-blob",
-      designId,
-      fileCount: capture.liveSnapshot.files.length,
-      capturedAt: createdAt,
-      stateHash: capture.stateHash,
-      ...(options.chatContext ? { chatContext: options.chatContext } : {}),
-      ...(options.deletionGeometry
-        ? { deletionGeometry: options.deletionGeometry }
-        : {}),
-      blob,
-    });
-  }
-
-  return {
-    designId,
-    options,
-    capture,
-    id,
-    createdAt,
-    storedSnapshot,
-    uploadedBlob,
-    duplicateBlob: null,
-    persistenceStarted: false,
-  };
-}
-
-export async function prepareDesignVersionCheckpoint(
-  designId: string,
-  options: PreparedDesignVersionCheckpoint["options"],
-): Promise<PreparedDesignVersionCheckpoint> {
-  return prepareDesignVersionCheckpointWithAccess(designId, options);
-}
-
-async function readPreparedCheckpointSourceInTransaction(
-  designId: string,
-  options: PreparedDesignVersionCheckpoint["options"],
-  preparedFiles: PreparedDesignVersionSourceFiles,
-  capture: DesignVersionSourceCapture,
+async function insertDesignContents(
   database: DesignDatabase,
-): Promise<{
-  design: Record<string, unknown>;
-  storedFiles: SnapshotFile[];
-  latest?: LatestDesignVersion;
-}> {
+  designId: string,
+  bodies: ReadonlyMap<string, string>,
+): Promise<void> {
+  for (const [hash, body] of bodies) {
+    await database
+      .insert(schema.designContents)
+      .values({ designId, hash, body })
+      .onConflictDoNothing();
+  }
+}
+
+export async function writeDesignCheckpoint(
+  database: DesignDatabase,
+  designId: string,
+  options: DesignCheckpointOptions,
+): Promise<{ id: string; createdAt: string; label: string }> {
   const [design] = await database
-    .select()
+    .select({
+      data: schema.designs.data,
+      title: schema.designs.title,
+      description: schema.designs.description,
+      projectType: schema.designs.projectType,
+      designSystemId: schema.designs.designSystemId,
+    })
     .from(schema.designs)
     .where(
       and(
@@ -1237,57 +1000,107 @@ async function readPreparedCheckpointSourceInTransaction(
         ),
       ),
     )
-    .for("update")
+    .for("share")
     .limit(1);
   if (!design) throw new Error(`Design "${designId}" not found.`);
 
-  const fileRows = await database
-    .select()
-    .from(schema.designFiles)
-    .where(eq(schema.designFiles.designId, designId))
-    .orderBy(schema.designFiles.id)
-    .for("update");
-  const storedFiles: SnapshotFile[] = fileRows
-    .map((file) => ({
-      id: file.id,
-      filename: file.filename,
-      fileType: file.fileType,
-      content: file.content,
-      source: "stored" as const,
-    }))
-    .sort((left, right) => compareDesignFileIds(left.id, right.id));
+  const designState = stableStringify({
+    designData: parseDesignData(designId, design.data),
+    designTitle: design.title,
+    designDescription: design.description ?? null,
+    projectType: design.projectType,
+    designSystemId: design.designSystemId ?? null,
+  });
+  const designStateHash = sha256Hex(designState);
+
+  const liveText = options.preferStoredFileContent
+    ? new Map<string, string>()
+    : await readUnpersistedCollaborativeText(database, designId);
+  const fileRows = sqlResultRows<{
+    id: string;
+    filename: string;
+    fileType: string;
+    createdAt: string | null;
+    hash: string;
+  }>(
+    await database.execute(sql`
+      SELECT f.id AS "id", f.filename AS "filename", f.file_type AS "fileType",
+        f.created_at AS "createdAt", ${designFileContentHashSql()} AS "hash"
+      FROM design_files f
+      WHERE f.design_id = ${designId}`),
+  );
+  const newBodies = new Map<string, string>();
+  const entries: DesignCheckpointEntry[] = fileRows
+    .map((row): DesignCheckpointEntry => {
+      const live = liveText.get(row.id);
+      const contentHash = live === undefined ? row.hash : sha256Hex(live);
+      if (live !== undefined) newBodies.set(contentHash, live);
+      return {
+        entryKind: FILE_ENTRY,
+        fileId: row.id,
+        filename: row.filename,
+        fileType: row.fileType,
+        fileCreatedAt: row.createdAt,
+        contentHash,
+        source: live === undefined ? "stored" : "collab",
+      };
+    })
+    .sort((left, right) => compareDesignFileIds(left.fileId, right.fileId));
+
+  const stateHash = sha256Hex(
+    stableStringify({
+      designStateHash,
+      files: entries.map(({ fileId, filename, fileType, contentHash }) => ({
+        fileId,
+        filename,
+        fileType,
+        contentHash,
+      })),
+      deletionGeometry: options.deletionGeometry,
+    }),
+  );
+
+  const latest = firstRow(
+    await database
+      .select({
+        id: schema.designVersions.id,
+        snapshot: schema.designVersions.snapshot,
+        createdAt: schema.designVersions.createdAt,
+        label: schema.designVersions.label,
+        chatContext: schema.designVersions.chatContext,
+      })
+      .from(schema.designVersions)
+      .where(eq(schema.designVersions.designId, designId))
+      .orderBy(
+        asc(isNull(schema.designVersions.createdAt)),
+        desc(schema.designVersions.createdAt),
+        desc(schema.designVersions.id),
+      )
+      .limit(1),
+  );
   if (
-    storedFiles.length !== preparedFiles.fileIds.length ||
-    storedFiles.some(
-      (file, index) => file.id !== preparedFiles.fileIds[index],
-    ) ||
-    storedFiles.length !== capture.collaborationVersions.size
+    latest &&
+    latestVersionChatContextCheck(latest, options.chatContext) === "match" &&
+    (options.label !== COMPONENT_DELETE_CHECKPOINT_LABEL ||
+      latest.label === COMPONENT_DELETE_CHECKPOINT_LABEL)
   ) {
-    throw new DesignVersionCheckpointChangedError();
-  }
-
-  const txExec = getDesignSourceMutationExec(database as object);
-  for (const fileId of preparedFiles.fileIds) {
-    const lease = preparedFiles.leases.get(fileId);
-    const expectedVersion = capture.collaborationVersions.get(fileId);
-    if (
-      !lease ||
-      expectedVersion === undefined ||
-      lease.baseVersion !== expectedVersion
-    ) {
-      throw new DesignVersionCheckpointChangedError();
-    }
-    const collaboration = await lockPreparedSourceCollaboration(
-      txExec,
-      fileId,
-      lease,
-    );
-    if (collaboration.needsSeed) {
-      throw new DesignVersionCheckpointChangedError();
+    const check = latestVersionStateHashCheck(latest, stateHash);
+    if (check.status === "valid" && check.matches) {
+      return versionFromLatest(latest, options.label);
     }
   }
 
-  const [latest] = await database
+  const id = options.idempotencyKey
+    ? designVersionIdForIdempotencyKey(designId, options.idempotencyKey)
+    : `design-version-${sha256Hex(
+        stableStringify({
+          designId,
+          previousVersionId: latest?.id ?? "initial",
+          chatContextKey: chatContextKey(options.chatContext),
+          stateHash,
+        }),
+      )}`;
+  const [existing] = await database
     .select({
       id: schema.designVersions.id,
       snapshot: schema.designVersions.snapshot,
@@ -1295,6 +1108,104 @@ async function readPreparedCheckpointSourceInTransaction(
       label: schema.designVersions.label,
       chatContext: schema.designVersions.chatContext,
     })
+    .from(schema.designVersions)
+    .where(eq(schema.designVersions.id, id))
+    .limit(1);
+  if (existing) {
+    const stateCheck = latestVersionStateHashCheck(existing, stateHash);
+    if (
+      latestVersionChatContextCheck(existing, options.chatContext) !==
+        "match" ||
+      stateCheck.status !== "valid" ||
+      !stateCheck.matches
+    ) {
+      throw new DesignVersionCheckpointChangedError();
+    }
+    return versionFromLatest(existing, options.label);
+  }
+
+  const liveFileIds = [...liveText.keys()];
+  await database.execute(sql`
+    INSERT INTO design_contents (design_id, hash, body)
+    SELECT DISTINCT ON (h.hash) f.design_id, h.hash, f.content
+    FROM design_files f
+    CROSS JOIN LATERAL (SELECT ${designFileContentHashSql()} AS hash) h
+    WHERE f.design_id = ${designId}
+      ${
+        liveFileIds.length > 0
+          ? sql`AND f.id NOT IN (${sql.join(
+              liveFileIds.map((fileId) => sql`${fileId}`),
+              sql`, `,
+            )})`
+          : sql``
+      }
+      AND NOT EXISTS (
+        SELECT 1 FROM design_contents c
+        WHERE c.design_id = f.design_id AND c.hash = h.hash
+      )
+    ON CONFLICT (design_id, hash) DO NOTHING`);
+  newBodies.set(designStateHash, designState);
+  await insertDesignContents(database, designId, newBodies);
+
+  const createdAt = nextRevisionTimestamp(latest?.createdAt);
+  const manifest: DesignCheckpointEntry[] = [
+    ...entries,
+    {
+      entryKind: DESIGN_STATE_ENTRY,
+      fileId: designId,
+      filename: "",
+      fileType: "",
+      fileCreatedAt: null,
+      contentHash: designStateHash,
+      source: "stored",
+    },
+  ];
+  await database.insert(schema.designVersions).values({
+    id,
+    designId,
+    label: options.label,
+    snapshot: JSON.stringify({
+      schemaVersion: 3,
+      snapshotKind: DESIGN_HISTORY_MANIFEST_KIND,
+      designId,
+      versionId: id,
+      fileCount: entries.length,
+      capturedAt: createdAt,
+      stateHash,
+      ...(options.chatContext ? { chatContext: options.chatContext } : {}),
+      ...(options.deletionGeometry
+        ? { deletionGeometry: options.deletionGeometry }
+        : {}),
+    }),
+    chatContext: options.chatContext
+      ? JSON.stringify(options.chatContext)
+      : null,
+    fileCount: entries.length,
+    createdAt,
+  });
+  for (
+    let offset = 0;
+    offset < manifest.length;
+    offset += MANIFEST_INSERT_CHUNK
+  ) {
+    await database
+      .insert(schema.designVersionFiles)
+      .values(
+        manifest
+          .slice(offset, offset + MANIFEST_INSERT_CHUNK)
+          .map((entry) => ({ versionId: id, designId, ...entry })),
+      );
+  }
+  return { id, createdAt, label: options.label };
+}
+
+export async function pruneDesignVersions(designId: string): Promise<{
+  deletedVersionIds: string[];
+}> {
+  await assertAccess("design", designId, "editor");
+  const db = getDb();
+  const recent = await db
+    .select({ id: schema.designVersions.id })
     .from(schema.designVersions)
     .where(eq(schema.designVersions.designId, designId))
     .orderBy(
@@ -1302,187 +1213,175 @@ async function readPreparedCheckpointSourceInTransaction(
       desc(schema.designVersions.createdAt),
       desc(schema.designVersions.id),
     )
-    .limit(1);
-
-  const currentFingerprint = persistedSourceFingerprintForRows(
-    designId,
-    options,
-    { design, storedFiles },
-  );
-  if (currentFingerprint !== capture.persistedSourceFingerprint) {
-    throw new DesignVersionCheckpointChangedError();
+    .limit(DESIGN_VERSION_RETAINED_CHECKPOINTS);
+  if (recent.length < DESIGN_VERSION_RETAINED_CHECKPOINTS) {
+    return { deletedVersionIds: [] };
   }
-  return { design, storedFiles, latest };
+
+  const protectedIds = new Set(recent.map((row) => row.id));
+  const design = firstRow(
+    await db
+      .select({ data: schema.designs.data })
+      .from(schema.designs)
+      .where(eq(schema.designs.id, designId))
+      .limit(1),
+  );
+  if (!design) return { deletedVersionIds: [] };
+  for (const versionId of branchSnapshotVersionIds(design.data)) {
+    protectedIds.add(versionId);
+  }
+
+  const result = await withDesignSourceMutationTransaction(
+    designId,
+    async (tx) => {
+      const candidates = await tx
+        .select({
+          id: schema.designVersions.id,
+          blobSnapshot: sql<
+            string | null
+          >`CASE WHEN ${schema.designVersions.snapshot} LIKE '%"snapshotKind":"design-history-blob"%' THEN ${schema.designVersions.snapshot} END`,
+        })
+        .from(schema.designVersions)
+        .where(
+          and(
+            eq(schema.designVersions.designId, designId),
+            notInArray(schema.designVersions.id, [...protectedIds]),
+            or(
+              isNull(schema.designVersions.label),
+              ne(
+                schema.designVersions.label,
+                COMPONENT_DELETE_CHECKPOINT_LABEL,
+              ),
+            ),
+            or(
+              isNull(schema.designVersions.chatContext),
+              notLike(schema.designVersions.chatContext, '%"phase":"start"%'),
+            ),
+          ),
+        )
+        .orderBy(
+          desc(isNull(schema.designVersions.createdAt)),
+          asc(schema.designVersions.createdAt),
+          asc(schema.designVersions.id),
+        )
+        .limit(DESIGN_VERSION_PRUNE_BATCH);
+      if (candidates.length === 0) {
+        return { deletedVersionIds: [], blobs: [] as PrivateBlobHandle[] };
+      }
+      const versionIds = candidates.map((row) => row.id);
+      const hashes = await tx
+        .selectDistinct({ hash: schema.designVersionFiles.contentHash })
+        .from(schema.designVersionFiles)
+        .where(
+          and(
+            eq(schema.designVersionFiles.designId, designId),
+            inArray(schema.designVersionFiles.versionId, versionIds),
+          ),
+        );
+      await tx
+        .delete(schema.designVersionFiles)
+        .where(
+          and(
+            eq(schema.designVersionFiles.designId, designId),
+            inArray(schema.designVersionFiles.versionId, versionIds),
+          ),
+        );
+      await tx
+        .delete(schema.designVersions)
+        .where(
+          and(
+            eq(schema.designVersions.designId, designId),
+            inArray(schema.designVersions.id, versionIds),
+          ),
+        );
+      if (hashes.length > 0) {
+        await tx.execute(sql`
+          DELETE FROM design_contents c
+          WHERE c.design_id = ${designId}
+            AND c.hash IN (${sql.join(
+              hashes.map((row) => sql`${row.hash}`),
+              sql`, `,
+            )})
+            AND NOT EXISTS (
+              SELECT 1 FROM design_version_files m
+              WHERE m.design_id = c.design_id AND m.content_hash = c.hash
+            )`);
+      }
+      const blobs: PrivateBlobHandle[] = [];
+      for (const row of candidates) {
+        if (!row.blobSnapshot) continue;
+        try {
+          const stored: unknown = JSON.parse(row.blobSnapshot);
+          if (isRecord(stored) && isPrivateBlobHandle(stored.blob)) {
+            blobs.push(stored.blob);
+          }
+        } catch {
+          continue;
+        }
+      }
+      return { deletedVersionIds: versionIds, blobs };
+    },
+  );
+
+  for (const blob of result.blobs) {
+    try {
+      await deletePrivateBlob(blob);
+    } catch (error) {
+      captureError(error, {
+        tags: { source: "design-versions", operation: "prune-blob" },
+        extra: { designId },
+      });
+    }
+  }
+  return { deletedVersionIds: result.deletedVersionIds };
 }
 
-export async function persistPreparedDesignVersionCheckpoint(
-  preparedCheckpoint: PreparedDesignVersionCheckpoint,
-  preparedFiles: PreparedDesignVersionSourceFiles,
-  database: DesignDatabase,
-): Promise<{ id: string; createdAt: string; label: string }> {
-  const { designId, options, capture, id, createdAt } = preparedCheckpoint;
-  const current = await readPreparedCheckpointSourceInTransaction(
-    designId,
-    options,
-    preparedFiles,
-    capture,
-    database,
-  );
-
-  const latest = current.latest;
-  if (preparedCheckpoint.existingVersion) {
-    if (!latestVersionMatches(capture.latest, latest)) {
-      throw new DesignVersionCheckpointChangedError();
-    }
-    return versionFromLatest(preparedCheckpoint.existingVersion, options.label);
-  }
-  const existingById = await database
-    .select({
-      id: schema.designVersions.id,
-      snapshot: schema.designVersions.snapshot,
-      createdAt: schema.designVersions.createdAt,
-      label: schema.designVersions.label,
-      chatContext: schema.designVersions.chatContext,
-    })
-    .from(schema.designVersions)
-    .where(eq(schema.designVersions.id, id))
-    .limit(1);
-  const existing = existingById[0];
-  if (existing) {
-    const contextMatches =
-      latestVersionChatContextCheck(existing, options.chatContext) === "match";
-    const stateMatches = latestVersionStateHashCheck(
-      existing,
-      capture.stateHash,
-    );
-    if (
-      !contextMatches ||
-      stateMatches.status !== "valid" ||
-      !stateMatches.matches
-    ) {
-      throw new DesignVersionCheckpointChangedError();
-    }
-    preparedCheckpoint.duplicateBlob = preparedCheckpoint.uploadedBlob;
-    return versionFromLatest(existing, options.label);
-  }
-
-  if (!latestVersionMatches(capture.latest, latest)) {
-    const stateHashCheck = latest
-      ? latestVersionStateHashCheck(latest, capture.stateHash)
-      : { status: "unreadable" as const };
-    if (
-      latest &&
-      latestVersionChatContextCheck(latest, options.chatContext) === "match" &&
-      stateHashCheck.status === "valid" &&
-      stateHashCheck.matches
-    ) {
-      preparedCheckpoint.duplicateBlob = preparedCheckpoint.uploadedBlob;
-      return versionFromLatest(latest, options.label);
-    }
-    throw new DesignVersionCheckpointChangedError();
-  }
-
-  if (!preparedCheckpoint.storedSnapshot) {
-    throw new DesignVersionCheckpointChangedError();
-  }
-
-  preparedCheckpoint.persistenceStarted = true;
-  const [inserted] = await database
-    .insert(schema.designVersions)
-    .values({
-      id,
-      designId,
-      label: options.label,
-      snapshot: preparedCheckpoint.storedSnapshot,
-      chatContext: options.chatContext
-        ? JSON.stringify(options.chatContext)
-        : null,
-      fileCount: capture.liveSnapshot.files.length,
-      createdAt,
-    })
-    .onConflictDoNothing()
-    .returning({ id: schema.designVersions.id });
-  const [stored] = await database
-    .select({
-      id: schema.designVersions.id,
-      createdAt: schema.designVersions.createdAt,
-      label: schema.designVersions.label,
-    })
-    .from(schema.designVersions)
-    .where(eq(schema.designVersions.id, id))
-    .limit(1);
-  if (!stored) throw new Error("Design version was not persisted.");
-  if (!inserted)
-    preparedCheckpoint.duplicateBlob = preparedCheckpoint.uploadedBlob;
-  return {
-    id: stored.id,
-    createdAt: stored.createdAt ?? createdAt,
-    label: stored.label ?? options.label,
-  };
-}
-
-export async function cleanupPreparedDesignVersionCheckpoint(
-  preparedCheckpoint: PreparedDesignVersionCheckpoint,
-  committed: boolean,
-  definitiveRollback = false,
-): Promise<void> {
-  const blob = committed
-    ? (preparedCheckpoint.duplicateBlob ??
-      (!preparedCheckpoint.persistenceStarted
-        ? preparedCheckpoint.uploadedBlob
-        : null))
-    : preparedCheckpoint.persistenceStarted && !definitiveRollback
-      ? null
-      : preparedCheckpoint.uploadedBlob;
-  if (!blob) return;
+function branchSnapshotVersionIds(rawData: string): string[] {
+  let data: unknown;
   try {
-    const cleanup = await deletePrivateBlob(blob);
-    if (!cleanup.deleted) {
-      console.warn("[design-version] staged blob cleanup was not confirmed");
-    }
+    data = JSON.parse(rawData);
   } catch {
-    console.warn("[design-version] staged blob cleanup failed");
+    throw new Error("Design data is not valid JSON; its branches are unknown.");
   }
+  if (!isRecord(data) || !Array.isArray(data.branches)) return [];
+  return data.branches.flatMap((branch) =>
+    isRecord(branch) && typeof branch.preSnapshotVersionId === "string"
+      ? [branch.preSnapshotVersionId]
+      : [],
+  );
 }
 
 async function captureDesignVersion(
   designId: string,
-  options: PreparedDesignVersionCheckpoint["options"],
+  options: DesignCheckpointOptions,
 ): Promise<{ id: string; createdAt: string; label: string }> {
-  const preparedCheckpoint = await prepareDesignVersionCheckpoint(
+  const checkpoint = await withDesignSourceMutationTransaction(
     designId,
-    options,
+    async (tx) => {
+      await assertAccess("design", designId, "editor");
+      return writeDesignCheckpoint(tx, designId, options);
+    },
   );
-  const withPreparedSourceFiles = withPreparedDesignVersionSourceFiles;
-  const transactionOutcome = {
-    callbackCompleted: false,
-    rollbackConfirmed: false,
-  };
   try {
-    const result = await withPreparedSourceFiles(designId, (preparedFiles) =>
-      withDesignSourceMutationTransaction(
-        designId,
-        async (tx) => {
-          await assertAccess("design", designId, "editor");
-          return persistPreparedDesignVersionCheckpoint(
-            preparedCheckpoint,
-            preparedFiles,
-            tx,
-          );
-        },
-        transactionOutcome,
-      ),
-    );
-    await cleanupPreparedDesignVersionCheckpoint(preparedCheckpoint, true);
-    return result;
+    await pruneDesignVersions(designId);
   } catch (error) {
-    await cleanupPreparedDesignVersionCheckpoint(
-      preparedCheckpoint,
-      false,
-      transactionOutcome.rollbackConfirmed,
-    );
-    throw error;
+    captureError(error, {
+      tags: { source: "design-versions", operation: "prune" },
+      extra: { designId },
+    });
   }
+  return checkpoint;
+}
+
+export async function persistPreparedDesignVersionCheckpoint(
+  preparedCheckpoint: PreparedDesignVersionCheckpoint,
+  database: DesignDatabase,
+): Promise<{ id: string; createdAt: string; label: string }> {
+  return writeDesignCheckpoint(
+    database,
+    preparedCheckpoint.designId,
+    preparedCheckpoint.options,
+  );
 }
 
 export async function prepareDesignVersionBeforeAgentEditInVersionLock(
@@ -1494,47 +1393,48 @@ export async function prepareDesignVersionBeforeAgentEditInVersionLock(
   const editorContext = editorActionContext(context);
   if (!chatContext && !editorContext) return null;
 
-  let options: PreparedDesignVersionCheckpoint["options"];
   if (editorContext) {
-    options = {
-      label: context.actionName
-        ? `Before editor edit: ${context.actionName}`
-        : "Before editor edit",
-      chatContext: editorContext,
+    return {
+      designId,
+      options: {
+        label: context.actionName
+          ? `Before editor edit: ${context.actionName}`
+          : "Before editor edit",
+        chatContext: editorContext,
+      },
     };
-  } else if (chatContext) {
-    const key = chatContextKey(chatContext);
-    if (!key) return null;
-    const rows = await getDb()
-      .select({ chatContext: schema.designVersions.chatContext })
-      .from(schema.designVersions)
-      .where(eq(schema.designVersions.designId, designId))
-      .orderBy(
-        asc(isNull(schema.designVersions.createdAt)),
-        desc(schema.designVersions.createdAt),
-        desc(schema.designVersions.id),
-      )
-      .limit(CHAT_VERSION_LOOKBACK);
-    for (const row of rows) {
-      try {
-        if (chatContextKey(parseStoredChatContext(row.chatContext)) === key) {
-          return null;
-        }
-      } catch {
-        continue;
+  }
+  if (!chatContext) return null;
+  const key = chatContextKey(chatContext);
+  if (!key) return null;
+  const rows = await getDb()
+    .select({ chatContext: schema.designVersions.chatContext })
+    .from(schema.designVersions)
+    .where(eq(schema.designVersions.designId, designId))
+    .orderBy(
+      asc(isNull(schema.designVersions.createdAt)),
+      desc(schema.designVersions.createdAt),
+      desc(schema.designVersions.id),
+    )
+    .limit(CHAT_VERSION_LOOKBACK);
+  for (const row of rows) {
+    try {
+      if (chatContextKey(parseStoredChatContext(row.chatContext)) === key) {
+        return null;
       }
+    } catch {
+      continue;
     }
-    options = {
+  }
+  return {
+    designId,
+    options: {
       label: context.actionName
         ? `Before chat edit: ${context.actionName}`
         : "Before chat edit",
       chatContext,
-    };
-  } else {
-    return null;
-  }
-
-  return prepareDesignVersionCheckpoint(designId, options);
+    },
+  };
 }
 
 export async function withDesignVersionLock<T>(
@@ -1609,20 +1509,11 @@ export async function createDesignChatBeginningSnapshot(
   });
 }
 
-function checkpointSkipReason(
-  error: unknown,
-): DesignVersionCheckpointSkipReason {
-  return error instanceof DesignCheckpointBlobUnavailableError
-    ? "blob-storage-unavailable"
-    : "checkpoint-failed";
-}
-
 async function snapshotDesignBeforeAgentEditInLock(
   designId: string,
   context: ActionRunContext,
   database?: DesignDatabase,
   editorCheckpointMode: "auxiliary" | "required" = "auxiliary",
-  allowCheckpointFailureSkip = false,
 ): Promise<DesignVersionCheckpointResult> {
   const chatContext = actionChatContext(context);
   const editorContext = editorActionContext(context);
@@ -1630,15 +1521,10 @@ async function snapshotDesignBeforeAgentEditInLock(
 
   await assertAccess("design", designId, "editor");
   if (editorContext) {
-    if (editorCheckpointMode === "required") {
-      return await captureDesignVersion(designId, {
-        label: context.actionName
-          ? `Before editor edit: ${context.actionName}`
-          : "Before editor edit",
-        chatContext: editorContext,
-      });
-    }
-    if (isThrottledEditorCheckpointCaller(context.caller)) {
+    if (
+      editorCheckpointMode === "auxiliary" &&
+      isThrottledEditorCheckpointCaller(context.caller)
+    ) {
       const [latestVersion] = await (database ?? getDb())
         .select({
           id: schema.designVersions.id,
@@ -1676,37 +1562,13 @@ async function snapshotDesignBeforeAgentEditInLock(
           };
         }
       }
-      if (allowCheckpointFailureSkip) {
-        const recentSkip = editorCheckpointRecentSkips.get(designId);
-        if (
-          recentSkip &&
-          Date.now() - recentSkip.at < EDITOR_CHECKPOINT_THROTTLE_MS
-        ) {
-          return { skipped: true, reason: recentSkip.reason };
-        }
-      }
     }
-    try {
-      const captured = await captureDesignVersion(designId, {
-        label: context.actionName
-          ? `Before editor edit: ${context.actionName}`
-          : "Before editor edit",
-        chatContext: editorContext,
-      });
-      editorCheckpointRecentSkips.delete(designId);
-      return captured;
-    } catch (error) {
-      const reason = checkpointSkipReason(error);
-      captureError(error, {
-        tags: { source: "design-versions", checkpoint: "editor" },
-        extra: { designId, actionName: context.actionName },
-      });
-      if (!allowCheckpointFailureSkip) throw error;
-      if (isThrottledEditorCheckpointCaller(context.caller)) {
-        editorCheckpointRecentSkips.set(designId, { at: Date.now(), reason });
-      }
-      return { skipped: true, reason };
-    }
+    return captureDesignVersion(designId, {
+      label: context.actionName
+        ? `Before editor edit: ${context.actionName}`
+        : "Before editor edit",
+      chatContext: editorContext,
+    });
   }
   if (!chatContext) return null;
   const key = chatContextKey(chatContext);
@@ -1762,22 +1624,13 @@ async function snapshotDesignBeforeAgentEditInLock(
 export async function snapshotDesignBeforeAgentEdit(
   designId: string,
   context?: ActionRunContext,
-  options?: {
-    allowCheckpointFailureSkip?: boolean;
-  },
 ): Promise<DesignVersionCheckpointResult> {
   if (!context) return null;
   // A retry adds no second version: the turn's earlier version is found first,
   // and a new one has a deterministic id and is skipped on a state-hash match.
   return withoutWriteObservation(() =>
     withDesignVersionLock(designId, () =>
-      snapshotDesignBeforeAgentEditInLock(
-        designId,
-        context,
-        undefined,
-        "auxiliary",
-        options?.allowCheckpointFailureSkip ?? false,
-      ),
+      snapshotDesignBeforeAgentEditInLock(designId, context),
     ),
   );
 }
@@ -1996,259 +1849,238 @@ export async function restoreDesignVersion(args: {
     ];
     await assertNoForeignCollaborators(awarenessFileIds, currentEmail);
 
-    const preparedCheckpoint = await prepareDesignVersionCheckpoint(
-      args.designId,
-      { label: "Before restore" },
-    );
-    const transactionOutcome = {
-      callbackCompleted: false,
-      rollbackConfirmed: false,
-    };
-    let result: {
+    const result: {
       beforeRestoreVersionId: string;
       restore: {
         updatedAt: string;
         files: RestoreFile[];
         deletedFileIds: string[];
       };
-    };
-    try {
-      result = await withPreparedDesignVersionSourceFiles(
-        args.designId,
-        async (preparedFiles) =>
-          withDesignSourceMutationTransaction(
-            args.designId,
-            async (tx) => {
-              await assertAccess("design", args.designId, "editor");
-              await lockDesignFilesTable(tx);
-              const lockedFiles = await tx
-                .select()
-                .from(schema.designFiles)
-                .where(eq(schema.designFiles.designId, args.designId));
-              await assertNoForeignCollaborators(
-                [
-                  ...lockedFiles.map((file) => file.id),
-                  ...target.files.flatMap((file) => (file.id ? [file.id] : [])),
-                ],
-                currentEmail,
-              );
+    } = await withPreparedDesignVersionSourceFiles(
+      args.designId,
+      async () =>
+        withDesignSourceMutationTransaction(args.designId, async (tx) => {
+          await assertAccess("design", args.designId, "editor");
+          await lockDesignFilesTable(tx);
+          const lockedFiles = await tx
+            .select()
+            .from(schema.designFiles)
+            .where(eq(schema.designFiles.designId, args.designId));
+          await assertNoForeignCollaborators(
+            [
+              ...lockedFiles.map((file) => file.id),
+              ...target.files.flatMap((file) => (file.id ? [file.id] : [])),
+            ],
+            currentEmail,
+          );
 
-              const [currentDesign] = await tx
-                .select()
-                .from(schema.designs)
-                .where(eq(schema.designs.id, args.designId))
-                .limit(1);
-              if (!currentDesign) {
-                throw new Error(`Design "${args.designId}" not found.`);
+          const currentDesign = firstRow(
+            await tx
+              .select()
+              .from(schema.designs)
+              .where(eq(schema.designs.id, args.designId))
+              .limit(1),
+          );
+          if (!currentDesign) {
+            throw new Error(`Design "${args.designId}" not found.`);
+          }
+          await assertNoUnpersistedCollaborativeEdits(tx, args.designId);
+          const before = await writeDesignCheckpoint(tx, args.designId, {
+            label: "Before restore",
+          });
+          const now = new Date();
+          const updatedAt = nextUpdatedAt(currentDesign.updatedAt ?? null, now);
+          const currentById = new Map(
+            lockedFiles.map((file) => [file.id, file]),
+          );
+          const currentByFilename = new Map(
+            lockedFiles.map((file) => [file.filename, file]),
+          );
+          const claimedIds = new Set<string>();
+          const restoreFiles: RestoreFile[] = [];
+
+          for (const targetFile of target.files) {
+            const byId = targetFile.id
+              ? currentById.get(targetFile.id)
+              : undefined;
+            const byFilename = currentByFilename.get(targetFile.filename);
+            if (byId && byFilename && byId.id !== byFilename.id) {
+              throw new DesignVersionRestoreConflictError(
+                `Design version has conflicting identity for "${targetFile.filename}".`,
+              );
+            }
+            const existing = byId ?? byFilename;
+            let id = existing?.id ?? targetFile.id ?? nanoid();
+            if (claimedIds.has(id)) {
+              throw new DesignVersionRestoreConflictError(
+                "Design version maps more than one file to the same row.",
+              );
+            }
+            if (!existing && targetFile.id) {
+              const collision = firstRow(
+                await tx
+                  .select({ designId: schema.designFiles.designId })
+                  .from(schema.designFiles)
+                  .where(eq(schema.designFiles.id, targetFile.id))
+                  .limit(1),
+              );
+              if (collision && collision.designId !== args.designId) {
+                id = nanoid();
               }
-              await assertNoUnpersistedCollaborativeEdits(
-                lockedFiles,
-                preparedCheckpoint.capture.liveSnapshot,
-              );
-              const before = await persistPreparedDesignVersionCheckpoint(
-                preparedCheckpoint,
-                preparedFiles,
-                tx,
-              );
-              const now = new Date();
-              const updatedAt = nextUpdatedAt(
-                currentDesign.updatedAt ?? null,
-                now,
-              );
-              const currentById = new Map(
-                lockedFiles.map((file) => [file.id, file]),
-              );
-              const currentByFilename = new Map(
-                lockedFiles.map((file) => [file.filename, file]),
-              );
-              const claimedIds = new Set<string>();
-              const restoreFiles: RestoreFile[] = [];
+            }
+            claimedIds.add(id);
+            const restored = {
+              id,
+              filename: targetFile.filename,
+              fileType: targetFile.fileType,
+              content: targetFile.content,
+            };
+            restoreFiles.push(restored);
 
-              for (const targetFile of target.files) {
-                const byId = targetFile.id
-                  ? currentById.get(targetFile.id)
-                  : undefined;
-                const byFilename = currentByFilename.get(targetFile.filename);
-                if (byId && byFilename && byId.id !== byFilename.id) {
-                  throw new DesignVersionRestoreConflictError(
-                    `Design version has conflicting identity for "${targetFile.filename}".`,
-                  );
-                }
-                const existing = byId ?? byFilename;
-                let id = existing?.id ?? targetFile.id ?? nanoid();
-                if (claimedIds.has(id)) {
-                  throw new DesignVersionRestoreConflictError(
-                    "Design version maps more than one file to the same row.",
-                  );
-                }
-                if (!existing && targetFile.id) {
-                  const [collision] = await tx
-                    .select({ designId: schema.designFiles.designId })
-                    .from(schema.designFiles)
-                    .where(eq(schema.designFiles.id, targetFile.id))
-                    .limit(1);
-                  if (collision && collision.designId !== args.designId) {
-                    id = nanoid();
-                  }
-                }
-                claimedIds.add(id);
-                const restored = {
-                  id,
-                  filename: targetFile.filename,
-                  fileType: targetFile.fileType,
-                  content: targetFile.content,
-                };
-                restoreFiles.push(restored);
-
-                if (existing) {
-                  const updateResult = await tx
-                    .update(schema.designFiles)
-                    .set({
-                      filename: restored.filename,
-                      fileType: restored.fileType,
-                      content: restored.content,
-                      contentOperationSource: null,
-                      contentOperationRevision: null,
-                      contentOperationResultHash: null,
-                      updatedAt,
+            if (existing) {
+              const updateResult = await tx
+                .update(schema.designFiles)
+                .set({
+                  filename: restored.filename,
+                  fileType: restored.fileType,
+                  content: restored.content,
+                  contentOperationSource: null,
+                  contentOperationRevision: null,
+                  contentOperationResultHash: null,
+                  updatedAt,
+                })
+                .where(designFileRevisionWhere(existing));
+              const affected = affectedRowCount(updateResult);
+              if (affected === 0) {
+                throw new DesignVersionRestoreConflictError(
+                  "A design file changed while history was being restored. Refresh and try again.",
+                );
+              }
+              if (affected === undefined) {
+                const confirmed = firstRow(
+                  await tx
+                    .select({
+                      filename: schema.designFiles.filename,
+                      fileType: schema.designFiles.fileType,
+                      content: schema.designFiles.content,
+                      updatedAt: schema.designFiles.updatedAt,
                     })
-                    .where(designFileRevisionWhere(existing));
-                  const affected = affectedRowCount(updateResult);
-                  if (affected === 0) {
-                    throw new DesignVersionRestoreConflictError(
-                      "A design file changed while history was being restored. Refresh and try again.",
-                    );
-                  }
-                  if (affected === undefined) {
-                    const [confirmed] = await tx
-                      .select({
-                        filename: schema.designFiles.filename,
-                        fileType: schema.designFiles.fileType,
-                        content: schema.designFiles.content,
-                        updatedAt: schema.designFiles.updatedAt,
-                      })
-                      .from(schema.designFiles)
-                      .where(eq(schema.designFiles.id, existing.id))
-                      .limit(1);
-                    if (
-                      !confirmed ||
-                      confirmed.filename !== restored.filename ||
-                      confirmed.fileType !== restored.fileType ||
-                      confirmed.content !== restored.content ||
-                      confirmed.updatedAt !== updatedAt
-                    ) {
-                      throw new DesignVersionRestoreConflictError(
-                        "A design file changed while history was being restored. Refresh and try again.",
-                      );
-                    }
-                  }
-                } else {
-                  await tx.insert(schema.designFiles).values({
-                    id: restored.id,
-                    designId: args.designId,
-                    filename: restored.filename,
-                    fileType: restored.fileType,
-                    content: restored.content,
-                    contentOperationSource: null,
-                    contentOperationRevision: null,
-                    contentOperationResultHash: null,
-                    createdAt: targetFile.createdAt ?? updatedAt,
-                    updatedAt,
-                  });
-                }
-              }
-
-              for (const currentFile of lockedFiles) {
-                if (claimedIds.has(currentFile.id)) continue;
-                const deleteResult = await tx
-                  .delete(schema.designFiles)
-                  .where(designFileRevisionWhere(currentFile));
-                const affected = affectedRowCount(deleteResult);
-                if (affected === 0) {
+                    .from(schema.designFiles)
+                    .where(eq(schema.designFiles.id, existing.id))
+                    .limit(1),
+                );
+                if (
+                  !confirmed ||
+                  confirmed.filename !== restored.filename ||
+                  confirmed.fileType !== restored.fileType ||
+                  confirmed.content !== restored.content ||
+                  confirmed.updatedAt !== updatedAt
+                ) {
                   throw new DesignVersionRestoreConflictError(
                     "A design file changed while history was being restored. Refresh and try again.",
                   );
                 }
-                if (affected === undefined) {
-                  const [confirmed] = await tx
-                    .select({ id: schema.designFiles.id })
-                    .from(schema.designFiles)
-                    .where(eq(schema.designFiles.id, currentFile.id))
-                    .limit(1);
-                  if (confirmed) {
-                    throw new DesignVersionRestoreConflictError(
-                      "A design file changed while history was being restored. Refresh and try again.",
-                    );
-                  }
-                }
               }
+            } else {
+              await tx.insert(schema.designFiles).values({
+                id: restored.id,
+                designId: args.designId,
+                filename: restored.filename,
+                fileType: restored.fileType,
+                content: restored.content,
+                contentOperationSource: null,
+                contentOperationRevision: null,
+                contentOperationResultHash: null,
+                createdAt: targetFile.createdAt ?? updatedAt,
+                updatedAt,
+              });
+            }
+          }
 
-              const designUpdates: Record<string, unknown> = { updatedAt };
-              if (target.designData !== undefined) {
-                designUpdates.data = withServerOwnedTweakSelectionsRevisionJson(
-                  args.designId,
-                  currentDesign.data,
-                  target.designData,
-                );
-                designUpdates.dataOperationRevisions = "{}";
-              }
-              if (target.designTitle !== undefined) {
-                designUpdates.title = target.designTitle;
-              }
-              if (target.designDescription !== undefined) {
-                designUpdates.description = target.designDescription;
-              }
-              if (target.projectType !== undefined) {
-                designUpdates.projectType = target.projectType;
-              }
-
-              const designRevision = currentDesign.updatedAt;
-              await tx
-                .update(schema.designs)
-                .set(designUpdates)
-                .where(
-                  and(
-                    eq(schema.designs.id, args.designId),
-                    designRevision === null || designRevision === undefined
-                      ? isNull(schema.designs.updatedAt)
-                      : eq(schema.designs.updatedAt, designRevision),
-                  ),
-                );
-              const [confirmed] = await tx
-                .select({ updatedAt: schema.designs.updatedAt })
-                .from(schema.designs)
-                .where(eq(schema.designs.id, args.designId))
-                .limit(1);
-              if (!confirmed || confirmed.updatedAt !== updatedAt) {
+          for (const currentFile of lockedFiles) {
+            if (claimedIds.has(currentFile.id)) continue;
+            const deleteResult = await tx
+              .delete(schema.designFiles)
+              .where(designFileRevisionWhere(currentFile));
+            const affected = affectedRowCount(deleteResult);
+            if (affected === 0) {
+              throw new DesignVersionRestoreConflictError(
+                "A design file changed while history was being restored. Refresh and try again.",
+              );
+            }
+            if (affected === undefined) {
+              const confirmed = firstRow(
+                await tx
+                  .select({ id: schema.designFiles.id })
+                  .from(schema.designFiles)
+                  .where(eq(schema.designFiles.id, currentFile.id))
+                  .limit(1),
+              );
+              if (confirmed) {
                 throw new DesignVersionRestoreConflictError(
-                  "Design changed while history was being restored. Refresh and try again.",
+                  "A design file changed while history was being restored. Refresh and try again.",
                 );
               }
+            }
+          }
 
-              return {
-                beforeRestoreVersionId: before.id,
-                restore: {
-                  updatedAt,
-                  files: restoreFiles,
-                  deletedFileIds: lockedFiles
-                    .filter((file) => !claimedIds.has(file.id))
-                    .map((file) => file.id),
-                },
-              };
+          const designUpdates: Record<string, unknown> = { updatedAt };
+          if (target.designData !== undefined) {
+            designUpdates.data = withServerOwnedTweakSelectionsRevisionJson(
+              args.designId,
+              currentDesign.data,
+              target.designData,
+            );
+            designUpdates.dataOperationRevisions = "{}";
+          }
+          if (target.designTitle !== undefined) {
+            designUpdates.title = target.designTitle;
+          }
+          if (target.designDescription !== undefined) {
+            designUpdates.description = target.designDescription;
+          }
+          if (target.projectType !== undefined) {
+            designUpdates.projectType = target.projectType;
+          }
+
+          const designRevision = currentDesign.updatedAt;
+          await tx
+            .update(schema.designs)
+            .set(designUpdates)
+            .where(
+              and(
+                eq(schema.designs.id, args.designId),
+                designRevision === null
+                  ? isNull(schema.designs.updatedAt)
+                  : eq(schema.designs.updatedAt, designRevision),
+              ),
+            );
+          const confirmed = firstRow(
+            await tx
+              .select({ updatedAt: schema.designs.updatedAt })
+              .from(schema.designs)
+              .where(eq(schema.designs.id, args.designId))
+              .limit(1),
+          );
+          if (!confirmed || confirmed.updatedAt !== updatedAt) {
+            throw new DesignVersionRestoreConflictError(
+              "Design changed while history was being restored. Refresh and try again.",
+            );
+          }
+
+          return {
+            beforeRestoreVersionId: before.id,
+            restore: {
+              updatedAt,
+              files: restoreFiles,
+              deletedFileIds: lockedFiles
+                .filter((file) => !claimedIds.has(file.id))
+                .map((file) => file.id),
             },
-            transactionOutcome,
-          ),
-        target.files.flatMap((file) => (file.id ? [file.id] : [])),
-      );
-      await cleanupPreparedDesignVersionCheckpoint(preparedCheckpoint, true);
-    } catch (error) {
-      await cleanupPreparedDesignVersionCheckpoint(
-        preparedCheckpoint,
-        false,
-        transactionOutcome.rollbackConfirmed,
-      );
-      throw error;
-    }
+          };
+        }),
+      target.files.flatMap((file) => (file.id ? [file.id] : [])),
+    );
 
     const pending: string[] = [];
     await Promise.all([

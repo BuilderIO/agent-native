@@ -5129,6 +5129,10 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         await openFirstThread();
         await openCommentMenu("reply-1");
         await act(async () => menuItem("review.deleteComment")?.click());
+        await act(async () => {
+          // fixed-sleep-ok: Delete waits for the closed menu's zero-delay focus timer
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
 
         const dialog = document.querySelector('[role="alertdialog"]');
         expect(dialog?.textContent).toContain("review.deleteCommentTitle");
@@ -7698,5 +7702,140 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         expect(popover?.style.left).toBe("12px");
       });
     });
+  });
+});
+
+describe("ReviewCanvasPins chrome observation", () => {
+  let container: HTMLDivElement;
+  let canvas: HTMLDivElement;
+  let root: Root;
+  let observed: Element[];
+
+  beforeEach(() => {
+    vi.useFakeTimers({
+      toFake: [
+        "setTimeout",
+        "clearTimeout",
+        "requestAnimationFrame",
+        "cancelAnimationFrame",
+      ],
+    });
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    observed = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe(element: Element) {
+          observed.push(element);
+        }
+        disconnect() {}
+      },
+    );
+    canvas = document.createElement("div");
+    canvas.className = "review-chrome-canvas";
+    document.body.appendChild(canvas);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    canvas.remove();
+    document
+      .querySelectorAll("[data-design-chrome-region]")
+      .forEach((region) => region.remove());
+    reviewComments = [comment];
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("finds chrome mounted mid-pan once the camera settles, not on each frame", async () => {
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active={false}
+          onClose={vi.fn()}
+          canvasSelector=".review-chrome-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+        />,
+      );
+    });
+    const region = document.createElement("div");
+    region.setAttribute("data-design-chrome-region", "right-panel");
+    document.body.appendChild(region);
+
+    for (let frame = 0; frame < 5; frame += 1) {
+      await act(async () => {
+        window.dispatchEvent(new Event("scroll"));
+        await vi.advanceTimersByTimeAsync(20);
+      });
+    }
+    expect(observed).not.toContain(region);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    expect(observed).toContain(region);
+  });
+
+  it("re-measures anchored pins when they are shown again after the camera moved while hidden", async () => {
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("data-design-preview-iframe", "");
+    canvas.appendChild(iframe);
+    const postMessage = vi.fn();
+    Object.defineProperty(iframe.contentWindow, "postMessage", {
+      configurable: true,
+      value: postMessage,
+    });
+    reviewComments = [
+      {
+        ...comment,
+        targetId: null,
+        anchor: {
+          nodeId: "src:pin",
+          relativePoint: { xPct: 50, yPct: 50 },
+          point: { xPct: 50, yPct: 50 },
+        },
+      },
+    ];
+    const pins = (hidden: boolean) => (
+      <ReviewCanvasPins
+        active={false}
+        hidden={hidden}
+        onClose={vi.fn()}
+        canvasSelector=".review-chrome-canvas"
+        resourceType="design"
+        resourceId="design-1"
+        targetId={null}
+        canPost
+        canResolve
+      />
+    );
+    const rectRequests = () =>
+      postMessage.mock.calls.filter(
+        ([message]) => message?.type === "agent-native:review-node-rects",
+      ).length;
+
+    await act(async () => {
+      root.render(pins(true));
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("scroll"));
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    const requestsWhileHidden = rectRequests();
+
+    await act(async () => {
+      root.render(pins(false));
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    expect(rectRequests()).toBeGreaterThan(requestsWhileHidden);
   });
 });

@@ -255,25 +255,14 @@ function StrokeLayerControl({
         ) : null}
       </InspectorPaintRow>
       <div className="design-sidebar-property-group">
-        <InspectorGrid
-          className="design-sidebar-property-grid items-end"
-          layout="stroke-details"
-        >
-          <InspectorGridCell span={INSPECTOR_GRID_STROKE_POSITION_SPAN}>
-            <SubsectionLabel>{t("editPanel.labels.position")}</SubsectionLabel>
-          </InspectorGridCell>
-          <InspectorGridCell
-            span={INSPECTOR_GRID_STROKE_GUTTER_SPAN}
-            ariaHidden
-          />
-          <InspectorGridCell span={INSPECTOR_GRID_STROKE_WEIGHT_SPAN}>
-            <SubsectionLabel>{t("editPanel.labels.weight")}</SubsectionLabel>
-          </InspectorGridCell>
-        </InspectorGrid>
-        <InspectorGrid className="items-center" layout="stroke-details">
+        <InspectorGrid className="items-center" layout="pair">
           <InspectorGridCell span={INSPECTOR_GRID_STROKE_POSITION_SPAN}>
             <Select value={position} onValueChange={movePosition}>
-              <SelectTrigger className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+              <SelectTrigger
+                aria-label={t("editPanel.labels.position")}
+                // guard:allow-part-geometry unchanged 24px inspector trigger classes, reflowed only to add aria-label
+                className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 !text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -331,7 +320,7 @@ function StrokeLayerControl({
                   element={element}
                   overrideProperty="border-width"
                   breakpointOverrideContext={breakpointOverrideContext}
-                  className="absolute -top-3.5 right-0"
+                  className="absolute -top-2 right-0"
                 />
               ) : null}
             </div>
@@ -1056,21 +1045,7 @@ function VectorStrokeProperties({
               onStylesChange={onStylesChange}
             />
           ) : null}
-          <InspectorGrid className="items-center" layout="stroke-details">
-            <InspectorGridCell span={INSPECTOR_GRID_STROKE_POSITION_SPAN}>
-              <SubsectionLabel>
-                {t("editPanel.labels.position")}
-              </SubsectionLabel>
-            </InspectorGridCell>
-            <InspectorGridCell
-              span={INSPECTOR_GRID_STROKE_GUTTER_SPAN}
-              ariaHidden
-            />
-            <InspectorGridCell span={INSPECTOR_GRID_STROKE_WEIGHT_SPAN}>
-              <SubsectionLabel>{t("editPanel.labels.weight")}</SubsectionLabel>
-            </InspectorGridCell>
-          </InspectorGrid>
-          <InspectorGrid className="items-center" layout="stroke-details">
+          <InspectorGrid className="items-center" layout="pair">
             <InspectorGridCell span={INSPECTOR_GRID_STROKE_POSITION_SPAN}>
               <Select
                 value={canAlignStroke ? position : "center"}

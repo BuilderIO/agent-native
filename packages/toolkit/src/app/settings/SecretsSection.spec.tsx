@@ -134,7 +134,11 @@ const adminOrgMe = {
   iconRevision: 0,
 };
 
-function mockFetchWithSecrets(secrets: unknown[], orgMe: unknown = adminOrgMe) {
+function mockFetchWithSecrets(
+  secrets: unknown[],
+  orgMe: unknown = adminOrgMe,
+  customKeyName = "CUSTOM_TOKEN",
+) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: string | URL | Request) => {
@@ -143,7 +147,7 @@ function mockFetchWithSecrets(secrets: unknown[], orgMe: unknown = adminOrgMe) {
       if (url.endsWith("/secrets/adhoc")) {
         return Response.json([
           {
-            name: "CUSTOM_TOKEN",
+            name: customKeyName,
             scope: "user",
             scopeId: "user-1",
             source: "personal",
@@ -538,29 +542,41 @@ describe("SecretsSection", () => {
     expect(container.textContent).toContain("Saved");
   });
 
-  it("shows configured keys while keeping unset providers behind New", async () => {
-    await act(async () => {
-      renderSecretsSection(root);
-    });
+  it.each([
+    "CUSTOM_TOKEN",
+    "SERVICE_CONNECTOR_CREDENTIAL_0123456789ABCDEF0123456789ABCDEF_ACCESS_TOKEN",
+    "workspace.privateKey.11111111-2222-4333-8444-555555555555",
+  ])(
+    "formats configured key %s while keeping unset providers behind New",
+    async (name) => {
+      mockFetchWithSecrets(registeredSecrets, adminOrgMe, name);
+      await act(async () => {
+        renderSecretsSection(root);
+      });
 
-    expect(container.textContent).toContain("OpenAI API key");
-    expect(container.textContent).toContain("CUSTOM_TOKEN");
-    expect(container.textContent).not.toContain("Brave Search API Key");
-    expect(container.textContent).not.toContain("Tavily API Key");
-    expect(
-      container.querySelector('input[placeholder="Paste key"]'),
-    ).toBeNull();
+      expect(container.textContent).toContain("OpenAI API key");
+      expect(
+        Array.from(container.querySelectorAll("code")).map(
+          (element) => element.textContent,
+        ),
+      ).toContain(name);
+      expect(container.textContent).not.toContain("Brave Search API Key");
+      expect(container.textContent).not.toContain("Tavily API Key");
+      expect(
+        container.querySelector('input[placeholder="Paste key"]'),
+      ).toBeNull();
 
-    await openNewMenu();
+      await openNewMenu();
 
-    expect(document.body.textContent).toContain("Decision model (Jev)");
-    expect(document.body.textContent).toContain("Brave Search API Key");
-    expect(document.body.textContent).toContain("Tavily API Key");
-    expect(document.body.textContent).toContain("Custom key");
-    expect(document.body.textContent).not.toContain(
-      "Choose a keyOpenAI API key",
-    );
-  });
+      expect(document.body.textContent).toContain("Decision model (Jev)");
+      expect(document.body.textContent).toContain("Brave Search API Key");
+      expect(document.body.textContent).toContain("Tavily API Key");
+      expect(document.body.textContent).toContain("Custom key");
+      expect(document.body.textContent).not.toContain(
+        "Choose a keyOpenAI API key",
+      );
+    },
+  );
 
   it("opens only the selected preset or custom key form", async () => {
     await act(async () => {

@@ -88,6 +88,7 @@ function makeRawClient(withTransaction: boolean) {
 let currentClient = makeRawClient(true);
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => currentClient,
   getScopedDbExec: () => undefined,
   getScopedTransactionDbExec: () => undefined,

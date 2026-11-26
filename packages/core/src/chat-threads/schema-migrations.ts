@@ -131,3 +131,33 @@ export const CHAT_THREAD_SCHEMA_MIGRATIONS: MigrationEntry[] = [
     `,
   },
 ];
+
+// guard:allow-unscoped — one-time backfill of automation threads from their own run history rows
+export const AUTOMATION_THREAD_SOURCE_BACKFILL_SQL = `
+      DO $$
+      BEGIN
+        IF to_regclass('automation_runs') IS NOT NULL
+          AND EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'automation_runs' AND column_name = 'app_id'
+          )
+          AND EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'automation_runs' AND column_name = 'thread_id'
+          )
+        THEN
+          UPDATE chat_threads t
+            SET source_app_id = h.app_id
+            FROM (
+              SELECT thread_id, min(app_id) AS app_id
+              FROM automation_runs
+              WHERE thread_id IS NOT NULL AND app_id IS NOT NULL AND app_id <> ''
+              GROUP BY thread_id
+              HAVING count(DISTINCT app_id) = 1
+            ) h
+            WHERE t.id = h.thread_id
+              AND t.source_app_id IS NULL
+              AND t.source_platform IS NULL;
+        END IF;
+      END $$
+    `;

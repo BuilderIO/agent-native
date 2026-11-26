@@ -75,18 +75,21 @@ async function isOrgMemberWithPolicy(
     String(organization?.identity_id ?? "").trim();
   if (!linked) return true;
 
+  const {
+    federatedSnapshotTransaction,
+    validateFederatedOrganizationMembershipForCurrentRequest,
+  } = await import("./federation.js");
   if (
     !(await evaluateFeatureFlagStrict(CROSS_APP_ORG_FEDERATION_FLAG.key, {
       userEmail: normalized,
       userKey: normalized,
       orgId,
+      transaction: federatedSnapshotTransaction(),
     }))
   ) {
     return true;
   }
 
-  const { validateFederatedOrganizationMembershipForCurrentRequest } =
-    await import("./federation.js");
   const validation =
     await validateFederatedOrganizationMembershipForCurrentRequest(
       {

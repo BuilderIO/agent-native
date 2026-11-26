@@ -1,5 +1,5 @@
 export const DEFAULT_INSPECTOR_WIDTH = 280;
-export const INSPECTOR_MIN_WIDTH = 240;
+export const INSPECTOR_MIN_WIDTH = 280;
 export const INSPECTOR_MAX_WIDTH = 400;
 const INSPECTOR_WIDTH_STEP = 8;
 

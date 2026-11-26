@@ -26,6 +26,7 @@ const holder = vi.hoisted(() => ({
 }));
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({
     execute: async (q: string | { sql: string; args?: unknown[] }) => {
       const sql = typeof q === "string" ? q : q.sql;

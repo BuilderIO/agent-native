@@ -173,8 +173,13 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
       tokenUrl: "https://zoom.us/oauth/token",
       scopes: [
         "user:read:user",
+        "user:read:email",
+        "meeting:read:list_meetings",
+        "meeting:read:meeting",
+        "meeting:update:meeting",
         "cloud_recording:read:list_user_recordings",
         "cloud_recording:read:list_recording_files",
+        "cloud_recording:read:meeting_transcript",
       ],
       requiredScopes: [],
     },

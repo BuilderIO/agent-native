@@ -169,18 +169,39 @@ const TERMINAL_MCP_REQUEST_HEADERS = new Set([
   "accept",
   "cache-control",
   "content-type",
+  "if-none-match",
   "last-event-id",
+  "mcp-method",
+  "mcp-name",
   "mcp-protocol-version",
   "mcp-session-id",
 ]);
+const TERMINAL_MCP_PARAM_HEADER_PATTERN =
+  /^mcp-param-[!#$%&'*+\-.^_`|~0-9a-z]+$/;
 const TERMINAL_MCP_RESPONSE_HEADERS = new Set([
   "cache-control",
   "content-type",
+  "etag",
   "last-event-id",
   "location",
+  "mcp-protocol-version",
   "mcp-session-id",
   "retry-after",
+  "vary",
+  "www-authenticate",
 ]);
+
+export function shouldForwardTerminalMcpRequestHeader(name: string): boolean {
+  const lower = name.toLowerCase();
+  return (
+    TERMINAL_MCP_REQUEST_HEADERS.has(lower) ||
+    TERMINAL_MCP_PARAM_HEADER_PATTERN.test(lower)
+  );
+}
+
+export function shouldForwardTerminalMcpResponseHeader(name: string): boolean {
+  return TERMINAL_MCP_RESPONSE_HEADERS.has(name.toLowerCase());
+}
 
 function headerValue(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value.join(", ") : value;
@@ -539,7 +560,7 @@ export class DesktopTerminalMcpRelay {
     try {
       const headers = new Headers();
       for (const [name, value] of Object.entries(request.headers)) {
-        if (!TERMINAL_MCP_REQUEST_HEADERS.has(name.toLowerCase())) continue;
+        if (!shouldForwardTerminalMcpRequestHeader(name)) continue;
         const normalized = headerValue(value);
         if (normalized) headers.set(name, normalized);
       }

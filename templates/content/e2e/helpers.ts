@@ -644,6 +644,7 @@ export class TabSet {
   private readonly stranded = new WeakSet<Request>();
   private readonly heldAnswers = new WeakMap<Request, SaveAnswer>();
   private readonly answered = new WeakSet<Request>();
+  private readonly gated = new WeakSet<Request>();
   private readonly fetching = new Set<Request>();
 
   private constructor(readonly context: BrowserContext) {}
@@ -850,6 +851,10 @@ export class TabSet {
     return this.stranded.has(request);
   }
 
+  timeThroughGate(request: Request) {
+    this.gated.add(request);
+  }
+
   /**
    * Fetch the answer to a save a SaveGate holds, and keep it. If the save
    * already settled, the set records the answer as late instead.
@@ -1020,6 +1025,7 @@ export class TabSet {
     if (
       !late &&
       sentAt !== undefined &&
+      this.gated.has(request) &&
       savesBody(new URL(request.url()).pathname)
     )
       record.saveDurationsMs.push(Date.now() - sentAt);
@@ -1156,6 +1162,7 @@ export class SaveGate {
   private async handle(route: Route) {
     const request = route.request();
     if (request.method() !== "POST") return route.continue();
+    this.tabs.timeThroughGate(request);
     if (this.latencyMs > 0) await delay(this.latencyMs);
     // A save whose page went away is settled, and Playwright has dropped it.
     if (this.tabs.isStranded(request)) return;

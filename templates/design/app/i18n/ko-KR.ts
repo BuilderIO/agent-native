@@ -363,6 +363,8 @@ export default {
       blur: "흐림",
       spread: "확산",
       rotation3d: "3D 회전",
+      constraints: "제약 조건",
+      absolutePosition: "절대 위치",
       rotationX: "X 회전",
       rotationY: "Y 회전",
       perspective: "원근감",
@@ -852,6 +854,10 @@ export default {
     exportPreview: {
       rendering: "미리 보기 생성 중…",
       failed: "미리 보기를 사용할 수 없음",
+      noPreview: "미리 볼 화면이 없습니다",
+      externalPreview: "미리보기에는 라이브 앱이 필요합니다",
+      readOnlyPreview: "읽기 전용 모드에서는 미리보기를 사용할 수 없습니다",
+      selectionUnresolved: "이 화면에서 선택 항목을 찾을 수 없습니다",
     },
     framePresets: {
       title: "프레임",
@@ -1143,6 +1149,12 @@ export default {
         opacity: "불투명도",
       },
       editColor: "{{name}} 색상 편집",
+      field: {
+        open: "토큰",
+        detach: "토큰 분리",
+        primitives: "{{group}} 프리미티브",
+        loading: "토큰 불러오는 중…",
+      },
     },
     import: {
       description:
@@ -1833,8 +1845,6 @@ export default {
         "다시 실행을 건너뛰었습니다 — 다른 사용자가 이동했습니다",
       saveConflict:
         "이 페이지가 다른 곳에서 변경되었습니다. 마지막 편집은 저장되지 않았습니다.",
-      versionHistoryUnavailable:
-        "이 디자인에는 버전 기록을 사용할 수 없습니다. 편집 내용은 저장되었습니다.",
       removeAutoLayoutFailed: "오토 레이아웃을 제거할 수 없습니다",
       autoLayoutScreensUnsupported:
         "자동 레이아웃 추가는 페이지에 적용되지 않습니다",
@@ -1912,6 +1922,7 @@ export default {
   layersPanel: {
     title: "레이어",
     screens: "페이지",
+    components: "컴포넌트",
     resizeScreens: "페이지 섹션 크기 조정",
     thumbnail: "썸네일",
     addScreen: "페이지 추가",

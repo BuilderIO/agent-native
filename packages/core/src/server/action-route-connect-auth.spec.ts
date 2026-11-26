@@ -113,6 +113,7 @@ function mockDb(
     },
   );
   vi.doMock("../db/client.js", () => ({
+    getEnclosingTransactionDbExec: () => undefined,
     getDbExec: () => ({ execute }),
     isProductionServerlessFunctionRuntime: () => false,
     isLocalDatabase: () => true,

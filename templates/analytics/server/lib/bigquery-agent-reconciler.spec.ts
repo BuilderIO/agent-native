@@ -219,7 +219,10 @@ describe("a bounded job's one resend", () => {
     ],
   ];
 
-  function stubAmbiguousSubmit(resend: () => Response = accepted) {
+  function stubAmbiguousSubmit(
+    resend: () => Response = accepted,
+    onFirstSend: () => void = () => undefined,
+  ) {
     const sent: string[] = [];
     vi.stubGlobal(
       "fetch",
@@ -227,7 +230,10 @@ describe("a bounded job's one resend", () => {
         const url = new URL(String(input));
         if (init?.method === "POST" && url.pathname.endsWith("/jobs")) {
           sent.push(JSON.parse(String(init.body)).jobReference.jobId);
-          if (sent.length === 1) throw new TypeError("fetch failed");
+          if (sent.length === 1) {
+            onFirstSend();
+            throw new TypeError("fetch failed");
+          }
           return resend();
         }
         if (url.pathname.endsWith(`/jobs/${TARGET}`)) {
@@ -247,7 +253,10 @@ describe("a bounded job's one resend", () => {
     return sent;
   }
 
-  const run = (submitBy: number) =>
+  const run = (
+    submitBy: number,
+    admittedOnUtcDay = new Date().toISOString().slice(0, 10),
+  ) =>
     runBoundedBigQueryJob({
       projectId: job.projectId,
       jobId: TARGET,
@@ -258,6 +267,7 @@ describe("a bounded job's one resend", () => {
       maxRows: 10,
       maxResultBytes: 10_000,
       submitBy,
+      admittedOnUtcDay,
     });
 
   it("resends under the same ID while its admission is live", async () => {
@@ -269,12 +279,77 @@ describe("a bounded job's one resend", () => {
   });
 
   it("does not resend once its admission has lapsed", async () => {
-    const sent = stubAmbiguousSubmit();
-    expect(await run(Date.now() - 1)).toMatchObject({
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const sent = stubAmbiguousSubmit(accepted, () =>
+        vi.setSystemTime(Date.now() + 120_000),
+      );
+      expect(await run(Date.now() + 60_000)).toMatchObject({
+        status: "uncertain",
+        reason: "submission_unknown",
+      });
+      expect(sent).toEqual([TARGET]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the outcome uncertain when the resend hits a quota limit and BigQuery can't find the job, since the first send may still land", async () => {
+    const sent = stubAmbiguousSubmit(() =>
+      json(
+        {
+          error: {
+            code: 403,
+            message: "Quota exceeded",
+            errors: [{ reason: "quotaExceeded", message: "Quota exceeded" }],
+          },
+        },
+        403,
+      ),
+    );
+    expect(await run(Date.now() + 60_000)).toMatchObject({
       status: "uncertain",
       reason: "submission_unknown",
     });
-    expect(sent).toEqual([TARGET]);
+    expect(sent).toEqual([TARGET, TARGET]);
+  });
+
+  it("does not resend once the UTC day it was admitted on has ended", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      vi.setSystemTime(new Date("2026-11-22T23:59:59.500Z"));
+      const sent = stubAmbiguousSubmit(accepted, () =>
+        vi.setSystemTime(new Date("2026-11-23T00:00:00.500Z")),
+      );
+      expect(await run(Date.now() + 60_000, "2026-11-22")).toMatchObject({
+        status: "uncertain",
+        reason: "submission_unknown",
+      });
+      expect(sent).toEqual([TARGET]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("makes no first send once the UTC day it was admitted on has ended", async () => {
+    const sent = stubAmbiguousSubmit();
+    const yesterday = new Date(Date.now() - 24 * 60 * 60_000)
+      .toISOString()
+      .slice(0, 10);
+    expect(await run(Date.now() + 60_000, yesterday)).toEqual({
+      status: "not_submitted",
+      reason: "day_changed",
+    });
+    expect(sent).toEqual([]);
+  });
+
+  it("makes no first send once its admission has lapsed", async () => {
+    const sent = stubAmbiguousSubmit();
+    expect(await run(Date.now() - 1)).toEqual({
+      status: "not_submitted",
+      reason: "admission_lapsed",
+    });
+    expect(sent).toEqual([]);
   });
 
   it.each(refusals)(

@@ -53,6 +53,7 @@ import {
   isCreditsLimitErrorCode,
   isGenericInternalServerErrorMessage,
   isProviderConnectionErrorMessage,
+  isRejectedRequestErrorCode,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "./error-detail.js";
 import { FIRST_STREAM_EVENT_TIMEOUT_MS } from "./first-event-timeout.js";
@@ -1526,9 +1527,7 @@ async function* parseJsonlStream(
             const gatewayRequestId = isAuthenticationFailure
               ? undefined
               : rawGatewayRequestId;
-            const isInvalidRequest =
-              gatewayErrCode === "invalid_request" ||
-              gatewayErrCode === "invalid_request_error";
+            const isInvalidRequest = isRejectedRequestErrorCode(gatewayErrCode);
             console.error(
               `[builder-engine] stop reason=error model=${model} code=${safeErrCode ?? "(none)"} requestId=${gatewayRequestId ?? "(none)"} providerMessagePresent=${Boolean(explicitErrMsg)}`,
             );

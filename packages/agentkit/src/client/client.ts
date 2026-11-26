@@ -5338,12 +5338,7 @@ export class AgentKitClient implements AgentKitController {
                 "must match the subscribed thread",
               );
             }
-            if (event.runId !== runId) {
-              throw new AgentProtocolValidationError(
-                "event.runId",
-                "must match the subscribed run",
-              );
-            }
+            if (event.runId !== runId) continue;
             this.applyEvent(event);
             if (
               event.type === "approval.requested" ||

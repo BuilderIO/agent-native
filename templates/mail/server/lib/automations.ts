@@ -176,7 +176,7 @@ async function ensureAiTagLabelExists(
   const { clients, errors } = await getClientsWithErrors(ownerEmail);
   if (clients.length === 0 && errors.length > 0) {
     throw new Error(
-      `Unable to create the Mail tag label: ${errors.map((error) => error.error).join("; ")}`,
+      `Unable to create the Mail label: ${errors.map((error) => error.error).join("; ")}`,
     );
   }
   if (clients.length === 0) {

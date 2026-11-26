@@ -15,6 +15,7 @@ import { runDemoPanel, serializeDemoDescriptorInput } from "./demo-source";
 import { queryFirstPartyAnalytics } from "./first-party-analytics";
 import { FirstPartyAnalyticsUnsupportedSqlError } from "./first-party-analytics-backend";
 import { runReport } from "./google-analytics";
+import { runQueryWithColumns as runPostgresQuery } from "./postgres";
 import {
   runPrometheusPanel,
   serializePanelDescriptorInput,
@@ -29,6 +30,7 @@ export const DASHBOARD_PANEL_SOURCES = [
   "demo",
   "prometheus",
   "program",
+  "postgres",
 ] as const;
 
 export type DashboardPanelSource = (typeof DASHBOARD_PANEL_SOURCES)[number];
@@ -133,6 +135,40 @@ async function missingCredential(
     label,
     message: `Connect your ${label} account to see this data`,
     settingsPath: "/data-sources",
+  };
+}
+
+const PG_STRING_NUMERIC_OIDS = new Set([20, 1700]);
+const PG_NUMERIC_OIDS = new Set([20, 21, 23, 700, 701, 1700]);
+
+async function runPostgresPanel(
+  query: string,
+  signal?: AbortSignal,
+): Promise<DashboardPanelQueryResult> {
+  signal?.throwIfAborted();
+  const { rows, columns } = await runPostgresQuery(query);
+  const convert = columns
+    .filter((c) => PG_STRING_NUMERIC_OIDS.has(c.type))
+    .map((c) => c.name);
+  return {
+    rows: rows.map((row) => {
+      const out = { ...row };
+      for (const name of convert) {
+        const value = out[name];
+        if (typeof value !== "string") continue;
+        const n = Number(value);
+        if (
+          Number.isFinite(n) &&
+          (!Number.isInteger(n) || Number.isSafeInteger(n))
+        )
+          out[name] = n;
+      }
+      return out;
+    }),
+    schema: columns.map((c) => ({
+      name: c.name,
+      type: PG_NUMERIC_OIDS.has(c.type) ? "number" : "string",
+    })),
   };
 }
 
@@ -383,6 +419,7 @@ async function runProgramPanel(
       truncated: result.truncated,
       cached: result.cacheHit,
       fetchedAt: new Date(result.asOfMs).toISOString(),
+      ...(result.refreshPending ? { refreshPending: true } : {}),
     };
   }
 
@@ -393,6 +430,9 @@ async function runProgramPanel(
       truncated: result.lastGoodRun.truncated,
       cached: true,
       fetchedAt: new Date(result.lastGoodRun.asOfMs).toISOString(),
+      ...(result.error.code === "background_pending"
+        ? { refreshPending: true }
+        : {}),
     };
   }
 
@@ -537,6 +577,16 @@ export async function runDashboardPanelQuery(args: {
     );
     if (missingUrl) return missingUrl;
     return await runPrometheusPanel(query);
+  }
+
+  if (source === "postgres") {
+    const missingUrl = await missingCredential(
+      ctx,
+      "POSTGRES_URL",
+      "PostgreSQL",
+    );
+    if (missingUrl) return missingUrl;
+    return await runPostgresPanel(query, signal);
   }
 
   if (source === "program") {

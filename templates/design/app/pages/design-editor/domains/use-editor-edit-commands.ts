@@ -780,7 +780,7 @@ export function useEditorEditCommands({
           return;
         }
       }
-      if (!activeFile) return;
+      if (!activeFile && !selectedLayerIdsState.length) return;
       return runChangeSelectedZIndex(
         {
           activeFile,
@@ -794,6 +794,16 @@ export function useEditorEditCommands({
           getFreshActiveContent,
           invalidateRenderedElementInfo,
           renderedElementInfoByLayerKeyRef,
+          resolveScreen: (fileId) => {
+            const file = files.find((candidate) => candidate.id === fileId);
+            if (!file) return undefined;
+            return {
+              file,
+              getContent: () => getScreenContent(fileId),
+              applyContent: (nextContent, options) =>
+                applyFileContentUpdate(fileId, nextContent, options),
+            };
+          },
           reportRefusal: (reason) =>
             toast.error(
               t(
@@ -819,7 +829,10 @@ export function useEditorEditCommands({
       canEditDesign,
       canEditLiveScreen,
       commitVisualStyles,
+      files,
       getFreshActiveContent,
+      getScreenContent,
+      applyFileContentUpdate,
       invalidateRenderedElementInfo,
       t,
       selectedElement,

@@ -54,6 +54,7 @@ async function loadAcceptPendingWithPglite(
   pglite: Awaited<ReturnType<typeof createTestPglite>>,
 ) {
   vi.doMock("../db/client.js", () => ({
+    getEnclosingTransactionDbExec: () => undefined,
     getDbExec: () => createPgliteExec(pglite),
     isLocalDatabase: () => true,
   }));

@@ -3,6 +3,7 @@ import {
   addDaysToDateKey,
   getCalendarViewDateRange,
   isCalendarTimezone,
+  timezoneFormatter,
 } from "@shared/timezone";
 import { format } from "date-fns";
 
@@ -69,16 +70,19 @@ function dateTimeParts(value: Date | string, timezone: string) {
   if (Number.isNaN(parsed.getTime())) return null;
 
   try {
-    const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone: timezone,
-      hourCycle: "h23",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    }).formatToParts(parsed);
+    const parts = timezoneFormatter(
+      timezone,
+      {
+        hourCycle: "h23",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      },
+      "en-US",
+    ).formatToParts(parsed);
     const valueFor = (type: Intl.DateTimeFormatPartTypes) =>
       parts.find((part) => part.type === type)?.value;
     const year = valueFor("year");

@@ -9,11 +9,15 @@ import {
   MAX_MIGRATION_PLAN_BYTES,
   MAX_MIGRATION_ROWS,
 } from "./_content-database-row-migration.js";
-import { DATABASE_ROW_PATCH_LIMIT } from "./_database-row-mutation.js";
+import {
+  DATABASE_ROW_PATCH_LIMIT,
+  rowPatchReceiptLocator,
+} from "./_database-row-mutation.js";
 import addComment from "./add-comment.js";
 import addContentDatabaseSourceFieldProperty from "./add-content-database-source-field-property.js";
 import addDatabaseItem from "./add-database-item.js";
 import addGitHubPullRequests from "./add-github-pull-requests.js";
+import addMailNote from "./add-mail-note.js";
 import configureDocumentProperty from "./configure-document-property.js";
 import connectNotionStatus from "./connect-notion-status.js";
 import createContentDatabase from "./create-content-database.js";
@@ -30,6 +34,7 @@ import getContentDatabaseSource from "./get-content-database-source.js";
 import getContentDatabase from "./get-content-database.js";
 import { resolveContentDatabaseReadLimit } from "./get-content-database.js";
 import getDocument from "./get-document.js";
+import getMailNote from "./get-mail-note.js";
 import linkGitHubFolder from "./link-github-folder.js";
 import listComments from "./list-comments.js";
 import listContentDatabaseBlocks from "./list-content-database-blocks.js";
@@ -107,6 +112,8 @@ describe("Content action-owned agent catalogs", () => {
     "add-github-pull-requests": addGitHubPullRequests,
     "read-composer-source": readComposerSource,
     "read-document-file": readDocumentFile,
+    "get-mail-note": getMailNote,
+    "add-mail-note": addMailNote,
   };
 
   const deferredDatabaseActions = {
@@ -407,6 +414,57 @@ describe("Content action-owned agent catalogs", () => {
     ]) {
       expect(action.mcpOutputContract?.response).toBeDefined();
     }
+  });
+
+  it("opens only the code-mode pilot to scripts, with the row patch as its one write", () => {
+    const scriptable = Object.fromEntries(
+      Object.entries({
+        ...directMcpActions,
+        ...deferredDatabaseActions,
+        "search-content-database-rows": searchContentDatabaseRows,
+      })
+        .filter(([, action]) => action.mcpScript !== undefined)
+        .map(([name, action]) => [name, action.mcpScript]),
+    );
+    expect(scriptable).toEqual({
+      "get-document": "read",
+      "get-content-database": "read",
+      "list-content-databases": "read",
+      "search-documents": "read",
+      "search-content-database-rows": "read",
+      "patch-database-items": "write",
+    });
+  });
+
+  it("bounds a scripted row patch by its rows and locates its receipt by its key", () => {
+    const args = patchDatabaseItems.schema.parse({
+      target: {
+        spaceId: "space_1",
+        databaseId: "database_1",
+        databaseDocumentId: "document_database_1",
+      },
+      expectedSchemaRevision: "schema_1",
+      idempotencyKey: "rank_refresh_1",
+      rows: [1, 2, 3].map((index) => ({
+        itemId: `item_${index}`,
+        documentId: `document_${index}`,
+        expectedRowRevision: `revision_${index}`,
+        propertyEntries: [
+          { propertyId: "rank", propertyType: "number", value: index },
+        ],
+      })),
+    });
+    const contract = patchDatabaseItems.mcpScriptWrite;
+
+    expect(contract?.rowBound(args)).toBe(3);
+    expect(contract?.receiptLocator(args)).toEqual(
+      rowPatchReceiptLocator(args),
+    );
+    expect(contract?.receiptLocator(args)).toMatchObject({
+      scope: "database_1",
+      idempotencyKey: "rank_refresh_1",
+    });
+    expect(contract?.destructive).toBe(true);
   });
 
   it("keeps source composition and destructive migration actions out of compact MCP discovery", () => {

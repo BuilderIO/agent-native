@@ -51,6 +51,7 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import { assertInteractiveHtmlBlocks } from "../server/lib/interactive-html-blocks.js";
 import {
   liveBodyWriterGateForRow,
   liveBodyWriterPageColumns,
@@ -66,6 +67,7 @@ import type {
   DocumentUpdateResponse,
   LiveCopyBodySave,
 } from "../shared/api.js";
+import { editorBlockIdsForSavedText } from "../shared/block-identity-ids.js";
 import { applyContentPersonalNavigationPatch } from "../shared/content-personal-navigation-patch.js";
 import { mergeDocumentBodyIntents } from "../shared/document-intent-merge.js";
 import { inspectNfmFidelity } from "../shared/nfm.js";
@@ -661,6 +663,15 @@ const updateDocumentAction = defineAction({
         "The saved title the editor's snapshot title started from; when they match, the editor never edited the title",
       ),
     editorSnapshotContent: z.string().optional(),
+    editorBlockIds: z
+      .object({
+        shape: z.string().min(1).max(100),
+        idsByPath: z.record(z.string().max(200), z.string().min(1).max(200)),
+      })
+      .optional()
+      .describe(
+        "The browser editor's block IDs by path, so links to its blocks survive the save",
+      ),
     browserSaveAttemptId: z
       .string()
       .min(1)
@@ -810,6 +821,7 @@ const updateDocumentAction = defineAction({
         ctx?.caller === "mcp" ||
         ctx?.caller === "webmcp" ||
         ctx?.caller === "a2a";
+      const trustsEditorBlockIds = !ctx || ctx.caller === "frontend";
       const respond = (result: DocumentUpdateActionResponse, owner: string) =>
         scopeDocumentAudit(
           isExternalCaller ? documentMetadataResponse(result) : result,
@@ -966,7 +978,7 @@ const updateDocumentAction = defineAction({
         ? (await favoriteDocumentIds(db, requestUserEmail, [id])).has(id)
         : parseDocumentFavorite(existing.isFavorite);
       const browserSavePayload = args.browserSaveAttemptId
-        ? browserSavePayloadDigest(args)
+        ? browserSavePayloadDigest({ ...args, editorBlockIds: undefined })
         : undefined;
       const authoredMetadataHash = authoredBase
         ? browserSavePayloadDigest({
@@ -1029,7 +1041,12 @@ const updateDocumentAction = defineAction({
       if (!favoriteOnly) assertEditableDocument(existing);
 
       const normalizeAuthoredContent = (value: string) => {
-        if (args.preserveLeadingTitleHeading) return value;
+        if (
+          args.preserveLeadingTitleHeading ||
+          existing.sourceMode === "local-files"
+        ) {
+          return value;
+        }
         const titleToCheck = args.title || existing.title;
         if (!titleToCheck) return value;
         const h1Match = value.match(/^#\s+(.+?)(\r?\n|$)/);
@@ -1042,6 +1059,7 @@ const updateDocumentAction = defineAction({
         args.content === undefined
           ? undefined
           : normalizeAuthoredContent(args.content);
+      const editorContent = content;
       const authoredCandidateContent =
         args.authoredCandidateContent === undefined
           ? undefined
@@ -1650,6 +1668,11 @@ const updateDocumentAction = defineAction({
               historyBefore.content,
               content as string,
             );
+            assertInteractiveHtmlBlocks(
+              ctx,
+              historyBefore.content,
+              content as string,
+            );
             // Only a browser save takes a switched page's body to its live
             // copy; it reached here because the gate above chose legacy.
             const legacy = await lockLegacyBodyWrites(tx, [id], {
@@ -1722,6 +1745,16 @@ const updateDocumentAction = defineAction({
             },
             afterWrite: async () => {
               if (lockedContentChanged && content !== undefined) {
+                const editorIds =
+                  args.editorBlockIds &&
+                  trustsEditorBlockIds &&
+                  editorContent !== undefined
+                    ? editorBlockIdsForSavedText({
+                        editorMarkdown: editorContent,
+                        savedMarkdown: content,
+                        ids: args.editorBlockIds,
+                      })
+                    : undefined;
                 for (const field of primaryBlocksFields) {
                   await persistBlocksFieldIdentity({
                     db: tx as unknown as ReturnType<typeof getDb>,
@@ -1730,6 +1763,7 @@ const updateDocumentAction = defineAction({
                     propertyId: field.propertyId,
                     previousMarkdown: historyBefore.content,
                     markdown: content,
+                    ...(editorIds ? { editorIds } : {}),
                     now: updatedAt,
                   });
                 }

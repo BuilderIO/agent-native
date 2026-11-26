@@ -287,12 +287,30 @@ async function saveCustomOrder(itemIds: string[]) {
 
 // Records the SQL the database client runs while `read` is in flight.
 async function statementsDuring(read: () => Promise<unknown>) {
-  const query = vi.spyOn(getDb().$client, "query");
+  const statements: string[] = [];
+  const prototype = Object.getPrototypeOf(getDb().$client);
+  const transaction = prototype.transaction;
+  const spy = vi.spyOn(prototype, "transaction").mockImplementation(function (
+    this: unknown,
+    run: (tx: { query: (...args: unknown[]) => unknown }) => Promise<unknown>,
+  ) {
+    return transaction.call(
+      this,
+      (tx: { query: (...args: unknown[]) => unknown }) => {
+        const query = tx.query.bind(tx);
+        tx.query = (...args: unknown[]) => {
+          statements.push(String(args[0]));
+          return query(...args);
+        };
+        return run(tx);
+      },
+    );
+  });
   try {
     await read();
-    return query.mock.calls.map(([text]) => String(text));
+    return statements;
   } finally {
-    query.mockRestore();
+    spy.mockRestore();
   }
 }
 

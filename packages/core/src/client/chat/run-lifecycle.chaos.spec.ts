@@ -1,4 +1,8 @@
-import { AgentKitRunSlotBusyError } from "@agent-native/agentkit/client";
+import {
+  AgentKitRunSlotBusyError,
+  createAgentThreadState,
+  reduceAgentEvent,
+} from "@agent-native/agentkit/client";
 import type { AgentEvent } from "@agent-native/agentkit/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -58,6 +62,7 @@ interface Chaos {
   readonly eventsUnavailableUntilMs?: number;
   /** The turn was already stopped: the POST answers JSON with no run id. */
   readonly postAnswersStopped?: boolean;
+  readonly savedReply?: string;
 }
 
 const TEXT_HELLO: Wire = { type: "text", text: "Hello " };
@@ -211,6 +216,27 @@ function createFakeServer(runs: readonly ServerRun[], chaos: Chaos) {
             status === "running" ? null : run.final.terminalReason,
         });
       }
+      if (url.pathname === `${API}/threads/${THREAD}` && method === "GET") {
+        const run = runs[0];
+        const saved =
+          chaos.savedReply !== undefined && t >= run.final.atMs
+            ? [
+                {
+                  message: {
+                    id: "saved-reply",
+                    role: "assistant",
+                    content: [{ type: "text", text: chaos.savedReply }],
+                    status: { type: "complete" },
+                    metadata: { runId: run.id },
+                  },
+                },
+              ]
+            : [];
+        return Response.json({
+          id: THREAD,
+          threadData: JSON.stringify({ messages: saved }),
+        });
+      }
       const eventsMatch = url.pathname.match(/\/runs\/([^/]+)\/events$/);
       if (eventsMatch && method === "GET") {
         if (
@@ -307,6 +333,16 @@ function assistantText(observed: readonly Observed[]): string {
     .join("");
 }
 
+function shownText(observed: readonly Observed[]): string {
+  return observed
+    .map(({ event }) => event)
+    .reduce(reduceAgentEvent, createAgentThreadState(THREAD))
+    .messages.filter((message) => message.role === "assistant")
+    .flatMap((message) => message.parts)
+    .map((part) => (part.type === "text" ? part.text : ""))
+    .join("");
+}
+
 function expectConvergedToServer(
   observed: readonly Observed[],
   server: ReturnType<typeof createFakeServer>,
@@ -353,7 +389,7 @@ const SEVER_POINTS = [
 
 async function startTurn(
   server: ReturnType<typeof createFakeServer>,
-  adapter: { onRunOutcome?: (report: RunOutcomeReport) => void } = {},
+  adapter: Parameters<typeof createAgentKitProtocolAdapter>[1] = {},
 ) {
   resetAgentEngineReadinessForTests();
   const transport = createAgentKitProtocolAdapter(
@@ -624,23 +660,96 @@ describe("run lifecycle chaos: a cut stream never decides how a run ended", () =
     await transport.dispose();
   });
 
-  it("reports a finished run's recorded outcome when its events stay unreadable", async () => {
-    // The reply itself is in the persisted thread history the client reloads
-    // on completion; what the stream cannot deliver must not hold the run
-    // open or turn it into a failure.
-    const chaos: Chaos = { sever: 1, eventsUnavailableUntilMs: 600_000 };
-    const server = createFakeServer(singleRunScript("succeeded", chaos), chaos);
-    const { transport, runId } = await startTurn(server);
+  // oracle-change: a completed run whose terminal event never arrived no longer ends as succeeded with a cut-off reply
+  for (const cut of [
+    {
+      label: "its events stay unreadable",
+      chaos: { sever: 1, eventsUnavailableUntilMs: 600_000 },
+    },
+    {
+      label: "every re-read closes cleanly before its terminal event",
+      chaos: { sever: 1, reconnectCut: 0 },
+    },
+  ] satisfies { label: string; chaos: Chaos }[]) {
+    it(`completes a finished run from its saved reply when ${cut.label}`, async () => {
+      const chaos: Chaos = { ...cut.chaos, savedReply: "Hello world" };
+      const server = createFakeServer(
+        singleRunScript("succeeded", chaos),
+        chaos,
+      );
+      resetAgentEngineReadinessForTests();
+      const transport = createAgentNativeAgentKitTransport({
+        apiUrl: API,
+        fetch: server.fetch,
+      });
+      const { runId } = await transport.startRun({
+        threadId: THREAD,
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            parts: [{ type: "text", text: "Find it" }],
+          },
+        ],
+      });
 
-    const observed = await readUntilSettled(
-      transport.subscribeToRun({ threadId: THREAD, runId }),
-      server.clock,
-    );
+      const observed = await readUntilSettled(
+        transport.subscribeToRun({ threadId: THREAD, runId }),
+        server.clock,
+      );
 
-    const terminal = expectConvergedToServer(observed, server, "succeeded");
-    expect(terminal.atMs).toBeLessThan(60_000);
-    await transport.dispose();
-  });
+      const terminal = expectConvergedToServer(observed, server, "succeeded");
+      expect(terminal.atMs).toBeLessThan(60_000);
+      expect(shownText(observed)).toBe("Hello world");
+      expect(server.requests).toContain(`GET ${API}/threads/${THREAD}`);
+      await transport.dispose();
+    });
+
+    for (const saved of [
+      { label: "saved no reply", text: null },
+      { label: "saved a reply that does not extend it", text: "Goodbye" },
+    ]) {
+      it(`ends a finished run unverified, not complete, when ${cut.label} and the server ${saved.label}`, async () => {
+        const server = createFakeServer(
+          singleRunScript("succeeded", cut.chaos),
+          cut.chaos,
+        );
+        const { transport, runId } = await startTurn(server, {
+          readSavedReplyText: async () => saved.text,
+        });
+
+        const observed = await readUntilSettled(
+          transport.subscribeToRun({ threadId: THREAD, runId }),
+          server.clock,
+        );
+
+        const [terminal, ...others] = observed.filter(({ event }) =>
+          isTerminal(event),
+        );
+        expect(others).toEqual([]);
+        expect(terminal.atMs).toBeLessThan(60_000);
+        expect(terminal.event).toMatchObject({
+          type: "run.failed",
+          error: {
+            code: "run_events_incomplete",
+            message: RUN_UNVERIFIED_MESSAGE,
+            retryable: true,
+          },
+        });
+        expect(runOutcomeOfEvents(observed.map(({ event }) => event))).toBe(
+          "unverified",
+        );
+        const reply = observed
+          .map(({ event }) => event)
+          .findLast((event) => event.type === "message.completed");
+        expect(reply).toMatchObject({
+          message: { role: "assistant", status: "error" },
+        });
+        expect(shownText(observed)).toBe("Hello ");
+        await transport.dispose();
+      });
+    }
+  }
 
   it("reports a turn the server already stopped as stopped, though its reply carries no run", async () => {
     const chaos: Chaos = { sever: 0, postAnswersStopped: true };

@@ -1,5 +1,18 @@
 # @agent-native/agentkit
 
+## 0.234.0
+
+### Patch Changes
+
+- e466d90: Keep a chat alive when it reconnects after its run moved on: the client and event stream now skip events from a run other than the subscribed one, and reconnecting from a sequence the server already pruned resumes from the earliest retained event instead of failing with `run_stream_failed`.
+- Release all public npm packages with a patch version bump.
+
+## 0.233.0
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.232.0
 
 ### Patch Changes

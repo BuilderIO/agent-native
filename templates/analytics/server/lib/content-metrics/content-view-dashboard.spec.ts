@@ -155,7 +155,8 @@ describe("Content view dashboard", () => {
         ('s6', 'org:org_b', 'carol@example.test', 'org_b', 'b1', '${daysAgo(3)}', 'ga4_pageviews', 999, 'ga4', 'rb', '${daysAgo(1)}'),
         ('s7', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(3)}', 'signups_first_touch', 2, 'signups', 'r5', '${daysAgo(1)}'),
         ('s8', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(3)}', 'signups_first_touch_source', 1, 'signups', 'r5', '${daysAgo(1)}'),
-        ('s14', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(3)}', 'agent_native_signups', 4, 'agent_native_signups', 'r6', '${daysAgo(1)}');
+        ('s14', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(3)}', 'agent_native_signups', 4, 'agent_native_signups', 'r6', '${daysAgo(1)}'),
+        ('s15', 'org:org_a', 'alice@example.test', 'org_a', 'a1', '${daysAgo(3)}', 'daily_dev_sessions', 3, 'daily_dev', 'r8', '${daysAgo(1)}');
       INSERT INTO analytics_content_collection_runs (id, tenant_key, owner_email, org_id, step, trigger, status, started_at, window_end, error_code, error_message) VALUES
         ('r1', 'org:org_a', 'alice@example.test', 'org_a', 'builder_blog', 'scheduled', 'succeeded', '${daysAgo(1)}T07:00:00.000Z', NULL, NULL, NULL),
         ('r2', 'org:org_a', 'alice@example.test', 'org_a', 'ga4', 'scheduled', 'succeeded', '${daysAgo(1)}T07:00:01.000Z', '${daysAgo(2)}', NULL, NULL),
@@ -163,6 +164,7 @@ describe("Content view dashboard", () => {
         ('r4', 'org:org_a', 'alice@example.test', 'org_a', 'search_console', 'scheduled', 'not_configured', '${daysAgo(1)}T07:00:02.000Z', NULL, 'search_console_no_access', 'Search Console denied access to sc-domain:example.test.'),
         ('r5', 'org:org_a', 'alice@example.test', 'org_a', 'signups', 'scheduled', 'cost_limited', '${daysAgo(1)}T07:00:03.000Z', NULL, 'signups_bytes_cap', 'The signups join would scan 5000 bytes, over the 1000-byte cap. Nothing ran.'),
         ('r6', 'org:org_a', 'alice@example.test', 'org_a', 'agent_native_signups', 'scheduled', 'succeeded', '${daysAgo(1)}T07:00:04.000Z', '${daysAgo(2)}', NULL, NULL),
+        ('r8', 'org:org_a', 'alice@example.test', 'org_a', 'daily_dev', 'scheduled', 'succeeded', '${daysAgo(1)}T07:00:05.000Z', '${daysAgo(2)}', NULL, NULL),
         ('rb', 'org:org_b', 'carol@example.test', 'org_b', 'ga4', 'scheduled', 'failed', '${daysAgo(1)}T07:00:00.000Z', NULL, 'step_failed', 'boom');
       INSERT INTO analytics_content_collection_runs (id, tenant_key, owner_email, org_id, step, trigger, status, started_at, window_end)
       SELECT 'r7', 'org:org_a', 'alice@example.test', 'org_a', 'search_console_queries', 'scheduled', 'succeeded', to_char(CURRENT_DATE - 1, 'YYYY-MM-DD') || 'T07:00:03.000Z', to_char(CURRENT_DATE - 8, 'YYYY-MM-DD');
@@ -253,6 +255,13 @@ describe("Content view dashboard", () => {
               "newest",
               "per_query",
               "recent",
+              "reads",
+              "gains",
+              "ranked",
+              "per_video",
+              "channels",
+              "named",
+              "latest",
             ].includes(name),
         );
       expect(tables.length).toBeGreaterThan(0);
@@ -268,6 +277,12 @@ describe("Content view dashboard", () => {
       expect.objectContaining({
         source: "GA4 pageviews",
         status: "Collected",
+        data_through: daysAgo(2),
+      }),
+      expect.objectContaining({
+        source: "daily.dev visits",
+        status: "Collected",
+        first_data: daysAgo(3),
         data_through: daysAgo(2),
       }),
       expect.objectContaining({
@@ -293,6 +308,12 @@ describe("Content view dashboard", () => {
         first_data: daysAgo(3),
         data_through: daysAgo(2),
       }),
+      expect.objectContaining({
+        source: "YouTube videos",
+        status: "No run in 30 days",
+        last_run: null,
+        first_data: null,
+      }),
     ]);
     expect(bigQuery.query).not.toHaveBeenCalled();
   });
@@ -309,10 +330,12 @@ describe("Content view dashboard", () => {
         last_run: `${daysAgo(40)}T07:00:01.000Z`,
         data_through: daysAgo(2),
       }),
+      expect.objectContaining({ source: "daily.dev visits" }),
       expect.objectContaining({ source: "Search Console" }),
       expect.objectContaining({ source: "Search queries" }),
       expect.objectContaining({ source: "Builder signups" }),
       expect.objectContaining({ source: "Agent-Native signups" }),
+      expect.objectContaining({ source: "YouTube videos" }),
     ]);
     expect(await runPanel("missing-data")).toEqual([
       {
@@ -357,6 +380,7 @@ describe("Content view dashboard", () => {
       [
         "Articles",
         "Pageviews",
+        "daily.dev visits",
         "Search clicks and impressions",
         "Search queries",
         "Builder signups",
@@ -394,6 +418,7 @@ describe("Content view dashboard", () => {
         signups: 2,
         agent_native_signups: 4,
         pageviews: 5,
+        daily_dev_visits: 3,
         clicks: null,
         impressions: null,
         position: null,
@@ -406,12 +431,186 @@ describe("Content view dashboard", () => {
         signups: null,
         agent_native_signups: null,
         pageviews: null,
+        daily_dev_visits: 0,
         clicks: null,
         impressions: null,
         position: null,
       },
     ]);
     expect(bigQuery.query).not.toHaveBeenCalled();
+  });
+
+  it("leaves daily.dev blank before the step has collected, and names it waiting for GA4", async () => {
+    await client.exec(
+      "UPDATE analytics_content_collection_runs SET status = 'not_configured', window_end = NULL WHERE id = 'r8'",
+    );
+    expect(
+      (await runPanel("articles")).map((row) => row.daily_dev_visits),
+    ).toEqual([null, null]);
+    expect(await runPanel("missing-data")).toEqual([
+      {
+        severity: "warning",
+        message:
+          "**daily.dev visits aren't connected yet**: waiting for a GA4 property.",
+      },
+      expect.objectContaining({ severity: "warning" }),
+      expect.objectContaining({ severity: "critical" }),
+    ]);
+  });
+
+  async function insertVideos(): Promise<void> {
+    await client.exec(`
+      INSERT INTO analytics_content_items (id, tenant_key, owner_email, org_id, source, external_id, url, title, author, published_at, metadata, first_seen_at, updated_at) VALUES
+        ('y1', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'y1', 'https://www.youtube.com/watch?v=y1', 'Old Builder video', 'Builder', '2026-09-01T12:00:00Z', '{"channelId":"UCbuilder","durationSeconds":813}', '2026-09-01', '${daysAgo(0)}T07:00:06.000Z'),
+        ('y2', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'y2', 'https://www.youtube.com/watch?v=y2', 'New Builder video', 'Builder', '${daysAgo(1)}T15:00:00Z', '{"channelId":"UCbuilder","durationSeconds":3723}', '2026-09-01', '${daysAgo(0)}T07:00:06.000Z'),
+        ('y3', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'y3', 'https://www.youtube.com/watch?v=y3', 'Codevolution video', 'Codevolution', '2026-09-01T12:00:00Z', '{"channelId":"UCcodevolution","durationSeconds":null}', '2026-09-01', '${daysAgo(0)}T07:00:06.000Z'),
+        ('y4', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'y4', 'https://www.youtube.com/watch?v=y4', 'Other Builder channel video', 'Builder', '${daysAgo(2)}T12:00:00Z', '{"channelId":"UCotherbuilder","durationSeconds":60}', '2026-09-01', '${daysAgo(0)}T07:00:06.000Z'),
+        ('y6', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'y6', 'https://www.youtube.com/watch?v=y6', 'Deleted Builder video', 'Builder', '2026-09-01T12:00:00Z', '{"channelId":"UCbuilder","durationSeconds":45}', '2026-09-01', '${daysAgo(1)}T07:00:06.000Z'),
+        ('y5', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'y5', 'https://www.youtube.com/watch?v=y5', 'Removed channel video', 'Old channel', '2026-09-01T12:00:00Z', '{"channelId":"UCremoved","durationSeconds":30}', '2026-09-01', '${daysAgo(0)}T06:00:00.000Z'),
+        ('yb', 'org:org_b', 'carol@example.test', 'org_b', 'youtube', 'yb', 'https://www.youtube.com/watch?v=yb', 'Other org video', 'Builder', '2026-09-01T12:00:00Z', '{"channelId":"UCbuilder","durationSeconds":60}', '2026-09-01', '${daysAgo(0)}T07:00:06.000Z');
+      INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at)
+      SELECT reads.item_id || reads.metric || reads.days_ago, items.tenant_key, items.owner_email, items.org_id, reads.item_id, to_char(CURRENT_DATE - reads.days_ago, 'YYYY-MM-DD'), reads.metric, reads.value, 'youtube', 'ry', '2026-09-01'
+      FROM (VALUES
+        ('y1', 'youtube_views', 3, 100),
+        ('y1', 'youtube_views', 2, 110),
+        ('y1', 'youtube_views', 1, 125),
+        ('y1', 'youtube_views', 0, 130),
+        ('y1', 'youtube_likes', 0, 9),
+        ('y1', 'youtube_comments', 1, 1),
+        ('y2', 'youtube_views', 0, 50),
+        ('y3', 'youtube_views', 2, 1000),
+        ('y3', 'youtube_views', 1, 1007),
+        ('y3', 'youtube_views', 0, 1010),
+        ('y5', 'youtube_views', 1, 10),
+        ('y5', 'youtube_views', 0, 20),
+        ('y6', 'youtube_views', 2, 500),
+        ('y6', 'youtube_views', 1, 520),
+        ('y4', 'youtube_views', 1, 400),
+        ('y4', 'youtube_views', 0, 404),
+        ('yb', 'youtube_views', 3, 5000),
+        ('yb', 'youtube_views', 0, 9000)
+      ) AS reads (item_id, metric, days_ago, value)
+      JOIN analytics_content_items items ON items.id = reads.item_id;
+      INSERT INTO analytics_content_collection_runs (id, tenant_key, owner_email, org_id, step, trigger, status, started_at, window_end)
+      VALUES ('ry', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'scheduled', 'succeeded', '${daysAgo(0)}T07:00:00.000Z', '${daysAgo(0)}');
+    `);
+  }
+
+  it("draws views each channel gained per day, from one day's read to the next, counting a new video from 0", async () => {
+    await insertVideos();
+    expect(await runPanel("youtube-views-per-day")).toEqual([
+      { date: daysAgo(3), channel: "Builder (UCbuilder)", views: 10 },
+      { date: daysAgo(2), channel: "Builder (UCbuilder)", views: 35 },
+      { date: daysAgo(2), channel: "Codevolution", views: 7 },
+      { date: daysAgo(1), channel: "Builder (UCbuilder)", views: 55 },
+      { date: daysAgo(1), channel: "Builder (UCotherbuilder)", views: 4 },
+      { date: daysAgo(1), channel: "Codevolution", views: 3 },
+    ]);
+    expect(await runPanel("youtube-views-per-day", "7d")).toHaveLength(6);
+    expect(bigQuery.query).not.toHaveBeenCalled();
+  });
+
+  it("draws only the days a read covered, so a day without one has no bar rather than a zero", async () => {
+    await insertVideos();
+    const panel = contentView().panels.find(
+      (candidate) => candidate.id === "youtube-views-per-day",
+    );
+    if (!panel) throw new Error("no YouTube views panel");
+    const plan = planPanelRender(await runPanel(panel.id, "7d"), panel, {
+      timeRange: 7,
+    });
+    expect(plan.rows.map((row) => row.date)).toEqual([
+      daysAgo(3),
+      daysAgo(2),
+      daysAgo(1),
+    ]);
+  });
+
+  it("lists videos by views gained in the time range, with their counts to date", async () => {
+    await insertVideos();
+    expect(await runPanel("youtube-videos")).toEqual([
+      {
+        title: "New Builder video",
+        href: "https://www.youtube.com/watch?v=y2",
+        channel: "Builder",
+        published: daysAgo(1),
+        length: "1:02:03",
+        views_gained: 50,
+        views: 50,
+        likes: null,
+        comments: null,
+      },
+      {
+        title: "Old Builder video",
+        href: "https://www.youtube.com/watch?v=y1",
+        channel: "Builder",
+        published: "2026-09-01",
+        length: "13:33",
+        views_gained: 30,
+        views: 130,
+        likes: 9,
+        comments: null,
+      },
+      {
+        title: "Codevolution video",
+        href: "https://www.youtube.com/watch?v=y3",
+        channel: "Codevolution",
+        published: "2026-09-01",
+        length: null,
+        views_gained: 10,
+        views: 1010,
+        likes: null,
+        comments: null,
+      },
+      {
+        title: "Other Builder channel video",
+        href: "https://www.youtube.com/watch?v=y4",
+        channel: "Builder",
+        published: daysAgo(2),
+        length: "1:00",
+        views_gained: 4,
+        views: 404,
+        likes: null,
+        comments: null,
+      },
+    ]);
+    expect(
+      (await runPanel("youtube-videos", "7d")).find(
+        (row) => row.title === "Old Builder video",
+      )?.views_gained,
+    ).toBe(30);
+  });
+
+  it("shows no YouTube videos once the newest read returned none", async () => {
+    await insertVideos();
+    await client.exec(
+      `INSERT INTO analytics_content_collection_runs (id, tenant_key, owner_email, org_id, step, trigger, status, started_at, window_end) VALUES ('ry2', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'manual', 'succeeded', '${daysAgo(0)}T09:00:00.000Z', '${daysAgo(0)}')`,
+    );
+    expect(await runPanel("youtube-views-per-day")).toEqual([]);
+    expect(await runPanel("youtube-videos")).toEqual([]);
+  });
+
+  it("names YouTube in the notice once it has run and failed", async () => {
+    await client.exec(`
+      INSERT INTO analytics_content_collection_runs (id, tenant_key, owner_email, org_id, step, trigger, status, started_at, error_code, error_message)
+      VALUES ('ry', 'org:org_a', 'alice@example.test', 'org_a', 'youtube', 'scheduled', 'not_configured', '${daysAgo(1)}T07:00:06.000Z', 'youtube_api_key_missing', 'No YouTube Data API key is saved.');
+    `);
+    const notices = await runPanel("missing-data");
+    expect(notices[notices.length - 1]).toEqual({
+      severity: "warning",
+      message:
+        "**YouTube views aren't connected yet**: waiting for channels and a YouTube Data API key.",
+    });
+    expect(
+      (await runPanel("collection-status")).find(
+        (row) => row.source === "YouTube videos",
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        status: "Not set up",
+        detail: "No YouTube Data API key is saved.",
+      }),
+    );
   });
 
   it("counts an article's search clicks and impressions, not other pages in search", async () => {

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { getDbExec } from "@agent-native/core/db";
 import {
   getReviewCommentById,
+  listReviewCommentReactors,
   mirrorReviewComments,
 } from "@agent-native/core/review";
 import consumeReviewFeedback from "@agent-native/core/review/actions/consume-review-feedback";
@@ -16,7 +17,7 @@ import replyReviewComment from "@agent-native/core/review/actions/reply-review-c
 import resolveReviewThread from "@agent-native/core/review/actions/resolve-review-thread";
 import updateReviewComment from "@agent-native/core/review/actions/update-review-comment";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { asc, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { z } from "zod";
 
@@ -46,6 +47,8 @@ const action = <T = Record<string, unknown>>(module: ActionModule) =>
 
 let dbModule: typeof import("../db/index.js");
 let mirror: typeof import("./plan-comment-mirror.js");
+let comments: typeof import("./plan-comments.js");
+let plans: typeof import("../plans.js");
 let createPlan: Runnable<{ planId: string }>;
 let updatePlan: Runnable;
 let replyToComment: Runnable<{ commentId: string }>;
@@ -54,6 +57,8 @@ let deleteComment: Runnable;
 let consumeFeedback: Runnable;
 let restoreVersion: Runnable;
 let deletePlan: Runnable;
+let reactToComment: Runnable<{ reactions: unknown }>;
+let getPlan: Runnable<{ comments: Array<{ id: string; reactions?: unknown }> }>;
 let previousLocalMode: string | undefined;
 
 beforeAll(async () => {
@@ -63,6 +68,8 @@ beforeAll(async () => {
   process.env.APP_URL = "https://plan.example.test";
   dbModule = await import("../db/index.js");
   mirror = await import("./plan-comment-mirror.js");
+  comments = await import("./plan-comments.js");
+  plans = await import("../plans.js");
   createPlan = action(await import("../../actions/create-visual-plan.js"));
   updatePlan = action(await import("../../actions/update-visual-plan.js"));
   replyToComment = action(
@@ -79,6 +86,10 @@ beforeAll(async () => {
     await import("../../actions/restore-plan-version.js"),
   );
   deletePlan = action(await import("../../actions/delete-visual-plan.js"));
+  reactToComment = action(
+    await import("../../actions/react-to-plan-comment.js"),
+  );
+  getPlan = action(await import("../../actions/get-visual-plan.js"));
   const dbPlugin = (await import("../plugins/db.js")).default;
   await dbPlugin(undefined);
   const reviewPlugin = (await import("../plugins/review.js")).default;
@@ -160,42 +171,18 @@ async function sectionId(planId: string, title: string) {
   return rows.find((row) => row.title === title)?.id;
 }
 
-async function planCopies(planId: string) {
+// oracle-change: the kit is the only comment store now, so the two-store agreement checks went
+async function oldRows(planId: string) {
   const { getDb, schema } = dbModule;
-  const rows = await getDb()
+  return getDb()
     .select()
     .from(schema.planComments)
-    .where(eq(schema.planComments.planId, planId))
-    .orderBy(asc(schema.planComments.createdAt), asc(schema.planComments.id));
-  const parents = new Map(rows.map((row) => [row.id, row.parentCommentId]));
-  const root = (id: string): string => {
-    const parent = parents.get(id);
-    return parent ? root(parent) : id;
-  };
-  return rows
-    .filter((row) => row.deletedAt === null)
-    .map((row) => mirror.planCommentCopy(row, root(row.id)));
+    .where(eq(schema.planComments.planId, planId));
 }
 
-async function expectStoresAgree(planId: string) {
-  const { getDb, schema } = dbModule;
-  const [sharing] = await getDb()
-    .select({
-      ownerEmail: schema.plans.ownerEmail,
-      orgId: schema.plans.orgId,
-      visibility: schema.plans.visibility,
-    })
-    .from(schema.plans)
-    .where(eq(schema.plans.id, planId))
-    .limit(1);
-  const copies = await planCopies(planId);
-  expect(
-    await mirror.comparePlanComments(
-      { resourceType: "plan", resourceId: planId, ...sharing },
-      copies,
-    ),
-  ).toEqual({ checked: copies.length, differences: [] });
-  return copies;
+async function expectOnlyInKit(planId: string) {
+  expect(await oldRows(planId)).toEqual([]);
+  return comments.listPlanCommentRows(planId);
 }
 
 async function kitRows(planId: string) {
@@ -207,7 +194,7 @@ async function kitRows(planId: string) {
 }
 
 describe("Plan comments in the review kit", () => {
-  it("copies a new plan's comments, replies to replies included, with their kind, routing and anchors", async () => {
+  it("writes a new plan's comments to the kit, replies to replies included, with their kind, routing and anchors", async () => {
     const planId = await newPlan([
       {
         id: "seed-root",
@@ -232,8 +219,7 @@ describe("Plan comments in the review kit", () => {
       },
     ]);
 
-    const copies = await expectStoresAgree(planId);
-    expect(copies).toHaveLength(4);
+    expect(await expectOnlyInKit(planId)).toHaveLength(4);
     expect(await stored("seed-root")).toMatchObject({
       resourceType: "plan",
       resourceId: planId,
@@ -264,7 +250,7 @@ describe("Plan comments in the review kit", () => {
     });
   });
 
-  it("keeps the kit matching plan_comments through every comment action", async () => {
+  it("writes every comment action to the kit and nothing to plan_comments", async () => {
     const planId = await newPlan([
       {
         id: "flow-root",
@@ -279,14 +265,14 @@ describe("Plan comments in the review kit", () => {
         message: "Callout overlaps the frame",
       },
     ]);
-    await expectStoresAgree(planId);
+    await expectOnlyInKit(planId);
 
     const reply = await call(replyToComment, {
       planId,
       commentId: "flow-root",
       body: "Tightened in the next revision",
     });
-    await expectStoresAgree(planId);
+    await expectOnlyInKit(planId);
     expect(await stored(reply.commentId)).toMatchObject({
       threadId: "flow-root",
       parentCommentId: "flow-root",
@@ -305,7 +291,7 @@ describe("Plan comments in the review kit", () => {
         },
       ],
     });
-    await expectStoresAgree(planId);
+    await expectOnlyInKit(planId);
     expect(await stored("flow-added")).toMatchObject({
       kind: "decision",
       surfaceId: await sectionId(planId, "Risks"),
@@ -323,7 +309,7 @@ describe("Plan comments in the review kit", () => {
         },
       ],
     });
-    await expectStoresAgree(planId);
+    await expectOnlyInKit(planId);
     expect(await stored("flow-canvas")).toMatchObject({
       body: "Callout overlaps the header",
       kind: "correction",
@@ -331,11 +317,11 @@ describe("Plan comments in the review kit", () => {
     });
 
     await call(consumeFeedback, { planId, commentIds: ["flow-root"] });
-    await expectStoresAgree(planId);
+    await expectOnlyInKit(planId);
     expect((await stored("flow-root"))?.consumedAt).toEqual(expect.any(String));
 
     await call(updatePlan, { planId, consumedCommentIds: ["flow-added"] });
-    await expectStoresAgree(planId);
+    await expectOnlyInKit(planId);
     expect((await stored("flow-added"))?.consumedAt).toEqual(
       expect.any(String),
     );
@@ -346,7 +332,7 @@ describe("Plan comments in the review kit", () => {
       status: "resolved",
       resolutionNote: "Done in revision 2",
     });
-    await expectStoresAgree(planId);
+    await expectOnlyInKit(planId);
     expect(await stored("flow-root")).toMatchObject({
       status: "resolved",
       resolvedBy: OWNER.userEmail,
@@ -375,11 +361,7 @@ describe("Plan comments in the review kit", () => {
     } finally {
       vi.useRealTimers();
     }
-    const reResolved = (await planCopies(planId)).find(
-      (copy) => copy.id === "flow-root",
-    );
-    expect(reResolved?.resolvedAt).toBe("2030-01-01T00:00:00.000Z");
-    await expectStoresAgree(planId);
+    await expectOnlyInKit(planId);
     expect((await stored("flow-root"))?.resolvedAt).toBe(firstResolvedAt);
 
     await call(resolveComment, {
@@ -387,7 +369,7 @@ describe("Plan comments in the review kit", () => {
       commentId: "flow-root",
       status: "open",
     });
-    await expectStoresAgree(planId);
+    await expectOnlyInKit(planId);
     expect(await stored("flow-root")).toMatchObject({
       status: "open",
       resolvedBy: null,
@@ -405,11 +387,13 @@ describe("Plan comments in the review kit", () => {
         },
       ],
     });
-    await expectStoresAgree(planId);
+    await expectOnlyInKit(planId);
     expect((await stored("flow-canvas"))?.status).toBe("resolved");
 
     await call(deleteComment, { planId, commentId: "flow-root" });
-    await expectStoresAgree(planId);
+    expect((await expectOnlyInKit(planId)).map(({ id }) => id)).not.toContain(
+      "flow-root",
+    );
     expect(await stored("flow-root")).toMatchObject({
       status: "deleted",
       body: "",
@@ -450,7 +434,7 @@ describe("Plan comments in the review kit", () => {
 
     await call(restoreVersion, { planId, versionId: beforeRollout?.id });
 
-    await expectStoresAgree(planId);
+    await expectOnlyInKit(planId);
     expect((await stored("restore-rollout"))?.surfaceId).toBeNull();
     expect((await stored("restore-root"))?.surfaceId).toBe(
       await sectionId(planId, "Risks"),
@@ -462,15 +446,17 @@ describe("Plan comments in the review kit", () => {
       { id: "gone-root", message: "Will this survive?" },
       { id: "gone-reply", parentCommentId: "gone-root", message: "No" },
     ]);
-    await expectStoresAgree(planId);
+    await expectOnlyInKit(planId);
 
-    await call(deletePlan, {
-      planId,
-      mode: "hard",
-      confirmation: `DELETE ${planId}`,
-    });
+    expect(
+      await call(deletePlan, {
+        planId,
+        mode: "hard",
+        confirmation: `DELETE ${planId}`,
+      }),
+    ).toMatchObject({ deletedCounts: { comments: 2 } });
 
-    await expectStoresAgree(planId);
+    expect(await expectOnlyInKit(planId)).toEqual([]);
     expect(await stored("gone-root")).toMatchObject({
       status: "deleted",
       deletedBy: OWNER.userEmail,
@@ -498,14 +484,14 @@ describe("Plan comments in the review kit", () => {
       comments: [{ id: "reused-reply", message: "Added later" }],
     });
 
-    const copies = await expectStoresAgree(planId);
-    const root = copies.find((copy) => copy.body === "Second time");
+    const rows = await expectOnlyInKit(planId);
+    const root = rows.find((row) => row.message === "Second time");
     expect(root?.id).toEqual(expect.any(String));
     expect(root?.id).not.toBe("reused-root");
     expect(
-      copies.find((copy) => copy.body === "Reply again")?.parentCommentId,
+      rows.find((row) => row.message === "Reply again")?.parentCommentId,
     ).toBe(root?.id);
-    const added = copies.find((copy) => copy.body === "Added later");
+    const added = rows.find((row) => row.message === "Added later");
     expect(added?.id).toEqual(expect.any(String));
     expect(added?.id).not.toBe("reused-reply");
     for (const id of ["reused-root", "reused-reply"]) {
@@ -516,39 +502,46 @@ describe("Plan comments in the review kit", () => {
     }
   });
 
-  it("gives a new comment a fresh ID when a comment written through the kit holds it", async () => {
+  it("gives a new comment a fresh ID when another plan's comment in the kit holds it", async () => {
+    const otherPlanId = await newPlan();
     const planId = await newPlan();
     const at = "2026-11-21T12:00:00.000Z";
-    await mirrorReviewComments({ resourceType: "plan", resourceId: planId }, [
-      {
-        id: "kit-held-here",
-        threadId: "kit-held-here",
-        parentCommentId: null,
-        body: "Written through the kit",
-        authorEmail: "kit-author@example.test",
-        authorName: null,
-        createdBy: "human",
-        resolved: false,
-        createdAt: at,
-        updatedAt: at,
-      },
-    ]);
+    await mirrorReviewComments(
+      { resourceType: "plan", resourceId: otherPlanId },
+      [
+        {
+          id: "kit-held-elsewhere",
+          threadId: "kit-held-elsewhere",
+          parentCommentId: null,
+          body: "Written on the other plan",
+          authorEmail: "kit-author@example.test",
+          authorName: null,
+          createdBy: "human",
+          resolved: false,
+          createdAt: at,
+          updatedAt: at,
+        },
+      ],
+    );
 
     await call(updatePlan, {
       planId,
-      comments: [{ id: "kit-held-here", message: "Written in Plan" }],
+      comments: [{ id: "kit-held-elsewhere", message: "Written in Plan" }],
     });
 
-    expect(await stored("kit-held-here")).toMatchObject({
+    expect(await stored("kit-held-elsewhere")).toMatchObject({
       status: "open",
-      body: "Written through the kit",
+      resourceId: otherPlanId,
+      body: "Written on the other plan",
       authorEmail: "kit-author@example.test",
     });
-    const added = (await planCopies(planId)).find(
-      (copy) => copy.body === "Written in Plan",
+    const rows = await expectOnlyInKit(planId);
+    expect(rows.map(({ message }) => message)).not.toContain(
+      "Written on the other plan",
     );
+    const added = rows.find((row) => row.message === "Written in Plan");
     expect(added?.id).toEqual(expect.any(String));
-    expect(added?.id).not.toBe("kit-held-here");
+    expect(added?.id).not.toBe("kit-held-elsewhere");
     expect(await stored(added?.id ?? "")).toMatchObject({
       status: "open",
       body: "Written in Plan",
@@ -595,22 +588,20 @@ describe("Plan comments in the review kit", () => {
     ]);
   });
 
-  it("rolls the kit's copy back with a comment write that fails", async () => {
+  it("rolls a comment write back with the plan write that fails", async () => {
     const planId = await newPlan();
-    const { getDb, schema } = dbModule;
 
     await expect(
-      getDb().transaction(async (tx) => {
-        await tx.insert(schema.planComments).values({
-          id: "rolled-back",
-          planId,
-          message: "Never saved",
-          kind: "comment",
-          status: "open",
-          createdAt: "2026-11-20T10:00:00.000Z",
-          updatedAt: "2026-11-20T10:00:00.000Z",
-        });
-        await mirror.mirrorPlanComments(tx, planId, ["rolled-back"]);
+      dbModule.getDb().transaction(async (tx) => {
+        await comments.writePlanCommentRows(tx, planId, [
+          comments.completePlanCommentRow({
+            id: "rolled-back",
+            planId,
+            message: "Never saved",
+            createdAt: "2026-11-20T10:00:00.000Z",
+            updatedAt: "2026-11-20T10:00:00.000Z",
+          }),
+        ]);
         expect(await stored("rolled-back")).not.toBeNull();
         throw new Error("The plan write failed");
       }),
@@ -619,7 +610,7 @@ describe("Plan comments in the review kit", () => {
     expect(await stored("rolled-back")).toBeNull();
   });
 
-  it("copies comments written before the mirror, and copying again changes nothing", async () => {
+  it("adds comments only plan_comments has to the kit, and adding again changes nothing", async () => {
     const planId = await newPlan();
     const { getDb, schema } = dbModule;
     const at = (minute: number) =>
@@ -709,12 +700,10 @@ describe("Plan comments in the review kit", () => {
         },
       ]);
 
-    const first = await mirror.copyPlanCommentsToReviewKit();
+    const first = await mirror.addMissingPlanCommentsToReviewKit();
 
     expect(first.failedPlans).toEqual([]);
-    expect(first.differences).toEqual([]);
-    expect(first.comments).toBeGreaterThanOrEqual(5);
-    await expectStoresAgree(planId);
+    expect(first.added).toBeGreaterThanOrEqual(5);
     expect(await stored("legacy-root")).toMatchObject({
       threadId: "legacy-root",
       kind: "question",
@@ -745,84 +734,357 @@ describe("Plan comments in the review kit", () => {
     expect(await stored("legacy-deleted")).toBeNull();
 
     const before = await kitRows(planId);
-    const second = await mirror.copyPlanCommentsToReviewKit();
+    const second = await mirror.addMissingPlanCommentsToReviewKit();
 
-    expect(second).toEqual(first);
+    expect(second).toMatchObject({ added: 0, failedPlans: [] });
     expect(await kitRows(planId)).toEqual(before);
   });
 
-  it("marks a comment Plan deleted since its copy deleted on the next copy", async () => {
+  it("leaves comments the kit already has as it has them, deleted ones too", async () => {
     const planId = await newPlan([
-      { id: "drift-root", message: "Copied, then deleted around the mirror" },
+      { id: "kept-edited", message: "As the kit has it" },
+      { id: "kept-deleted", message: "Deleted in the kit" },
     ]);
-    const { getDb, schema } = dbModule;
-    await getDb()
-      .update(schema.planComments)
-      .set({ deletedAt: "2026-11-20T11:00:00.000Z", deletedBy: "ops@x.test" })
-      .where(eq(schema.planComments.id, "drift-root"));
+    await call(deleteComment, { planId, commentId: "kept-deleted" });
+    const at = "2026-10-01T10:00:00.000Z";
+    await dbModule
+      .getDb()
+      .insert(dbModule.schema.planComments)
+      .values(
+        ["kept-edited", "kept-deleted"].map((id) => ({
+          id,
+          planId,
+          message: "As plan_comments had it",
+          createdAt: at,
+          updatedAt: at,
+        })),
+      );
 
-    const report = await mirror.copyPlanCommentsToReviewKit();
+    const report = await mirror.addMissingPlanCommentsToReviewKit();
 
     expect(report.failedPlans).toEqual([]);
-    expect(report.differences).toEqual([]);
-    expect(await stored("drift-root")).toMatchObject({
-      status: "deleted",
-      deletedBy: "ops@x.test",
+    expect(await stored("kept-edited")).toMatchObject({
+      status: "open",
+      body: "As the kit has it",
     });
-    await expectStoresAgree(planId);
+    expect(await stored("kept-deleted")).toMatchObject({
+      status: "deleted",
+      body: "",
+    });
   });
 
-  it("clears a gone plan's comments, and keeps ones written through the kit on a plan that's still here", async () => {
+  it("doesn't bring back a comment deleted after the writer read it", async () => {
     const planId = await newPlan([
-      { id: "orphan-kept", message: "Still in Plan" },
+      { id: "stale-root", message: "Read, then deleted" },
     ]);
-    const at = "2026-11-20T12:00:00.000Z";
+    const stale = (await comments.listPlanCommentRows(planId)).find(
+      (row) => row.id === "stale-root",
+    );
+    if (!stale) throw new Error("Plan didn't write stale-root to the kit");
+    await call(deleteComment, { planId, commentId: "stale-root" });
+
+    await dbModule.getDb().transaction(async (tx) => {
+      await comments.writePlanCommentRows(tx, planId, [
+        { ...stale, consumedAt: "2026-11-22T10:00:00.000Z" },
+      ]);
+    });
+
+    expect(await stored("stale-root")).toMatchObject({
+      status: "deleted",
+      body: "",
+    });
+  });
+
+  it("keeps an edit made after the writer read the comment", async () => {
+    const planId = await newPlan([
+      { id: "patched-root", kind: "question", message: "Before the edit" },
+    ]);
+    await call(updatePlan, {
+      planId,
+      comments: [
+        { id: "patched-root", kind: "correction", message: "After the edit" },
+      ],
+    });
+
+    await dbModule.getDb().transaction(async (tx) => {
+      await comments.writePlanCommentRows(
+        tx,
+        planId,
+        [],
+        [
+          {
+            id: "patched-root",
+            consumedAt: "2026-11-22T10:00:00.000Z",
+            updatedAt: "2026-11-22T10:00:00.000Z",
+          },
+        ],
+      );
+    });
+
+    expect(await stored("patched-root")).toMatchObject({
+      body: "After the edit",
+      kind: "correction",
+      consumedAt: "2026-11-22T10:00:00.000Z",
+    });
+  });
+
+  it("deletes the replies a thread has when the delete runs, and refuses replies after it", async () => {
+    const planId = await newPlan([{ id: "late-root", message: "Thread" }]);
+    const reply = (id: string) =>
+      comments.completePlanCommentRow({
+        id,
+        planId,
+        parentCommentId: "late-root",
+        message: "Saved late",
+        createdAt: "2026-11-22T10:00:00.000Z",
+        updatedAt: "2026-11-22T10:00:00.000Z",
+      });
+    await dbModule.getDb().transaction(async (tx) => {
+      await comments.writePlanCommentRows(tx, planId, [reply("late-reply")]);
+    });
+
+    const deleted = await dbModule
+      .getDb()
+      .transaction((tx) =>
+        comments.deletePlanCommentThread(
+          tx,
+          planId,
+          "late-root",
+          OWNER.userEmail,
+          "2026-11-22T10:01:00.000Z",
+        ),
+      );
+
+    expect(deleted).toEqual(["late-root", "late-reply"]);
+    expect(await stored("late-reply")).toMatchObject({ status: "deleted" });
+    await expect(
+      dbModule.getDb().transaction(async (tx) => {
+        await comments.writePlanCommentRows(tx, planId, [reply("too-late")]);
+      }),
+    ).rejects.toThrow("which isn't on it");
+    expect(await stored("too-late")).toBeNull();
+  });
+
+  it("keeps what Plan doesn't store when Plan changes a comment", async () => {
+    const planId = await newPlan();
+    const at = "2026-11-21T12:00:00.000Z";
     await mirrorReviewComments({ resourceType: "plan", resourceId: planId }, [
       {
-        id: "kit-written-root",
-        threadId: "kit-written-root",
+        id: "kit-shaped",
+        threadId: "kit-shaped",
         parentCommentId: null,
-        body: "Written through the kit before Plan registered",
-        authorEmail: OWNER.userEmail,
+        targetId: "frame-1",
+        anchor: { x: 0.25, y: 0.5 },
+        anchorKind: "frame-point",
+        anchorVersion: 2,
+        body: "Written around Plan",
+        authorEmail: "bot@example.test",
         authorName: null,
-        createdBy: "human",
+        createdBy: "system",
+        kind: "review",
         resolved: false,
         createdAt: at,
         updatedAt: at,
+        metadata: { images: ["shot.png"] },
+        reactions: [{ actorEmail: "viewer@example.test", reaction: "👀" }],
       },
     ]);
-    await mirrorReviewComments(
-      { resourceType: "plan", resourceId: "plan-deleted-elsewhere" },
-      [
-        {
-          id: "kit-only-root",
-          threadId: "kit-only-root",
-          parentCommentId: null,
-          body: "On a plan another server deleted",
-          authorEmail: OWNER.userEmail,
-          authorName: null,
-          createdBy: "human",
-          resolved: false,
-          createdAt: at,
-          updatedAt: at,
-        },
-      ],
-    );
 
-    const report = await mirror.copyPlanCommentsToReviewKit();
-
-    expect(report.failedPlans).toEqual([]);
-    expect(report.differences).toEqual([]);
-    expect(await stored("orphan-kept")).toMatchObject({ status: "open" });
-    expect(await stored("kit-written-root")).toMatchObject({
-      status: "open",
-      body: "Written through the kit before Plan registered",
-    });
-    expect(report.kitWrittenComments).toContainEqual({
+    await call(consumeFeedback, { planId, commentIds: ["kit-shaped"] });
+    await call(resolveComment, {
       planId,
-      id: "kit-written-root",
+      commentId: "kit-shaped",
+      status: "resolved",
     });
-    expect(await stored("kit-only-root")).toMatchObject({ status: "deleted" });
+
+    expect(await stored("kit-shaped")).toMatchObject({
+      status: "resolved",
+      consumedAt: expect.any(String),
+      body: "Written around Plan",
+      createdBy: "system",
+      kind: "review",
+      targetId: "frame-1",
+      anchor: { x: 0.25, y: 0.5 },
+      anchorKind: "frame-point",
+      anchorVersion: 2,
+      metadata: { images: ["shot.png"] },
+    });
+    expect(await listReviewCommentReactors(["kit-shaped"])).toEqual({
+      "kit-shaped": { "👀": ["viewer@example.test"] },
+    });
+  });
+
+  it("refuses a comment write on a plan in the trash", async () => {
+    const planId = await newPlan();
+    await call(deletePlan, { planId, mode: "soft" });
+
+    await expect(
+      dbModule.getDb().transaction(async (tx) => {
+        await comments.writePlanCommentRows(tx, planId, [
+          comments.completePlanCommentRow({
+            id: "trashed-write",
+            planId,
+            message: "Written after the trash",
+            createdAt: "2026-11-22T10:00:00.000Z",
+            updatedAt: "2026-11-22T10:00:00.000Z",
+          }),
+        ]);
+      }),
+    ).rejects.toThrow(`Plan ${planId} not found`);
+
+    await call(deletePlan, { planId, mode: "restore" });
+    expect(await stored("trashed-write")).toBeNull();
+  });
+
+  it("marks a comment consumed once when its ID is sent twice", async () => {
+    const planId = await newPlan([{ id: "twice-consumed", message: "Once" }]);
+
+    await call(consumeFeedback, {
+      planId,
+      commentIds: ["twice-consumed", "twice-consumed"],
+    });
+
+    expect((await stored("twice-consumed"))?.consumedAt).toEqual(
+      expect.any(String),
+    );
+  });
+
+  it("saves a comment whose section is gone without a section", async () => {
+    const planId = await newPlan();
+
+    await dbModule.getDb().transaction(async (tx) => {
+      await comments.writePlanCommentRows(tx, planId, [
+        comments.completePlanCommentRow({
+          id: "sectionless",
+          planId,
+          sectionId: "restored-away",
+          message: "Its section went",
+          createdAt: "2026-11-22T10:00:00.000Z",
+          updatedAt: "2026-11-22T10:00:00.000Z",
+        }),
+      ]);
+    });
+
+    expect(await stored("sectionless")).toMatchObject({
+      body: "Its section went",
+      surfaceId: null,
+    });
+  });
+
+  it("keeps the ID of a new comment this plan already has, and saves it once", async () => {
+    const planId = await newPlan([{ id: "sent-twice", message: "First send" }]);
+    const resent = {
+      id: "sent-twice",
+      planId,
+      kind: "comment" as const,
+      status: "open" as const,
+      message: "Second send",
+      createdAt: "2026-11-22T10:00:00.000Z",
+      updatedAt: "2026-11-22T10:00:00.000Z",
+    };
+
+    const rows = await plans.withFreshIdsForKitHeldComments(planId, [resent]);
+    expect(rows.map(({ id }) => id)).toEqual(["sent-twice"]);
+    await dbModule.getDb().transaction(async (tx) => {
+      await comments.writePlanCommentRows(
+        tx,
+        planId,
+        rows.map(comments.completePlanCommentRow),
+      );
+    });
+
+    expect(
+      (await expectOnlyInKit(planId)).map(({ id, message }) => [id, message]),
+    ).toEqual([["sent-twice", "First send"]]);
+  });
+
+  it("counts a plan's live and open comments from the kit", async () => {
+    const planId = await newPlan([
+      { id: "count-open", message: "Still open" },
+      { id: "count-resolved", message: "Resolved" },
+      { id: "count-deleted", message: "Deleted" },
+    ]);
+    await call(resolveComment, {
+      planId,
+      commentId: "count-resolved",
+      status: "resolved",
+    });
+    await call(deleteComment, { planId, commentId: "count-deleted" });
+
+    expect((await comments.countPlanComments([planId])).get(planId)).toEqual({
+      comments: 2,
+      open: 1,
+    });
+  });
+
+  it("keeps a person's reactions and their agent's apart, and shows each their own", async () => {
+    const planId = await newPlan([{ id: "react-root", message: "React here" }]);
+    const react = (active: boolean, ctx?: unknown) =>
+      call(
+        reactToComment,
+        { planId, commentId: "react-root", reaction: "👍", active },
+        ctx,
+      );
+    const agent = { caller: "tool" };
+
+    expect((await react(true)).reactions).toEqual([
+      { reaction: "👍", count: 1, reactedByMe: true },
+    ]);
+    expect((await react(true, agent)).reactions).toEqual([
+      { reaction: "👍", count: 2, reactedByMe: true },
+    ]);
+    expect((await react(true)).reactions).toEqual([
+      { reaction: "👍", count: 2, reactedByMe: true },
+    ]);
+    expect((await react(false)).reactions).toEqual([
+      { reaction: "👍", count: 1, reactedByMe: false },
+    ]);
+    expect(await listReviewCommentReactors(["react-root"])).toEqual({
+      "react-root": { "👍": ["agent:owner@example.test"] },
+    });
+
+    const read = async (ctx?: unknown) =>
+      (
+        await call(getPlan, { id: planId, includeMdx: false }, ctx)
+      ).comments.find((comment) => comment.id === "react-root")?.reactions;
+    expect(await read()).toEqual([
+      { reaction: "👍", count: 1, reactedByMe: false },
+    ]);
+    expect(await read(agent)).toEqual([
+      { reaction: "👍", count: 1, reactedByMe: true },
+    ]);
+  });
+
+  it("refuses a reaction on a deleted comment, another plan's, or a plan in the trash", async () => {
+    const planId = await newPlan([
+      { id: "react-kept", message: "Kept" },
+      { id: "react-gone", message: "Deleted" },
+    ]);
+    const otherPlanId = await newPlan([
+      { id: "react-other", message: "Other" },
+    ]);
+    await call(deleteComment, { planId, commentId: "react-gone" });
+    const react = (target: string, commentId: string) =>
+      call(reactToComment, {
+        planId: target,
+        commentId,
+        reaction: "🎉",
+        active: true,
+      });
+
+    await expect(react(planId, "react-gone")).rejects.toThrow(
+      `Comment react-gone isn't on plan ${planId}.`,
+    );
+    await expect(react(planId, "react-other")).rejects.toThrow(
+      `Comment react-other isn't on plan ${planId}.`,
+    );
+    await call(deletePlan, { planId: otherPlanId, mode: "soft" });
+    await expect(react(otherPlanId, "react-other")).rejects.toThrow(
+      `Plan ${otherPlanId} not found`,
+    );
+    expect(
+      await listReviewCommentReactors(["react-gone", "react-other"]),
+    ).toEqual({ "react-gone": {}, "react-other": {} });
   });
 
   it("refuses plan comment writes through the kit's own actions", async () => {
@@ -866,6 +1128,10 @@ describe("Plan comments in the review kit", () => {
         "Plan comments are written with",
       );
     }
-    await expectStoresAgree(planId);
+    expect(await expectOnlyInKit(planId)).toHaveLength(1);
+    expect(await stored("kit-root")).toMatchObject({
+      status: "open",
+      body: "Written in Plan",
+    });
   });
 });

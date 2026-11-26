@@ -145,6 +145,10 @@ import {
 } from "./lib/clip-duration-limit";
 import { callClipsActionFor } from "./lib/clips-action";
 import {
+  loadCountdownPreference,
+  saveCountdownPreference,
+} from "./lib/countdown-preference";
+import {
   startUnavailableAuthRecovery,
   trackAuthRecoveryResult,
 } from "./lib/desktop-auth-recovery";
@@ -6973,6 +6977,13 @@ function Setup({
   const voiceEnabled = featureConfig?.voiceEnabled !== false;
   const voiceCleanupEnabled = featureConfig?.voiceCleanupEnabled !== false;
   const [cameraCutout, setCameraCutout] = useCameraCutoutPreference();
+  const [countdownEnabled, setCountdownEnabled] = useState(
+    loadCountdownPreference,
+  );
+  const updateCountdownEnabled = useCallback((next: boolean) => {
+    setCountdownEnabled(next);
+    saveCountdownPreference(next);
+  }, []);
   const meetingsEnabled = featureConfig?.meetingsEnabled !== false;
   const showMeetingWidgetEnabled =
     featureConfig?.showMeetingWidgetEnabled !== false;
@@ -8154,6 +8165,17 @@ function Setup({
                 onCheckedChange={setVoiceCleanupEnabled}
                 disabled={captureControlsLocked}
                 label="Voice cleanup"
+              />
+            }
+          />
+          <SettingsRow
+            label="Countdown"
+            description="Show a 3-2-1 countdown before recording starts"
+            control={
+              <SettingsSwitch
+                checked={countdownEnabled}
+                onCheckedChange={updateCountdownEnabled}
+                label="Countdown"
               />
             }
           />

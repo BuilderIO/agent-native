@@ -447,6 +447,16 @@ function sourceValueText(value: DocumentPropertyValue) {
   return String(value);
 }
 
+export function BuilderReviewLoadingRow() {
+  const t = useT();
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-border p-4 text-sm text-muted-foreground">
+      <Spinner className="size-4" />
+      {t("database.loadingCompleteBuilderDiff")}
+    </div>
+  );
+}
+
 export function BuilderSourceReviewDialog({
   open,
   review,
@@ -1257,10 +1267,7 @@ export function BuilderSourceReviewDialog({
               ) : null}
             </div>
           ) : rowsLocked ? (
-            <div className="flex items-center gap-2 rounded-md border border-border p-4 text-sm text-muted-foreground">
-              <Spinner className="size-4" />
-              {t("database.loadingCompleteBuilderDiff")}
-            </div>
+            <BuilderReviewLoadingRow />
           ) : error ? (
             <div
               role="alert"

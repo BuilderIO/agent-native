@@ -1153,6 +1153,7 @@ const messages = {
     visibilityDescription:
       "내가 만드는 녹화에 적용됩니다. 녹화마다 변경할 수 있습니다.",
     useOrgDefault: "{{org}} 기본값 사용 ({{visibility}})",
+    enforceOrgDefault: "멤버가 자체 기본값을 설정할 수 없음",
     useDefault: "기본값 사용 ({{visibility}})",
     transcriptExport: "스크립트 내보내기",
     logoDescription: "공유 이메일과 공개 클립 페이지에 표시됩니다.",

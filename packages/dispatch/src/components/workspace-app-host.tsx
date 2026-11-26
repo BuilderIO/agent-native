@@ -229,6 +229,52 @@ export interface WorkspaceAppChatRailProps {
   copy?: ChatFirstCopy;
   agentPageHref?: string;
   onFullscreenRequest?: () => void;
+  browserTabId?: string;
+}
+
+const CHILD_TAB_POLL_MS = 500;
+const CHILD_TAB_POLL_ATTEMPTS = 40;
+
+/**
+ * The tab id the app's chat requests must carry is the embedded frame's, not
+ * Dispatch's: apps share one database, so a `navigate:<tabId>` command written
+ * under Dispatch's own id is consumed by Dispatch's navigation state. Until the
+ * frame has adopted its claim the rail gets an id nobody consumes.
+ */
+export function useWorkspaceAppChildBrowserTab(): {
+  browserTabId: string;
+  onViewReaderChange: (read: WorkspaceAppViewReader) => () => void;
+} {
+  const [unclaimedId] = useState(() => crypto.randomUUID());
+  const [claimedId, setClaimedId] = useState<string | null>(null);
+  const onViewReaderChange = useCallback((read: WorkspaceAppViewReader) => {
+    let attempts = 0;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const retry = () => {
+      if (!stopped && attempts < CHILD_TAB_POLL_ATTEMPTS) {
+        timer = setTimeout(poll, CHILD_TAB_POLL_MS);
+      }
+    };
+    const poll = () => {
+      attempts += 1;
+      read(AbortSignal.timeout(CHILD_TAB_POLL_MS * 4))
+        .then((view) => {
+          if (stopped) return;
+          if (view?.childBrowserTabId) setClaimedId(view.childBrowserTabId);
+          else retry();
+        })
+        // coercion-ok: an unreadable frame stays unclaimed and the rail keeps its inert id.
+        .catch(retry);
+    };
+    poll();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+      setClaimedId(null);
+    };
+  }, []);
+  return { browserTabId: claimedId ?? unclaimedId, onViewReaderChange };
 }
 
 export function WorkspaceAppChatRail({
@@ -238,6 +284,7 @@ export function WorkspaceAppChatRail({
   copy = defaultChatFirstCopy,
   agentPageHref,
   onFullscreenRequest,
+  browserTabId,
 }: WorkspaceAppChatRailProps) {
   const t = useT();
   const appChat = useWorkspaceAppChatApi(appId);
@@ -304,6 +351,7 @@ export function WorkspaceAppChatRail({
       isolateHistoryByScope
       apiUrl={appChat.apiUrl}
       agentChatSurface="app"
+      {...(browserTabId ? { browserTabId } : {})}
       showTabBar
       suppressInlineOpenApp
       dynamicSuggestions={false}
@@ -1062,7 +1110,7 @@ export function WorkspaceAppFrame({
           ref={embedFrameRef}
           onLoad={handleFrameLoad}
           referrerPolicy="no-referrer"
-          allow="clipboard-read; clipboard-write"
+          allow="clipboard-read; clipboard-write; fullscreen"
           className="h-full w-full border-0 bg-background"
         />
       )}
@@ -1084,11 +1132,15 @@ export function WorkspaceAppHost({
   navigateToTopWindow = navigateToWorkspaceApp,
   initialPath,
   onChildRouteChange,
+  onViewReaderChange,
+  claimBrowserTab,
 }: {
   appId?: string;
   navigateToTopWindow?: (href: string) => boolean | void;
   initialPath?: string;
   onChildRouteChange?: (path: string) => void;
+  onViewReaderChange?: (read: WorkspaceAppViewReader) => () => void;
+  claimBrowserTab?: boolean;
 }) {
   const t = useT();
   const workspaceAppsQuery = useActionQuery<WorkspaceAppSummary[]>(
@@ -1221,6 +1273,8 @@ export function WorkspaceAppHost({
           navigateToTopWindow={navigateToTopWindow}
           initialPath={initialPath}
           onChildRouteChange={onChildRouteChange}
+          onViewReaderChange={onViewReaderChange}
+          claimBrowserTab={claimBrowserTab}
         />
       </div>
     </div>
@@ -1263,6 +1317,8 @@ export function WorkspaceAppKeepAlive({
   activeAppId,
   initialPath,
   onChildRouteChange,
+  onViewReaderChange,
+  claimBrowserTab,
 }: {
   activeAppId: string | null;
   /**
@@ -1272,6 +1328,8 @@ export function WorkspaceAppKeepAlive({
    */
   initialPath?: string;
   onChildRouteChange?: (path: string) => void;
+  onViewReaderChange?: (read: WorkspaceAppViewReader) => () => void;
+  claimBrowserTab?: boolean;
 }) {
   const warmAppIds = useWarmWorkspaceAppIds("standalone", activeAppId);
   const renderedAppIds = useMemo(() => [...warmAppIds].sort(), [warmAppIds]);
@@ -1309,6 +1367,8 @@ export function WorkspaceAppKeepAlive({
               appId={appId}
               initialPath={active ? initialPath : pathByAppId[appId]}
               {...(active && onChildRouteChange ? { onChildRouteChange } : {})}
+              {...(active && onViewReaderChange ? { onViewReaderChange } : {})}
+              {...(active && claimBrowserTab ? { claimBrowserTab } : {})}
             />
           </div>
         );

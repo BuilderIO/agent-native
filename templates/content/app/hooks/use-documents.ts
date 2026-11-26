@@ -2295,6 +2295,20 @@ function moveDocumentInCachedPaths(
   }
 }
 
+export function cachedPathParentId(
+  queryClient: QueryClient,
+  activeDocumentId: string,
+  documentId: string,
+): string | null | undefined {
+  return queryClient
+    .getQueryData<ContentNavigationContext>([
+      "action",
+      "get-content-navigation-context",
+      { id: activeDocumentId },
+    ])
+    ?.path.find((entry) => entry.id === documentId)?.parentId;
+}
+
 export function useMoveDocument() {
   const queryClient = useQueryClient();
   return useContentActionMutation<

@@ -235,6 +235,7 @@ import {
   getBuilderBrowserOriginForEvent,
   getBuilderBrowserStatusForEvent,
   BuilderAccountProvisioningError,
+  classifyBuilderProvisioningFailure,
   isBuilderAccountAlreadyExistsError,
   isBuilderAccountProvisioningEnabled,
   isBuilderConnectCallbackUrlAllowed,
@@ -2700,11 +2701,12 @@ export async function activateBuilderAccount(
         "account_exists",
       );
     }
+    const failure = classifyBuilderProvisioningFailure(provisioningError);
     return fail(
       BUILDER_UPSTREAM_FAILURE_STATUS,
-      "Couldn't create your Builder.io account. Try again or sign in with an existing account.",
-      "provision_failed",
-      "provision_failed",
+      failure.message,
+      failure.code,
+      failure.code,
       {
         upstream_response_received: provisioningError?.upstreamStatus != null,
         upstream_status: provisioningError?.upstreamStatus ?? null,
@@ -3112,6 +3114,22 @@ export function createOpenAiAppsChallengeHandler(
     setResponseHeader(event, "Content-Type", "text/plain; charset=utf-8");
     return token;
   });
+}
+
+/**
+ * Sends a connect popup on to Builder with the waiting page's opener policy.
+ * The framework's own policy would sever a popup that came from that page, and
+ * its opener would read it as closed while the person is still signing in.
+ */
+export function redirectToBuilderAuthorization(
+  event: H3Event,
+  authorizationUrl: string,
+): string {
+  setResponseStatus(event, 302);
+  setResponseHeader(event, "Cache-Control", "no-store");
+  setResponseHeader(event, "Cross-Origin-Opener-Policy", "unsafe-none");
+  setResponseHeader(event, "Location", authorizationUrl);
+  return "";
 }
 
 export function createOAuthPopupWaitingHandler() {
@@ -5149,10 +5167,7 @@ export function createCoreRoutesPlugin(
                 !connectTokenOwner || connectTokenOwner === ownerEmail,
             },
           );
-          setResponseStatus(event, 302);
-          setResponseHeader(event, "Cache-Control", "no-store");
-          setResponseHeader(event, "Location", authorizationUrl);
-          return "";
+          return redirectToBuilderAuthorization(event, authorizationUrl);
         }),
       );
 

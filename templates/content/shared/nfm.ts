@@ -1,4 +1,8 @@
 import {
+  readFullScreenBlockLink,
+  type FullScreenBlockLink,
+} from "./block-link.js";
+import {
   formatColumnRatio,
   normalizeColumnRatios,
   parseColumnRatio,
@@ -8,6 +12,10 @@ import {
   matchInlineMathAt,
   MAX_INLINE_MATH_LENGTH,
 } from "./inline-math.js";
+import {
+  INTERACTIVE_HTML_LANGUAGE,
+  readInteractiveHtmlNote,
+} from "./interactive-html-language.js";
 import { registryBlockSpecByTag } from "./nfm-registry.js";
 
 export interface PMMark {
@@ -1549,13 +1557,22 @@ function isEmptyParagraphNode(node: PMNode | undefined): boolean {
   return (Number(node.attrs?.indent) || 0) === 0;
 }
 
+export function isEditorTerminalFiller(
+  last: PMNode | undefined,
+  previous: Pick<PMNode, "type"> | undefined,
+): boolean {
+  return (
+    isEmptyParagraphNode(last) &&
+    previous !== undefined &&
+    previous.type !== "paragraph"
+  );
+}
+
 function trimEditorTerminalFiller(blocks: PMNode[]): PMNode[] {
   if (blocks.length < 2) return blocks;
   const last = blocks[blocks.length - 1];
   const previous = blocks[blocks.length - 2];
-  if (!isEmptyParagraphNode(last) || previous?.type === "paragraph") {
-    return blocks;
-  }
+  if (!isEditorTerminalFiller(last, previous)) return blocks;
   return blocks.slice(0, -1);
 }
 
@@ -1915,7 +1932,10 @@ function serializeTaskList(node: PMNode, indent: number): string[] {
 }
 
 // A cell reads back as one line, so its children share one underscore check.
-function serializeCellInline(cell: PMNode, escapeUnderscore = false): string {
+export function serializeCellInline(
+  cell: PMNode,
+  escapeUnderscore = false,
+): string {
   const parts: string[] = [];
   for (const child of cell.content || []) {
     const part = serializeCellChildInline(child, escapeUnderscore);
@@ -2074,6 +2094,19 @@ export function parseNfmWithLosses(nfm: string | null | undefined): {
   }
 }
 
+export interface NfmBlockSpan {
+  nodes: PMNode[];
+  startLine: number;
+  endLine: number;
+}
+
+export function locateNfmBlocks(nfm: string): NfmBlockSpan[] {
+  const spans: NfmBlockSpan[] = [];
+  const lines = nfm.replace(/\r\n?/g, "\n").split("\n");
+  parseBlockSequence(lines, 0, 0, (span) => spans.push(span));
+  return spans;
+}
+
 interface ParseResult {
   nodes: PMNode[];
   end: number;
@@ -2094,6 +2127,7 @@ function parseBlockSequence(
   lines: string[],
   start: number,
   baseIndent: number,
+  onBlock?: (span: NfmBlockSpan) => void,
 ): ParseResult {
   const out: PMNode[] = [];
   let i = start;
@@ -2113,6 +2147,11 @@ function parseBlockSequence(
     const pipeTable = parseGfmPipeTable(lines, i, ind, rel);
     if (pipeTable) {
       out.push(pipeTable.nodes[0]);
+      onBlock?.({
+        nodes: pipeTable.nodes,
+        startLine: i,
+        endLine: pipeTable.end,
+      });
       i = pipeTable.end;
       continue;
     }
@@ -2126,12 +2165,14 @@ function parseBlockSequence(
     if (listKind) {
       const res = parseList(lines, i, ind, listKind);
       out.push(res.nodes[0]);
+      onBlock?.({ nodes: res.nodes, startLine: i, endLine: res.end });
       i = res.end;
       continue;
     }
 
     const res = parseSingleBlock(lines, i, ind, rel);
     pushAll(out, res.nodes);
+    onBlock?.({ nodes: res.nodes, startLine: i, endLine: res.end });
     i = res.end;
   }
 
@@ -2362,6 +2403,16 @@ export function splitGfmPipeRow(line: string): string[] | null {
   return cells;
 }
 
+export function escapeGfmPipes(value: string): string {
+  return value.replace(/\\[\s\S]|\|/g, (match) =>
+    match === "|" ? "\\|" : match,
+  );
+}
+
+function unescapeGfmPipes(value: string): string {
+  return value.replace(/\\[\s\S]/g, (match) => (match === "\\|" ? "|" : match));
+}
+
 function isGfmDelimiterCell(value: string): boolean {
   return /^-+$/.test(value.trim());
 }
@@ -2426,7 +2477,12 @@ function parseGfmPipeTable(
     content: Array.from({ length: columnCount }, (_, index) => ({
       type: rowIndex === 0 ? "tableHeader" : "tableCell",
       attrs: { color: null, textAlign: alignments[index] ?? null },
-      content: [{ type: "paragraph", content: parseInline(row[index] ?? "") }],
+      content: [
+        {
+          type: "paragraph",
+          content: parseInline(unescapeGfmPipes(row[index] ?? "")),
+        },
+      ],
     })),
   }));
   const attrs: Record<string, unknown> = {
@@ -4084,7 +4140,48 @@ export function notionMarkdownToNfm(markdown: string): string {
   } finally {
     readingNotionMarkdown = previous;
   }
+  readInteractiveHtmlFromNotion(doc);
   return notionNfmFromDoc(doc);
+}
+
+export function soleLinkHref(node: PMNode): unknown {
+  if (node.type !== "paragraph" && node.type !== "heading") return null;
+  const hrefs = new Set<unknown>(
+    (node.content ?? []).map(
+      (child) =>
+        (child.marks ?? []).find((mark) => mark.type === "link")?.attrs?.href,
+    ),
+  );
+  return hrefs.size === 1 ? [...hrefs][0] : null;
+}
+
+function readInteractiveHtmlFromNotion(parent: PMNode): void {
+  if (!parent.content) return;
+  const kept: PMNode[] = [];
+  let above: FullScreenBlockLink | null = null;
+  for (const node of parent.content) {
+    const link = readFullScreenBlockLink(soleLinkHref(node));
+    const captions: boolean =
+      above !== null &&
+      link?.pagePath === above.pagePath &&
+      link.blockId === above.blockId;
+    above = captions ? null : readInteractiveHtmlCode(node);
+    if (captions) continue;
+    if (!above) readInteractiveHtmlFromNotion(node);
+    kept.push(node);
+  }
+  parent.content = kept;
+}
+
+function readInteractiveHtmlCode(node: PMNode): FullScreenBlockLink | null {
+  if (node.type !== "codeBlock" || node.attrs?.language !== "html") return null;
+  const noted = readInteractiveHtmlNote(
+    (node.content ?? []).map((text) => text.text ?? "").join(""),
+  );
+  if (!noted) return null;
+  node.attrs = { ...node.attrs, language: INTERACTIVE_HTML_LANGUAGE };
+  node.content = noted.source ? [{ type: "text", text: noted.source }] : [];
+  return noted.link;
 }
 
 function notionNfmFromDoc(doc: PMDoc): string {

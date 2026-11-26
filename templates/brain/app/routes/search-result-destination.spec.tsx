@@ -58,7 +58,8 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
-  useFormatters: () => ({ formatDate: () => "" }),
+  DEFAULT_LOCALE: "en",
+  useOptionalLocale: () => null,
 }));
 import Search from "./search";
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });

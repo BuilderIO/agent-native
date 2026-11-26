@@ -192,12 +192,31 @@ const shown = (items: ContentDatabaseNavigationItem[]) =>
   );
 
 async function statementsDuring(read: () => Promise<unknown>) {
-  const query = vi.spyOn(getDb().$client, "query");
+  const statements: string[] = [];
+  const client = getDb().$client;
+  const prototype = Object.getPrototypeOf(client);
+  const transaction = prototype.transaction;
+  const spy = vi.spyOn(prototype, "transaction").mockImplementation(function (
+    this: unknown,
+    run: (tx: { query: (...args: unknown[]) => unknown }) => Promise<unknown>,
+  ) {
+    return transaction.call(
+      this,
+      (tx: { query: (...args: unknown[]) => unknown }) => {
+        const query = tx.query.bind(tx);
+        tx.query = (...args: unknown[]) => {
+          statements.push(String(args[0]));
+          return query(...args);
+        };
+        return run(tx);
+      },
+    );
+  });
   try {
     await read();
-    return query.mock.calls.map(([text]) => String(text));
+    return statements;
   } finally {
-    query.mockRestore();
+    spy.mockRestore();
   }
 }
 
@@ -490,6 +509,12 @@ describe("Files navigation of linked local folders", () => {
       expect(draft?.count).toBe(3);
       expect(shown(draft?.page.items ?? [])).toEqual(["readme", "today"]);
       expect(draft?.page.items[1]?.parentId).toBeNull();
+      expect(draft?.page.items[0]).toMatchObject({ documentId: "readme" });
+      expect(draft?.page.items[0]).not.toHaveProperty("canMove");
+      expect(draft?.page.items[1]).toMatchObject({
+        documentId: "today",
+        canMove: false,
+      });
 
       const nextCursor = draft?.page.pagination.nextCursor;
       expect(nextCursor).toBeTruthy();
@@ -503,7 +528,25 @@ describe("Files navigation of linked local folders", () => {
         2,
       );
       expect(shown(rest.items)).toEqual(["yesterday"]);
+      expect(rest.items[0]).toMatchObject({ canMove: false });
       expect(rest.groups).toBeUndefined();
+
+      await getDb()
+        .update(schema.documents)
+        .set({ parentId: "plain-page" })
+        .where(eq(schema.documents.id, "today"));
+      try {
+        const movedGroup = await navigate(FILES, { parentId: null }, 2);
+        const moved = movedGroup.groups
+          ?.find((group) => group.id === "folders-stage:stage-draft")
+          ?.page.items.find((item) => item.documentId === "today");
+        expect(moved).toMatchObject({ parentId: "plain-page", canMove: false });
+      } finally {
+        await getDb()
+          .update(schema.documents)
+          .set({ parentId: null })
+          .where(eq(schema.documents.id, "today"));
+      }
     } finally {
       await getDb()
         .update(schema.contentDatabases)
@@ -515,6 +558,128 @@ describe("Files navigation of linked local folders", () => {
       await getDb()
         .delete(schema.documentPropertyDefinitions)
         .where(eq(schema.documentPropertyDefinitions.id, "folders-stage"));
+    }
+  });
+
+  it("reports move eligibility for Files path entries using their linked source rows", async () => {
+    await page({
+      id: "unlinked-nested",
+      title: "Unlinked nested",
+      linked: { folderId: "vault", path: "unlinked/note.md", sourceRow: false },
+    });
+    await page({
+      id: "foreign-linked",
+      linked: { folderId: "vault", path: "foreign/note.md", sourceRow: false },
+    });
+    await addSpace("foreign-free-space", "foreign-free-files");
+    await addPage({
+      id: "foreign-free-linked",
+      spaceId: "foreign-free-space",
+      databaseId: "foreign-free-files",
+      linked: { folderId: "vault", path: "foreign/free.md", sourceRow: false },
+    });
+    await getDb().insert(schema.documents).values({
+      id: "other-collection-document",
+      spaceId: SPACE,
+      ownerEmail: OWNER,
+      title: "Other collection",
+      content: "",
+      visibility: "private",
+      createdAt: TIMESTAMP,
+      updatedAt: TIMESTAMP,
+    });
+    await getDb().insert(schema.contentDatabases).values({
+      id: "other-collection",
+      spaceId: SPACE,
+      ownerEmail: OWNER,
+      documentId: "other-collection-document",
+      title: "Other collection",
+      createdAt: TIMESTAMP,
+      updatedAt: TIMESTAMP,
+    });
+    await linkFolder("other-collection", "vault");
+    await getDb().insert(schema.contentDatabaseItems).values({
+      id: "other-unlinked-membership",
+      ownerEmail: OWNER,
+      databaseId: "other-collection",
+      documentId: "foreign-linked",
+      createdAt: TIMESTAMP,
+      updatedAt: TIMESTAMP,
+    });
+    await getDb().insert(schema.contentDatabaseSourceRows).values({
+      id: "other-unlinked-source-row",
+      ownerEmail: OWNER,
+      sourceId: "other-collection-source-vault",
+      databaseItemId: "other-unlinked-membership",
+      documentId: "foreign-linked",
+      sourceRowId: "foreign/note.md",
+      sourceQualifiedId: "local-folder://vault/foreign%2Fnote.md",
+      sourceDisplayKey: "foreign/note.md",
+    });
+    await getDb().insert(schema.contentDatabaseItems).values({
+      id: "other-foreign-free-membership",
+      ownerEmail: OWNER,
+      databaseId: "other-collection",
+      documentId: "foreign-free-linked",
+      createdAt: TIMESTAMP,
+      updatedAt: TIMESTAMP,
+    });
+    await getDb().insert(schema.contentDatabaseSourceRows).values({
+      id: "other-foreign-free-source-row",
+      ownerEmail: OWNER,
+      sourceId: "other-collection-source-vault",
+      databaseItemId: "other-foreign-free-membership",
+      documentId: "foreign-free-linked",
+      sourceRowId: "foreign/free.md",
+      sourceQualifiedId: "local-folder://vault/foreign%2Ffree.md",
+      sourceDisplayKey: "foreign/free.md",
+    });
+    const context = await runWithRequestContext({ userEmail: OWNER }, () =>
+      navigationContextAction.run({ id: "child-of-today" }),
+    );
+    expect(context.path.find((entry) => entry.id === "today")).toMatchObject({
+      canMove: false,
+    });
+    expect(
+      context.path.find((entry) => entry.id === "child-of-today"),
+    ).not.toHaveProperty("canMove");
+
+    const foreignContext = await runWithRequestContext(
+      { userEmail: OWNER },
+      () => navigationContextAction.run({ id: "foreign-linked" }),
+    );
+    expect(
+      foreignContext.path.find((entry) => entry.id === "foreign-linked"),
+    ).toMatchObject({ canMove: false });
+    const root = await navigate(FILES, { parentId: null });
+    expect(
+      root.items.find((item) => item.documentId === "foreign-linked"),
+    ).toMatchObject({ canMove: false });
+    const rootWithoutFolder = await navigate("foreign-free-files", {
+      parentId: null,
+    });
+    expect(
+      rootWithoutFolder.items.find(
+        (item) => item.documentId === "foreign-free-linked",
+      ),
+    ).toMatchObject({ canMove: false });
+    await getDb()
+      .delete(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.id, "membership-foreign-linked"));
+    const outsideFiles = await runWithRequestContext({ userEmail: OWNER }, () =>
+      navigationContextAction.run({ id: "foreign-linked" }),
+    );
+    expect(
+      outsideFiles.path.find((entry) => entry.id === "foreign-linked"),
+    ).toMatchObject({ canMove: false });
+
+    for (const id of ["readme", "unlinked-nested", "plain-page"]) {
+      const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+        navigationContextAction.run({ id }),
+      );
+      expect(result.path.find((entry) => entry.id === id)).not.toHaveProperty(
+        "canMove",
+      );
     }
   });
 
@@ -808,21 +973,23 @@ describe("Files navigation of a space without a linked folder", () => {
     ).toEqual(["unlinked-c"]);
   });
 
-  it("reads the tree without looking for linked files", async () => {
+  it("checks source-backed pages without reading folder projections", async () => {
     const statements = await statementsDuring(() =>
       navigate(FILES, { parentId: null, expand: ["unlinked-a"] }),
     );
-    const folderReads = statements.filter(
-      (statement) =>
-        statement.includes("content_database_source_rows") ||
-        statement.includes("navigation_folder"),
-    );
-    expect(folderReads).toEqual([]);
+    expect(
+      statements.filter((statement) => statement.includes("navigation_folder")),
+    ).toEqual([]);
+    expect(
+      statements.filter((statement) =>
+        statement.includes("content_database_source_rows"),
+      ),
+    ).toHaveLength(1);
     expect(
       statements.filter((statement) =>
         statement.includes("content_database_sources"),
       ),
-    ).toHaveLength(1);
+    ).toHaveLength(2);
 
     const childStatements = await statementsDuring(() =>
       navigate(FILES, { parentId: "unlinked-a" }),

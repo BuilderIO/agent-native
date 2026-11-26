@@ -89,3 +89,9 @@ Use `pnpm action docs-search --query "<topic>"` or `pnpm action docs-search --sl
 Before building common workspace or agent UI, read `agent-native-toolkit`; read `customizing-agent-native` before adapting shared UI. Editor behavior lives in `app/pages/design-editor/commands/*.ts`; read `design-editor-architecture` before changing it.
 
 Search with `rg --hidden --follow`.
+
+## Actions for outside agents
+
+| Action | Purpose |
+| --- | --- |
+| `read-link-summary` | A design link's title for another app's link card, only if the caller can open it |

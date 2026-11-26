@@ -2024,9 +2024,11 @@ export function DocumentSidebar({
             ({
               databaseId,
               databaseDocumentId,
+              canMove,
               ...entry
             }): ActivePathDocument => ({
               ...entry,
+              ...(canMove === false ? { canMove: false } : {}),
               content: "",
               description: "",
               position: 0,

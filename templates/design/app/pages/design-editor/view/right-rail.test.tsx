@@ -201,7 +201,7 @@ describe("right column", () => {
     expect(panel.querySelector('[data-slot="edit-panel"]')).not.toBeNull();
     const handle = must(panel.querySelector('[role="separator"]'));
     expect(handle.getAttribute("tabindex")).toBe("0");
-    expect(handle.getAttribute("aria-valuemin")).toBe("240");
+    expect(handle.getAttribute("aria-valuemin")).toBe("280");
     expect(handle.getAttribute("aria-valuemax")).toBe("400");
     await unmount();
   });

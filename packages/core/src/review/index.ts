@@ -26,6 +26,7 @@ export {
   ReviewCommentLinkConflictError,
   ReviewCommentResourceConflictError,
   ReviewCommentRevisionConflictError,
+  ReviewCommentSubmissionConflictError,
   ReviewCursorError,
 } from "./errors.js";
 export {
@@ -66,18 +67,24 @@ export {
   getReviewThreadRoot,
   linkReviewComment,
   listReviewCommentLinks,
+  listReviewCommentReactors,
+  listReviewThreadParticipantEmails,
   queryReviewCommentPage,
   queryReviewComments,
+  reviewCommentIdForClientOperation,
   routeReviewThread,
   sendReviewThreadToAgent,
+  setReviewCommentReaction,
 } from "./store.js";
 export {
   compareMirroredReviewComments,
   deleteMirroredReviewComments,
+  deleteOrphanedMirroredReplies,
   linkMirroredReviewReplies,
   listMirroredResourceIds,
   lockMirroredReviewThreads,
   mirrorReviewComments,
+  moveMirroredReviewAnchors,
   type ReviewCommentCopy,
   type ReviewMirrorComparison,
   type ReviewMirrorDifference,

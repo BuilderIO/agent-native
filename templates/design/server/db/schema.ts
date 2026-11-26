@@ -120,6 +120,36 @@ export const designVersions = table("design_versions", {
   createdAt: text("created_at").default(now()),
 });
 
+export const designContents = table(
+  "design_contents",
+  {
+    designId: text("design_id").notNull(),
+    hash: text("hash").notNull(),
+    body: text("body").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (t) => [primaryKey({ columns: [t.designId, t.hash] })],
+);
+
+export const designVersionFiles = table(
+  "design_version_files",
+  {
+    versionId: text("version_id").notNull(),
+    designId: text("design_id").notNull(),
+    entryKind: text("entry_kind").notNull(),
+    fileId: text("file_id").notNull(),
+    filename: text("filename").notNull(),
+    fileType: text("file_type").notNull(),
+    fileCreatedAt: text("file_created_at"),
+    contentHash: text("content_hash").notNull(),
+    source: text("source").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.versionId, t.entryKind, t.fileId] }),
+    index("design_version_files_design_hash_idx").on(t.designId, t.contentHash),
+  ],
+);
+
 export const designLocalhostConnections = table(
   "design_localhost_connections",
   {

@@ -165,6 +165,7 @@ vi.mock("@agent-native/core/mcp-client", () => ({
 
 import { runWithRequestContext } from "@agent-native/core/server";
 
+import askAppStatusAction from "../../actions/ask_app_status.js";
 import {
   appHomeBaseUrl,
   callGrantedDispatchMcpAppAction,
@@ -1897,14 +1898,21 @@ describe("askGrantedDispatchMcpApp", () => {
       app: "analytics",
       routedVia: "a2a",
       taskId: "task-working",
+      taskHandle: expect.stringMatching(
+        /^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/,
+      ),
       status: "working",
       pollAfterMs: 1_500,
       poll: {
         tool: "ask_app_status",
-        arguments: { app: "analytics", taskId: "task-working" },
+        arguments: {
+          app: "analytics",
+          taskId: "task-working",
+          taskHandle: result.taskHandle,
+        },
       },
       message:
-        'ask_app is still working. Call ask_app_status with taskId "task-working" to retrieve the final response.',
+        'ask_app is still working. Call ask_app_status with taskId "task-working" and the returned taskHandle to retrieve the final response.',
     });
     expect(mocks.a2aSend).toHaveBeenCalledWith(
       expect.anything(),
@@ -2214,6 +2222,459 @@ describe("askGrantedDispatchMcpApp", () => {
       ),
     ).rejects.toThrow(/not granted/);
     expect(mocks.a2aGetTask).not.toHaveBeenCalled();
+  });
+
+  it("polls the original sealed route with a valid taskHandle even after discovery drifts", async () => {
+    vi.stubEnv("A2A_SECRET", "sealed-handle-secret");
+    mocks.getOrgSetting.mockResolvedValue({
+      mode: "selected-apps",
+      selectedAppIds: ["analytics"],
+    });
+    mocks.getOrgDomain.mockResolvedValue("builder.io");
+    mocks.getOrgA2ASecret.mockResolvedValue("org-specific-secret");
+    mocks.a2aSend.mockResolvedValueOnce({
+      id: "task-sealed-route",
+      status: { state: "working" },
+    });
+
+    const submitted = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        askGrantedDispatchMcpApp("analytics", "Run cohort analysis.", {
+          async: true,
+        }),
+    );
+
+    expect(submitted.taskHandle).toMatch(/^v1\./);
+    expect(submitted.poll).toEqual({
+      tool: "ask_app_status",
+      arguments: {
+        app: "analytics",
+        taskId: "task-sealed-route",
+        taskHandle: submitted.taskHandle,
+      },
+    });
+
+    mocks.discoverAgents.mockReset();
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, url: "http://localhost:9999" },
+    ]);
+    mocks.a2aConstructor.mockClear();
+    mocks.a2aGetTask.mockResolvedValueOnce({
+      id: "task-sealed-route",
+      status: {
+        state: "completed",
+        message: {
+          role: "agent",
+          parts: [{ type: "text", text: "Cohort analysis complete." }],
+        },
+      },
+    });
+
+    const polled = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        getGrantedDispatchMcpAppTask("analytics", "task-sealed-route", {
+          taskHandle: submitted.taskHandle,
+        }),
+    );
+
+    expect(mocks.discoverAgents).not.toHaveBeenCalled();
+    expect(mocks.a2aConstructor).toHaveBeenCalledWith(
+      "http://localhost:8086",
+      "signed-token",
+      expect.objectContaining({ requestTimeoutMs: 10_000 }),
+    );
+    expect(mocks.a2aGetTask).toHaveBeenCalledWith("task-sealed-route");
+    expect(polled).toEqual({
+      app: "analytics",
+      routedVia: "a2a",
+      taskId: "task-sealed-route",
+      status: "completed",
+      response: "Cohort analysis complete.",
+    });
+  });
+
+  it("preserves taskHandle across continued pending polls and statusRead unavailable envelopes", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    vi.stubEnv("A2A_SECRET", "sealed-handle-secret");
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    mocks.a2aSend.mockResolvedValueOnce({
+      id: "task-long",
+      status: { state: "working" },
+    });
+
+    const submitted = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        askGrantedDispatchMcpApp("analytics", "Generate quarterly rollup.", {
+          async: true,
+        }),
+    );
+
+    mocks.a2aGetTask.mockResolvedValueOnce({
+      id: "task-long",
+      status: { state: "working" },
+    });
+    const stillWorking = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        getGrantedDispatchMcpAppTask("analytics", "task-long", {
+          taskHandle: submitted.taskHandle,
+        }),
+    );
+
+    expect(stillWorking).toMatchObject({
+      app: "analytics",
+      taskId: "task-long",
+      taskHandle: submitted.taskHandle,
+      status: "working",
+      poll: {
+        tool: "ask_app_status",
+        arguments: {
+          app: "analytics",
+          taskId: "task-long",
+          taskHandle: submitted.taskHandle,
+        },
+      },
+    });
+
+    mocks.a2aGetTask.mockRejectedValue(new TypeError("fetch failed"));
+    const unavailablePromise = runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        getGrantedDispatchMcpAppTask("analytics", "task-long", {
+          taskHandle: submitted.taskHandle,
+        }),
+    );
+    await vi.advanceTimersByTimeAsync(2_500);
+
+    await expect(unavailablePromise).resolves.toMatchObject({
+      app: "analytics",
+      taskId: "task-long",
+      taskHandle: submitted.taskHandle,
+      status: "unknown",
+      statusRead: "unavailable",
+      poll: {
+        tool: "ask_app_status",
+        arguments: {
+          app: "analytics",
+          taskId: "task-long",
+          taskHandle: submitted.taskHandle,
+        },
+      },
+    });
+  });
+
+  it("denies a valid taskHandle when the app grant is revoked before polling", async () => {
+    vi.stubEnv("A2A_SECRET", "sealed-handle-secret");
+    mocks.getUserSetting.mockResolvedValue({
+      mode: "selected-apps",
+      selectedAppIds: ["analytics"],
+    });
+    mocks.a2aSend.mockResolvedValueOnce({
+      id: "task-revoked",
+      status: { state: "working" },
+    });
+
+    const submitted = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        askGrantedDispatchMcpApp("analytics", "Run private export.", {
+          async: true,
+        }),
+    );
+
+    mocks.getUserSetting.mockResolvedValue({
+      mode: "selected-apps",
+      selectedAppIds: ["dispatch"],
+    });
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          getGrantedDispatchMcpAppTask("analytics", "task-revoked", {
+            taskHandle: submitted.taskHandle,
+          }),
+      ),
+    ).rejects.toThrow(/not granted/);
+    expect(mocks.a2aGetTask).not.toHaveBeenCalled();
+  });
+
+  it("rejects tampered, cross-user, cross-org, cross-app, cross-task, and expired handles fail-closed", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_700_000_000_000);
+    vi.stubEnv("A2A_SECRET", "sealed-handle-secret");
+    mocks.getOrgSetting.mockResolvedValue({ mode: "all-apps" });
+    mocks.getOrgDomain.mockResolvedValue("builder.io");
+    mocks.a2aSend.mockResolvedValueOnce({
+      id: "task-bound",
+      status: { state: "working" },
+    });
+
+    const submitted = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        askGrantedDispatchMcpApp("analytics", "Compute revenue.", {
+          async: true,
+        }),
+    );
+    const validHandle = submitted.taskHandle ?? "";
+    expect(validHandle).toMatch(/^v1\./);
+    const tamperedHandle = `${validHandle.slice(0, -1)}${validHandle.endsWith("a") ? "b" : "a"}`;
+    const invalidHandlePattern =
+      /Invalid or expired ask_app task handle\. To keep polling the same task, call ask_app_status with the app and taskId from the ask_app result and leave out taskHandle\. Do not resubmit ask_app; that can duplicate work\./;
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          orgId: "org-1",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          getGrantedDispatchMcpAppTask("analytics", "task-bound", {
+            taskHandle: tamperedHandle,
+          }),
+      ),
+    ).rejects.toThrow(invalidHandlePattern);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          orgId: "org-1",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          getGrantedDispatchMcpAppTask("analytics", "task-bound", {
+            taskHandle: "",
+          }),
+      ),
+    ).rejects.toThrow(invalidHandlePattern);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "mallory@example.test",
+          orgId: "org-1",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          getGrantedDispatchMcpAppTask("analytics", "task-bound", {
+            taskHandle: validHandle,
+          }),
+      ),
+    ).rejects.toThrow(invalidHandlePattern);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          orgId: "org-2",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          getGrantedDispatchMcpAppTask("analytics", "task-bound", {
+            taskHandle: validHandle,
+          }),
+      ),
+    ).rejects.toThrow(invalidHandlePattern);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          orgId: "org-1",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          getGrantedDispatchMcpAppTask("mail", "task-bound", {
+            taskHandle: validHandle,
+          }),
+      ),
+    ).rejects.toThrow(invalidHandlePattern);
+
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          orgId: "org-1",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          getGrantedDispatchMcpAppTask("analytics", "task-other", {
+            taskHandle: validHandle,
+          }),
+      ),
+    ).rejects.toThrow(invalidHandlePattern);
+
+    vi.advanceTimersByTime(60 * 60 * 1000 + 1_000);
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "owner@example.test",
+          orgId: "org-1",
+          requestOrigin: "http://localhost:8092",
+        },
+        () =>
+          getGrantedDispatchMcpAppTask("analytics", "task-bound", {
+            taskHandle: validHandle,
+          }),
+      ),
+    ).rejects.toThrow(invalidHandlePattern);
+
+    expect(mocks.a2aGetTask).not.toHaveBeenCalled();
+
+    mocks.a2aGetTask.mockResolvedValueOnce({
+      id: "task-bound",
+      status: {
+        state: "completed",
+        message: {
+          role: "agent",
+          parts: [{ type: "text", text: "Recovered via legacy poll." }],
+        },
+      },
+    });
+    const legacyRecovered = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        orgId: "org-1",
+        requestOrigin: "http://localhost:8092",
+      },
+      () => getGrantedDispatchMcpAppTask("analytics", "task-bound"),
+    );
+    expect(legacyRecovered).toEqual({
+      app: "analytics",
+      routedVia: "a2a",
+      taskId: "task-bound",
+      status: "completed",
+      response: "Recovered via legacy poll.",
+    });
+  });
+
+  it("forwards optional taskHandle through the ask_app_status action while preserving legacy callers", async () => {
+    vi.stubEnv("A2A_SECRET", "sealed-handle-secret");
+    mocks.a2aSend.mockResolvedValueOnce({
+      id: "task-via-action",
+      status: { state: "working" },
+    });
+
+    const submitted = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        askGrantedDispatchMcpApp("analytics", "Build summary.", {
+          async: true,
+        }),
+    );
+
+    mocks.discoverAgents.mockReset();
+    mocks.discoverAgents.mockResolvedValue([
+      { ...analyticsAgent, url: "http://localhost:9999" },
+    ]);
+    mocks.a2aConstructor.mockClear();
+    mocks.a2aGetTask.mockResolvedValueOnce({
+      id: "task-via-action",
+      status: {
+        state: "completed",
+        message: {
+          role: "agent",
+          parts: [{ type: "text", text: "Summary done." }],
+        },
+      },
+    });
+
+    const withHandle = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        askAppStatusAction.run({
+          app: "analytics",
+          taskId: "task-via-action",
+          taskHandle: submitted.taskHandle,
+        }),
+    );
+    expect(withHandle).toMatchObject({
+      app: "analytics",
+      taskId: "task-via-action",
+      status: "completed",
+      response: "Summary done.",
+    });
+    expect(mocks.discoverAgents).not.toHaveBeenCalled();
+    expect(mocks.a2aConstructor).toHaveBeenCalledWith(
+      "http://localhost:8086",
+      "signed-token",
+      expect.objectContaining({ requestTimeoutMs: 10_000 }),
+    );
+
+    mocks.a2aConstructor.mockClear();
+    mocks.a2aGetTask.mockResolvedValueOnce({
+      id: "task-via-action",
+      status: {
+        state: "completed",
+        message: {
+          role: "agent",
+          parts: [{ type: "text", text: "Legacy summary done." }],
+        },
+      },
+    });
+    const withoutHandle = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        requestOrigin: "http://localhost:8092",
+      },
+      () =>
+        askAppStatusAction.run({
+          app: "analytics",
+          taskId: "task-via-action",
+        }),
+    );
+    expect(withoutHandle).toMatchObject({
+      app: "analytics",
+      taskId: "task-via-action",
+      status: "completed",
+      response: "Legacy summary done.",
+    });
+    expect(mocks.discoverAgents).toHaveBeenCalledTimes(1);
+    expect(mocks.a2aConstructor).toHaveBeenCalledWith(
+      "http://localhost:9999",
+      "signed-token",
+      expect.objectContaining({ requestTimeoutMs: 10_000 }),
+    );
   });
 });
 
@@ -3189,23 +3650,24 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
         isDispatch: false,
       },
     ]);
-    mocks.managerCallTool.mockImplementation(async (_tool, args) =>
-      args.runtime
-        ? {
-            structuredContent: {
-              runtime: "workspace-app-chat",
-              token: "private-chat-credential",
-              targetPath: "/",
-              expiresAt: Date.now() + 900000,
-            },
-          }
-        : {
-            structuredContent: {
-              startUrl:
-                "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
-            },
+    mocks.managerCallTool.mockImplementation(async (_tool, args) => {
+      if (args.runtime) {
+        return {
+          structuredContent: {
+            runtime: "workspace-app-chat",
+            token: "private-chat-credential",
+            targetPath: "/",
+            expiresAt: Date.now() + 900000,
           },
-    );
+        };
+      }
+      return {
+        structuredContent: {
+          startUrl:
+            "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
+        },
+      };
+    });
 
     // Independent auth review: retain the document assertion, then pin the
     // separate chat caller's explicit purpose. Public inputs cannot escalate it.
@@ -3230,18 +3692,6 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       },
     );
 
-    const session = await runWithRequestContext(
-      {
-        userEmail: "owner@example.test",
-        identityAuthenticatedAtMs: Date.now() - 1000,
-        requestOrigin: "https://beta.dispatch.agent-native.com",
-      },
-      () =>
-        createWorkspaceSsoEmbedSessionForWorkspaceAppChat(
-          "customer-ticket-triage",
-        ),
-    );
-
     expect(mocks.managerConstructor).toHaveBeenCalledWith(
       expect.objectContaining({
         servers: {
@@ -3257,6 +3707,40 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       undefined,
       expect.objectContaining({
         audience: "https://beta.agent-workspace.builder.io/dispatch/mcp",
+        preferGlobalSecret: true,
+      }),
+    );
+    mocks.managerConstructor.mockClear();
+    mocks.signA2AToken.mockClear();
+
+    const session = await runWithRequestContext(
+      {
+        userEmail: "owner@example.test",
+        identityAuthenticatedAtMs: Date.now() - 1000,
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      },
+      () =>
+        createWorkspaceSsoEmbedSessionForWorkspaceAppChat(
+          "customer-ticket-triage",
+        ),
+    );
+
+    expect(mocks.managerConstructor).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        servers: {
+          target: expect.objectContaining({
+            url: "https://beta.agent-workspace.builder.io/customer-ticket-triage/mcp",
+          }),
+        },
+      }),
+    );
+    expect(mocks.signA2AToken).toHaveBeenCalledWith(
+      "owner@example.test",
+      undefined,
+      undefined,
+      expect.objectContaining({
+        audience:
+          "https://beta.agent-workspace.builder.io/customer-ticket-triage/mcp",
         preferGlobalSecret: true,
       }),
     );
@@ -3535,6 +4019,124 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
                 }),
         ),
       ).rejects.toThrow(/invalid embed start URL/);
+    },
+  );
+
+  it.each(["workspace-sso", "dispatch-grant"] as const)(
+    "routes root-mounted Workspace app chat directly through %s without changing document embeds",
+    async (route) => {
+      vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+      vi.stubEnv("APP_URL", "https://beta.agent-workspace.builder.io");
+      vi.stubEnv(
+        "WORKSPACE_GATEWAY_URL",
+        "https://beta.agent-workspace.builder.io/dispatch",
+      );
+      vi.stubEnv("APP_BASE_PATH", "");
+      vi.stubEnv("VITE_APP_BASE_PATH", "");
+      vi.stubEnv(
+        "IDENTITY_SSO_APP_REGISTRY_JSON",
+        JSON.stringify([
+          {
+            appId: "customer-ticket-triage",
+            clientId: "workspace-client",
+            origin: "https://beta.agent-workspace.builder.io",
+            callbackPath: "/_agent-native/identity/callback",
+            capabilities: ["identity-sso"],
+          },
+        ]),
+      );
+      const workspaceApp = {
+        id: "customer-ticket-triage",
+        name: "Customer Ticket Triage",
+        description: "Triage customer tickets",
+        path: "/",
+        url: "https://beta.agent-workspace.builder.io",
+        isDispatch: false,
+      };
+      mocks.listWorkspaceApps.mockResolvedValue([workspaceApp]);
+      mocks.discoverAgents.mockResolvedValue([
+        { ...workspaceApp, color: "#14B8A6" },
+      ]);
+      mocks.managerCallTool.mockImplementation(async (_tool, args) =>
+        args.runtime
+          ? {
+              structuredContent: {
+                runtime: "workspace-app-chat",
+                token: "private-chat-credential",
+                targetPath: "/",
+                expiresAt: Date.now() + 900000,
+              },
+            }
+          : {
+              structuredContent: {
+                startUrl:
+                  "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
+              },
+            },
+      );
+      const context = {
+        userEmail: "owner@example.test",
+        identityAuthenticatedAtMs: Date.now() - 1000,
+        requestOrigin: "https://beta.dispatch.agent-native.com",
+      };
+
+      const document = await runWithRequestContext(context, () => {
+        const input = {
+          app: workspaceApp.id,
+          path: "/",
+          chrome: "minimal" as const,
+        };
+        return route === "workspace-sso"
+          ? createWorkspaceSsoEmbedSession(input)
+          : createGrantedDispatchMcpEmbedSession(input);
+      });
+      expect(mocks.managerConstructor).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          servers: {
+            target: expect.objectContaining({
+              url: "https://beta.agent-workspace.builder.io/dispatch/mcp",
+            }),
+          },
+        }),
+      );
+      expect(mocks.managerCallTool).toHaveBeenLastCalledWith(
+        "mcp__target__create_embed_session",
+        { url: "https://beta.agent-workspace.builder.io/", chrome: "minimal" },
+      );
+      expect(document.startUrl).toBe(
+        "https://beta.agent-workspace.builder.io/dispatch/_agent-native/embed/start?ticket=remote",
+      );
+
+      const chat = await runWithRequestContext(context, () =>
+        route === "workspace-sso"
+          ? createWorkspaceSsoEmbedSessionForWorkspaceAppChat(workspaceApp.id)
+          : createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat(
+              workspaceApp.id,
+            ),
+      );
+      expect.soft(mocks.managerConstructor).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          servers: {
+            target: expect.objectContaining({
+              url: "https://beta.agent-workspace.builder.io/mcp",
+            }),
+          },
+        }),
+      );
+      expect(mocks.managerCallTool).toHaveBeenLastCalledWith(
+        "mcp__target__create_embed_session",
+        {
+          url: "https://beta.agent-workspace.builder.io/",
+          chrome: "minimal",
+          runtime: "workspace-app-chat",
+        },
+      );
+      expect.soft(chat).toEqual({
+        token: "private-chat-credential",
+        targetPath: "/",
+        expiresAt: expect.any(Number),
+        appBaseUrl: "https://beta.agent-workspace.builder.io",
+      });
     },
   );
 

@@ -344,6 +344,8 @@ const enUS = {
     emptyTitle: "Connect Brain's first source",
     emptyDetail:
       "Add an approved Slack channel, Granola Team-space source, GitHub repo, Clips export, manual import, or signed webhook.",
+    rotationConflictDetail:
+      "The source changed. Reload the page and retry the rotation.",
     actionFailedTitle: "Source action failed",
     actionFailedDetail:
       "Check source credentials, channel allow-lists, and the latest sync error.",
@@ -3113,6 +3115,8 @@ const exactEnglishDebtOverrides: Partial<
     sources: {
       actionFailedDetail:
         "تحقق من بيانات اعتماد المصدر وقوائم القنوات المسموح بها وآخر خطأ في المزامنة.",
+      rotationConflictDetail:
+        "تغيّر المصدر. أعد تحميل الصفحة ثم أعد محاولة تدوير الرمز.",
       actionFailedTitle: "فشل إجراء المصدر",
       advancedDescription:
         "تصفية المصادر والتحقق من جاهزية الاتصال وتشغيل عمليات مزامنة الصيانة عندما لا تكون قائمة المصادر العادية كافية.",
@@ -3544,6 +3548,8 @@ const exactEnglishDebtOverrides: Partial<
     sources: {
       actionFailedDetail:
         "Überprüfen Sie die Anmeldeinformationen der Quelle, die Kanalzulassungslisten und den letzten Synchronisierungsfehler.",
+      rotationConflictDetail:
+        "Die Quelle wurde geändert. Laden Sie die Seite neu und versuchen Sie die Tokenrotation erneut.",
       actionFailedTitle: "Quellaktion fehlgeschlagen",
       advancedDescription:
         "Filtern Sie Quellen, prüfen Sie die Verbindungsbereitschaft und führen Sie Wartungssynchronisierungen durch, wenn die normale Quellenliste nicht ausreicht.",
@@ -3993,6 +3999,8 @@ const exactEnglishDebtOverrides: Partial<
     sources: {
       actionFailedDetail:
         "Verifique las credenciales de origen, las listas de canales permitidos y el último error de sincronización.",
+      rotationConflictDetail:
+        "La fuente ha cambiado. Recarga la página y vuelve a intentar rotar el token.",
       actionFailedTitle: "Error en la acción de origen",
       advancedDescription:
         "Filtre fuentes, verifique la preparación de la conexión y ejecute sincronizaciones de mantenimiento cuando la lista de fuentes normal no sea suficiente.",
@@ -4439,6 +4447,8 @@ const exactEnglishDebtOverrides: Partial<
     sources: {
       actionFailedDetail:
         "Vérifiez les informations d'identification de la source, les listes d'autorisation des canaux et la dernière erreur de synchronisation.",
+      rotationConflictDetail:
+        "La source a changé. Rechargez la page et réessayez de renouveler le jeton.",
       actionFailedTitle: "L'action source a échoué",
       advancedDescription:
         "Filtrez les sources, vérifiez l'état de préparation de la connexion et exécutez des synchronisations de maintenance lorsque la liste de sources normale n'est pas suffisante.",
@@ -4867,6 +4877,8 @@ const exactEnglishDebtOverrides: Partial<
     sources: {
       actionFailedDetail:
         "स्रोत क्रेडेंशियल, चैनल अनुमति-सूचियाँ और नवीनतम सिंक त्रुटि की जाँच करें।",
+      rotationConflictDetail:
+        "स्रोत बदल गया है। पेज फिर से लोड करें और टोकन बदलने का पुनः प्रयास करें।",
       actionFailedTitle: "स्रोत कार्रवाई विफल रही",
       advancedDescription:
         "स्रोतों को फ़िल्टर करें, कनेक्शन की तैयारी की जाँच करें, और सामान्य स्रोत सूची पर्याप्त न होने पर रखरखाव सिंक चलाएँ।",
@@ -5287,6 +5299,8 @@ const exactEnglishDebtOverrides: Partial<
     sources: {
       actionFailedDetail:
         "ソース認証情報、チャネル許可リスト、最新の同期エラーを確認します。",
+      rotationConflictDetail:
+        "ソースが変更されました。ページを再読み込みし、トークンのローテーションを再試行してください。",
       actionFailedTitle: "ソースアクションが失敗しました",
       advancedDescription:
         "ソースをフィルタリングし、接続の準備状況を確認し、通常のソース リストでは不十分な場合はメンテナンス同期を実行します。",
@@ -5715,6 +5729,8 @@ const exactEnglishDebtOverrides: Partial<
     sources: {
       actionFailedDetail:
         "소스 자격 증명, 채널 허용 목록 및 최신 동기화 오류를 확인하세요.",
+      rotationConflictDetail:
+        "소스가 변경되었습니다. 페이지를 새로고침한 후 토큰 교체를 다시 시도하세요.",
       actionFailedTitle: "소스 작업 실패",
       advancedDescription:
         "소스를 필터링하고, 연결 준비 상태를 확인하고, 일반 소스 목록이 충분하지 않은 경우 유지 관리 동기화를 실행하세요.",
@@ -6148,6 +6164,8 @@ const exactEnglishDebtOverrides: Partial<
     sources: {
       actionFailedDetail:
         "Verifique as credenciais de origem, as listas de permissões de canais e o erro de sincronização mais recente.",
+      rotationConflictDetail:
+        "A fonte foi alterada. Recarregue a página e tente rotacionar o token novamente.",
       actionFailedTitle: "Falha na ação de origem",
       advancedDescription:
         "Filtre fontes, verifique a disponibilidade da conexão e execute sincronizações de manutenção quando a lista normal de fontes não for suficiente.",
@@ -6560,6 +6578,7 @@ const exactEnglishDebtOverrides: Partial<
     },
     sources: {
       actionFailedDetail: "检查源凭据、通道允许列表和最新的同步错误。",
+      rotationConflictDetail: "来源已更改。请重新加载页面，然后重试令牌轮换。",
       actionFailedTitle: "源操作失败",
       advancedDescription:
         "过滤源，检查连接准备情况，并在正常源列表不够时运行维护同步。",

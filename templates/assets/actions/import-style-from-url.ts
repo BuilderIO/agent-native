@@ -27,6 +27,7 @@ export default defineAction({
       .describe("Optional collection to update instead of the library"),
     url: z.string().describe("Public website URL to render and analyze"),
   }),
+  mcpTool: "search",
   run: async ({ libraryId, collectionId, url }) => {
     await assertCanApprove(libraryId, "Importing a style");
     const db = getDb();

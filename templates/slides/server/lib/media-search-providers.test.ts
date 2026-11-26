@@ -65,6 +65,34 @@ describe("Slides media search providers", () => {
     expect(requestString(url)).toContain("num=10");
   });
 
+  it("sends image search to Google when GOOGLE_SEARCH_URL is not set", async () => {
+    const provider = runtime({
+      secrets: { GOOGLE_API_KEY: "k", GOOGLE_SEARCH_CX: "cx" },
+      response: Response.json({ items: [] }),
+    });
+    await searchProviderImages("hero", 5, provider);
+    const [url] = vi.mocked(provider.fetch).mock.calls[0] ?? [];
+    expect(requestString(url)).toMatch(
+      /^https:\/\/www\.googleapis\.com\/customsearch\/v1\?/,
+    );
+  });
+
+  it("sends image search to GOOGLE_SEARCH_URL when it is set", async () => {
+    const provider = runtime({
+      secrets: {
+        GOOGLE_API_KEY: "k",
+        GOOGLE_SEARCH_CX: "cx",
+        GOOGLE_SEARCH_URL: "https://search.example.test/v2/images",
+      },
+      response: Response.json({ items: [] }),
+    });
+    await searchProviderImages("hero", 5, provider);
+    const [url] = vi.mocked(provider.fetch).mock.calls[0] ?? [];
+    expect(requestString(url)).toMatch(
+      /^https:\/\/search\.example\.test\/v2\/images\?/,
+    );
+  });
+
   it("fails clearly when Google image search is not configured", async () => {
     await expect(searchProviderImages("hero", 5, runtime())).rejects.toThrow(
       /GOOGLE_API_KEY and GOOGLE_SEARCH_CX/,

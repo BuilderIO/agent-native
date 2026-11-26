@@ -27,6 +27,7 @@ vi.mock("./better-auth-instance.js", () => ({
   getBetterAuthSync: vi.fn(() => undefined),
 }));
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
   getRefusedLocalDatabaseSource: () => null,
   isLocalDatabase: () => true,

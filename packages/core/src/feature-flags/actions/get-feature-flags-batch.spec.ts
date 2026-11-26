@@ -10,6 +10,7 @@ vi.mock("../../settings/store.js", async (importOriginal) => ({
   getSettingsRaw: (...args: unknown[]) => getSettingsRaw(...args),
 }));
 vi.mock("../../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: vi.fn() }),
 }));
 vi.mock("../../server/capture-error.js", () => ({ captureError: vi.fn() }));

@@ -5,11 +5,12 @@ import {
   ensureAdditiveColumns,
   getDbExec,
   runMigrations,
+  type MigrationRunResult,
 } from "@agent-native/core/db";
 
 import * as schema from "../db/schema.js";
 import {
-  copyPlanCommentsToReviewKit,
+  addMissingPlanCommentsToReviewKit,
   type PlanCommentCopyReport,
 } from "../lib/plan-comment-mirror.js";
 
@@ -462,38 +463,38 @@ WHERE kind = 'edition' AND edition_issue_number IS NOT NULL`,
     version: 45,
     name: "plan-comments-copy-to-review-kit",
     sql: {},
-    run: async () => {
-      let report: PlanCommentCopyReport;
-      try {
-        report = await copyPlanCommentsToReviewKit();
-      } catch (error) {
-        console.error(
-          "[db] Couldn't copy plan comments to the review kit; it runs again on the next start:",
-          error instanceof Error ? error.message : error,
-        );
-        return deferMigration();
-      }
-      const summary = `[db] Copied ${report.comments} comment(s) on ${report.plans} plan(s) to the review kit`;
-      if (report.kitWrittenComments.length > 0) {
-        console.warn(
-          `[db] Kept ${report.kitWrittenComments.length} plan comment(s) that were written through the review kit's own actions and aren't in Plan:`,
-          report.kitWrittenComments.slice(0, 20),
-        );
-      }
-      if (report.differences.length > 0) {
-        console.warn(
-          `${summary}; ${report.differences.length} still differ:`,
-          report.differences.slice(0, 20),
-        );
-      } else {
-        console.log(summary);
-      }
-      if (report.failedPlans.length > 0 || report.differences.length > 0) {
-        return deferMigration();
-      }
-    },
+    run: async () => {},
+  },
+  {
+    version: 46,
+    name: "plan-comments-copy-to-review-kit-again",
+    sql: {},
+    run: async () => {},
+  },
+  {
+    version: 47,
+    name: "plan-comments-add-missing-to-review-kit",
+    sql: {},
+    run: addMissingPlanComments,
   },
 ];
+
+async function addMissingPlanComments(): Promise<MigrationRunResult> {
+  let report: PlanCommentCopyReport;
+  try {
+    report = await addMissingPlanCommentsToReviewKit();
+  } catch (error) {
+    console.error(
+      "[db] Couldn't copy plan comments to the review kit; it runs again on the next start:",
+      error instanceof Error ? error.message : error,
+    );
+    return deferMigration();
+  }
+  console.log(
+    `[db] Checked ${report.comments} comment(s) on ${report.plans} plan(s); added ${report.added} the review kit lacked`,
+  );
+  if (report.failedPlans.length > 0) return deferMigration();
+}
 
 export const runPlanMigrations = runMigrations(planMigrations, {
   table: "plans_migrations",

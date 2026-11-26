@@ -32,6 +32,8 @@ const RESPONSE_HEADERS = {
   "X-Content-Type-Options": "nosniff",
 };
 
+const STORAGE_TIMEOUT_MS = 15_000;
+
 export default defineEventHandler(async (event) => {
   for (const [name, value] of Object.entries(RESPONSE_HEADERS)) {
     setResponseHeader(event, name, value);
@@ -66,7 +68,8 @@ export default defineEventHandler(async (event) => {
       if (!readable) throw notFound();
       const opened = await openPrivateMediaForAuthorizedReader(id);
       if (!opened) throw notFound();
-      if (opened.kind === "redirect") {
+      const bytes = getQuery(event).bytes === "1";
+      if (opened.kind === "redirect" && !bytes) {
         return sendRedirect(event, opened.url, 302);
       }
       setResponseHeader(event, "Content-Type", opened.media.mimeType);
@@ -77,7 +80,19 @@ export default defineEventHandler(async (event) => {
           PRIVATE_MEDIA_SVG_CSP,
         );
       }
-      return Buffer.from(opened.data);
+      if (opened.kind === "bytes") return Buffer.from(opened.data);
+      const stored = await fetch(opened.url, {
+        signal: AbortSignal.timeout(STORAGE_TIMEOUT_MS),
+      });
+      const data = stored.ok ? Buffer.from(await stored.arrayBuffer()) : null;
+      if (data?.byteLength !== opened.media.size) {
+        throw createError({
+          statusCode: 502,
+          statusMessage: "Image storage did not answer with the image",
+          headers: RESPONSE_HEADERS,
+        });
+      }
+      return data;
     },
   );
 });

@@ -783,7 +783,7 @@ describe("a caller that can't be asked", () => {
     const refusal = must(result.bigQueryBudget?.refusal);
     expect(refusal.code).toBe("approval_required");
     expect(refusal.message).toContain(
-      "Allowing up to $5.00 today needs your approval on Analytics' review page, which this call can't ask for. Analytics asks once over MCP, when a get-onboarding-journey or get-first-party-analytics-health call needs more, and that approval covers all your outside agents until 00:00 UTC; an Analytics organization admin can also raise your daily allowance. Until then, do not retry this call today.",
+      "Allowing up to $5.00 today needs your approval on Analytics' review page, which this call can't ask for. Analytics asks once over MCP, when a get-onboarding-journey, get-first-party-analytics-health or query-warehouse call needs more, and that approval covers all your outside agents until 00:00 UTC; an Analytics organization admin can also raise your daily allowance. Until then, do not retry this call today.",
     );
     expect(await allowanceRows()).toEqual([]);
   });

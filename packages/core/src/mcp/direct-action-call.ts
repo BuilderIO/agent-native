@@ -38,6 +38,7 @@ import {
   getMcpDirectoryWidgetResourceUri,
   hasVerifiedMcpUserIdentity,
   MCP_ACTION_APPROVAL_INPUT_KEY,
+  MCP_ACTION_CONNECTION_INPUT_KEY,
   type MCPActionEntry,
   type MCPCallerIdentity,
   type MCPConfig,
@@ -73,17 +74,26 @@ import {
   redactEmbedText,
 } from "./embed-redaction.js";
 import {
+  canonicalJson,
   embedCredentialSources,
+  extractMcpConnectionRequiredFromError,
+  extractMcpConnectionRequiredFromResult,
+  isMcpActionConnectionState,
   type EmbedCredentialGuard,
   mcpActionErrorCode,
   redactEmbedCredentials,
+  resolveTrustedMcpConnectUrl,
   returnedResult,
   runMcpActionCallUnredacted,
+  sha256Base64Url,
   toJsonData,
   UnreadableResultError,
   type McpActionApprovalState,
   type McpActionCallContext,
+  type McpActionConnectionState,
+  type McpActionRequestState,
   type McpApprovalReview,
+  type McpConnectionRequiredDetails,
 } from "./execute-action-call.js";
 import { mcpResponseOutputCheck } from "./output-contract.js";
 
@@ -120,6 +130,12 @@ export interface DirectActionCallScope {
     review: McpApprovalReview,
     ctx: ServerContext,
   ) => Promise<InputRequiredResult | CallToolResult>;
+  requestMcpActionConnection?: (
+    name: string,
+    args: unknown,
+    connection: McpConnectionRequiredDetails,
+    ctx: ServerContext,
+  ) => Promise<InputRequiredResult | undefined>;
 }
 
 /** The analytics record of a call that failed. */
@@ -144,6 +160,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     acceptedContent,
     inputResponse,
     requestMcpActionApproval,
+    requestMcpActionConnection,
   } = scope;
   const servedActions = { ...advertisedActions, ...unlistedActions };
 
@@ -275,6 +292,76 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       return actionError(err);
     }
 
+    const rawRequestState =
+      ctx.mcpReq.requestState<McpActionRequestState>() ?? undefined;
+    let resumedConnection: McpActionConnectionState | undefined;
+    if (isMcpActionConnectionState(rawRequestState)) {
+      const providerLabel =
+        typeof rawRequestState.provider === "string" &&
+        rawRequestState.provider.trim().length > 0
+          ? rawRequestState.provider.trim()
+          : "the provider";
+      let argsHash: string | undefined;
+      try {
+        // coercion-ok: a call that omits `arguments` passes no arguments, which is an empty object.
+        argsHash = await sha256Base64Url(canonicalJson(args ?? {}));
+      } catch {
+        // coercion-ok: non-JSON arguments fail state verification below rather than throwing past the error boundary.
+        argsHash = undefined;
+      }
+      if (
+        rawRequestState.actionName !== name ||
+        argsHash === undefined ||
+        rawRequestState.argumentsHash !== argsHash ||
+        !Number.isFinite(rawRequestState.expiresAt) ||
+        rawRequestState.expiresAt < Date.now() ||
+        typeof rawRequestState.provider !== "string" ||
+        rawRequestState.provider.trim().length === 0
+      ) {
+        return toolCallError({
+          errorType: "connection_required_invalid_state",
+          errorMessage: `Connection setup for ${name} is invalid, expired, or does not match this exact call. Do not retry automatically; ask the user to connect ${providerLabel} first.`,
+        });
+      }
+      const connectionReply = inputResponse(
+        ctx.mcpReq.inputResponses,
+        MCP_ACTION_CONNECTION_INPUT_KEY,
+      );
+      if (
+        connectionReply.kind !== "elicit" ||
+        connectionReply.action !== "accept"
+      ) {
+        const replyAction =
+          connectionReply.kind === "elicit"
+            ? connectionReply.action
+            : "incomplete";
+        const reasonText =
+          replyAction === "decline"
+            ? `the user declined to connect ${providerLabel}`
+            : replyAction === "cancel"
+              ? `connecting ${providerLabel} was cancelled`
+              : `connecting ${providerLabel} was not completed`;
+        return toolCallError({
+          errorType: `connection_required_${replyAction}`,
+          errorMessage: `${name} cannot run because ${reasonText}. Do not retry automatically; ask the user to connect ${providerLabel} before trying again.`,
+        });
+      }
+      resumedConnection = rawRequestState;
+    }
+
+    const connectionStillMissingError = (
+      connection: McpConnectionRequiredDetails,
+    ) => {
+      const trustedUrl = resolveTrustedMcpConnectUrl(
+        connection.connectUrl,
+        requestMeta,
+      );
+      return toolCallError({
+        errorType: "connection_required_still_unconnected",
+        errorMessage: `${name} cannot run because ${connection.provider} is still not connected.${trustedUrl ? ` Complete setup at ${trustedUrl}, then ask again.` : ""} Do not retry automatically.`,
+      });
+    };
+
     const outcome = await runMcpActionCallUnredacted(actionCallContext, {
       name,
       args,
@@ -291,7 +378,9 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       },
       approval: {
         state: () =>
-          ctx.mcpReq.requestState<McpActionApprovalState>() ?? undefined,
+          isMcpActionConnectionState(rawRequestState)
+            ? undefined
+            : rawRequestState,
         decision: () =>
           (
             acceptedContent(
@@ -357,6 +446,51 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           undefined,
         );
       }
+      const connectionRequired =
+        outcome.stage === "action" &&
+        !outcome.execution.evidence?.nestedWriteEntered
+          ? extractMcpConnectionRequiredFromError(outcome.error)
+          : undefined;
+      if (connectionRequired) {
+        if (resumedConnection) {
+          return connectionStillMissingError(connectionRequired);
+        }
+        try {
+          const elicited = await requestMcpActionConnection?.(
+            name,
+            args,
+            connectionRequired,
+            ctx,
+          );
+          if (elicited) return elicited;
+        } catch (err) {
+          return actionError(err);
+        }
+        const fallback = actionError(outcome.error);
+        const trustedUrl = resolveTrustedMcpConnectUrl(
+          connectionRequired.connectUrl,
+          requestMeta,
+        );
+        const firstBlock = fallback.content.at(0);
+        if (
+          trustedUrl &&
+          firstBlock &&
+          !firstBlock.text.includes(trustedUrl) &&
+          !firstBlock.text.includes(connectionRequired.connectUrl)
+        ) {
+          return {
+            ...fallback,
+            content: [
+              {
+                ...firstBlock,
+                text: `${firstBlock.text}\nConnect ${connectionRequired.provider}: ${trustedUrl}`,
+              },
+              ...fallback.content.slice(1),
+            ],
+          };
+        }
+        return fallback;
+      }
       return actionError(outcome.error);
     }
     if (outcome.status === "approval-required") {
@@ -402,6 +536,26 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     // action's value again. What it returned is classified before anything
     // can fail, and the response normalizes only the parts read there.
     const returned = returnedResult(outcome.result);
+    const returnedConnectionRequired =
+      !execution.evidence?.nestedWriteEntered && !returned.unread
+        ? extractMcpConnectionRequiredFromResult(returned.result)
+        : undefined;
+    if (returnedConnectionRequired) {
+      if (resumedConnection) {
+        return connectionStillMissingError(returnedConnectionRequired);
+      }
+      try {
+        const elicited = await requestMcpActionConnection?.(
+          name,
+          args,
+          returnedConnectionRequired,
+          ctx,
+        );
+        if (elicited) return elicited;
+      } catch (err) {
+        return actionError(err);
+      }
+    }
     const { upstream } = returned;
     let stage: "normalize" | "respond" = "normalize";
     let guardSoFar: EmbedCredentialGuard | undefined;

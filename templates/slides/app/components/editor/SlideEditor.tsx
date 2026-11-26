@@ -5387,6 +5387,7 @@ export default function SlideEditor({
     (resolvedSelection?: readonly HTMLElement[]) => {
       const slideContent = getSlideContent();
       if (!slideContent) return false;
+      if (textSessionRef.current) exitInlineEditRef.current();
       // The objects taken off the canvas; their stored paths pick the reveals to drop.
       const removed: HTMLElement[] = [];
 
@@ -6223,6 +6224,7 @@ export default function SlideEditor({
   }, [getClipboardSelection, pasteSlideObjects, storedFormOfCopy]);
 
   const cutSelectedObjects = useCallback(() => {
+    if (textSessionRef.current) exitInlineEditRef.current();
     const selection = getClipboardSelection();
     if (!selection) return false;
     storeCopiedObjects(selection);

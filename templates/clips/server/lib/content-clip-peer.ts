@@ -16,18 +16,6 @@ import {
 } from "@agent-native/core/server";
 import { ForbiddenError, resolveAccess } from "@agent-native/core/sharing";
 import { isEmailDerivedName } from "@agent-native/core/user-profile";
-import {
-  and,
-  asc,
-  count,
-  eq,
-  inArray,
-  isNotNull,
-  isNull,
-  sql,
-  type SQL,
-} from "drizzle-orm";
-import { alias } from "drizzle-orm/pg-core";
 import { getQuery, getRequestHeader, getRouterParam, type H3Event } from "h3";
 import { z } from "zod";
 
@@ -42,7 +30,6 @@ import {
   CONTENT_CLIP_COMMENT_AUTHOR_CHARS,
   CONTENT_CLIP_COMMENT_KEY,
   CONTENT_CLIP_COMMENT_KEY_HEADER,
-  CONTENT_CLIP_COMMENT_KEY_USED,
   CONTENT_CLIP_COMMENT_PREVIEW_CHARS,
   CONTENT_CLIP_COMMENT_TEXT_CHARS,
   CONTENT_CLIP_MAX_COMMENT_CHARS,
@@ -58,7 +45,7 @@ import {
   type ContentClipScope,
 } from "../../shared/content-clip-contract.js";
 import { recordingEmbedProvider } from "../../shared/embed-provider.js";
-import { getDb, schema } from "../db/index.js";
+import { schema } from "../db/index.js";
 import { assertCommentAccess } from "./comment-access.js";
 import {
   contentDocGrantFor,
@@ -84,6 +71,13 @@ import {
   saveRecordingReply,
   type SavedRecordingComment,
 } from "./recording-comment-writes.js";
+import {
+  byVideoTime,
+  commentVideoTimestampMs,
+  findRecordingComment,
+  recordingKitComments,
+  withCommentEmailsLater,
+} from "./recording-comments.js";
 import {
   isRecordingExpiredForViewer,
   isRecordingTrashedForViewer,
@@ -630,35 +624,25 @@ async function listCommentThreads(
   const { recordingId } = peer;
   const signedOut = peer.viewerEmail === null;
   await assertCommentAccess(recordingId, "read");
-  const comments = schema.recordingComments;
-  const text = sql<string>`left(${comments.content}, ${
-    openThreads
-      ? CONTENT_CLIP_COMMENT_TEXT_CHARS
-      : CONTENT_CLIP_COMMENT_PREVIEW_CHARS
-  })`;
-  const rows = await getDb()
-    .select({
-      id: comments.id,
-      authorEmail: comments.authorEmail,
-      authorName: comments.authorName,
-      content: text,
-      videoTimestampMs: comments.videoTimestampMs,
-      createdAt: comments.createdAt,
-    })
-    .from(comments)
-    .where(
-      and(
-        eq(comments.recordingId, recordingId),
-        isNull(comments.parentId),
-        openThreads ? eq(comments.resolved, false) : undefined,
-      ),
+  const textChars = openThreads
+    ? CONTENT_CLIP_COMMENT_TEXT_CHARS
+    : CONTENT_CLIP_COMMENT_PREVIEW_CHARS;
+  const comments = (await recordingKitComments(recordingId)).map((comment) => ({
+    id: comment.id,
+    threadId: comment.threadId,
+    authorEmail: comment.authorEmail ?? "",
+    authorName: comment.authorName,
+    content: firstChars(comment.body, textChars),
+    videoTimestampMs: commentVideoTimestampMs(comment.anchor),
+    createdAt: comment.createdAt,
+    resolved: comment.status === "resolved",
+  }));
+  const starts = comments
+    .filter(
+      (comment) =>
+        comment.threadId === comment.id && !(openThreads && comment.resolved),
     )
-    .orderBy(
-      asc(comments.videoTimestampMs),
-      asc(comments.createdAt),
-      asc(comments.id),
-    )
-    .limit(limit + 1);
+    .sort(byVideoTime);
   const author = <
     Row extends { authorEmail: string; authorName: string | null },
   >(
@@ -677,8 +661,12 @@ async function listCommentThreads(
         authorName?.slice(0, CONTENT_CLIP_COMMENT_AUTHOR_CHARS) ?? null,
     };
   };
-  const threads = await hydrateCommentAuthorNames(rows.slice(0, limit));
-  const truncated = rows.length > limit;
+  const threads = await hydrateCommentAuthorNames(
+    starts
+      .slice(0, limit)
+      .map(({ threadId: _threadId, resolved: _resolved, ...thread }) => thread),
+  );
+  const truncated = starts.length > limit;
   if (!openThreads) {
     return {
       comments: threads.map(({ createdAt: _createdAt, ...thread }) =>
@@ -688,10 +676,10 @@ async function listCommentThreads(
     };
   }
 
-  const threadIds = threads.map((thread) => thread.id);
-  const replies = threadIds.length
-    ? await listThreadReplies(recordingId, threadIds, text)
-    : { rows: [], counts: new Map<string, number>() };
+  const replies = listThreadReplies(
+    comments,
+    threads.map((thread) => thread.id),
+  );
   const repliesOf = new Map<string, unknown[]>();
   for (const { threadId, ...reply } of await hydrateCommentAuthorNames(
     replies.rows,
@@ -711,53 +699,54 @@ async function listCommentThreads(
   };
 }
 
+function firstChars(text: string, chars: number): string {
+  return text.length <= chars
+    ? text
+    : Array.from(text).slice(0, chars).join("");
+}
+
 /**
  * The listed threads' replies, oldest first, from the earliest thread on and
  * no more than the contract's bound, with how many each thread has.
  */
-async function listThreadReplies(
-  recordingId: string,
+function listThreadReplies(
+  comments: ReadonlyArray<{
+    id: string;
+    threadId: string;
+    authorEmail: string;
+    authorName: string | null;
+    content: string;
+    createdAt: string;
+  }>,
   threadIds: string[],
-  text: SQL<string>,
 ) {
-  const comments = schema.recordingComments;
-  const root = alias(comments, "thread_start");
-  const inThreads = and(
-    eq(comments.recordingId, recordingId),
-    inArray(comments.threadId, threadIds),
-    isNotNull(comments.parentId),
+  const threadOrder = new Map(threadIds.map((id, index) => [id, index]));
+  const replies = comments.filter(
+    (comment) =>
+      comment.threadId !== comment.id && threadOrder.has(comment.threadId),
   );
-  const [rows, counts] = await Promise.all([
-    getDb()
-      .select({
-        id: comments.id,
-        threadId: comments.threadId,
-        authorEmail: comments.authorEmail,
-        authorName: comments.authorName,
-        content: text,
-        createdAt: comments.createdAt,
-      })
-      .from(comments)
-      .innerJoin(root, eq(root.id, comments.threadId))
-      .where(inThreads)
-      .orderBy(
-        asc(root.videoTimestampMs),
-        asc(root.createdAt),
-        asc(root.id),
-        asc(comments.createdAt),
-        asc(comments.id),
-      )
-      .limit(CONTENT_CLIP_MAX_LISTED_REPLIES),
-    getDb()
-      .select({ threadId: comments.threadId, replies: count() })
-      .from(comments)
-      .where(inThreads)
-      .groupBy(comments.threadId),
-  ]);
-  return {
-    rows,
-    counts: new Map(counts.map((row) => [row.threadId, Number(row.replies)])),
-  };
+  const counts = new Map<string, number>();
+  for (const reply of replies) {
+    counts.set(reply.threadId, (counts.get(reply.threadId) ?? 0) + 1);
+  }
+  const rows = replies
+    .sort(
+      (a, b) =>
+        (threadOrder.get(a.threadId) ?? 0) -
+          (threadOrder.get(b.threadId) ?? 0) ||
+        a.createdAt.localeCompare(b.createdAt) ||
+        a.id.localeCompare(b.id),
+    )
+    .slice(0, CONTENT_CLIP_MAX_LISTED_REPLIES)
+    .map(({ id, threadId, authorEmail, authorName, content, createdAt }) => ({
+      id,
+      threadId,
+      authorEmail,
+      authorName,
+      content,
+      createdAt,
+    }));
+  return { rows, counts };
 }
 
 export async function handleContentClipComments(
@@ -849,17 +838,8 @@ async function isCommentOnRecording(
   id: string,
   recordingId: string,
 ): Promise<boolean> {
-  const [comment] = await getDb()
-    .select({ id: schema.recordingComments.id })
-    .from(schema.recordingComments)
-    .where(
-      and(
-        eq(schema.recordingComments.id, id),
-        eq(schema.recordingComments.recordingId, recordingId),
-      ),
-    )
-    .limit(1);
-  return Boolean(comment);
+  const comment = await findRecordingComment(id);
+  return comment?.resourceId === recordingId;
 }
 
 /**
@@ -870,17 +850,27 @@ async function isCommentOnRecording(
  * is saved either way, and an email that fails is logged, never sent again.
  */
 async function notifyAfterAnswer(
-  saved: SavedRecordingComment,
   event: H3Event,
-): Promise<void> {
-  if (saved.repeated) return;
-  const sending = saved.notify().catch((error: unknown) => {
-    console.error(
-      `[clips] emails for comment ${saved.id} failed after it was saved`,
-      error instanceof Error ? error.message : error,
-    );
-  });
+  write: () => Promise<SavedRecordingComment>,
+): Promise<SavedRecordingComment> {
+  const sendings: Promise<unknown>[] = [];
+  const saved = await withCommentEmailsLater(
+    (sending) => sendings.push(sending),
+    write,
+  );
+  if (!sendings.length) return saved;
+  const sending = Promise.all(
+    sendings.map((pending) =>
+      pending.catch((error: unknown) => {
+        console.error(
+          `[clips] emails for comment ${saved.id} failed after it was saved`,
+          error instanceof Error ? error.message : error,
+        );
+      }),
+    ),
+  );
   await runInBackground(sending, platformWaitUntil(event.req));
+  return saved;
 }
 
 async function writeComment(
@@ -891,22 +881,24 @@ async function writeComment(
 ) {
   switch (write.operation) {
     case "add": {
-      const saved = await saveRecordingComment({
-        recordingId,
-        content: write.content,
-        videoTimestampMs: write.videoTimestampMs,
-        idempotencyKey,
-      });
-      await notifyAfterAnswer(saved, event);
+      const saved = await notifyAfterAnswer(event, () =>
+        saveRecordingComment({
+          recordingId,
+          content: write.content,
+          videoTimestampMs: write.videoTimestampMs,
+          idempotencyKey,
+        }),
+      );
       return { id: saved.id, threadId: saved.threadId };
     }
     case "reply": {
-      const saved = await saveRecordingReply({
-        commentId: write.commentId,
-        content: write.content,
-        idempotencyKey,
-      });
-      await notifyAfterAnswer(saved, event);
+      const saved = await notifyAfterAnswer(event, () =>
+        saveRecordingReply({
+          commentId: write.commentId,
+          content: write.content,
+          idempotencyKey,
+        }),
+      );
       return {
         id: saved.id,
         threadId: saved.threadId,
@@ -991,9 +983,10 @@ export async function handleContentClipCommentWrite(
     } catch (error) {
       if (
         isActionContractError(error) &&
-        error.errorCode === CONTENT_CLIP_COMMENT_KEY_USED
+        error.statusCode >= 400 &&
+        error.statusCode < 500
       ) {
-        return errorResponse(409, error.message, CONTENT_CLIP_COMMENT_KEY_USED);
+        return errorResponse(error.statusCode, error.message, error.errorCode);
       }
       return forbiddenResponse(error);
     }

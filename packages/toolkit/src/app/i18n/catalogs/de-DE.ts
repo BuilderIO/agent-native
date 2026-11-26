@@ -1454,6 +1454,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Ein Tool-Schema war ungültig. Deshalb hat das Modell die Anfrage abgelehnt, bevor sie gestartet wurde. Das ungültige Tool kann übersprungen und die Anfrage erneut gesendet werden.",
   "errorMessages.malformedRequest":
     "Der Modellanbieter hat diese Anfrage als fehlerhaft abgelehnt, daher wurde sie nicht wiederholt. Versuchen Sie es erneut oder starten Sie einen neuen Chat, wenn das Problem weiterhin auftritt.",
+  "errorMessages.requestNotRead":
+    "Das Modell konnte diese Anfrage nicht lesen, weil sie zu groß oder zu komplex war, zum Beispiel wegen zu vieler Tools, daher wurde sie nicht wiederholt. Starten Sie einen neuen Chat oder wählen Sie ein anderes Modell.",
   "errorMessages.requestTooLarge":
     "Diese Anfrage überschritt das Größenlimit des Servers (HTTP 413). Starte einen neuen Chat oder entferne große Anhänge oder Referenzen und versuche es erneut.",
   "errorMessages.capabilityUnavailable":
@@ -1462,6 +1464,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Diese App kann deinen gespeicherten Prompt noch nicht sicher erneut senden. Aktualisiere die App und versuche es erneut.",
   "errorMessages.runInterrupted": "Der Agent hat vor dem Abschluss aufgehört.",
   "errorMessages.runFailed": "Der Agent-Lauf ist fehlgeschlagen.",
+  "errorMessages.writeOutcomeUnknown":
+    "Ich habe die Schreibaktion angehalten, weil ein früherer Versuch möglicherweise bereits Änderungen gespeichert hat und ich das Ergebnis nicht bestätigen konnte. Prüfe vor einem erneuten Versuch, was gespeichert wurde.",
   "errorMessages.runUnverified":
     "Dieser Chat hat den Agenten aus den Augen verloren; er läuft möglicherweise noch. Laden Sie neu, um den Fortschritt zu sehen.",
   "errorMessages.runSignedOut":
@@ -3725,6 +3729,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpApps.openInNewTab": "In neuem Tab öffnen",
   "mcpApps.initFailed": "Die MCP-App konnte nicht initialisiert werden.",
   "mcpApps.readOnly": "Diese gespeicherte MCP-App ist schreibgeschützt.",
+  "markdown.opensInNewTab": "(öffnet sich in einem neuen Tab)",
   "iframeEmbed.blocked": "Einbettung blockiert",
   "iframeEmbed.missingSrc": "Quelle fehlt",
   "iframeEmbed.crossOrigin": "Ursprungsübergreifende URL nicht erlaubt",

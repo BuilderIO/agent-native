@@ -3,13 +3,52 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-11-24
+
+### Improved
+
+- Review diff now opens as soon as you click it, even on large collections.
+
+### Fixed
+
+- A new Builder article now saves the body you write after its first automatic save. Before, an article first saved with only a title kept showing "Saved" while its body never reached Builder. If Content hasn't read the article's body from Builder yet, the row now shows "Waiting" and says why. If that read failed, it shows "Save failed" with a Retry.
+- Files navigation remains consistent while linked folders are syncing.
+- Find more available destinations when moving pages.
+- Linked files in subfolders stay in their source folders when browsing grouped views.
+- Linked folder files no longer offer invalid moves when revealed in grouped Files.
+
+## 2026-11-23
+
+### Improved
+
+- Suggestion cards in the margin now say each change as a sentence, such as Replace “five” with “seven”, and quote a rewritten passage whole: the old words struck through, then the new ones.
+- When you ask the agent to address a page's comments with suggested edits, each suggestion now links back to the comment it answers, like an Ask AI suggestion does.
+
+## 2026-11-21
+
+### Added
+
+- Every block's menu now has Copy link, which copies a link that opens the page at that block and highlights it. The link keeps pointing at the block when you rewrite it, change its type or drag it, and says so if the block was deleted.
+
+### Improved
+
+- A synced collection's Sources panel now reads the same for GitHub, Builder and Notion: where the pages come from, whether they're up to date, how editing works, Sync now, and Unlink…, with the branch, Builder's edit modes and Notion's matching rule folded under More.
+
 ## 2026-11-20
 
 ### Added
 
 - Paste a screen's link from Design into a page to pin a picture of it there, with a link back to the screen, a note when it has changed in Design, its open comments, and a Refresh button for editors.
 
+### Fixed
+
+- Settings → Appearance now has a Theme row with System, Light and Dark, and System follows your computer when it switches between light and dark. The command menu's Toggle theme now changes the same setting.
+
 ## 2026-11-19
+
+### Added
+
+- Pasting a Design, Slides or Clips link on its own line now makes a card with its title, shown to everyone who can open it
 
 ### Improved
 
@@ -41,6 +80,10 @@ time from the command menu (Cmd+K → "What's new").
 ### Added
 
 - Search (Cmd+K) can show only the pages one person edited last: a new chip picks you, anyone in your organization, or an email you type, and agents can pass the same filter over MCP.
+
+### Improved
+
+- Collections synced from a GitHub folder, a Builder model or a Notion database now share one status line above the table (where the pages come from, when they last updated, progress, and a fix button when something is wrong), one banner on each synced page, and the same Sync now and Unlink… words; you can also sign in to Notion right from Sources.
 
 ### Fixed
 
@@ -1268,44 +1311,5 @@ time from the command menu (Cmd+K → "What's new").
 ### Fixed
 
 - Selected Builder reviews now load only the chosen rows, avoiding production timeouts on large collections.
-
-## 2026-07-14
-
-### Added
-
-- Create inline or block LaTeX equations from the slash menu or by typing `$…$`, with live validation and preview; existing GitHub-style equation syntax remains compatible, and equations render on public pages and in exports.
-- Pages and databases can describe themselves, with guidance for properties and select options.
-
-### Fixed
-
-- Builder account connection now remains available when branch creation is not configured, with clearer guidance when a preview still needs relay setup.
-- Builder-backed articles now preserve fifth- and sixth-level headings in the editor.
-- Builder sources now review and publish rich article updates with guarded writes and preserved media.
-- Builder writes now prevent duplicate retries when another push is running or reconciliation is required.
-- File and media links now validate before saving and include the pending valid link on save.
-- Slack follow-ups now retain created Content identity and person-field intent across corrections.
-
-## 2026-07-13
-
-### Added
-
-- New Agent page: see and manage your agent's context, files, connections, jobs, and external access in one place
-- You can now cancel a prepared Builder update safely before it is sent.
-
-### Improved
-
-- Builder connection setup is now available directly from Connections settings.
-
-### Fixed
-
-- Builder reviews now hide already-applied writes, detect native media converter updates, and show the linked entry target.
-- Document links now support opening in a new tab.
-- Required Builder publishing fields can now be added directly from the connected source settings.
-
-## 2026-07-12
-
-### Fixed
-
-- The left sidebar stays fixed horizontally while scrolling on desktop and mobile.
 
 For the full list of updates, see the [changelog folder](./changelog/).

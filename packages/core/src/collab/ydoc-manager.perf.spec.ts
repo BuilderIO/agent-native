@@ -83,7 +83,10 @@ vi.mock("../db/client.js", async () => {
       throw new Error(`Unexpected SQL: ${sql}`);
     },
   };
-  return { getDbExec: () => exec };
+  return {
+    getEnclosingTransactionDbExec: () => undefined,
+    getDbExec: () => exec,
+  };
 });
 
 vi.mock("../db/ddl-guard.js", () => ({

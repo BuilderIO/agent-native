@@ -74,6 +74,12 @@ export { canonicalA2AAudience } from "./audience.js";
 export { A2APersistencePayloadError } from "./persistence-safety.js";
 export { resolveA2ACallerAuth } from "./caller-auth.js";
 export { readPeerComposerSource } from "./composer-source.js";
+export {
+  LINK_SUMMARY_TIMEOUT_MS,
+  READ_LINK_SUMMARY_ACTION,
+  answerLinkSummaries,
+  readPeerLinkSummaries,
+} from "./link-summary.js";
 export type { A2ACallerAuth } from "./caller-auth.js";
 export {
   ANTHROPIC_MANAGED_AGENTS_BETA_HEADER,

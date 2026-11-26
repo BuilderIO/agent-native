@@ -21,6 +21,7 @@ export interface SqlQueryExecutionMetadata {
   partial?: boolean;
   /** When these rows were first received, preserved across cache hits. */
   fetchedAt?: string;
+  refreshPending?: boolean;
   /**
    * Generation of the warehouse model these rows were read from, as read
    * before the original query; preserved across cache hits. Absent when the

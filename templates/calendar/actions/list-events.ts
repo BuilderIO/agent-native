@@ -17,6 +17,7 @@ import {
   accountDescriptionFor,
   getAccountDescriptions,
 } from "../server/lib/calendar-descriptions.js";
+import { calendarReadFailure } from "../server/lib/calendar-read-error.js";
 import { getCalendarTimezone } from "../server/lib/calendar-settings.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import { fetchICalEvents } from "../server/lib/ical-fetcher.js";
@@ -103,6 +104,7 @@ interface ListCalendarEventsArgs {
   calendarSourceKeys?: string[];
   sources?: CalendarInventorySource[];
   providerPageSize?: number;
+  incremental?: boolean;
 }
 
 interface ListCalendarEventsOptions {
@@ -115,8 +117,8 @@ type CalendarInventorySource = "google" | "bookings" | "ics" | "overlays";
 
 interface CalendarEventsResult {
   events: CalendarEvent[];
-  errors: Array<{ email: string; error: string }>;
-  primaryErrors: Array<{ email: string; error: string }>;
+  errors: Array<{ email: string; error: string; code?: string }>;
+  primaryErrors: Array<{ email: string; error: string; code?: string }>;
   primaryEventCount: number;
   googleConnected: boolean;
   range: CalendarEventRange;
@@ -132,6 +134,7 @@ interface CalendarEventsResult {
     email: string;
     status: "ok" | "error";
     error?: string;
+    code?: string;
   }>;
   requestedAccounts: string[] | null;
   resolvedAccounts: string[];
@@ -151,6 +154,7 @@ export interface CalendarInventoryItem {
   transparency?: CalendarEvent["transparency"];
   source: "google" | "booking" | "ics" | "overlay";
   sourceId?: string;
+  revision?: string;
   accountEmail?: string;
   calendarSourceKey?: string;
   calendarId?: string;
@@ -366,6 +370,7 @@ function compactInventoryEvent(event: CalendarEvent): CalendarInventoryItem {
     transparency: event.transparency,
     source,
     sourceId: event.sourceId,
+    revision: event.revision,
     accountEmail: event.accountEmail,
     calendarSourceKey: event.calendarSourceKey,
     calendarId: event.calendarId,
@@ -623,7 +628,7 @@ export async function listCalendarEvents(
   const includeOverlays = sources.includes("overlays");
 
   let googleEvents: CalendarEvent[] = [];
-  let errors: Array<{ email: string; error: string }> = [];
+  let errors: Array<{ email: string; error: string; code?: string }> = [];
   let overlaySources: Array<{
     email: string;
     status: "ok" | "error";
@@ -670,6 +675,9 @@ export async function listCalendarEvents(
           accountEmails: args.accountEmails,
           calendarSourceKeys: args.calendarSourceKeys,
           maxResults: args.providerPageSize,
+          ...(args.incremental === undefined
+            ? {}
+            : { incremental: args.incremental }),
         })
       : Promise.resolve({ events: [], errors: [] });
   const overlayRead =
@@ -679,7 +687,14 @@ export async function listCalendarEvents(
           range.to,
           requestedOverlayEmails,
           email,
-          { accountEmails: args.accountEmails },
+          {
+            ...(args.accountEmails
+              ? { accountEmails: args.accountEmails }
+              : {}),
+            ...(args.incremental === undefined
+              ? {}
+              : { incremental: args.incremental }),
+          },
         )
       : Promise.resolve({ events: [], errors: [], accountErrors: [] });
   const icalRead = sources.includes("ics")
@@ -716,6 +731,7 @@ export async function listCalendarEvents(
             email: overlayEmail,
             status: "error" as const,
             error: error.error,
+            ...(error.code ? { code: error.code } : {}),
           }
         : { email: overlayEmail, status: "ok" as const };
     });
@@ -877,6 +893,10 @@ export default defineAction({
       .enum(["legacy", "inventory"])
       .optional()
       .describe("Use inventory for compact, coverage-aware external reads"),
+    incremental: z
+      .union([z.boolean(), z.enum(["true", "false"])])
+      .transform((value) => value === true || value === "true")
+      .optional(),
     cursor: z
       .string()
       .max(4096)
@@ -890,6 +910,11 @@ export default defineAction({
       .optional(),
   }),
   http: { method: "GET" },
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async (args, ctx) => {
@@ -1129,9 +1154,26 @@ export default defineAction({
       };
     }
 
-    if (result.primaryEventCount === 0 && result.primaryErrors.length > 0) {
-      throw new Error(
-        result.primaryErrors.map((e) => `${e.email}: ${e.error}`).join("; "),
+    const readFailures = [
+      ...result.primaryErrors,
+      ...(args.incremental
+        ? result.overlaySources.flatMap((source) =>
+            source.error
+              ? [
+                  {
+                    error: source.error,
+                    ...(source.code ? { code: source.code } : {}),
+                  },
+                ]
+              : [],
+          )
+        : []),
+      ...(args.incremental ? result.icalErrors : []),
+    ];
+    if (readFailures.length > 0) {
+      throw calendarReadFailure(
+        readFailures,
+        args.incremental ? { partialEvents: result.events } : undefined,
       );
     }
 

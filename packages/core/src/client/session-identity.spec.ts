@@ -8,8 +8,10 @@ import {
   currentPrivateActionScope,
   currentSessionIdentity,
   currentSessionScope,
+  notifySessionIdentityPublished,
   recordSessionIdentity,
   subscribeSessionIdentity,
+  subscribeSessionIdentityPublished,
   subscribeSessionInvalidation,
   subscribeSessionScope,
 } from "./session-identity.js";
@@ -49,6 +51,18 @@ it("tells invalidation subscribers when this tab or another starts changing the 
   stop();
   announceSessionInvalidated();
   expect(heard).toBe(2);
+});
+
+it("notifies publication subscribers only while they are subscribed", () => {
+  const listener = vi.fn();
+  const stop = subscribeSessionIdentityPublished(listener);
+  recordSessionIdentity("synthetic-user", "synthetic-org");
+  expect(listener).not.toHaveBeenCalled();
+  notifySessionIdentityPublished("synthetic-user\nsynthetic-org");
+  expect(listener).toHaveBeenCalledTimes(1);
+  stop();
+  notifySessionIdentityPublished(null);
+  expect(listener).toHaveBeenCalledTimes(1);
 });
 
 describe("session scope", () => {

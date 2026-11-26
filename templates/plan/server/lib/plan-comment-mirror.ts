@@ -1,11 +1,8 @@
 import {
-  compareMirroredReviewComments,
   deleteMirroredReviewComments,
   ensureReviewTables,
-  listMirroredResourceIds,
   mirrorReviewComments,
   type ReviewCommentCopy,
-  type ReviewMirrorDifference,
   type ReviewMirrorResource,
 } from "@agent-native/core/review";
 import { and, asc, eq, gt, inArray, isNull } from "drizzle-orm";
@@ -69,16 +66,6 @@ export function planCommentCopy(
     resolutionTarget,
     consumedAt: row.consumedAt,
   };
-}
-
-export function comparePlanComments(
-  resource: ReviewMirrorResource,
-  copies: readonly ReviewCommentCopy[],
-) {
-  return compareMirroredReviewComments(
-    resource,
-    copies.map(({ resolvedBy: _by, resolvedAt: _at, ...copy }) => copy),
-  );
 }
 
 async function threadRoots(
@@ -154,7 +141,7 @@ function planSharing() {
   };
 }
 
-async function planResource(
+export async function planResource(
   db: PlanReader,
   planId: string,
 ): Promise<ReviewMirrorResource> {
@@ -162,30 +149,11 @@ async function planResource(
     .select(planSharing())
     .from(schema.plans)
     .where(eq(schema.plans.id, planId))
-    .limit(1);
+    .limit(1)
+    .for("share");
   if (plans.length === 0) throw new Error(`Plan ${planId} not found`);
   const [plan] = plans;
   return { resourceType: PLAN_REVIEW_RESOURCE, resourceId: planId, ...plan };
-}
-
-export async function mirrorPlanComments(
-  db: PlanReader,
-  planId: string,
-  ids: readonly string[] | "all",
-): Promise<void> {
-  if (ids !== "all" && ids.length === 0) return;
-  const resource = await planResource(db, planId);
-  const rows = await db
-    .select()
-    .from(schema.planComments)
-    .where(
-      and(
-        eq(schema.planComments.planId, planId),
-        isNull(schema.planComments.deletedAt),
-        ids === "all" ? undefined : inArray(schema.planComments.id, [...ids]),
-      ),
-    );
-  await mirrorReviewComments(resource, await planCopies(db, planId, rows));
 }
 
 export async function deleteMirroredPlanComments(
@@ -203,26 +171,24 @@ export async function deleteMirroredPlanComments(
 export interface PlanCommentCopyReport {
   plans: number;
   comments: number;
+  added: number;
   failedPlans: string[];
-  differences: Array<{ planId: string } & ReviewMirrorDifference>;
-  kitWrittenComments: Array<{ planId: string; id: string }>;
 }
 
 const PLAN_PAGE_SIZE = 200;
 
-export async function copyPlanCommentsToReviewKit(): Promise<PlanCommentCopyReport> {
+export async function addMissingPlanCommentsToReviewKit(): Promise<PlanCommentCopyReport> {
   await ensureReviewTables();
   const db = getDb();
   const report: PlanCommentCopyReport = {
     plans: 0,
     comments: 0,
+    added: 0,
     failedPlans: [],
-    differences: [],
-    kitWrittenComments: [],
   };
   let after = "";
   for (;;) {
-    // guard:allow-unscoped — the startup copy covers every plan with comments.
+    // guard:allow-unscoped — the copy covers every plan with comments.
     const page = await db
       .selectDistinct({ planId: schema.planComments.planId })
       .from(schema.planComments)
@@ -231,24 +197,6 @@ export async function copyPlanCommentsToReviewKit(): Promise<PlanCommentCopyRepo
       .limit(PLAN_PAGE_SIZE);
     for (const { planId } of page) {
       await copyPlan(planId, report);
-      after = planId;
-    }
-    if (page.length < PLAN_PAGE_SIZE) break;
-  }
-  after = "";
-  for (;;) {
-    const page = await listMirroredResourceIds(PLAN_REVIEW_RESOURCE, {
-      after,
-      limit: PLAN_PAGE_SIZE,
-    });
-    if (page.length === 0) break;
-    const copied = await db
-      .selectDistinct({ planId: schema.planComments.planId })
-      .from(schema.planComments)
-      .where(inArray(schema.planComments.planId, page));
-    const seen = new Set(copied.map((row) => row.planId));
-    for (const planId of page) {
-      if (!seen.has(planId)) await copyPlan(planId, report);
       after = planId;
     }
     if (page.length < PLAN_PAGE_SIZE) break;
@@ -267,58 +215,32 @@ async function copyPlan(
         .from(schema.plans)
         .where(eq(schema.plans.id, planId))
         .for("update");
+      if (plans.length === 0) return null;
       const [plan] = plans;
-      const resource: ReviewMirrorResource = {
-        resourceType: PLAN_REVIEW_RESOURCE,
-        resourceId: planId,
-        ...plan,
-      };
-      if (plans.length === 0) {
-        await deleteMirroredPlanComments(planId, "all");
-        const { differences } = await comparePlanComments(resource, []);
-        return { comments: 0, differences, kitWritten: [] };
-      }
       const rows = await tx
         .select()
         .from(schema.planComments)
-        .where(eq(schema.planComments.planId, planId))
+        .where(
+          and(
+            eq(schema.planComments.planId, planId),
+            isNull(schema.planComments.deletedAt),
+          ),
+        )
         .orderBy(
           asc(schema.planComments.createdAt),
           asc(schema.planComments.id),
-        )
-        .for("update");
-      const live = rows.filter((row) => row.deletedAt === null);
-      const copies = await planCopies(tx, planId, live);
-      await mirrorReviewComments(resource, copies);
-      const deletedBy = new Map<string | null, string[]>();
-      for (const row of rows) {
-        if (row.deletedAt === null) continue;
-        const ids = deletedBy.get(row.deletedBy);
-        if (ids) ids.push(row.id);
-        else deletedBy.set(row.deletedBy, [row.id]);
-      }
-      for (const [by, ids] of deletedBy) {
-        await deleteMirroredPlanComments(planId, ids, by);
-      }
-      const { differences } = await comparePlanComments(resource, copies);
-      return {
-        comments: copies.length,
-        differences: differences.filter(
-          (difference) => difference.problem !== "extra",
-        ),
-        kitWritten: differences
-          .filter((difference) => difference.problem === "extra")
-          .map((difference) => difference.id),
-      };
+        );
+      const { written } = await mirrorReviewComments(
+        { resourceType: PLAN_REVIEW_RESOURCE, resourceId: planId, ...plan },
+        await planCopies(tx, planId, rows),
+        { onlyMissing: true },
+      );
+      return { comments: rows.length, added: written };
     });
+    if (!copied) return;
     report.plans += 1;
     report.comments += copied.comments;
-    for (const difference of copied.differences) {
-      report.differences.push({ planId, ...difference });
-    }
-    for (const id of copied.kitWritten) {
-      report.kitWrittenComments.push({ planId, id });
-    }
+    report.added += copied.added;
   } catch (error) {
     report.failedPlans.push(planId);
     console.error(

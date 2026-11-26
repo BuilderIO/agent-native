@@ -22,19 +22,16 @@ read never waits on a live Gmail call. `tab` accepts any id from the returned
 `list-emails`/`search-emails` for every other view (Sent, Archive, Trash, All
 Mail) or an ad hoc query — not for the inbox.
 
-Membership is Superhuman-style, not Gmail's own IMPORTANT label: a thread
-shows in every pinned-label/saved-filter tab whose query it matches (a thread
-can appear in more than one). A thread matching no custom tab falls to
-Important, unless its latest message classifies as automated (bulk senders,
-`List-Unsubscribe`, notification-style `from:`), in which case it falls to
-Other.
+Membership is independent of Gmail's IMPORTANT label: a thread belongs to its
+first matching pinned-label or saved-filter tab. Unmatched personal mail goes to
+Important; automated and unclassified mail goes to Other. All, when enabled,
+contains every inbox thread.
 
 During an initial sync or older-mail backfill, rows and computed tab totals are
 partial; totals marked as lower bounds display with `+`. Call `sync-inbox` to
-advance one bounded step, then read `list-inbox-threads` to see committed rows.
-Repeat while an account is initial, has a pending push, or has backfill pending.
-When the sync result includes `retryAfterSeconds`, wait that long before the
-next step. The inbox client follows this cadence automatically. A plain
+advance an initial or pending-push step. To read older mail, pass `loadOlder:
+true` for one bounded page and then read `list-inbox-threads`. When the sync
+result includes `retryAfterSeconds`, wait that long before the next step. A plain
 `list-inbox-threads` call never starts Gmail work. Use `resync-inbox` only to
 reset and restart an account's local inbox sync; it performs one bounded step.
 
@@ -84,10 +81,12 @@ relying on ambient screen text.
 
 ## Moving the UI
 
-`navigate` accepts `view` (`inbox`, `starred`, `sent`, `drafts`, `scheduled`,
-`archive`, `trash`, `draft-queue`, `settings`), plus `tab` (an inbox tab id
+`navigate` accepts `view` (`inbox`, `starred`, `sent`, `drafts`, `archive`,
+`trash`, `draft-queue`, `settings`), plus `tab` (an inbox tab id
 from `list-inbox-threads`; `label`/`filter` are accepted aliases),
-`threadId`, `settingsSection`, `queuedDraftId`, or `composeDraftId`.
+`threadId`, `settingsSection`, `queuedDraftId`, or `composeDraftId`. Drafts
+lists requested drafts, then scheduled sends (soonest first), then the user's
+own drafts; `scheduled`, and `draft-queue` without `queuedDraftId`, open it.
 
 `settingsSection` opens Settings in the user's tab. `general`, `reading`,
 `drafting`, `snippets`, `rules`, `ai-filter`, `gmail-filters`, `aliases`, and

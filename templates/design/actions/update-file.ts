@@ -18,10 +18,7 @@ import {
   withLegacyOperationReceipt,
 } from "../server/lib/content-operation-receipts.js";
 import { designChangeResource } from "../server/lib/design-change-resource.js";
-import {
-  checkpointSkippedResultField,
-  snapshotDesignBeforeAgentEdit,
-} from "../server/lib/design-versions.js";
+import { snapshotDesignBeforeAgentEdit } from "../server/lib/design-versions.js";
 import {
   LegacyEmailFrameTypeNotStoredError,
   writeWithLegacyEmailFrameTypes,
@@ -360,12 +357,7 @@ export default defineAction({
             : frameTypeFromStored(frameType),
       });
     }
-    const checkpoint = await snapshotDesignBeforeAgentEdit(
-      file.designId,
-      context,
-      { allowCheckpointFailureSkip: true },
-    );
-    const checkpointField = checkpointSkippedResultField(checkpoint);
+    await snapshotDesignBeforeAgentEdit(file.designId, context);
     const writesContent =
       requestedContent !== undefined || contentPatch !== undefined;
 
@@ -404,7 +396,6 @@ export default defineAction({
           file.designId,
           write.changed ? 1 : 0,
         ),
-        ...checkpointField,
       };
     }
 
@@ -940,7 +931,6 @@ export default defineAction({
           file.designId,
           outputChanged ? 1 : 0,
         ),
-        ...checkpointField,
       };
     }
     if (operationSource !== undefined && operationRevision !== undefined) {
@@ -956,7 +946,6 @@ export default defineAction({
           outputChanged ? 1 : 0,
         ),
         ...(persistedUpdatedAt ? { updatedAt: persistedUpdatedAt } : {}),
-        ...checkpointField,
       };
     }
     return {
@@ -964,7 +953,6 @@ export default defineAction({
       designId: file.designId,
       updated: true,
       _receipt: designOutputWriteReceipt(file.designId, outputChanged ? 1 : 0),
-      ...checkpointField,
     };
   },
   // A call that threw has no result, and the input names only the file, so

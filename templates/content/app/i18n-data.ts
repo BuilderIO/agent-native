@@ -11,6 +11,7 @@ import {
   discussionMessagesByLocale,
 } from "./discussion-messages";
 import { importMessagesByLocale } from "./import-messages";
+import { linkCardMessagesByLocale } from "./link-card-messages";
 import { trashMessagesByLocale } from "./trash-messages";
 
 const databaseMessages = {
@@ -796,6 +797,70 @@ const databaseMessages = {
   needsAFreshReview: "Needs a fresh review",
   working: "Working…",
   ready: "Ready",
+  fillWithAi: "Fill with AI",
+  fillWithAiTitle: "Fill {{name}} with AI",
+  fillWithAiDescription:
+    "Each row gets its own AI run, which reads that row's page and writes only that row's cell.",
+  fillWithAiDescriptionOptions:
+    "Each row gets its own AI run, which reads that row's page and picks from this column's options.",
+  fillWithAiInstructionLabel: "What should go in each cell?",
+  fillWithAiInstructionPlaceholder:
+    "For example: a one-sentence description of the page for search results",
+  fillWithAiRewrite: "Also rewrite cells that have a value",
+  fillWithAiCount_zero: "Fills {{count}} empty cells in this view",
+  fillWithAiCount_one: "Fills {{count}} empty cell in this view",
+  fillWithAiCount_two: "Fills {{count}} empty cells in this view",
+  fillWithAiCount_few: "Fills {{count}} empty cells in this view",
+  fillWithAiCount_many: "Fills {{count}} empty cells in this view",
+  fillWithAiCount_other: "Fills {{count}} empty cells in this view",
+  fillWithAiRewriteCount_zero: "Fills {{count}} cells in this view",
+  fillWithAiRewriteCount_one: "Fills {{count}} cell in this view",
+  fillWithAiRewriteCount_two: "Fills {{count}} cells in this view",
+  fillWithAiRewriteCount_few: "Fills {{count}} cells in this view",
+  fillWithAiRewriteCount_many: "Fills {{count}} cells in this view",
+  fillWithAiRewriteCount_other: "Fills {{count}} cells in this view",
+  fillWithAiNothingEmpty: "Every cell in this view already has a value.",
+  fillWithAiNoRows: "There are no rows to fill in this view.",
+  fillWithAiTooMany:
+    "Fill with AI fills up to {{max}} cells at a time. Filter the view to fewer rows.",
+  fillWithAiLoadedOnly: "Only the rows loaded so far are included.",
+  fillWithAiAlreadyRunning: "This column is already filling.",
+  fillWithAiNeedsSetup: "Set up AI to fill cells.",
+  fillWithAiSetUp: "Set up AI",
+  fillWithAiStart: "Fill",
+  fillWithAiStartFailed: "Couldn't start the fill.",
+  fillProgress: "Filling {{done}} of {{total}}",
+  fillStopping: "Stopping…",
+  fillStop: "Stop",
+  fillStopLabel: "Stop filling {{name}}",
+  fillStopFailed: "Couldn't stop the fill.",
+  fillCellWaiting: "Waiting",
+  fillCellRunning: "Filling…",
+  fillCellFailed: "Couldn't fill",
+  fillTryAgain: "Try again",
+  fillRetryFailed: "Couldn't try again.",
+  fillOpenChat: "Open chat",
+  fillEditInChat: "Edit in chat",
+  fillStarted_zero: "Filling {{count}} cells in {{name}}.",
+  fillStarted_one: "Filling {{count}} cell in {{name}}.",
+  fillStarted_two: "Filling {{count}} cells in {{name}}.",
+  fillStarted_few: "Filling {{count}} cells in {{name}}.",
+  fillStarted_many: "Filling {{count}} cells in {{name}}.",
+  fillStarted_other: "Filling {{count}} cells in {{name}}.",
+  fillFinished: "Finished filling {{name}}.",
+  fillFinishedWithFailures_zero:
+    "Finished filling {{name}}. {{count}} cells couldn't be filled.",
+  fillFinishedWithFailures_one:
+    "Finished filling {{name}}. {{count}} cell couldn't be filled.",
+  fillFinishedWithFailures_two:
+    "Finished filling {{name}}. {{count}} cells couldn't be filled.",
+  fillFinishedWithFailures_few:
+    "Finished filling {{name}}. {{count}} cells couldn't be filled.",
+  fillFinishedWithFailures_many:
+    "Finished filling {{name}}. {{count}} cells couldn't be filled.",
+  fillFinishedWithFailures_other:
+    "Finished filling {{name}}. {{count}} cells couldn't be filled.",
+  fillStoppedAnnouncement: "Stopped filling {{name}}.",
 };
 
 const editorPropertiesMessages = {
@@ -1030,6 +1095,9 @@ const editorMediaMessages = {
   imageUploadFailed: "Couldn’t upload this image",
   imageUploadsFailed: "{{failed}} of {{total}} image uploads failed.",
   imageView: "Image view",
+  imagePosition: "{{current}} of {{total}}",
+  nextImage: "Next image",
+  previousImage: "Previous image",
   keptYourAltText: "Kept your alt text.",
   link: "Link",
   loadingAssetsPicker: "Loading Assets picker",
@@ -1283,6 +1351,8 @@ const editorSlashMessages = {
   fourColumns: "4 columns",
   codeBlock: "Code Block",
   codeBlockDescription: "Code snippet",
+  interactiveHtml: "Interactive HTML",
+  interactiveHtmlDescription: "HTML that runs on the page",
   collapsibleBlockDescription: "Collapsible block",
   database: "Collection",
   databaseDescription: "Inline collection in this page",
@@ -1338,6 +1408,21 @@ const editorSlashMessages = {
   turnInto: "Turn into",
   video: "Video",
   videoDescription: "Upload or embed video",
+};
+
+const interactiveHtmlMessages = {
+  untitled: "Interactive HTML",
+  showSource: "Show source",
+  hideSource: "Hide source",
+  copyHtml: "Copy HTML",
+  copied: "HTML copied",
+  copyFailed: "Could not copy the HTML",
+  copyLink: "Copy link to this block",
+  fullScreen: "Full screen",
+  closeFullScreen: "Close full screen",
+  run: "Run",
+  runHint: "This block runs its own code in a sealed frame.",
+  runsOnPage: "Run on the page",
 };
 
 const mermaidMessages = {
@@ -1621,6 +1706,7 @@ const enUS = {
       "This suggestion changed elsewhere. Your unsaved draft is still here.",
     discardSuggestionDraft: "Discard draft",
     mermaid: mermaidMessages,
+    interactiveHtml: interactiveHtmlMessages,
     bold: "Bold",
     underline: "Underline",
     italic: "Italic",
@@ -1688,6 +1774,14 @@ const enUS = {
       moveChanged: "The block changed before it could move, so nothing moved.",
       moveFailed: "Couldn’t move the block to {{title}}",
       openPage: "Open",
+      copyLink: "Copy link",
+      linkCopied: "Link copied",
+      copyLinkFailed: "Couldn’t copy the link",
+      linkNotReady: "This block’s link isn’t ready yet. Try again in a moment.",
+      linkedBlockDeleted: "The block this link points to was deleted.",
+      linkedBlockMissing: "Couldn’t find the block this link points to.",
+      linkedBlockLookupFailed:
+        "Couldn’t open the block this link points to. Reload the page to try again.",
     },
     heading1: "Heading 1",
     heading2: "Heading 2",
@@ -2180,10 +2274,11 @@ const enUS = {
     reply: "Reply...",
     reopen: "Reopen",
     suggestions: "Suggestions",
-    suggestionAdd: "Add",
-    suggestionDelete: "Delete",
-    suggestionWith: "with",
-    suggestionReplace: "Replace",
+    suggestionReplaceWith: "Replace “{{old}}” with “{{new}}”",
+    suggestionAddText: "Add “{{text}}”",
+    suggestionRemoveText: "Remove “{{text}}”",
+    suggestionAddParagraph: "Add paragraph “{{text}}”",
+    suggestionRemoveParagraph: "Remove paragraph “{{text}}”",
     suggestionDetails: "Suggestion details",
     moreActions: "More actions",
     addReaction: "Add reaction",
@@ -2429,6 +2524,7 @@ const enUS = {
   contentImport: importMessagesByLocale["en-US"],
   clipEmbed: clipEmbedMessagesByLocale["en-US"],
   analyticsChart: analyticsChartMessagesByLocale["en-US"],
+  linkCard: linkCardMessagesByLocale["en-US"],
   designScreen: designScreenMessagesByLocale["en-US"],
   builderAutosave: builderAutosaveMessagesByLocale["en-US"],
 };
@@ -2496,6 +2592,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
     contentImport: enUS.contentImport,
     clipEmbed: enUS.clipEmbed,
     analyticsChart: enUS.analyticsChart,
+    linkCard: enUS.linkCard,
     designScreen: enUS.designScreen,
     builderAutosave: enUS.builderAutosave,
     creativeContext: {
@@ -3003,6 +3100,7 @@ function mergeMessagesForLocale(
         suggestionFormattingMessagesByLocale[locale][1]!,
       removeLink: removeLinkMessagesByLocale[locale],
       mermaid: { ...base.editor.mermaid },
+      interactiveHtml: { ...base.editor.interactiveHtml },
       media: { ...base.editor.media, ...rawLiteralOverrides.editor?.media },
       properties: base.editor.properties,
       reference: {
@@ -3020,6 +3118,7 @@ function mergeMessagesForLocale(
     contentImport: importMessagesByLocale[locale],
     clipEmbed: clipEmbedMessagesByLocale[locale],
     analyticsChart: analyticsChartMessagesByLocale[locale],
+    linkCard: linkCardMessagesByLocale[locale],
     designScreen: designScreenMessagesByLocale[locale],
     builderAutosave: builderAutosaveMessagesByLocale[locale],
   };

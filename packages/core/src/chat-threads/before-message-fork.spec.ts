@@ -11,6 +11,7 @@ const state = vi.hoisted(() => ({
   rows: new Map<string, Record<string, unknown>>(),
 }));
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => {
     const db = {
       execute: async ({

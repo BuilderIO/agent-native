@@ -38,6 +38,7 @@ vi.mock("../org/membership.js", async (importOriginal) => ({
 }));
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({
     execute: async ({ sql, args }: { sql: string; args: string[] }) => {
       if (sql.includes("FROM organizations")) {

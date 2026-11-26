@@ -31,6 +31,7 @@ const CONTENT_INDEPENDENT_QUERIES = new Set([
   "list-localhost-connections",
   "list-resource-shares",
   "list-review-comments",
+  "read-brief-titles",
 ]);
 
 export function isContentIndependentDesignQuery(name: unknown): boolean {

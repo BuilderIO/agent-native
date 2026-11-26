@@ -1188,6 +1188,7 @@ const messages = {
     visibilityDescription:
       "Aplicada às gravações que você cria. Você pode alterá-la em qualquer gravação.",
     useOrgDefault: "Usar o padrão de {{org}} ({{visibility}})",
+    enforceOrgDefault: "Os membros não podem definir o próprio padrão",
     useDefault: "Usar o padrão ({{visibility}})",
     transcriptExport: "Exportação de transcrições",
     logoDescription:

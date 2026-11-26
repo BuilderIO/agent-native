@@ -167,6 +167,7 @@ export interface DocumentUpdateRequest {
   editorSnapshotTitle?: string;
   editorSnapshotTitleBase?: string;
   editorSnapshotContent?: string;
+  editorBlockIds?: { shape: string; idsByPath: Record<string, string> };
   description?: string;
   icon?: IconValue | string | null;
   isFavorite?: boolean;
@@ -224,6 +225,7 @@ export interface ContentNavigationPathEntry {
   databaseId: string | null;
   databaseDocumentId: string | null;
   isFavorite: boolean;
+  canMove?: boolean;
   /**
    * Whether the Files tree draws children under this page, by the rule its
    * own navigation row follows. Absent outside a Files database.
@@ -339,6 +341,7 @@ export interface DocumentProperty {
   definition: DocumentPropertyDefinition;
   value: DocumentPropertyValue;
   editable: boolean;
+  sourceWriteback?: boolean;
   blocksField?: BlocksFieldIdentity;
   /**
    * Relation properties only: the linked rows this viewer may see, in value
@@ -1043,6 +1046,7 @@ export interface ContentDatabaseSourceBodyChange {
   sidecarsJson?: string | null;
   warnings?: string[];
   textOnly?: boolean;
+  currentEmpty?: true;
 }
 
 export interface ContentDatabaseSourceReviewEvent {
@@ -1386,6 +1390,7 @@ export interface ContentDatabaseNavigationItem {
   hasChildren: boolean;
   spaceId: string | null;
   sourceKind: string | null;
+  canMove?: boolean;
   isFavorite: boolean;
   canEdit: boolean;
   canManage: boolean;
@@ -1992,6 +1997,8 @@ export type BuilderArticleAutosaveReason =
   | "builder_editor_changes"
   | "checking_last_save"
   | "another_save_running"
+  | "builder_body_unread"
+  | "builder_body_unreadable"
   | "published"
   | "needs_review"
   | "edit_conflict"
@@ -2077,6 +2084,7 @@ export interface PreviewBuilderSourceReviewRequest {
   documentIds?: string[];
   bodyComparison?: "text" | "blocks";
   batchSize?: number;
+  quickStart?: boolean;
 }
 
 export interface PreviewBuilderSourceReviewResponse {

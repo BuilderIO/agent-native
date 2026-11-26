@@ -1932,6 +1932,59 @@ describe("Dispatch NavContent", () => {
     ).not.toBeNull();
   });
 
+  it("restores a saved pane when the first mount is discarded", async () => {
+    clientState.connectedApps = [
+      {
+        id: "clips",
+        name: "Clips",
+        url: "https://clips.agent-native.com",
+        source: "builtin",
+      },
+    ];
+    clientState.appState[CHAT_FIRST_PANE_STATE_KEY] = {
+      appId: "clips",
+      path: "/inbox",
+    };
+
+    await act(async () => {
+      root.render(
+        <React.StrictMode>
+          <MemoryRouter initialEntries={["/chat/strict-restore"]}>
+            <Layout extensions={{ chatFirst: true }}>
+              <div />
+            </Layout>
+          </MemoryRouter>
+        </React.StrictMode>,
+      );
+    });
+
+    expect(
+      container.querySelector("[data-chat-first-app-pane]"),
+    ).not.toBeNull();
+    expect(container.querySelector("[data-app-notice]")).toBeNull();
+  });
+
+  it.each([[null], [{ appId: 7 }]])(
+    "only reports a restore failure for unreadable pane state %j",
+    async (saved) => {
+      clientState.appState[CHAT_FIRST_PANE_STATE_KEY] = saved;
+
+      await act(async () => {
+        root.render(
+          <MemoryRouter initialEntries={["/chat/pane-state-outcome"]}>
+            <Layout extensions={{ chatFirst: true }}>
+              <div />
+            </Layout>
+          </MemoryRouter>,
+        );
+      });
+
+      expect(container.querySelector("[data-app-notice]") !== null).toBe(
+        saved !== null,
+      );
+    },
+  );
+
   it("puts Overview before Chat in the primary navigation", async () => {
     await act(async () => {
       root.render(

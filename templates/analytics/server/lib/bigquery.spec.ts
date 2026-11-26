@@ -1005,7 +1005,8 @@ describe("runQuery cancellation", () => {
   });
 
   it.each([
-    ["a next page token", { nextPageToken: "page-2" }],
+    ["a page token", { pageToken: "page-2", totalRows: "1" }],
+    ["fewer rows than its total row count", { totalRows: "2" }],
     ["no total row count", {}],
   ])(
     "marks BigQuery rows incomplete when the response has %s",
@@ -3244,6 +3245,52 @@ describe("runQuery cancellation", () => {
       },
     );
 
+    it.each([
+      { code: "resourcesExceeded", reason: "resources_exceeded" },
+      { code: "invalidQuery", reason: "invalid_query" },
+    ])(
+      "reports an existing job's $code failure instead of running the same SQL again",
+      async ({ code, reason }) => {
+        vi.useFakeTimers();
+        const { fetchMock } = fakeBigQuery({
+          complete: () => false,
+          lookup: () => ({
+            status: { state: "DONE", errorResult: { reason: code } },
+          }),
+        });
+        vi.stubGlobal("fetch", fetchMock);
+        await callUntilDeadline();
+
+        const trace = newBigQueryQueryTrace();
+        const failure = await runQuery(sql, {
+          resumeAfter: new AbortController().signal,
+          trace,
+        }).catch((error: unknown) => error);
+
+        const [resumableId] = submissions(fetchMock);
+        expect(submissions(fetchMock)).toEqual([resumableId, resumableId]);
+        expect(failure).toBeInstanceOf(BigQueryBackendError);
+        expect(failure).toMatchObject({
+          operation: "job",
+          backendStatus: null,
+          backendReason: reason,
+        });
+        expect(trace.jobs).toEqual([
+          {
+            job: "existing",
+            slot: 1,
+            collectable: false,
+            state: "DONE",
+            ageSeconds: 0,
+            sameQuery: true,
+            failureReason: reason,
+            failureCode: code,
+          },
+        ]);
+        expect(cancellations(fetchMock)).toHaveLength(0);
+      },
+    );
+
     it("leaves a replacement job its deadline stopped running for the next call", async () => {
       vi.useFakeTimers();
       let complete = false;
@@ -3383,6 +3430,34 @@ describe("runQuery cancellation", () => {
             state: "DONE",
             sameQuery: true,
             failureReason: "backend_error",
+            failureCode: "backendError",
+          },
+        },
+        {
+          name: "was cancelled",
+          lookup: () => ({
+            status: { state: "DONE", errorResult: { reason: "stopped" } },
+          }),
+          attempt: {
+            state: "DONE",
+            sameQuery: true,
+            failureReason: "other",
+            failureCode: "stopped",
+          },
+        },
+        {
+          name: "failed with a reason that isn't a plain code",
+          lookup: () => ({
+            status: {
+              state: "DONE",
+              errorResult: { reason: "Not found: table a.b" },
+            },
+          }),
+          attempt: {
+            state: "DONE",
+            sameQuery: true,
+            failureReason: "other",
+            failureCode: null,
           },
         },
         {

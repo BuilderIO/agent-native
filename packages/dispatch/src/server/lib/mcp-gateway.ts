@@ -1,4 +1,10 @@
-import { createHash } from "node:crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  createHmac,
+  randomBytes,
+} from "node:crypto";
 
 import {
   appCapabilityManifestSchema,
@@ -99,6 +105,212 @@ const DISPATCH_ASK_APP_TERMINAL_STATES = new Set([
   "canceled",
   "input-required",
 ]);
+const DISPATCH_TASK_HANDLE_VERSION = 1;
+const DISPATCH_TASK_HANDLE_TTL_SECONDS = 60 * 60;
+const DISPATCH_TASK_HANDLE_DOMAIN =
+  "agent-native:dispatch-ask-app-task-handle:v1";
+const DISPATCH_TASK_HANDLE_PREFIX = "v1";
+const DISPATCH_TASK_HANDLE_IV_BYTES = 12;
+const DISPATCH_TASK_HANDLE_AUTH_TAG_BYTES = 16;
+const INVALID_DISPATCH_ASK_APP_TASK_HANDLE_ERROR =
+  "Invalid or expired ask_app task handle. To keep polling the same task, " +
+  "call ask_app_status with the app and taskId from the ask_app result and " +
+  "leave out taskHandle. Do not resubmit ask_app; that can duplicate work.";
+
+let ephemeralDevTaskHandleSecret: string | null = null;
+
+function getEphemeralDevTaskHandleSecret(): string {
+  if (ephemeralDevTaskHandleSecret === null) {
+    ephemeralDevTaskHandleSecret = randomBytes(32).toString("hex");
+  }
+  return ephemeralDevTaskHandleSecret;
+}
+
+function dispatchTaskHandleSecrets(orgSecret?: string | null): string[] {
+  const globalA2A = getGlobalA2ASecret()?.trim();
+  const betterAuth = process.env.BETTER_AUTH_SECRET?.trim();
+  const org = orgSecret?.trim();
+  const configured = [globalA2A, betterAuth, org].filter(
+    (value): value is string => Boolean(value),
+  );
+  if (configured.length > 0) return [...new Set(configured)];
+  if (process.env.NODE_ENV === "production") return [];
+  return [getEphemeralDevTaskHandleSecret()];
+}
+
+function dispatchTaskHandleKey(rootSecret: string): Buffer {
+  return createHmac("sha256", rootSecret)
+    .update(DISPATCH_TASK_HANDLE_DOMAIN)
+    .digest();
+}
+
+function normalizeTaskHandleIdentity(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function validDispatchTaskTargetUrl(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    // coercion-ok: invalid target URL fails task handle validation closed.
+    return null;
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return null;
+  }
+  if (parsed.username || parsed.password || parsed.search || parsed.hash) {
+    return null;
+  }
+  return parsed.toString().replace(/\/+$/, "");
+}
+
+function sealDispatchAskAppTaskHandle(params: {
+  app: string;
+  targetUrl: string;
+  taskId: string;
+  userEmail: string;
+  orgId: string | null;
+  orgSecret: string | null;
+  expiresInSeconds?: number;
+}): string | undefined {
+  const secrets = dispatchTaskHandleSecrets(params.orgSecret);
+  const primarySecret = secrets[0];
+  if (!primarySecret) return undefined;
+  const app = normalizeAppId(params.app);
+  const targetUrl = validDispatchTaskTargetUrl(params.targetUrl);
+  const taskId = params.taskId.trim();
+  const userEmail = normalizeTaskHandleIdentity(params.userEmail);
+  const orgId = normalizeTaskHandleIdentity(params.orgId ?? "");
+  if (!app || !targetUrl || !taskId || !userEmail) return undefined;
+
+  const payload = Buffer.from(
+    JSON.stringify({
+      version: DISPATCH_TASK_HANDLE_VERSION,
+      app,
+      targetUrl,
+      taskId,
+      userEmail,
+      orgId,
+      expiresAt:
+        Math.floor(Date.now() / 1000) +
+        (params.expiresInSeconds ?? DISPATCH_TASK_HANDLE_TTL_SECONDS),
+    }),
+    "utf8",
+  );
+  const iv = randomBytes(DISPATCH_TASK_HANDLE_IV_BYTES);
+  const cipher = createCipheriv(
+    "aes-256-gcm",
+    dispatchTaskHandleKey(primarySecret),
+    iv,
+  );
+  cipher.setAAD(Buffer.from(DISPATCH_TASK_HANDLE_DOMAIN, "utf8"));
+  const ciphertext = Buffer.concat([cipher.update(payload), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return [
+    DISPATCH_TASK_HANDLE_PREFIX,
+    iv.toString("base64url"),
+    ciphertext.toString("base64url"),
+    authTag.toString("base64url"),
+  ].join(".");
+}
+
+function unsealDispatchAskAppTaskHandle(
+  handle: string,
+  expected: {
+    app: string;
+    taskId: string;
+    userEmail: string;
+    orgId: string | null;
+    orgSecret: string | null;
+  },
+): { app: string; targetUrl: string; taskId: string } {
+  const invalid = () => new Error(INVALID_DISPATCH_ASK_APP_TASK_HANDLE_ERROR);
+  const trimmedHandle = handle.trim();
+  const expectedApp = normalizeAppId(expected.app);
+  const expectedTaskId = expected.taskId.trim();
+  const expectedUserEmail = normalizeTaskHandleIdentity(expected.userEmail);
+  const expectedOrgId = normalizeTaskHandleIdentity(expected.orgId ?? "");
+  if (!trimmedHandle || !expectedApp || !expectedTaskId || !expectedUserEmail) {
+    throw invalid();
+  }
+
+  const parts = trimmedHandle.split(".");
+  const [prefix, ivPart, ciphertextPart, authTagPart] = parts;
+  if (
+    parts.length !== 4 ||
+    prefix !== DISPATCH_TASK_HANDLE_PREFIX ||
+    !ivPart ||
+    !ciphertextPart ||
+    !authTagPart
+  ) {
+    throw invalid();
+  }
+  const iv = Buffer.from(ivPart, "base64url");
+  const ciphertext = Buffer.from(ciphertextPart, "base64url");
+  const authTag = Buffer.from(authTagPart, "base64url");
+  if (
+    iv.length !== DISPATCH_TASK_HANDLE_IV_BYTES ||
+    ciphertext.length === 0 ||
+    authTag.length !== DISPATCH_TASK_HANDLE_AUTH_TAG_BYTES ||
+    iv.toString("base64url") !== ivPart ||
+    ciphertext.toString("base64url") !== ciphertextPart ||
+    authTag.toString("base64url") !== authTagPart
+  ) {
+    throw invalid();
+  }
+
+  const secrets = dispatchTaskHandleSecrets(expected.orgSecret);
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  for (const rootSecret of secrets) {
+    let parsed: unknown;
+    try {
+      const decipher = createDecipheriv(
+        "aes-256-gcm",
+        dispatchTaskHandleKey(rootSecret),
+        iv,
+      );
+      decipher.setAAD(Buffer.from(DISPATCH_TASK_HANDLE_DOMAIN, "utf8"));
+      decipher.setAuthTag(authTag);
+      const plaintext = Buffer.concat([
+        decipher.update(ciphertext),
+        decipher.final(),
+      ]);
+      parsed = JSON.parse(plaintext.toString("utf8")) as unknown;
+    } catch {
+      continue;
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      continue;
+    }
+    const claims = parsed as Record<string, unknown>;
+    const targetUrl =
+      typeof claims.targetUrl === "string"
+        ? validDispatchTaskTargetUrl(claims.targetUrl)
+        : null;
+    if (
+      claims.version !== DISPATCH_TASK_HANDLE_VERSION ||
+      claims.app !== expectedApp ||
+      claims.taskId !== expectedTaskId ||
+      claims.userEmail !== expectedUserEmail ||
+      claims.orgId !== expectedOrgId ||
+      targetUrl === null ||
+      typeof claims.expiresAt !== "number" ||
+      !Number.isFinite(claims.expiresAt) ||
+      claims.expiresAt <= nowSeconds
+    ) {
+      continue;
+    }
+    return {
+      app: expectedApp,
+      targetUrl,
+      taskId: expectedTaskId,
+    };
+  }
+  throw invalid();
+}
 
 class DispatchAskAppInlineDeadlineError extends Error {
   constructor() {
@@ -114,6 +326,7 @@ export interface DispatchMcpAccessibleApp {
   url: string;
   homeUrl?: string;
   mcpUrl?: string;
+  workspaceMount?: boolean;
   color: string;
   source?: DiscoveredAgent["source"];
   aliases?: string[];
@@ -275,6 +488,7 @@ type DispatchAskAppTaskResult = {
   app: string;
   routedVia: "a2a";
   taskId: string;
+  taskHandle?: string;
   status: string;
   response?: string;
   receipts?: DispatchMutationReceipt[];
@@ -285,7 +499,10 @@ type DispatchAskAppTaskResult = {
   errorCategory?: DispatchAskAppStatusErrorCategory;
   attempts?: number;
   pollAfterMs?: number;
-  poll?: { tool: "ask_app_status"; arguments: { app: string; taskId: string } };
+  poll?: {
+    tool: "ask_app_status";
+    arguments: { app: string; taskId: string; taskHandle?: string };
+  };
   message?: string;
 };
 
@@ -297,6 +514,7 @@ function dispatchAskAppTaskResult(
     orgId: string | null;
     orgSecret: string | null;
   },
+  taskHandle?: string,
 ): DispatchAskAppTaskResult {
   const status = String(task.status.state);
   const response = stripA2APersistedArtifactMarkers(dispatchTaskText(task));
@@ -334,14 +552,21 @@ function dispatchAskAppTaskResult(
   }
   return {
     ...base,
+    ...(taskHandle ? { taskHandle } : {}),
     pollAfterMs: DISPATCH_ASK_APP_POLL_INTERVAL_MS,
     poll: {
       tool: "ask_app_status",
-      arguments: { app, taskId: task.id },
+      arguments: {
+        app,
+        taskId: task.id,
+        ...(taskHandle ? { taskHandle } : {}),
+      },
     },
     message:
       `ask_app is still ${status}. Call ask_app_status with ` +
-      `taskId "${task.id}" to retrieve the final response.`,
+      (taskHandle
+        ? `taskId "${task.id}" and the returned taskHandle to retrieve the final response.`
+        : `taskId "${task.id}" to retrieve the final response.`),
   };
 }
 
@@ -471,11 +696,13 @@ function dispatchAskAppStatusReadUnavailableResult(
   taskId: string,
   errorCategory: DispatchAskAppStatusErrorCategory,
   attempts: number,
+  taskHandle?: string,
 ): DispatchAskAppTaskResult {
   return {
     app,
     routedVia: "a2a",
     taskId,
+    ...(taskHandle ? { taskHandle } : {}),
     status: "unknown",
     statusRead: "unavailable",
     retryable: true,
@@ -484,12 +711,18 @@ function dispatchAskAppStatusReadUnavailableResult(
     pollAfterMs: DISPATCH_ASK_APP_POLL_INTERVAL_MS,
     poll: {
       tool: "ask_app_status",
-      arguments: { app, taskId },
+      arguments: {
+        app,
+        taskId,
+        ...(taskHandle ? { taskHandle } : {}),
+      },
     },
     message:
       "The durable ask_app task status could not be read after bounded retries. " +
       "The task may still be running or completed. Retry ask_app_status " +
-      "with the same app and taskId; do not resubmit ask_app.",
+      (taskHandle
+        ? "with the same app, taskId, and taskHandle; do not resubmit ask_app."
+        : "with the same app and taskId; do not resubmit ask_app."),
   };
 }
 
@@ -1014,7 +1247,7 @@ export async function listDispatchMcpApps(): Promise<{
             mountedApp && sameOriginMount
               ? mountedWorkspaceAppHomeUrl(mountedApp)
               : null;
-          if (homeUrl) return { ...accessible, homeUrl };
+          if (homeUrl) return { ...accessible, homeUrl, workspaceMount: true };
           return agent.source === "workspace" ||
             isDispatchAppPageUrl(accessible.url)
             ? { ...accessible, mountedPathUnavailable: true }
@@ -1131,6 +1364,7 @@ async function listWorkspaceSsoApps(): Promise<DispatchMcpAccessibleApp[]> {
       description: app.description,
       url: app.url,
       homeUrl,
+      workspaceMount: true,
       ...(mcpUrl ? { mcpUrl } : {}),
       color: DISPATCH_COLOR,
       granted: true,
@@ -1244,20 +1478,36 @@ export async function askGrantedDispatchMcpApp(
     },
   );
   const finalOrRunning = await waitForDispatchA2ATask(client, task, deadline);
-  return dispatchAskAppTaskResult(target.id, finalOrRunning, {
-    userEmail,
-    orgId: orgId ?? null,
-    orgSecret: orgSecret ?? null,
-  });
+  const taskHandle = isTerminalDispatchTask(finalOrRunning)
+    ? undefined
+    : sealDispatchAskAppTaskHandle({
+        app: target.id,
+        targetUrl: target.url,
+        taskId: finalOrRunning.id,
+        userEmail,
+        orgId: orgId ?? null,
+        orgSecret: orgSecret ?? null,
+      });
+  return dispatchAskAppTaskResult(
+    target.id,
+    finalOrRunning,
+    {
+      userEmail,
+      orgId: orgId ?? null,
+      orgSecret: orgSecret ?? null,
+    },
+    taskHandle,
+  );
 }
 
 export async function getGrantedDispatchMcpAppTask(
   app: string,
   taskId: string,
+  options?: { taskHandle?: string },
 ): Promise<DispatchAskAppTaskResult> {
   const trimmedTaskId = taskId.trim();
   if (!trimmedTaskId) throw new Error("taskId is required");
-  const target = await resolveGrantedDispatchMcpApp(app);
+  if (!normalizeAppId(app)) throw new Error("app is required");
   const userEmail = getRequestUserEmail();
   if (!userEmail) throw new Error("no authenticated user");
 
@@ -1268,8 +1518,36 @@ export async function getGrantedDispatchMcpAppTask(
         getOrgA2ASecret(orgId).catch(() => null),
       ])
     : [null, null];
+
+  let targetAppId: string;
+  let targetUrl: string;
+  let verifiedHandle: string | undefined;
+
+  if (options?.taskHandle !== undefined) {
+    const verified = unsealDispatchAskAppTaskHandle(options.taskHandle, {
+      app,
+      taskId: trimmedTaskId,
+      userEmail,
+      orgId: orgId ?? null,
+      orgSecret: orgSecret ?? null,
+    });
+    const settings = await getDispatchMcpAppAccessSettings();
+    if (!isAppAllowedByMcpAccess(verified.app, settings)) {
+      throw new Error(
+        `Dispatch MCP access to "${verified.app}" is not granted. Open Dispatch > Agents to change MCP app access.`,
+      );
+    }
+    targetAppId = verified.app;
+    targetUrl = verified.targetUrl;
+    verifiedHandle = options.taskHandle.trim();
+  } else {
+    const target = await resolveGrantedDispatchMcpApp(app);
+    targetAppId = target.id;
+    targetUrl = target.url;
+  }
+
   const { client } = await createDispatchA2AClient({
-    targetUrl: target.url,
+    targetUrl,
     userEmail,
     orgId: orgId ?? undefined,
     orgDomain: orgDomain ?? undefined,
@@ -1284,11 +1562,16 @@ export async function getGrantedDispatchMcpAppTask(
     const startedAt = Date.now();
     try {
       const task = await client.getTask(trimmedTaskId);
-      return dispatchAskAppTaskResult(target.id, task, {
-        userEmail,
-        orgId: orgId ?? null,
-        orgSecret: orgSecret ?? null,
-      });
+      return dispatchAskAppTaskResult(
+        targetAppId,
+        task,
+        {
+          userEmail,
+          orgId: orgId ?? null,
+          orgSecret: orgSecret ?? null,
+        },
+        verifiedHandle,
+      );
     } catch (err) {
       const delayMs = DISPATCH_ASK_APP_STATUS_RETRY_DELAYS_MS[attempt];
       const errorCategory = dispatchAskAppStatusErrorCategory(err);
@@ -1296,10 +1579,10 @@ export async function getGrantedDispatchMcpAppTask(
       const willRetry = retryable && delayMs != null;
       if (retryable) {
         console.warn("[ask_app_status] tasks/get attempt failed", {
-          app: target.id,
+          app: targetAppId,
           routedVia: "a2a",
           taskId: trimmedTaskId,
-          originHost: dispatchAskAppStatusOriginHost(target.url),
+          originHost: dispatchAskAppStatusOriginHost(targetUrl),
           attempt: attempt + 1,
           maxAttempts,
           elapsedMs: Date.now() - startedAt,
@@ -1312,10 +1595,11 @@ export async function getGrantedDispatchMcpAppTask(
       if (!retryable) throw err;
       if (delayMs == null) {
         return dispatchAskAppStatusReadUnavailableResult(
-          target.id,
+          targetAppId,
           trimmedTaskId,
           errorCategory,
           maxAttempts,
+          verifiedHandle,
         );
       }
       await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -2651,7 +2935,10 @@ async function createEmbedSessionForResolvedApp(input: {
     };
   }
 
-  const targetMcpUrl = appMcpUrl(target.app);
+  const targetMcpUrl =
+    input.runtime && target.app.workspaceMount
+      ? `${appHomeBaseUrl(target.app)}/mcp`
+      : appMcpUrl(target.app);
   const firstPartyMcp = isWorkspaceSsoAppUrl(
     { id: target.app.id, url: targetMcpUrl },
     {
@@ -2767,7 +3054,9 @@ async function createEmbedSessionForResolvedApp(input: {
       targetPath: parsed.targetPath,
       expiresAt: parsed.expiresAt,
       app: target.app.id,
-      appBaseUrl: appChatBaseUrl(target.app),
+      appBaseUrl: target.app.workspaceMount
+        ? appHomeBaseUrl(target.app)
+        : appChatBaseUrl(target.app),
     };
   }
   if (!parsed.startUrl || parsed.token) {

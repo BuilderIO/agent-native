@@ -63,8 +63,11 @@ Deliberate differences from `review-latest-feedback`, in both modes:
   plain words: what to do, where (the service or setting), and what it
   unblocks, e.g. "Set `NEON_ORG_ID` in the repo's GitHub Actions settings
   so the Neon transfer alert can run". Never "access is needed" or "logged
-  for oncall" alone. When someone in the thread says they're oncall or asks
-  what you need, answer with that `ask`; don't ping the group again. A
+  for oncall" alone. A 🎫 reply that asks the reporter for one missing fact
+  mentions nobody: the reporter is who acts, and `factory-slack reply`
+  refuses an oncall mention on a report whose `owner` is the reporter or
+  that isn't `needs-person` with an `ask`. When someone in the thread says
+  they're oncall or asks what you need, answer with that `ask`; don't ping the group again. A
   maintainer in the thread telling the factory to fix it itself, or not to
   route it to oncall, settles that: the report stays on a branch, and no
   later reply on it mentions oncall unless a new `ask` passes that test.
@@ -216,7 +219,14 @@ never by an agent's post.
 
 - **Slack `root`, `reply`**: a report or a new reply on one (steps 2 to 5).
   An item whose `channel` is in `$FACTORY_SLACK_ALERT_CHANNELS` is an alert
-  (see Alerts).
+  (see Alerts). A root with `"botPost": true` was posted by a bot for a
+  user outside Slack, as every report in #dev-agent-native-feedback is
+  (the in-app feedback form). It has no reporter: nobody in the thread can
+  answer a question, so never ask one, never wait on the reporter, and
+  never make the reporter a `needs-person` owner. Work from the post and
+  the factory's own sources (Sentry, analytics, logs near the post's
+  time). When they don't give enough to find the defect, it's
+  `not-actionable`, with no reply.
 - **Slack `mention`**: someone asking the factory directly (see Mentions).
 - **Talk about the factory.** Maintainers (check authors with
   `factory-slack member`) discussing the factory itself in a feedback
@@ -418,7 +428,10 @@ Blocked column and the console's Needs attention.
 - **`not-actionable`**: noise: a waitlist signup, an announcement, a thread
   people already handled or resolved, a vague report naming no defect, a
   low-signal error (a few events, 0 users, a synthetic event), a noisy alert
-  rule (suggest a threshold).
+  rule (suggest a threshold). So is a `botPost` report that gives only a
+  symptom, with no app, steps, error, or link to find it by ("It does not
+  start recording"), when the factory's sources don't show it either: no
+  one can answer a question, so none is asked.
 - **`needs-person`**: a specific person must act. Always set `ask`, one
   imperative sentence ("Set `NEON_ORG_ID` in the repo's GitHub Actions
   settings", "Decide whether personal automations use the org AI key"), and

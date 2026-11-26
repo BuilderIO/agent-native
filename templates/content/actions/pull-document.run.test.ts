@@ -9,6 +9,9 @@ vi.mock("@agent-native/core/sharing", () => ({ resolveAccess: mocks.access }));
 vi.mock("@agent-native/core/server", () => ({
   buildDeepLink: () => "https://example.test/page/doc",
 }));
+vi.mock("./_interactive-html-blocks.js", () => ({
+  interactiveHtmlBlockLinks: async () => [],
+}));
 vi.mock("./_database-utils.js", () => ({
   isSoftDeletedDatabaseDocument: mocks.deleted,
 }));

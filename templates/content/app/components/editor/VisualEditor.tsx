@@ -15,6 +15,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
 import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { RegistryBlockDataProvider } from "@agent-native/toolkit/app/blocks";
+import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { type RegistryBlockSideMapBlock } from "@agent-native/toolkit/editor";
 import {
@@ -27,6 +28,7 @@ import {
 } from "@agent-native/toolkit/editor";
 import type { ContentLinkTarget } from "@shared/api";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
+import type { EditorBlockIds } from "@shared/block-identity-ids";
 import { isContentClipUploadMimeType } from "@shared/clips-peer-contract";
 import { bodyHoldsChanges } from "@shared/document-intent-merge";
 import type { EditorMountMode } from "@shared/editor-mount-outcomes";
@@ -38,6 +40,7 @@ import {
   parseRegistryBlockData,
   type ParsedRegistryBlock,
 } from "@shared/nfm-registry";
+import type { PublicInteractiveHtml } from "@shared/public-reader";
 import { suggestionFormattingSourceRange } from "@shared/suggestion-formatting";
 import type { SuggestionPlacement } from "@shared/suggestion-placement";
 import {
@@ -127,6 +130,16 @@ import {
   AnalyticsChartPaste,
   type AnalyticsChartPasteOptions,
 } from "./analytics-chart/analytics-chart-paste";
+import {
+  blockLinkId,
+  blockLinkUrl,
+  editorDocBlockIds,
+  heldBlockLinkId,
+  useBlockIdentityStamps,
+  useLinkedBlockReveal,
+  usePublicBlockIds,
+} from "./block-links";
+import type { BlockAt } from "./block-menu-registry";
 import { BlockActionsMenu } from "./BlockActionsMenu";
 import { BubbleToolbar, ReadOnlyCommentBubble } from "./BubbleToolbar";
 import { announceClipCancel } from "./clip-embed/clip-upload-notices";
@@ -135,6 +148,7 @@ import {
   watchClipUploadBlocks,
 } from "./clip-embed/clip-uploads";
 import { CodeBlockToolbar } from "./CodeBlockToolbar";
+import { flushBeforeSave } from "./collab-flush-before-save";
 import { ColumnResizeControls } from "./ColumnResizeControls";
 import {
   buildDocText,
@@ -166,8 +180,12 @@ import {
   runPersistableHistoryCommand,
 } from "./editor-transaction-meta";
 import { AudioNode } from "./extensions/AudioNode";
+import { BlockIdentityIds } from "./extensions/BlockIdentityIds";
 import { BodyElementTiming } from "./extensions/BodyElementTiming";
-import { CodeBlock, DrawingCodeBlock } from "./extensions/CodeBlockNode";
+import {
+  DrawingCodeBlock,
+  isInteractiveHtmlCodeBlock,
+} from "./extensions/CodeBlockNode";
 import {
   CommentHighlight,
   type CommentHighlightOptions,
@@ -242,6 +260,12 @@ import {
   waitForImageUploadsToSettle,
   wasImageUploadBlockRemoved,
 } from "./image-upload-previews";
+import { InteractiveHtmlContext } from "./interactive-html/interactive-html-context";
+import {
+  LinkCardPaste,
+  type LinkCardPasteContext,
+  type LinkCardPasteOptions,
+} from "./link-card/link-card-paste";
 import { LinkHoverPreview } from "./LinkHoverPreview";
 import {
   LIVE_BODY_PARITY_QUIET_MS,
@@ -1885,6 +1909,7 @@ interface VisualEditorProps {
   requestCollabSync?: () => Promise<{
     status: "synced" | "failed" | "unavailable";
   }>;
+  flushCollabUpdates?: (options?: { editsSoFar?: boolean }) => Promise<boolean>;
   onBaseAwareReconcile?: (result: {
     status: "merged" | "conflict" | "failed";
     content: string;
@@ -1926,11 +1951,8 @@ interface VisualEditorProps {
   privateImageUploads?: boolean;
   localFilePath?: string | null;
   referenceDepth?: number;
-  /**
-   * Draw Mermaid code blocks as diagrams. Public pages turn it off: they
-   * never run document source.
-   */
   drawDiagrams?: boolean;
+  runInteractiveHtml?: boolean;
   onComment?: (
     quotedText: string,
     offsetTop: number,
@@ -1995,6 +2017,12 @@ interface VisualEditorProps {
   onPersistenceControllerChange?: (
     controller: VisualEditorPersistenceController | null,
   ) => void;
+  blockLinks?: boolean;
+  linkedBlockId?: string | null;
+  linkedBlockFullScreen?: boolean;
+  onFullScreenClosed?: () => void;
+  publicInteractiveHtml?: PublicInteractiveHtml & { documentId: string };
+  onBlockIdentityIds?: (markdown: string, ids: EditorBlockIds) => void;
   /** Receives a reader for where the editor shows suggestions' words. */
   onSuggestionPlacementsChange?: (
     read: VisualEditorSuggestionPlacements | null,
@@ -2350,6 +2378,7 @@ interface VisualEditorExtensionOptions {
   onPickedImageFile?: ContentImageOptions["onPickedImageFile"];
   canMutateMedia?: () => boolean;
   isSuggesting?: () => boolean;
+  onSuggestionRefused?: () => void;
   onJoinTitle?: (text: string) => void;
   onOpenNotionPageLink?: (documentId: string) => void;
   resolveNotionPageLink?: (id: string) => ContentLinkTarget | null;
@@ -2365,6 +2394,7 @@ interface VisualEditorExtensionOptions {
   findCommentQuote?: CommentHighlightOptions["findQuote"];
   /** Turns a pasted Analytics panel link into a chart while it returns one. */
   analyticsChartPaste?: AnalyticsChartPasteOptions["getContext"];
+  linkCardPaste?: LinkCardPasteOptions["getContext"];
   designScreenPaste?: DesignScreenPasteOptions["getContext"];
 }
 
@@ -3421,6 +3451,7 @@ export function createVisualEditorExtensions({
   onPickedImageFile,
   canMutateMedia,
   isSuggesting,
+  onSuggestionRefused,
   onJoinTitle,
   onOpenNotionPageLink,
   resolveNotionPageLink,
@@ -3432,6 +3463,7 @@ export function createVisualEditorExtensions({
   onMediaSourceCommitted,
   findCommentQuote,
   analyticsChartPaste,
+  linkCardPaste,
   designScreenPaste,
 }: VisualEditorExtensionOptions = {}): Extensions {
   return createSharedEditorExtensions({
@@ -3459,7 +3491,7 @@ export function createVisualEditorExtensions({
       CompatibleCode,
       EmptyLineParagraph,
       NotionBlockquote,
-      drawDiagrams ? DrawingCodeBlock : CodeBlock,
+      DrawingCodeBlock.configure({ drawDiagrams }),
       VisualEditorPlaceholder.configure({
         emptyBlockPlaceholder,
         emptyDocumentPlaceholder,
@@ -3498,6 +3530,7 @@ export function createVisualEditorExtensions({
         isEdit: isLocalEditorEdit,
         canAssign: canMutateMedia,
       }),
+      BlockIdentityIds.configure({ isEdit: isLocalEditorEdit }),
       AudioNode.configure({
         HTMLAttributes: { class: "content-audio" },
         documentId,
@@ -3518,7 +3551,14 @@ export function createVisualEditorExtensions({
       NormalizeTableAlignment,
       TablePresentation,
       ...(isSuggesting
-        ? [SuggestingReadOnlyBlocks.configure({ isSuggesting })]
+        ? [
+            SuggestingReadOnlyBlocks.configure({
+              isSuggesting,
+              ...(onSuggestionRefused
+                ? { onRefused: onSuggestionRefused }
+                : {}),
+            }),
+          ]
         : []),
       ...createNotionEditorExtensions({
         documentId,
@@ -3542,6 +3582,9 @@ export function createVisualEditorExtensions({
       NotionMarkdownShortcuts,
       ...(analyticsChartPaste
         ? [AnalyticsChartPaste.configure({ getContext: analyticsChartPaste })]
+        : []),
+      ...(linkCardPaste
+        ? [LinkCardPaste.configure({ getContext: linkCardPaste })]
         : []),
       ...(designScreenPaste
         ? [DesignScreenPaste.configure({ getContext: designScreenPaste })]
@@ -3873,6 +3916,7 @@ export function VisualEditor({
   mergedLocalSave,
   collabContentRevision,
   requestCollabSync,
+  flushCollabUpdates,
   onBaseAwareReconcile,
   onRemoteSnapshotChange,
   isEditorClean,
@@ -3896,6 +3940,7 @@ export function VisualEditor({
   localFilePath,
   referenceDepth,
   drawDiagrams = true,
+  runInteractiveHtml = false,
   onComment,
   onSuggestEdit,
   onBlockComment,
@@ -3930,6 +3975,12 @@ export function VisualEditor({
   onSelectionControllerChange,
   onPersistenceControllerChange,
   onSuggestionPlacementsChange,
+  blockLinks = false,
+  linkedBlockId = null,
+  linkedBlockFullScreen = false,
+  onFullScreenClosed,
+  publicInteractiveHtml,
+  onBlockIdentityIds,
 }: VisualEditorProps) {
   const t = useT();
   const tRef = useRef(t);
@@ -4070,6 +4121,8 @@ export function VisualEditor({
   useEffect(() => () => clearTimeout(liveBodyParityTimerRef.current), []);
   const onSaveContentRef = useRef(onSaveContent);
   onSaveContentRef.current = onSaveContent;
+  const onBlockIdentityIdsRef = useRef(onBlockIdentityIds);
+  onBlockIdentityIdsRef.current = onBlockIdentityIds;
   const onActivateThreadRef = useRef(onActivateThread);
   onActivateThreadRef.current = onActivateThread;
   const activeThreadIdRef = useRef(activeThreadId);
@@ -4275,6 +4328,11 @@ export function VisualEditor({
   }, [documentId, fileStorageConfigured, uploadBodyImages]);
   const canMutateMedia = useCallback(() => !suggestingRef.current, []);
   const isSuggesting = useCallback(() => suggestingRef.current, []);
+  const onSuggestionRefused = useCallback(() => {
+    toast(tRef.current("editor.blockMenu.lockedSuggesting"), {
+      id: "suggesting-refused-block",
+    });
+  }, []);
   const analyticsLinks = useActionQuery(
     "get-analytics-links",
     {},
@@ -4294,6 +4352,29 @@ export function VisualEditor({
             canEdit: !suggestingRef.current,
             linkOrigins: analyticsLinkOriginsRef.current,
             t: tRef.current,
+          }
+        : null,
+    [documentId, localFileMode],
+  );
+  const linkCardOrigins = useActionQuery(
+    "get-link-card-origins",
+    {},
+    {
+      enabled: Boolean(documentId) && editable && !localFileMode,
+      staleTime: Infinity,
+      retry: false,
+    },
+  );
+  const linkCardAppUrlsRef = useRef<LinkCardPasteContext["appUrls"]>({});
+  useEffect(() => {
+    linkCardAppUrlsRef.current = linkCardOrigins.data ?? {};
+  }, [linkCardOrigins.data]);
+  const getLinkCardPasteContext = useCallback(
+    () =>
+      documentId && !localFileMode
+        ? {
+            canEdit: !suggestingRef.current,
+            appUrls: linkCardAppUrlsRef.current,
           }
         : null,
     [documentId, localFileMode],
@@ -4378,6 +4459,7 @@ export function VisualEditor({
         onPickedImageFile,
         canMutateMedia,
         isSuggesting,
+        onSuggestionRefused,
         onJoinTitle,
         onOpenNotionPageLink,
         resolveNotionPageLink,
@@ -4389,6 +4471,7 @@ export function VisualEditor({
         onMediaSourceCommitted,
         findCommentQuote,
         analyticsChartPaste: getAnalyticsChartPasteContext,
+        linkCardPaste: getLinkCardPasteContext,
         designScreenPaste: getDesignScreenPasteContext,
       }),
       Extension.create({
@@ -4462,6 +4545,7 @@ export function VisualEditor({
       onPickedImageFile,
       canMutateMedia,
       isSuggesting,
+      onSuggestionRefused,
       onJoinTitle,
       onOpenNotionPageLink,
       resolveNotionPageLink,
@@ -4473,6 +4557,7 @@ export function VisualEditor({
       onMediaSourceCommitted,
       findCommentQuote,
       getAnalyticsChartPasteContext,
+      getLinkCardPasteContext,
       getDesignScreenPasteContext,
     ],
   );
@@ -4521,6 +4606,10 @@ export function VisualEditor({
         scheduleLiveBodyParity(editorToPersist);
         const normalized = options?.markdown ?? serialized;
         sentContentRef.current.set(editorToPersist.state.doc, normalized);
+        onBlockIdentityIdsRef.current?.(
+          normalized,
+          editorDocBlockIds(editorToPersist.state.doc),
+        );
         if (localFileMode && normalized === content && options?.strict !== true)
           return "unchanged" as const;
         if (
@@ -5046,6 +5135,127 @@ export function VisualEditor({
     });
     return () => onPersistenceControllerChange?.(null);
   }, [editable, editor, onPersistenceControllerChange, persistEditorContent]);
+
+  useBlockIdentityStamps({
+    editor,
+    documentId,
+    enabled: blockLinks && editable && !suggesting,
+  });
+  usePublicBlockIds(editor, publicInteractiveHtml?.blockIds);
+  const linkDocumentId = blockLinks
+    ? documentId
+    : publicInteractiveHtml?.documentId;
+  const fullScreenBlockId = linkedBlockFullScreen ? linkedBlockId : null;
+  const [fullScreenPos, setFullScreenPos] = useState<number | null>(null);
+  const [openedBlockId, setOpenedBlockId] = useState(fullScreenBlockId);
+  if (fullScreenBlockId !== openedBlockId) {
+    setOpenedBlockId(fullScreenBlockId);
+    setFullScreenPos(null);
+  }
+  useLinkedBlockReveal({
+    editor,
+    documentId: linkDocumentId,
+    blockId: linkDocumentId ? linkedBlockId : null,
+    fullScreen: linkedBlockFullScreen,
+    ready: collabSynced,
+    onRevealed: ({ pos, node }) => {
+      if (linkedBlockFullScreen && isInteractiveHtmlCodeBlock(node)) {
+        setFullScreenPos(pos);
+      }
+    },
+    onDeleted: () => toast(tRef.current("editor.blockMenu.linkedBlockDeleted")),
+    onMissing: () =>
+      toast.error(tRef.current("editor.blockMenu.linkedBlockMissing")),
+    onFailed: () =>
+      toast.error(tRef.current("editor.blockMenu.linkedBlockLookupFailed")),
+  });
+  const copyBlockLink = useCallback(
+    (block: BlockAt, options?: { fullScreen?: boolean }) => {
+      if (!linkDocumentId) return;
+      const copy = async (id: string | null) => {
+        if (!id) {
+          toast.error(tRef.current("editor.blockMenu.linkNotReady"));
+          return;
+        }
+        const url = blockLinkUrl(linkDocumentId, id, options);
+        if (await writeClipboardText(url)) {
+          toast.success(tRef.current("editor.blockMenu.linkCopied"));
+        } else {
+          toast.error(tRef.current("editor.blockMenu.copyLinkFailed"));
+        }
+      };
+      const held = heldBlockLinkId(editor.state.doc, block);
+      if (held) {
+        void copy(held);
+        return;
+      }
+      const canWrite = editable && !suggestingRef.current;
+      void blockLinkId({
+        editor,
+        block,
+        documentId: linkDocumentId,
+        stamp: canWrite,
+        save: canWrite
+          ? async () => {
+              if (bodyIsLiveCopy) {
+                if (
+                  flushCollabUpdates &&
+                  !(await flushBeforeSave(() =>
+                    flushCollabUpdates({ editsSoFar: true }),
+                  ))
+                )
+                  return false;
+                await requestCollabSync?.();
+              } else {
+                await persistEditorContent(editor, {
+                  immediate: true,
+                  userInitiated: true,
+                });
+              }
+              return true;
+            }
+          : undefined,
+      }).then(copy, () =>
+        toast.error(tRef.current("editor.blockMenu.linkNotReady")),
+      );
+    },
+    [
+      bodyIsLiveCopy,
+      editable,
+      editor,
+      flushCollabUpdates,
+      linkDocumentId,
+      persistEditorContent,
+      requestCollabSync,
+    ],
+  );
+  const publicDisplaySources = publicInteractiveHtml?.displaySources ?? null;
+  const interactiveHtml = useMemo(
+    () => ({
+      runsOnOpen: runInteractiveHtml,
+      displaySources: publicDisplaySources,
+      fullScreenPos,
+      onFullScreenClosed: () => {
+        setFullScreenPos(null);
+        onFullScreenClosed?.();
+      },
+      copyLink: linkDocumentId
+        ? (pos: number) => {
+            const node = editor.state.doc.nodeAt(pos);
+            if (node) copyBlockLink({ pos, node }, { fullScreen: true });
+          }
+        : null,
+    }),
+    [
+      copyBlockLink,
+      editor,
+      fullScreenPos,
+      linkDocumentId,
+      onFullScreenClosed,
+      publicDisplaySources,
+      runInteractiveHtml,
+    ],
+  );
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) {
@@ -6258,6 +6468,7 @@ export function VisualEditor({
           documentId={documentId}
           editor={editor}
           onComment={onComment}
+          onCopyLink={blockLinks && documentId ? copyBlockLink : undefined}
           onTurnTableIntoCollection={
             documentId && !directoryWidgetEditing
               ? turnTableIntoCollection
@@ -6287,16 +6498,19 @@ export function VisualEditor({
         onOpenChange={handleFileStorageSetupOpenChange}
       />
       <RegistryBlockDataProvider value={registryBlockDataValue}>
-        {showStoredBody ? (
-          <StaticDocumentBody
-            schema={editor.schema}
-            content={content}
-            documentId={referenceDepth ? undefined : documentId}
-          />
-        ) : null}
-        <DrawDiagramsContext.Provider value={drawDiagrams}>
-          <EditorContent editor={editor} hidden={showStoredBody} />
-        </DrawDiagramsContext.Provider>
+        <InteractiveHtmlContext.Provider value={interactiveHtml}>
+          {showStoredBody ? (
+            <StaticDocumentBody
+              schema={editor.schema}
+              content={content}
+              documentId={referenceDepth ? undefined : documentId}
+              runInteractiveHtml={runInteractiveHtml}
+            />
+          ) : null}
+          <DrawDiagramsContext.Provider value={drawDiagrams}>
+            <EditorContent editor={editor} hidden={showStoredBody} />
+          </DrawDiagramsContext.Provider>
+        </InteractiveHtmlContext.Provider>
       </RegistryBlockDataProvider>
       {collabState.initialSeedFailed ? (
         <div

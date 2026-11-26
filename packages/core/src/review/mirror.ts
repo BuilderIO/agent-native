@@ -505,6 +505,43 @@ export async function deleteMirroredReviewComments(
 }
 
 /**
+ * Deletes the comments among `ids` whose thread's first comment the kit has
+ * deleted or never held, at any depth in the thread. A startup copy passes the
+ * comments only the kit holds: a reply written through the kit's own actions
+ * in a thread the app deleted only in its own table, which the kit would have
+ * deleted with its thread had the delete gone through the kit. Like the kit's
+ * own delete, a deleted reply takes no other reply with it.
+ */
+export async function deleteOrphanedMirroredReplies(
+  resource: ReviewMirrorResource,
+  ids: readonly string[],
+): Promise<{ deleted: string[] }> {
+  if (ids.length === 0) return { deleted: [] };
+  await prepareTables();
+  const orphaned = await inWrite(async (client) => {
+    const found: string[] = [];
+    for (const batch of chunks(ids)) {
+      const { rows } = await client.execute(sql`SELECT c.id
+            FROM agent_review_comments c
+           WHERE c.resource_type = ${sql.value(resource.resourceType)}
+             AND c.resource_id = ${sql.value(resource.resourceId)}
+             AND c.deleted_at IS NULL
+             AND c.id IN ${sql.in(batch)}
+             AND c.thread_id <> c.id
+             AND NOT EXISTS (SELECT 1 FROM agent_review_comments root
+                              WHERE root.id = c.thread_id
+                                AND root.resource_type = c.resource_type
+                                AND root.resource_id = c.resource_id
+                                AND root.deleted_at IS NULL)`);
+      for (const row of rows) found.push(String(row.id));
+    }
+    return found;
+  });
+  await deleteMirroredReviewComments(resource, orphaned);
+  return { deleted: orphaned };
+}
+
+/**
  * Locks a resource's live thread roots `FOR UPDATE`, in ID order, the order
  * the kit's own writes take them. A comment write holds its thread before the
  * app's write hook reads the resource's row, so an app deleting a resource
@@ -559,6 +596,42 @@ export async function linkMirroredReviewReplies(
       linked += result.rowsAffected;
     }
     return { linked };
+  });
+}
+
+/**
+ * Moves comments' anchors when the app changes the resource under them, as
+ * footage added at the start of a video moves every comment on it later. The
+ * app makes the move, so no write hook runs and the anchor's kind is kept.
+ * Each moved comment's revision goes up; deleted comments, and comments on
+ * another resource, are left alone.
+ */
+export async function moveMirroredReviewAnchors(
+  resource: ReviewMirrorResource,
+  moves: ReadonlyArray<{ id: string; anchor: unknown }>,
+): Promise<{ moved: number }> {
+  if (moves.length === 0) return { moved: 0 };
+  await prepareTables();
+  const updatedAt = new Date().toISOString();
+  return inWrite(async (client) => {
+    let moved = 0;
+    for (const batch of chunks(moves)) {
+      const anchors = batch.map(
+        (move) =>
+          sql`WHEN ${sql.value(move.id)} THEN ${sql.value(jsonOrNull(move.anchor))}`,
+      );
+      const result = await client.execute(sql`UPDATE agent_review_comments
+            SET anchor_json = CASE id ${sql.join(anchors, sql` `)} ELSE anchor_json END,
+                updated_at = ${sql.value(updatedAt)},
+                revision = revision + 1
+          WHERE id IN ${sql.in(batch.map((move) => move.id))}
+            AND resource_type = ${sql.value(resource.resourceType)}
+            AND resource_id = ${sql.value(resource.resourceId)}
+            AND deleted_at IS NULL
+            AND status <> 'deleted'`);
+      moved += result.rowsAffected;
+    }
+    return { moved };
   });
 }
 

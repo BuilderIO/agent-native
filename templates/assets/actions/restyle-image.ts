@@ -49,6 +49,7 @@ export default defineAction({
     contextModeOverride: z.literal("off").optional(),
   }),
   parallelSafe: true,
+  mcpTool: "search",
   run: async (args, context?: ActionRunContext) => {
     const subject = await getAssetOrThrow(args.subjectAssetId);
     const prompt =

@@ -1,7 +1,7 @@
 import { getUserSetting } from "@agent-native/core/settings";
 
 import type { CalendarEvent } from "../../shared/api.js";
-import { createZoomMeeting, getZoomStatus } from "./zoom.js";
+import { createZoomMeeting, deleteZoomMeeting, getZoomStatus } from "./zoom.js";
 
 const DEFAULT_TIMEZONE = "America/New_York";
 const ZOOM_LINK_RE = /https?:\/\/[^\s<>"')]*zoom\.us\/[^\s<>"')]+/i;
@@ -13,6 +13,8 @@ type EventForVideo = Pick<
   CalendarEvent,
   "title" | "description" | "location" | "start" | "end"
 >;
+
+export type CreatedZoomMeeting = { accountId: string; meetingId: string };
 
 type CalendarSettings = {
   timezone?: string;
@@ -119,7 +121,7 @@ export function buildMeetingLinkPatch(
 export async function createZoomMeetingForEvent(
   ownerEmail: string,
   event: EventForVideo,
-): Promise<string> {
+): Promise<{ meetingLink: string; meeting: CreatedZoomMeeting }> {
   const status = await getZoomStatus(ownerEmail);
   if (!status.configured) {
     throw new Error(
@@ -143,7 +145,13 @@ export async function createZoomMeetingForEvent(
     throw new Error("Zoom is connected, but no Zoom meeting could be created.");
   }
 
-  return zoomResult.meetingUrl;
+  return {
+    meetingLink: zoomResult.meetingUrl,
+    meeting: {
+      accountId: zoomResult.accountId,
+      meetingId: zoomResult.meetingId,
+    },
+  };
 }
 
 export async function prepareZoomMeetingPatch(
@@ -153,16 +161,34 @@ export async function prepareZoomMeetingPatch(
   meetingLink: string;
   patch: Partial<Pick<CalendarEvent, "description" | "location">>;
   alreadyPresent: boolean;
+  created?: CreatedZoomMeeting;
 }> {
   const existing = extractZoomMeetingLink(event);
   if (existing) {
     return { meetingLink: existing, patch: {}, alreadyPresent: true };
   }
 
-  const meetingLink = await createZoomMeetingForEvent(ownerEmail, event);
+  const { meetingLink, meeting } = await createZoomMeetingForEvent(
+    ownerEmail,
+    event,
+  );
   return {
     meetingLink,
     patch: buildMeetingLinkPatch(event, meetingLink),
     alreadyPresent: false,
+    created: meeting,
   };
+}
+
+export async function discardZoomMeeting(
+  meeting: CreatedZoomMeeting,
+): Promise<void> {
+  try {
+    await deleteZoomMeeting(meeting);
+  } catch (error) {
+    console.error(
+      `Failed to delete Zoom meeting ${meeting.meetingId}, created for an event update that was refused.`,
+      error,
+    );
+  }
 }

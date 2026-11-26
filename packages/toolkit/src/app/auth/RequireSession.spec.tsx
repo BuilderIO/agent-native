@@ -597,6 +597,159 @@ describe("RequireSession action reads while the session resolves", () => {
   });
 });
 
+describe("RequireSession revealWhileLoading", () => {
+  let mounts: number;
+
+  function setSessionHintCookie(present: boolean) {
+    document.cookie = present
+      ? "an_session_hint=1; path=/"
+      : "an_session_hint=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+  }
+
+  function CountedChild() {
+    React.useEffect(() => {
+      mounts += 1;
+    }, []);
+    return <div data-testid="protected">app</div>;
+  }
+
+  function renderGate(reveal?: () => boolean) {
+    render(
+      <RequireSession revealWhileLoading={reveal}>
+        <CountedChild />
+      </RequireSession>,
+    );
+  }
+
+  const loading = { session: null, isLoading: true, status: "loading" };
+  const authenticated = {
+    session: { userId: "u1", email: "a@b.com" },
+    isLoading: false,
+    status: "authenticated",
+  };
+  const skeleton = () =>
+    container.querySelector('[data-agent-native-app-skeleton="true"]');
+  const app = () => container.querySelector('[data-testid="protected"]');
+
+  beforeEach(() => {
+    mounts = 0;
+  });
+
+  afterEach(() => {
+    setSessionHintCookie(false);
+  });
+
+  it("shows the app instead of the skeleton while loading when the app opts in", () => {
+    setSessionHintCookie(true);
+    useSessionMock.mockReturnValue(loading);
+    renderGate(() => true);
+    expect(app()).not.toBeNull();
+    expect(skeleton()).toBeNull();
+    expect((app()?.parentElement as HTMLElement).style.display).not.toBe(
+      "none",
+    );
+  });
+
+  it("keeps the revealed tree mounted when the session resolves", () => {
+    setSessionHintCookie(true);
+    useSessionMock.mockReturnValue(loading);
+    renderGate(() => true);
+    const node = app();
+    useSessionMock.mockReturnValue(authenticated);
+    renderGate(() => true);
+    expect(app()).toBe(node);
+    expect(mounts).toBe(1);
+  });
+
+  it("keeps reads gated while the revealed app waits for the session", () => {
+    setSessionHintCookie(true);
+    function PreloadProbe() {
+      return (
+        <div data-testid="preloading">{String(useSessionPreloading())}</div>
+      );
+    }
+    useSessionMock.mockReturnValue(loading);
+    render(
+      <RequireSession revealWhileLoading={() => true}>
+        <PreloadProbe />
+      </RequireSession>,
+    );
+    expect(
+      container.querySelector('[data-testid="preloading"]')?.textContent,
+    ).toBe("true");
+  });
+
+  it("takes the revealed app down in the same render the session resolves signed out", () => {
+    setSessionHintCookie(true);
+    useSessionMock.mockReturnValue(loading);
+    renderGate(() => true);
+    expect(app()).not.toBeNull();
+    useSessionMock.mockReturnValue({
+      session: null,
+      isLoading: false,
+      status: "unauthenticated",
+    });
+    renderGate(() => true);
+    expect(app()).toBeNull();
+    expect(replaceMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("replaces the revealed app with the unavailable notice when the session is unreadable", () => {
+    setSessionHintCookie(true);
+    useSessionMock.mockReturnValue(loading);
+    renderGate(() => true);
+    useSessionMock.mockReturnValue({
+      session: null,
+      isLoading: true,
+      status: "unavailable",
+      error: new Error("unreadable"),
+      retry: vi.fn(),
+    });
+    renderGate(() => true);
+    expect(app()).toBeNull();
+    expect(container.textContent).toContain("Retry connection");
+  });
+
+  it("asks the app once per load", () => {
+    setSessionHintCookie(true);
+    const reveal = vi.fn(() => true);
+    useSessionMock.mockReturnValue(loading);
+    renderGate(reveal);
+    renderGate(reveal);
+    useSessionMock.mockReturnValue(authenticated);
+    renderGate(reveal);
+    expect(reveal).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the skeleton when the app declines", () => {
+    setSessionHintCookie(true);
+    useSessionMock.mockReturnValue(loading);
+    renderGate(() => false);
+    expect(app()?.parentElement?.style.display).toBe("none");
+    expect(skeleton()).not.toBeNull();
+  });
+
+  it("keeps the skeleton without a session hint even when the app opts in", () => {
+    const reveal = vi.fn(() => true);
+    useSessionMock.mockReturnValue(loading);
+    renderGate(reveal);
+    expect(app()).toBeNull();
+    expect(skeleton()).not.toBeNull();
+  });
+
+  it("behaves as before when the prop is absent", () => {
+    setSessionHintCookie(true);
+    useSessionMock.mockReturnValue(loading);
+    renderGate();
+    expect(app()?.parentElement?.style.display).toBe("none");
+    expect(skeleton()).not.toBeNull();
+    useSessionMock.mockReturnValue(authenticated);
+    renderGate();
+    expect(mounts).toBe(1);
+    expect(skeleton()).toBeNull();
+  });
+});
+
 describe("buildSignInReturnHref", () => {
   it("honours an explicit returnTo", () => {
     expect(

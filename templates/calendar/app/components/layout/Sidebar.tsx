@@ -958,7 +958,7 @@ export function Sidebar({
 
             {/* Google status / connect CTA */}
             {!googleStatus.isLoading &&
-              !isConnected &&
+              googleStatus.data?.connected === false &&
               (googleStatus.data?.configured === true ||
                 canOfferGoogleOAuthSetup) && <GoogleConnectSidebarButton />}
 

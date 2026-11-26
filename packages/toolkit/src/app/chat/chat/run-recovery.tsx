@@ -1129,7 +1129,7 @@ export function RunErrorRecoveryCard({
           <IconAlertTriangle size={14} />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="font-medium text-foreground">
+          <div role="status" className="font-medium text-foreground">
             {runErrorHeadline(info, {
               recoverable: t("agentChat.error.stopped"),
               terminal: t("agentChat.error.failed"),

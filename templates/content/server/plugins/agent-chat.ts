@@ -198,6 +198,7 @@ export default createAgentChatPlugin({
   initialToolNames: INJECTED_INITIAL_TOOL_NAMES,
   mcp: {
     appApprovalPage: true,
+    skills: ["content"],
     connectorCatalog: [],
     externalAgents: { writes: "allowlisted" },
     instructions:

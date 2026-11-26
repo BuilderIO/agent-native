@@ -1273,9 +1273,9 @@ function AdHocKeysSection({
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] font-medium text-foreground font-mono truncate">
+                    <code className="text-[11px] font-medium text-foreground font-mono truncate">
                       {key.name}
-                    </span>
+                    </code>
                     <span
                       className={cn(
                         "rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",

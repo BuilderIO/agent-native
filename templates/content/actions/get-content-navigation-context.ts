@@ -24,7 +24,10 @@ import {
   filesNavigationParentsWithChildren,
   localFolderDirectoryOfDocument,
 } from "./_database-navigation.js";
-import { serializeDocumentSource } from "./_document-source.js";
+import {
+  linkedNestedLocalFile,
+  serializeDocumentSource,
+} from "./_document-source.js";
 import {
   getContentSourceMode,
   getLocalFileDocument,
@@ -289,6 +292,7 @@ export default defineAction({
         sourcePath: schema.documents.sourcePath,
         sourceRootPath: schema.documents.sourceRootPath,
         sourceUpdatedAt: schema.documents.sourceUpdatedAt,
+        linkedNestedLocalFile: linkedNestedLocalFile(db),
         createdAt: schema.documents.createdAt,
         updatedAt: schema.documents.updatedAt,
       })
@@ -319,7 +323,8 @@ export default defineAction({
         schema.documents,
         eq(schema.documents.id, sql`navigation_chain.id`),
       )
-      .orderBy(sql`navigation_chain.depth`);
+      .orderBy(sql`navigation_chain.depth`)
+      .limit(MAX_ANCESTORS + 1);
     if (!chain.length)
       throw Object.assign(new Error(`Document "${id}" not found`), {
         statusCode: 404,
@@ -446,6 +451,7 @@ export default defineAction({
         icon: row.icon,
         databaseId: navigationMembership?.databaseId ?? null,
         databaseDocumentId: navigationMembership?.databaseDocumentId ?? null,
+        ...(row.linkedNestedLocalFile ? { canMove: false } : {}),
         isFavorite: favorites.has(row.id),
         ...(childrenOnPath.has(row.id)
           ? { hasChildren: childrenOnPath.get(row.id) }

@@ -68,15 +68,10 @@ describe("ReadOnlyDesignBanner", () => {
     ).toBe("true");
   });
 
-  it("shows the zoom control to viewers who have no editor toolbar", () => {
-    act(() =>
-      root.render(
-        <ReadOnlyDesignBanner
-          zoomControl={<button type="button">100%</button>}
-        />,
-      ),
-    );
+  it("shows no zoom readout to viewers", () => {
+    act(() => root.render(<ReadOnlyDesignBanner />));
 
-    expect(container.querySelector("button")?.textContent).toBe("100%");
+    expect(container.querySelector("button")).toBeNull();
+    expect(container.textContent).not.toMatch(/%/);
   });
 });

@@ -18,6 +18,7 @@ describe("extensions/store", () => {
     };
 
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => client,
       isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
@@ -79,6 +80,7 @@ describe("extensions/store", () => {
     };
 
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => client,
       isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
@@ -118,6 +120,7 @@ describe("extensions/store", () => {
     };
 
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => client,
       isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
@@ -158,6 +161,7 @@ describe("extensions/store", () => {
     };
 
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => client,
       isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
@@ -221,6 +225,7 @@ describe("extensions/store", () => {
       appStatePut,
     }));
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => client,
       isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
@@ -310,6 +315,7 @@ describe("extensions/store", () => {
     };
 
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => client,
       isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
@@ -371,6 +377,7 @@ describe("extensions/store", () => {
     };
 
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => client,
       isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
@@ -436,6 +443,7 @@ describe("extensions/store", () => {
       recordChange: vi.fn(),
     }));
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => client,
       isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
@@ -489,6 +497,7 @@ describe("extensions/store", () => {
     const db = {};
 
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => client,
       isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
@@ -522,6 +531,7 @@ describe("extensions/store", () => {
     };
 
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => client,
       isProductionServerlessFunctionRuntime: () => false,
       isConnectionError: () => false,
