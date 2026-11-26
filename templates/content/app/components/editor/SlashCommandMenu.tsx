@@ -384,11 +384,6 @@ export interface CommandTemplate extends Omit<
   descriptionKey: string;
 }
 
-/**
- * In a list item's first line, a command that changes the block's kind turns
- * that item only, as the block menu does. A command that keeps the slash
- * query (`keepsQuery`) has it deleted first.
- */
 export function turningListItem(
   target: TurnIntoTarget,
   action: CommandTemplate["action"],

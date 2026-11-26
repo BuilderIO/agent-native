@@ -830,10 +830,6 @@ const LIST_ITEM_MARKERS: ReadonlyArray<[RegExp, TurnIntoTarget]> = [
   [/^[|"]$/, "quote"],
 ];
 
-/**
- * A Markdown marker typed at the start of a list item's first line turns
- * that item, and `1) ` starts a numbered list from a paragraph, as `1. ` does.
- */
 function turnBlockByMarker(view: EditorView, from: number, text: string) {
   const { selection } = view.state;
   const { $from } = selection;

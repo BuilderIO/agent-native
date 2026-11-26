@@ -51,14 +51,14 @@ afterEach(() => {
 });
 
 function blockAt(editor: Editor, text: string) {
-  let found: { node: ProseMirrorNode; pos: number } | null = null;
+  const found: { node: ProseMirrorNode; pos: number }[] = [];
   forEachListItemBlock(editor.state.doc, (node, pos) => {
-    if (found) return;
     const line = node.firstChild?.isTextblock ? node.firstChild : node;
-    if (line.textContent === text) found = { node, pos };
+    if (line.textContent === text) found.push({ node, pos });
   });
-  if (!found) throw new Error(`Expected a block "${text}"`);
-  return found as { node: ProseMirrorNode; pos: number };
+  const first = found.at(0);
+  if (!first) throw new Error(`Expected a block "${text}"`);
+  return first;
 }
 
 function move(editor: Editor, text: string, dropPos: number) {

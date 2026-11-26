@@ -86,10 +86,6 @@ const LIST_TARGETS: Partial<Record<string, TurnIntoTarget>> = {
   taskList: "todoList",
 };
 
-/**
- * The kind Turn into shows as the block's own. A list item is its list's
- * kind, so pass the list it's in.
- */
 export function currentTurnIntoTarget(
   node: ProseMirrorNode,
   parent: ProseMirrorNode | null = null,
@@ -361,11 +357,6 @@ export function turnBlockInto(
   return setType(schema.nodes.heading, { level: Number(target.slice(-1)) });
 }
 
-/**
- * The list item whose first line holds the whole selection. Slash commands,
- * Markdown markers and the selection toolbar turn that item, as the block
- * menu does.
- */
 export function selectedListItem(selection: Selection) {
   const { $from, $to } = selection;
   if ($from.depth < 2 || !$from.sameParent($to) || !$from.parent.isTextblock) {
@@ -377,11 +368,6 @@ export function selectedListItem(selection: Selection) {
     : null;
 }
 
-/**
- * Turns the item `selectedListItem` finds into `target`, keeping the
- * selection where it was in its text. Returns false when there's no such
- * item or it can't turn, after which `tr` must be dropped.
- */
 export function turnSelectedListItemInto(
   tr: Transaction,
   target: TurnIntoTarget,
@@ -424,10 +410,6 @@ export function blockCommentRange(node: ProseMirrorNode, pos: number) {
   return { from: pos + 1, to: pos + node.nodeSize - 1 };
 }
 
-/**
- * Where the menu's Color goes: on a list item, its first line, which is
- * where the page saves an item's color.
- */
 export function blockColorTarget(node: ProseMirrorNode, pos: number) {
   const line = node.firstChild;
   return isListItem(node) && line?.type.name === "paragraph"

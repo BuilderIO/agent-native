@@ -28,6 +28,7 @@ import {
   isList,
   isListItem,
   moveBlockTransaction,
+  nestedListOffset,
   positionBelowBlock,
 } from "./listItemBlocks.js";
 
@@ -129,7 +130,6 @@ type DropTarget = {
   targetPos: number;
   targetNodeSize: number;
   rect: DOMRect;
-  /** Where the drop line starts: the list's edge for a drop between items. */
   lineLeft: number | null;
 };
 
@@ -298,10 +298,6 @@ function yElementAt(
   return null;
 }
 
-/**
- * The block's position, -1 once it is gone or something else changed it, or
- * null while it is known by its DOM.
- */
 function findYBlockPos(view: EditorView, block: YBlock) {
   const binding = getYBinding(view);
   if (!binding || block.changedElsewhere) return -1;
@@ -830,15 +826,16 @@ export const DragHandle = Extension.create<DragHandleOptions>({
         list instanceof HTMLElement
           ? list.getBoundingClientRect().left
           : rect.left;
-      let nestedTop: number | null = null;
-      item.forEach((child, offset) => {
-        if (nestedTop !== null || !isList(child)) return;
-        const nested = editorView.nodeDOM(pos + 1 + offset);
-        if (nested instanceof HTMLElement) {
-          nestedTop = nested.getBoundingClientRect().top;
-        }
-      });
-      const bottom = clamp(nestedTop ?? rect.bottom, rect.top, rect.bottom);
+      const nestedOffset = nestedListOffset(item);
+      const nested =
+        nestedOffset === null
+          ? null
+          : editorView.nodeDOM(pos + 1 + nestedOffset);
+      const nestedTop =
+        nested instanceof HTMLElement
+          ? nested.getBoundingClientRect().top
+          : rect.bottom;
+      const bottom = clamp(nestedTop, rect.top, rect.bottom);
       return new DOMRect(left, rect.top, rect.right - left, bottom - rect.top);
     };
 

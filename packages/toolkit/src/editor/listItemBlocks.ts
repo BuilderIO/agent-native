@@ -49,14 +49,18 @@ export function forEachListItemBlock(
  * items, that is before the first of them.
  */
 export function positionBelowBlock(node: ProseMirrorNode, pos: number) {
-  if (isListItem(node)) {
-    let nested: number | null = null;
-    node.forEach((child, offset) => {
-      if (nested === null && isList(child)) nested = pos + 1 + offset + 1;
-    });
-    if (nested !== null) return nested;
+  const nested = isListItem(node) ? nestedListOffset(node) : null;
+  return nested === null ? pos + node.nodeSize : pos + 1 + nested + 1;
+}
+
+export function nestedListOffset(item: ProseMirrorNode): number | null {
+  let offset = 0;
+  for (let index = 0; index < item.childCount; index++) {
+    const child = item.child(index);
+    if (isList(child)) return offset;
+    offset += child.nodeSize;
   }
-  return pos + node.nodeSize;
+  return null;
 }
 
 /**

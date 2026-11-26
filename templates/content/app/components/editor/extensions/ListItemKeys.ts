@@ -10,7 +10,6 @@ function dispatchKeyTransaction(editor: Editor, tr: Transaction) {
   editor.view.dispatch(tr.scrollIntoView());
 }
 
-/** Ticks or unticks the to-do whose own line holds the caret. */
 export function toggleTaskAtCaret(editor: Editor): boolean {
   const { $from } = editor.state.selection;
   if ($from.depth < 2 || !$from.parent.isTextblock) return false;
@@ -25,10 +24,6 @@ export function toggleTaskAtCaret(editor: Editor): boolean {
   return true;
 }
 
-/**
- * Moves the block at the caret into the last item of the list just above
- * it, after that item's own nested blocks, as Tab does in Notion.
- */
 export function nestBlockInListAbove(editor: Editor): boolean {
   const { selection } = editor.state;
   const { $from, $to } = selection;
@@ -62,10 +57,6 @@ export function nestBlockInListAbove(editor: Editor): boolean {
   return true;
 }
 
-/**
- * Ctrl+Enter ticks a to-do, where it would otherwise break the line, and Tab
- * nests the block under a list in that list's last item.
- */
 export const ListItemKeys = Extension.create({
   name: "listItemKeys",
   priority: 1000,

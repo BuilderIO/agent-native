@@ -1115,7 +1115,7 @@ describe("BlockActionsMenu", () => {
       );
 
       const two = itemBlock(target, "Two");
-      expect(two?.node.firstChild?.attrs.color).toBe("blue_bg");
+      expect(two.node.firstChild?.attrs.color).toBe("blue_bg");
       expect(target.state.selection.$from.parent.textContent).toBe("Two");
     });
 

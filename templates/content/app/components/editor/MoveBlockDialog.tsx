@@ -136,10 +136,6 @@ function withoutVideoIds(json: PMNode): PMNode {
   };
 }
 
-/**
- * The block as the page it moves to gets it. A list item goes in a list of
- * the kind it was in, `list`.
- */
 export function movedBlockNfm(
   node: ProseMirrorNode,
   list: ProseMirrorNode | null = null,

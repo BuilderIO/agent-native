@@ -176,7 +176,6 @@ export function blockMenuEntry(node: ProseMirrorNode): BlockMenuEntry {
   return BLOCK_MENU_ENTRIES[node.type.name] ?? UNKNOWN_BLOCK;
 }
 
-/** The menu's title for a block. A list item is titled by its list's kind. */
 export function blockMenuTitle(
   node: ProseMirrorNode,
   parent: ProseMirrorNode | null,

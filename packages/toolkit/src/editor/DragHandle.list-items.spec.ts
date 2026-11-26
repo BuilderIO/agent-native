@@ -164,7 +164,7 @@ function drop(toY: number): void {
 function clickMenuItem(label: string): void {
   const item = Array.from(
     document.querySelectorAll<HTMLButtonElement>(".an-rich-md-drag-menu__item"),
-  ).find((button) => button.textContent?.includes(label));
+  ).find((button) => button.textContent.includes(label));
   if (!item) throw new Error(`Expected menu item "${label}"`);
   item.dispatchEvent(new MouseEvent("click", { bubbles: true }));
 }

@@ -96,7 +96,7 @@ describe("list items as blocks", () => {
         found.push({ node, pos });
       }
     });
-    const [first] = found;
+    const first = found.at(0);
     if (!first) throw new Error(`No item "${value}"`);
     return first;
   }
@@ -106,7 +106,7 @@ describe("list items as blocks", () => {
     target.state.doc.descendants((node, pos) => {
       if (node.isTextblock && node.textContent === value) found.push(pos);
     });
-    const [pos] = found;
+    const pos = found.at(0);
     if (pos === undefined) throw new Error(`No line "${value}"`);
     target.view.dispatch(
       target.state.tr.setSelection(
