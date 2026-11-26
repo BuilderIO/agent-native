@@ -404,7 +404,8 @@ export class PageTrack {
     this.outgoing = new Blob([]);
     this.queueChunk(last, true);
     await this.uploadChain;
-    return this.haltedOutcome() ?? this.finalize();
+    const outcome = this.haltedOutcome() ?? (await this.finalize());
+    return this.haltedOutcome() ?? outcome;
   }
 
   private haltedOutcome(): PageTrackOutcome | null {

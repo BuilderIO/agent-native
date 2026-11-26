@@ -15,6 +15,7 @@ const MAX_NAME_CHARS = 200;
 const MAX_SELECTOR_DEPTH = 4;
 const ELEMENT_NODE = 1;
 const TEXT_NODE = 3;
+const DOCUMENT_FRAGMENT_NODE = 11;
 
 export type PageTargetPrivacy = {
   blockSelector: string;
@@ -206,9 +207,19 @@ export function cssSelector(element: Element): string {
   return parts.join(" > ");
 }
 
+function shadowHost(element: Element): Element | null {
+  const root = element.getRootNode();
+  return root.nodeType === DOCUMENT_FRAGMENT_NODE && "host" in root
+    ? (root as ShadowRoot).host
+    : null;
+}
+
 export function matchesWithin(element: Element, selector: string): boolean {
   try {
-    return element.closest(selector) !== null;
+    for (let node: Element | null = element; node; node = shadowHost(node)) {
+      if (node.closest(selector) !== null) return true;
+    }
+    return false;
   } catch {
     // coercion-ok: a selector this browser can't parse matches nothing.
     return false;

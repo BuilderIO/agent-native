@@ -104,6 +104,67 @@ describe("blocked iframes in the page track", () => {
     expect(keep(input(3))).toBe(true);
   });
 
+  it("leaves out a stylesheet adopted inside a blocked iframe until the next full snapshot", () => {
+    const { frame, frameDocument } = frameWithField({ "data-private": "" });
+    const keep = blockedFrameFilter(
+      BLOCK,
+      mirror([
+        [1, frame],
+        [2, frameDocument],
+      ]),
+    );
+    const rule = {
+      type: 3,
+      data: {
+        source: 8,
+        styleId: 7,
+        adds: [{ rule: ".name::after { content: 'Jane' }", index: 0 }],
+      },
+    };
+
+    expect(keep(attach(1, 2))).toBe(false);
+    expect(
+      keep({
+        type: 3,
+        data: {
+          source: 15,
+          id: 2,
+          styleIds: [7],
+          styles: [{ styleId: 7, rules: [] }],
+        },
+      }),
+    ).toBe(false);
+    expect(keep(rule)).toBe(false);
+    expect(
+      keep({
+        type: 3,
+        data: {
+          source: 13,
+          styleId: 7,
+          set: { property: "content", value: "'Jane'" },
+          index: [0],
+        },
+      }),
+    ).toBe(false);
+    expect(keep({ type: 2, data: { node: {} } })).toBe(true);
+    expect(keep(rule)).toBe(true);
+  });
+
+  it("leaves out a typed value whose field isn't recorded yet once an iframe is blocked", () => {
+    const { frame, frameDocument } = frameWithField({ "data-private": "" });
+    const keep = blockedFrameFilter(
+      BLOCK,
+      mirror([
+        [1, frame],
+        [2, frameDocument],
+      ]),
+    );
+
+    expect(keep(input(-1))).toBe(true);
+    expect(keep(attach(1, 2))).toBe(false);
+    expect(keep(input(-1))).toBe(false);
+  });
+
   it("leaves out an iframe nested in a blocked one", () => {
     const { frame, frameDocument } = frameWithField({ "data-private": "" });
     const nested = frameDocument.createElement("iframe");

@@ -73,6 +73,30 @@ describe("clicked page targets", () => {
     expect(implicitRole(field)).toBe("textbox");
   });
 
+  it("leaves out or masks a target inside a blocked or masked shadow host", () => {
+    const blockedHost = document.createElement("div");
+    blockedHost.setAttribute("data-an-block", "");
+    blockedHost.attachShadow({ mode: "open" }).innerHTML =
+      "<button>Private customer</button>";
+    const maskedHost = document.createElement("div");
+    maskedHost.className = "an-mask";
+    maskedHost.attachShadow({ mode: "open" }).innerHTML =
+      "<button>Jane Doe</button>";
+    document.body.append(blockedHost, maskedHost);
+    const blockedButton = blockedHost.shadowRoot?.querySelector("button");
+    const maskedButton = maskedHost.shadowRoot?.querySelector("button");
+    if (!blockedButton || !maskedButton) throw new Error("no shadow buttons");
+
+    expect(describeTarget(blockedButton, nodeId, privacy)).toMatchObject({
+      name: null,
+      blocked: true,
+    });
+    expect(describeTarget(maskedButton, nodeId, privacy)).toMatchObject({
+      name: "**** ***",
+      blocked: false,
+    });
+  });
+
   it("leaves blocked and masked text inside a target out of its name", () => {
     document.body.innerHTML = [
       '<button id="open"><span data-an-block>Secret customer</span> <span>Open</span> <span class="an-mask">Jane</span></button>',

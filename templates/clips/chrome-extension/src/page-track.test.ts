@@ -438,6 +438,36 @@ describe("page track recording", () => {
     }
   });
 
+  it("reports the track as discarded when the recording is dropped while it finalizes", async () => {
+    let answerFinalize: () => void = () => undefined;
+    const fetchImpl = vi.fn(async (url: string) => {
+      if (url.endsWith("/finalize")) {
+        await new Promise<void>((resolve) => {
+          answerFinalize = resolve;
+        });
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    const { track } = harness(ok, {
+      fetch: fetchImpl as unknown as typeof fetch,
+    });
+    const page = fakePort();
+    track.connect(page.port);
+    track.start(WALL_START);
+    page.send({ kind: "events", lines: meta });
+
+    const outcome = track.finish();
+    await vi.waitFor(() => {
+      expect(fetchImpl.mock.calls.map(([url]) => url)).toContain(FINALIZE_URL);
+    });
+    track.discard();
+    answerFinalize();
+    await expect(outcome).resolves.toEqual({
+      status: "stopped",
+      reason: "discarded",
+    });
+  });
+
   it("sends nothing when the page never sent an event", async () => {
     vi.useFakeTimers();
     try {
