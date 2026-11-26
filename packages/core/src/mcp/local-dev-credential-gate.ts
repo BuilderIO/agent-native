@@ -1,9 +1,8 @@
+import { isLocalDevIdentityEmail } from "../server/local-dev-identity.js";
 import {
-  getRequestContext,
+  getRequestIsLoopback,
   getRequestRunContext,
 } from "../server/request-context.js";
-
-const LOCAL_DEV_IDENTITY_EMAILS = new Set(["dev@local.test", "dev@local"]);
 
 export const LOCAL_DEV_ORG_CREDENTIAL_REFUSED_MESSAGE =
   "Organization service tokens are not issued to the local development identity outside local development. Configure authentication for this deployment, or run this from this machine over localhost.";
@@ -16,14 +15,11 @@ export class LocalDevOrgCredentialRefusedError extends Error {
   }
 }
 
-function isLocalDevIdentityEmail(email: string | undefined): boolean {
-  const normalized = email?.trim().toLowerCase();
-  return !!normalized && LOCAL_DEV_IDENTITY_EMAILS.has(normalized);
-}
-
 function isTrustedLoopbackRequest(): boolean {
-  if (getRequestContext()?.isLoopbackRequest !== true) return false;
-  return getRequestRunContext()?.isBackgroundWorker !== true;
+  return (
+    getRequestIsLoopback() &&
+    getRequestRunContext()?.isBackgroundWorker !== true
+  );
 }
 
 /**

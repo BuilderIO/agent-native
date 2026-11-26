@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 
+import {
+  LEGACY_LOCAL_DEV_IDENTITY_EMAIL,
+  LOCAL_DEV_IDENTITY_EMAIL,
+} from "../server/local-dev-identity.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import {
   assertOrgCredentialIssuableTo,
@@ -8,22 +12,24 @@ import {
 
 describe("assertOrgCredentialIssuableTo", () => {
   it("refuses the local development identity with no request context", () => {
-    expect(() => assertOrgCredentialIssuableTo("dev@local.test")).toThrow(
-      LocalDevOrgCredentialRefusedError,
-    );
-    expect(() => assertOrgCredentialIssuableTo(" Dev@Local ")).toThrow(
-      LocalDevOrgCredentialRefusedError,
-    );
+    expect(() =>
+      assertOrgCredentialIssuableTo(LOCAL_DEV_IDENTITY_EMAIL),
+    ).toThrow(LocalDevOrgCredentialRefusedError);
+    expect(() =>
+      assertOrgCredentialIssuableTo(
+        ` ${LEGACY_LOCAL_DEV_IDENTITY_EMAIL.toUpperCase()} `,
+      ),
+    ).toThrow(LocalDevOrgCredentialRefusedError);
   });
 
   it("refuses the local development identity on a non-loopback request", async () => {
     for (const isLoopbackRequest of [false, undefined]) {
       await runWithRequestContext(
-        { userEmail: "dev@local.test", isLoopbackRequest },
+        { userEmail: LOCAL_DEV_IDENTITY_EMAIL, isLoopbackRequest },
         () => {
-          expect(() => assertOrgCredentialIssuableTo("dev@local.test")).toThrow(
-            expect.objectContaining({ statusCode: 403 }),
-          );
+          expect(() =>
+            assertOrgCredentialIssuableTo(LOCAL_DEV_IDENTITY_EMAIL),
+          ).toThrow(expect.objectContaining({ statusCode: 403 }));
         },
       );
     }
@@ -32,24 +38,24 @@ describe("assertOrgCredentialIssuableTo", () => {
   it("refuses the local development identity in a background worker, even with a loopback flag", async () => {
     await runWithRequestContext(
       {
-        userEmail: "dev@local.test",
+        userEmail: LOCAL_DEV_IDENTITY_EMAIL,
         isLoopbackRequest: true,
         run: { isBackgroundWorker: true },
       },
       () => {
-        expect(() => assertOrgCredentialIssuableTo("dev@local.test")).toThrow(
-          LocalDevOrgCredentialRefusedError,
-        );
+        expect(() =>
+          assertOrgCredentialIssuableTo(LOCAL_DEV_IDENTITY_EMAIL),
+        ).toThrow(LocalDevOrgCredentialRefusedError);
       },
     );
   });
 
   it("allows the local development identity on a loopback request", async () => {
     await runWithRequestContext(
-      { userEmail: "dev@local.test", isLoopbackRequest: true },
+      { userEmail: LOCAL_DEV_IDENTITY_EMAIL, isLoopbackRequest: true },
       () => {
         expect(() =>
-          assertOrgCredentialIssuableTo("dev@local.test"),
+          assertOrgCredentialIssuableTo(LOCAL_DEV_IDENTITY_EMAIL),
         ).not.toThrow();
       },
     );

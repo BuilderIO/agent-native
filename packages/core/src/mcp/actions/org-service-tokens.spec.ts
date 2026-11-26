@@ -58,6 +58,7 @@ vi.mock("../../db/client.js", () => ({
 let requestContext: Record<string, unknown> | undefined;
 vi.mock("../../server/request-context.js", () => ({
   getRequestContext: () => requestContext,
+  getRequestIsLoopback: () => requestContext?.isLoopbackRequest === true,
   getRequestRunContext: () => undefined,
 }));
 

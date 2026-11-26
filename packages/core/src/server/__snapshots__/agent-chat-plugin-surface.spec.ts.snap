@@ -1,6 +1,5 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-// oracle-change: the recover rule now tells the agent to name a read or search that still fails and say what the answer may lack
 exports[`assembled prompt snapshots > compact prompt (default examples) matches snapshot 1`] = `
 "
 ### How You Work
@@ -50,8 +49,6 @@ You also have tools for inline embeds, chat history search (\`chat-history\`), r
 "
 `;
 
-// oracle-change: the navigate rule now says agents keep the user's view unless asked to open an item
-// oracle-change: the recover rule now tells the agent to name a read or search that still fails and say what the answer may lack
 exports[`assembled prompt snapshots > full prompt (default examples) matches snapshot 1`] = `
 "
 ### How You Work

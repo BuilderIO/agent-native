@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { getDbExec } from "../db/client.js";
 import { isProductionServerBuild } from "../db/server-runtime.js";
 import { isProductionLikeRuntime } from "../server/credential-provider.js";
+import { LOCAL_DEV_IDENTITY_EMAIL } from "../server/local-dev-identity.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 
 /**
@@ -12,7 +13,7 @@ import { invalidateMemberOrgCaches } from "./request-org-cache.js";
  * preview launcher sets `WORKSPACE_PREVIEW_JOIN_ORG=1`, make the dev account a
  * member of the workspace's single org in the current database.
  */
-export const PREVIEW_DEV_ACCOUNT_EMAIL = "dev@local.test";
+export const PREVIEW_DEV_ACCOUNT_EMAIL = LOCAL_DEV_IDENTITY_EMAIL;
 
 function truthy(value: string | undefined): boolean {
   const v = value?.trim().toLowerCase();
