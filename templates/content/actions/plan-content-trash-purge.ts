@@ -15,6 +15,7 @@ import { resolveTrashPurgeProvenance } from "./_content-trash-purge-scope.js";
 import {
   contentTrashFilterFields,
   contentTrashPredicates,
+  contentTrashWherePredicate,
   validateContentTrashDateRange,
 } from "./_content-trash-query.js";
 import { inspectPermanentDeleteRelationships } from "./delete-document.js";
@@ -154,6 +155,15 @@ export default defineAction({
           filters?.deletedTo
             ? sql`${deletedAt} <= ${filters.deletedTo}`
             : undefined,
+          contentTrashWherePredicate(filters?.where, {
+            spaceId: space.id,
+            parentId: parent.id,
+            createdBy: document.createdBy,
+            updatedBy: document.updatedBy,
+            deletedBy: document.trashedBy,
+            databaseId: database.id,
+            deletedAt,
+          }),
         ),
       );
     if (

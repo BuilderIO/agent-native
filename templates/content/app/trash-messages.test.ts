@@ -9,6 +9,7 @@ describe("trash messages", () => {
     "running",
     "completed",
     "confirmEmpty",
+    "restoredCount",
   ] as const;
 
   it("keeps every configured locale structurally complete", () => {
@@ -38,6 +39,11 @@ describe("trash messages", () => {
 
       expect(messages.scopeCounts).toContain("{{eligible}}");
       expect(messages.scopeCounts).toContain("{{blocked}}");
+      expect(messages.workspaceScopeCounts).toContain("{{workspace}}");
+      expect(messages.workspaceScopeCounts).toContain("{{eligible}}");
+      expect(messages.workspaceScopeCounts).toContain("{{blocked}}");
+      expect(messages.workspaceError).toContain("{{workspace}}");
+      expect(messages.workspaceError).toContain("{{error}}");
       expect(messages.completedWithRemaining).toContain("{{deleted}}");
       expect(messages.completedWithRemaining).toContain("{{remains}}");
       expect(messages.partiallyCompleted).toContain("{{deleted}}");

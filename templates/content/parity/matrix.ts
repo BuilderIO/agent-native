@@ -141,17 +141,20 @@ export const parityMatrix: ParityRow[] = [
     id: "trash.search-preview-and-purge",
     surface: "sidebar",
     label:
-      "Search root and nested Trash, preview Page bodies, restore or delete loaded items, and empty an explicit space scope with durable progress",
+      "Search and filter Trash, preview Pages, restore or delete one or many, and empty Trash in every workspace with durable progress",
     uiEntrypoints: [
       "app/routes/_app.trash.tsx",
       "app/components/trash/TrashBrowser.tsx",
+      "app/components/trash/TrashFilters.tsx",
+      "app/components/trash/TrashRow.tsx",
+      "app/components/trash/TrashRecoveryActions.tsx",
       "app/components/trash/EmptyTrashDialog.tsx",
       "app/hooks/use-content-trash.ts",
     ],
     durableEffect:
       "Authorized Trash metadata and Page bodies are read; reviewed purge plans, operations, and item outcomes are persisted before bounded permanent deletion runs.",
     uiImplementation:
-      "The dedicated Trash route calls the same list, preview, restore, permanent-delete, purge-plan, purge-plan-detail, purge-execute, and operation-progress actions available to agents. Selection supports loaded rows or a server-backed matching scope; Empty Trash uses scope mode and intentionally ignores text, kind, actor, and location filters while preserving an explicit space filter.",
+      "The dedicated Trash route calls the same list, preview, restore, permanent-delete, purge-plan, purge-plan-detail, purge-execute, and operation-progress actions available to agents. Filter chips become list-content-trash's `where` filter. A row restores from its arrow or menu, and ticked rows restore one restore-document call at a time. Selection supports loaded rows or a server-backed matching scope; deleting a selection plans once per workspace it spans. Empty Trash plans scope mode once per workspace and ignores search and filters.",
     status: "action-backed",
     actions: [
       "execute-content-trash-purge",
@@ -175,6 +178,11 @@ export const parityMatrix: ParityRow[] = [
       "actions/document-trash-mcp.db.test.ts",
       "app/components/editor/trash-preview-content.test.ts",
       "app/hooks/content-action-refresh.trash.test.ts",
+      "app/hooks/use-content-trash.test.ts",
+      "app/components/trash/TrashBrowser.selection.test.tsx",
+      "app/components/trash/TrashPurgeDialog.focus.test.tsx",
+      "app/components/trash/TrashRow.actions.test.tsx",
+      "app/components/trash/trash-filter-model.test.ts",
     ],
   },
   {

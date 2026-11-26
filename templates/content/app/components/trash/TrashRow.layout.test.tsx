@@ -6,8 +6,15 @@ import {
   DatabaseTableColumnOrder,
   DatabaseTableLayout,
 } from "@/components/editor/database/DatabaseTableGrid";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
-import { TRASH_TABLE_COLUMNS, TrashRow, TrashTableHeader } from "./TrashRow";
+import {
+  TRASH_TABLE_COLUMNS,
+  TRASH_TABLE_WIDTHS,
+  TrashRow,
+  TrashTableHeader,
+  trashTableWidths,
+} from "./TrashRow";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -47,24 +54,28 @@ const item = {
 
 function renderRow(row: ContentTrashItem, selected = false) {
   return renderToStaticMarkup(
-    <DatabaseTableLayout.Provider
-      value={{ frozenThroughColumnId: "name", viewportWidth: 1280 }}
-    >
-      <DatabaseTableColumnOrder.Provider value={TRASH_TABLE_COLUMNS}>
-        <TrashRow
-          item={row}
-          selected={selected}
-          expanded={false}
-          onSelect={() => {}}
-          onToggle={() => {}}
-          onOpen={() => {}}
-          focused
-          rowRef={() => {}}
-          onFocus={() => {}}
-          onKeyDown={() => {}}
-        />
-      </DatabaseTableColumnOrder.Provider>
-    </DatabaseTableLayout.Provider>,
+    <TooltipProvider>
+      <DatabaseTableLayout.Provider
+        value={{ frozenThroughColumnId: "name", viewportWidth: 1280 }}
+      >
+        <DatabaseTableColumnOrder.Provider value={TRASH_TABLE_COLUMNS}>
+          <TrashRow
+            item={row}
+            selected={selected}
+            expanded={false}
+            onSelect={() => {}}
+            onToggle={() => {}}
+            onOpen={() => {}}
+            onRestore={() => {}}
+            onDelete={() => {}}
+            focused
+            rowRef={() => {}}
+            onFocus={() => {}}
+            onKeyDown={() => {}}
+          />
+        </DatabaseTableColumnOrder.Provider>
+      </DatabaseTableLayout.Provider>
+    </TooltipProvider>,
   );
 }
 
@@ -89,6 +100,41 @@ describe("TrashRow responsive expander contract", () => {
     expect(html).toContain('aria-sort="descending"');
     expect(html).toContain('data-table-column="createdBy"');
     expect(html).toContain('data-table-freeze-boundary=""');
+    expect(html).toContain("sticky top-0 z-30");
+  });
+
+  it("offers a resize handle on each column after Name", () => {
+    const html = renderToStaticMarkup(
+      <DatabaseTableColumnOrder.Provider value={TRASH_TABLE_COLUMNS}>
+        <TrashTableHeader
+          checked={false}
+          sort="deletedAt"
+          direction="desc"
+          onSelectLoaded={() => {}}
+          onSort={() => {}}
+          onResize={() => {}}
+        />
+      </DatabaseTableColumnOrder.Provider>,
+    );
+
+    expect(html.match(/data-column-resize-handle/g)).toHaveLength(4);
+    expect(html).toContain('aria-label="trash.resizeColumn"');
+  });
+
+  it("sizes columns as a collection does and lets Name fill the page", () => {
+    expect(TRASH_TABLE_WIDTHS).toEqual({
+      name: 240,
+      createdBy: 180,
+      updatedBy: 180,
+      deletedBy: 180,
+      deletedAt: 180,
+    });
+    expect(trashTableWidths(TRASH_TABLE_WIDTHS, 1400).name).toBe(564);
+    expect(trashTableWidths(TRASH_TABLE_WIDTHS, 900).name).toBe(240);
+    expect(
+      trashTableWidths({ ...TRASH_TABLE_WIDTHS, createdBy: 300 }, 1400).name,
+    ).toBe(444);
+    expect(trashTableWidths(TRASH_TABLE_WIDTHS)).toBe(TRASH_TABLE_WIDTHS);
   });
 
   it("uses explicit table tracks with a sticky selection gutter and Name", () => {
@@ -103,7 +149,7 @@ describe("TrashRow responsive expander contract", () => {
     });
 
     expect(html).toContain(
-      "grid-template-columns:44px 240px 180px 180px 180px 150px",
+      "grid-template-columns:44px 240px 180px 180px 180px 180px 72px",
     );
     expect(html).toContain("data-table-selection-gutter");
     expect(html).toContain("sticky start-0");
@@ -160,6 +206,26 @@ describe("TrashRow responsive expander contract", () => {
     expect(html).toContain(
       "opacity-0 lg:opacity-100 lg:group-hover/trash-row:opacity-0",
     );
+  });
+
+  it("shows a Restore arrow on hover, and always on touch screens", () => {
+    const html = renderRow(item);
+    const arrow = /<button[^>]*data-trash-row-restore[^>]*>/.exec(html)?.[0];
+
+    expect(arrow).toContain('aria-label="trash.restore"');
+    expect(arrow).toContain("opacity-0");
+    expect(arrow).toContain("group-hover:opacity-100");
+    expect(arrow).toContain("[@media(any-hover:none)]:opacity-100");
+    expect(arrow).toContain("focus-visible:opacity-100");
+    expect(html).toContain('aria-label="trash.rowActions"');
+    expect(html).toContain('aria-haspopup="menu"');
+  });
+
+  it("leaves the Restore arrow out when the row cannot be restored", () => {
+    const html = renderRow({ ...item, canRestore: false });
+
+    expect(html).not.toContain("data-trash-row-restore");
+    expect(html).toContain('aria-label="trash.rowActions"');
   });
 
   it("renders no expander and leaves the icon visible for a leaf", () => {

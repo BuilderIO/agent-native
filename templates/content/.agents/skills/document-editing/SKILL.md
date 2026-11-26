@@ -378,6 +378,13 @@ Permanent deletion requires the exact `planId` and `scopeToken` returned by
 `plan-content-trash-purge`. Inspect the plan's affected and blocked items before
 executing it; if Trash changes after review, create and inspect a new plan.
 
+`list-content-trash` and a scope-mode plan take the Trash page's filter chips as
+`where`: people, workspace, location, type, and a deleted date range, combined
+with `and` or `or`. One plan holds one workspace's pages, so emptying Trash or
+deleting a selection that spans workspaces plans once per workspace. The
+`content-trash` application state stores the chips as `where` and one purge
+operation id per workspace.
+
 ## Comments
 
 Comments are Notion/Google-Docs-style **inline comments**. Selecting text and commenting leaves the passage **highlighted inline** via a ProseMirror decoration overlay — nothing is written into the markdown body, so the document round-trips unchanged. Each thread stores the quoted text plus surrounding context (`anchorPrefix`/`anchorSuffix`) and an approximate `anchorStartOffset`, so the highlight follows the text as the document is edited, disambiguates repeated text, and degrades gracefully (the thread stays in the sidebar) when its text is deleted.

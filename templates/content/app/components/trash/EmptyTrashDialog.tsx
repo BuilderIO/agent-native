@@ -1,6 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import type { ContentTrashPurgePlanResponse } from "@shared/content-trash";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { toast } from "sonner";
 
 import {
   AlertDialog,
@@ -19,60 +20,117 @@ import {
   useContentTrashOperation,
   useExecuteContentTrashPurge,
   usePlanContentTrashPurge,
-  type ContentTrashPurgeInput,
+  type ContentTrashPurgeRequest,
+  type ContentTrashPurgeTarget,
   trashOperationIdFromError,
 } from "@/hooks/use-content-trash";
 
 import { TrashPurgeScope, useTrashPurgeScopeReady } from "./TrashPurgeScope";
 
+export type TrashPurgePlanState =
+  | { status: "planning"; target: ContentTrashPurgeTarget }
+  | {
+      status: "planned";
+      target: ContentTrashPurgeTarget;
+      plan: ContentTrashPurgePlanResponse;
+    }
+  | { status: "empty"; target: ContentTrashPurgeTarget }
+  | { status: "failed"; target: ContentTrashPurgeTarget; error: string };
+
+export function isEmptyTrashScopeError(error: unknown) {
+  return (
+    (error as { errorCode?: unknown } | undefined)?.errorCode === "empty_scope"
+  );
+}
+
+export function trashPlansToExecute(
+  plans: readonly TrashPurgePlanState[],
+  readyPlanIds: ReadonlySet<string>,
+) {
+  const planned: ContentTrashPurgePlanResponse[] = [];
+  for (const entry of plans) {
+    if (entry.status === "empty") continue;
+    if (entry.status !== "planned" || !readyPlanIds.has(entry.plan.planId))
+      return null;
+    if (entry.plan.eligibleCount > 0) planned.push(entry.plan);
+  }
+  return planned.length ? planned : null;
+}
+
 export function TrashPurgeDialog({
-  intent,
+  request,
+  spaceName,
   onClose,
   onAcknowledged,
   returnFocus,
 }: {
-  intent: ContentTrashPurgeInput | null;
+  request: ContentTrashPurgeRequest | null;
+  spaceName: (spaceId: string | null) => string;
   onClose: () => void;
-  onAcknowledged: (operationId: string) => void;
+  onAcknowledged: (operationIds: string[]) => void;
   returnFocus: () => HTMLElement | null;
 }) {
   const t = useT();
   const planner = usePlanContentTrashPurge();
   const executor = useExecuteContentTrashPurge();
-  const [plan, setPlan] = useState<ContentTrashPurgePlanResponse | null>(null);
+  const [plans, setPlans] = useState<TrashPurgePlanState[]>([]);
+  const [readyPlanIds, setReadyPlanIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const [error, setError] = useState<string | null>(null);
-  const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
-  const activeIntent = useRef(intent);
+  const [executing, setExecuting] = useState(false);
+  const idempotencyKeys = useRef(new Map<string, string>());
+  const activeRequest = useRef(request);
+  const plannerRef = useRef(planner);
+  const tRef = useRef(t);
   const wasOpen = useRef(false);
-  activeIntent.current = intent;
-  const scope = useTrashPurgeScopeReady(plan?.planId ?? null);
+  activeRequest.current = request;
+  plannerRef.current = planner;
+  tRef.current = t;
 
   useEffect(() => {
-    if (!intent) {
-      setPlan(null);
-      setError(null);
-      setIdempotencyKey(null);
+    setError(null);
+    setReadyPlanIds(new Set());
+    idempotencyKeys.current.clear();
+    if (!request) {
+      setPlans([]);
       return;
     }
-    setError(null);
-    setPlan(null);
-    const requestedIntent = intent;
-    void planner.mutateAsync(requestedIntent).then(
-      (nextPlan) => {
-        if (acceptTrashPlanSettlement(activeIntent.current, requestedIntent))
-          setPlan(nextPlan);
-      },
-      (cause) => {
-        if (acceptTrashPlanSettlement(activeIntent.current, requestedIntent))
-          setError(trashActionError(cause, t("trash.planDeleteFailed")));
-      },
+    const requested = request;
+    const settle = (index: number, next: TrashPurgePlanState) => {
+      if (!acceptTrashPlanSettlement(activeRequest.current, requested)) return;
+      setPlans((current) =>
+        current.map((entry, entryIndex) =>
+          entryIndex === index ? next : entry,
+        ),
+      );
+    };
+    setPlans(
+      requested.targets.map((target) => ({ status: "planning", target })),
     );
-    // A new user gesture supplies a new immutable intent.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [intent]);
+    requested.targets.forEach((target, index) => {
+      void plannerRef.current.mutateAsync(target.input).then(
+        (plan) => settle(index, { status: "planned", target, plan }),
+        (cause: unknown) =>
+          settle(
+            index,
+            isEmptyTrashScopeError(cause)
+              ? { status: "empty", target }
+              : {
+                  status: "failed",
+                  target,
+                  error: trashActionError(
+                    cause,
+                    tRef.current("trash.planDeleteFailed"),
+                  ),
+                },
+          ),
+      );
+    });
+  }, [request]);
 
   useEffect(() => {
-    if (intent) {
+    if (request) {
       wasOpen.current = true;
       return;
     }
@@ -80,31 +138,59 @@ export function TrashPurgeDialog({
     wasOpen.current = false;
     const target = returnFocus();
     if (target?.isConnected) target.focus();
-  }, [intent, returnFocus]);
+  }, [request, returnFocus]);
+
+  const toExecute = trashPlansToExecute(plans, readyPlanIds);
+  const planning = plans.some((entry) => entry.status === "planning");
+  const allEmpty =
+    plans.length > 0 && plans.every((entry) => entry.status === "empty");
+  const eligibleCount = plans.reduce(
+    (total, entry) =>
+      entry.status === "planned" ? total + entry.plan.eligibleCount : total,
+    0,
+  );
+  const named = plans.length > 1;
 
   async function execute() {
-    if (!plan || !scope.ready || !plan.eligibleCount) return;
-    const key = idempotencyKey ?? crypto.randomUUID();
-    setIdempotencyKey(key);
+    if (!toExecute || executing) return;
+    setExecuting(true);
     setError(null);
-    try {
-      const result = await executor.mutateAsync({
-        planId: plan.planId,
-        scopeToken: plan.scopeToken,
-        idempotencyKey: key,
-      });
-      onAcknowledged(result.operationId);
-    } catch (cause) {
-      const operationId = trashOperationIdFromError(cause);
-      if (operationId) onAcknowledged(operationId);
-      else setError(trashActionError(cause, t("trash.startFailed")));
+    const operationIds: string[] = [];
+    let failure: string | null = null;
+    for (const plan of toExecute) {
+      const key =
+        idempotencyKeys.current.get(plan.planId) ?? crypto.randomUUID();
+      idempotencyKeys.current.set(plan.planId, key);
+      try {
+        const result = await executor.mutateAsync({
+          planId: plan.planId,
+          scopeToken: plan.scopeToken,
+          idempotencyKey: key,
+        });
+        operationIds.push(result.operationId);
+      } catch (cause) {
+        const operationId = trashOperationIdFromError(cause);
+        if (operationId) {
+          operationIds.push(operationId);
+          continue;
+        }
+        failure = trashActionError(cause, t("trash.startFailed"));
+        break;
+      }
     }
+    setExecuting(false);
+    if (!operationIds.length) {
+      setError(failure ?? t("trash.startFailed"));
+      return;
+    }
+    if (failure) toast.error(t("trash.startFailed"), { description: failure });
+    onAcknowledged(operationIds);
   }
 
-  const empty = intent?.mode === "scope";
+  const empty = request?.kind === "empty";
   return (
     <AlertDialog
-      open={Boolean(intent)}
+      open={Boolean(request)}
       onOpenChange={(open) => !open && onClose()}
     >
       <AlertDialogContent
@@ -118,8 +204,8 @@ export function TrashPurgeDialog({
       >
         <AlertDialogHeader>
           <AlertDialogTitle>
-            {plan
-              ? t("trash.deleteQuestion", { count: plan.eligibleCount })
+            {!planning && !allEmpty
+              ? t("trash.deleteQuestion", { count: eligibleCount })
               : empty
                 ? t("trash.emptyQuestion")
                 : t("trash.reviewDelete")}
@@ -128,38 +214,44 @@ export function TrashPurgeDialog({
             {empty ? t("trash.emptyDescription") : t("trash.deleteDescription")}
           </AlertDialogDescription>
         </AlertDialogHeader>
-        {planner.isPending ? (
+        {planning ? (
           <div className="grid gap-2" aria-label={t("trash.planning")}>
             <Skeleton className="h-5 w-40" />
             <Skeleton className="h-4 w-full" />
           </div>
-        ) : plan ? (
-          <div className="grid gap-3 text-sm">
-            <p>
-              {t("trash.scopeCounts", {
-                eligible: plan.eligibleCount,
-                blocked: plan.blockedCount,
-              })}
-            </p>
-            {empty ? (
-              <p className="text-muted-foreground">
-                {t("trash.filtersIgnored")}
-              </p>
-            ) : null}
-            <TrashPurgeScope scope={scope} />
+        ) : allEmpty ? (
+          <p className="text-sm text-muted-foreground">
+            {t(empty ? "trash.empty" : "trash.noMatches")}
+          </p>
+        ) : (
+          <div className="grid min-h-0 gap-4 overflow-y-auto text-sm">
+            {plans.map((entry) => (
+              <TrashPurgePlanSection
+                key={entry.target.spaceId ?? "all"}
+                entry={entry}
+                workspace={named ? spaceName(entry.target.spaceId) : null}
+                onReadyChange={(planId, ready) =>
+                  setReadyPlanIds((current) => {
+                    if (current.has(planId) === ready) return current;
+                    const next = new Set(current);
+                    if (ready) next.add(planId);
+                    else next.delete(planId);
+                    return next;
+                  })
+                }
+              />
+            ))}
           </div>
-        ) : null}
+        )}
         {error ? <StatusMessage message={error} destructive /> : null}
         <AlertDialogFooter className="sticky bottom-0 bg-background pt-2">
           <AlertDialogCancel>{t("trash.cancel")}</AlertDialogCancel>
           <Button
             variant="destructive"
-            disabled={
-              !plan?.eligibleCount || !scope.ready || executor.isPending
-            }
+            disabled={!toExecute || executing}
             onClick={() => void execute()}
           >
-            {t("trash.deleteCount", { count: plan?.eligibleCount ?? 0 })}
+            {t("trash.deleteCount", { count: eligibleCount })}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -167,24 +259,119 @@ export function TrashPurgeDialog({
   );
 }
 
+function TrashPurgePlanSection({
+  entry,
+  workspace,
+  onReadyChange,
+}: {
+  entry: TrashPurgePlanState;
+  workspace: string | null;
+  onReadyChange: (planId: string, ready: boolean) => void;
+}) {
+  const t = useT();
+  const planId = entry.status === "planned" ? entry.plan.planId : null;
+  const scope = useTrashPurgeScopeReady(planId);
+  const onReadyChangeRef = useRef(onReadyChange);
+  onReadyChangeRef.current = onReadyChange;
+  useEffect(() => {
+    if (planId) onReadyChangeRef.current(planId, scope.ready);
+  }, [planId, scope.ready]);
+
+  const counts = (eligible: number, blocked: number) =>
+    workspace
+      ? t("trash.workspaceScopeCounts", { workspace, eligible, blocked })
+      : t("trash.scopeCounts", { eligible, blocked });
+  if (entry.status === "planning")
+    return (
+      <div className="grid gap-2">
+        <Skeleton className="h-5 w-40" />
+      </div>
+    );
+  if (entry.status === "empty")
+    return <p className="text-muted-foreground">{counts(0, 0)}</p>;
+  if (entry.status === "failed")
+    return (
+      <StatusMessage
+        message={
+          workspace
+            ? t("trash.workspaceError", { workspace, error: entry.error })
+            : entry.error
+        }
+        destructive
+      />
+    );
+  return (
+    <section className="grid gap-2">
+      <p className={workspace ? "font-medium" : undefined}>
+        {counts(entry.plan.eligibleCount, entry.plan.blockedCount)}
+      </p>
+      <TrashPurgeScope scope={scope} />
+    </section>
+  );
+}
+
 export function TrashOperationSurface({
-  operationId,
+  operationIds,
   stateError,
   onRetryState,
   onDismiss,
 }: {
-  operationId: string | null | undefined;
+  operationIds: readonly string[] | null | undefined;
   stateError: boolean;
   onRetryState: () => void;
   onDismiss: () => void;
 }) {
   const t = useT();
-  const operation = useContentTrashOperation(operationId ?? null);
+  if (!operationIds?.length && !stateError) return null;
+  const dismiss = (
+    <Button size="sm" variant="ghost" onClick={onDismiss}>
+      {t("trash.dismiss")}
+    </Button>
+  );
+
+  return (
+    <div className="fixed inset-x-3 bottom-3 z-40 grid max-h-[60dvh] gap-2 overflow-y-auto rounded-lg border bg-background p-3 shadow-lg sm:absolute sm:inset-x-auto sm:bottom-4 sm:end-4 sm:w-96">
+      {stateError ? (
+        <>
+          <StatusMessage
+            message={t("trash.operationStateFailed")}
+            destructive
+          />
+          <div className="flex justify-end gap-1">
+            <Button size="sm" variant="ghost" onClick={onRetryState}>
+              {t("trash.retry")}
+            </Button>
+            {dismiss}
+          </div>
+        </>
+      ) : (
+        operationIds?.map((operationId, index, ids) => (
+          <TrashOperationStatus
+            key={operationId}
+            operationId={operationId}
+            actions={index === ids.length - 1 ? dismiss : null}
+          />
+        ))
+      )}
+    </div>
+  );
+}
+
+function TrashOperationStatus({
+  operationId,
+  actions,
+}: {
+  operationId: string;
+  actions: ReactNode;
+}) {
+  const t = useT();
+  const operation = useContentTrashOperation(operationId);
   const executor = useExecuteContentTrashPurge();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const progress = operation.data?.pages[0];
+  const finished =
+    progress && isTerminalTrashOperation(progress.status) ? progress : null;
   const outcomes = operation.data?.pages.flatMap((page) => page.outcomes) ?? [];
-  if (operationId == null && !stateError) return null;
 
   async function retry() {
     if (!progress) return;
@@ -197,10 +384,8 @@ export function TrashOperationSurface({
   }
 
   return (
-    <div className="fixed inset-x-3 bottom-3 z-20 grid gap-2 rounded-lg border bg-background p-3 shadow-lg sm:absolute sm:inset-x-auto sm:bottom-4 sm:end-4 sm:w-96">
-      {stateError ? (
-        <StatusMessage message={t("trash.operationStateFailed")} destructive />
-      ) : operation.isError ? (
+    <div className="grid gap-2">
+      {operation.isError ? (
         <StatusMessage
           message={trashActionError(operation.error, t("trash.statusFailed"))}
           destructive
@@ -250,44 +435,39 @@ export function TrashOperationSurface({
             : t("trash.loadMore")}
         </Button>
       ) : null}
-      <div className="flex justify-end gap-1">
-        {stateError ? (
-          <Button size="sm" variant="ghost" onClick={onRetryState}>
-            {t("trash.retry")}
-          </Button>
-        ) : null}
-        {progress?.status === "retryable" ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={executor.isPending}
-            onClick={() => void retry()}
-          >
-            {t("trash.retry")}
-          </Button>
-        ) : null}
-        {progress && isTerminalTrashOperation(progress.status) ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setDetailsOpen((value) => !value)}
-          >
-            {t("trash.details")}
-          </Button>
-        ) : null}
-        <Button size="sm" variant="ghost" onClick={onDismiss}>
-          {t("trash.dismiss")}
-        </Button>
-      </div>
+      {finished || actions ? (
+        <div className="flex justify-end gap-1">
+          {finished?.status === "retryable" ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={executor.isPending}
+              onClick={() => void retry()}
+            >
+              {t("trash.retry")}
+            </Button>
+          ) : null}
+          {finished ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setDetailsOpen((value) => !value)}
+            >
+              {t("trash.details")}
+            </Button>
+          ) : null}
+          {actions}
+        </div>
+      ) : null}
     </div>
   );
 }
 
 export function acceptTrashPlanSettlement(
-  activeIntent: ContentTrashPurgeInput | null,
-  settledIntent: ContentTrashPurgeInput,
+  activeRequest: ContentTrashPurgeRequest | null,
+  settledRequest: ContentTrashPurgeRequest,
 ) {
-  return activeIntent === settledIntent;
+  return activeRequest === settledRequest;
 }
 
 function StatusMessage({

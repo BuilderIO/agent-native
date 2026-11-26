@@ -27,6 +27,27 @@ export interface ContentTrashItem {
   hasAccessibleTrashedChildren: boolean;
 }
 
+export type ContentTrashWhereCondition =
+  | {
+      field: "spaceId" | "parentId" | "createdBy" | "updatedBy" | "deletedBy";
+      operator?: "is" | "isNot";
+      values: string[];
+    }
+  | {
+      field: "kind";
+      operator?: "is" | "isNot";
+      values: Array<"page" | "database">;
+    }
+  | { field: "deletedAt"; from?: string; to?: string };
+
+export interface ContentTrashWhere {
+  mode: "and" | "or";
+  items: Array<
+    | ContentTrashWhereCondition
+    | { mode: "and" | "or"; conditions: ContentTrashWhereCondition[] }
+  >;
+}
+
 export interface ListContentTrashResponse {
   items: ContentTrashItem[];
   nextCursor: string | null;

@@ -30,6 +30,8 @@ import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import {
   contentTrashDateSchema,
   contentTrashPredicates,
+  contentTrashWherePredicate,
+  contentTrashWhereSchema,
   validateContentTrashDateRange,
 } from "./_content-trash-query.js";
 
@@ -84,6 +86,11 @@ const inputSchema = z
     deletedTo: contentTrashDateSchema
       .optional()
       .describe("Inclusive deletion-time end."),
+    where: contentTrashWhereSchema
+      .optional()
+      .describe(
+        'Filter conditions joined by mode "and" or "or", with one level of groups. A condition is {field, operator: "is"|"isNot", values} for spaceId, parentId, createdBy, updatedBy, deletedBy (emails), or kind ("page"|"database"); or {field: "deletedAt", from?, to?}. Applied with the other filters.',
+      ),
     sort: z
       .enum(["name", "createdAt", "updatedAt", "deletedAt"])
       .default("deletedAt")
@@ -145,6 +152,7 @@ export default defineAction({
           args.updatedBy?.toLowerCase() ?? null,
           args.deletedFrom ?? null,
           args.deletedTo ?? null,
+          args.where ?? null,
           args.sort,
           args.direction,
         ]),
@@ -199,7 +207,8 @@ export default defineAction({
       args.createdBy ||
       args.updatedBy ||
       args.deletedFrom ||
-      args.deletedTo
+      args.deletedTo ||
+      args.where?.items.length
     );
     const sortValue =
       args.sort === "name"
@@ -302,6 +311,15 @@ export default defineAction({
             : undefined,
           args.deletedFrom ? gte(deletedAt, args.deletedFrom) : undefined,
           args.deletedTo ? lte(deletedAt, args.deletedTo) : undefined,
+          contentTrashWherePredicate(args.where, {
+            spaceId: space.id,
+            parentId: parent.id,
+            createdBy: doc.createdBy,
+            updatedBy: doc.updatedBy,
+            deletedBy: doc.trashedBy,
+            databaseId: database.id,
+            deletedAt,
+          }),
           cursor
             ? or(
                 compare(sortValue, cursor.value),

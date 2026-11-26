@@ -1,9 +1,18 @@
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  createFilterState,
+  filterToday,
+  type FilterState,
+} from "@agent-native/toolkit/app/filters";
 import type { DataGridColumn } from "@agent-native/toolkit/data-grid";
-import type { ContentTrashItem } from "@shared/content-trash";
+import type {
+  ContentTrashItem,
+  ContentTrashWhere,
+} from "@shared/content-trash";
 import {
   useDeferredValue,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -24,15 +33,17 @@ import {
   loadedTrashSelection,
   extendTrashSelection,
   nearestVisibleTrashRow,
-  readTrashOperationId,
+  readTrashOperationIds,
   reconcileTrashBrowseFilters,
   isRestoreBusyError,
+  restoredTrashItemIds,
   selectedTrashItems,
   trashActionError,
+  trashDeleteRequest,
+  trashEmptyRequest,
   trashFilterMembershipKey,
   trashMatchingFilters,
-  trashScopePlanInput,
-  trashSelectionPlanInput,
+  trashRestoreTargets,
   trashSelectionState,
   toggleVisibleTrashSelection,
   useRestoreTrashItem,
@@ -40,12 +51,18 @@ import {
   uniqueTrashItems,
   visibleTrashItems,
   type ContentTrashFilters,
-  type ContentTrashPurgeInput,
+  type ContentTrashPurgeRequest,
   type ContentTrashSelection,
   changeTrashSort,
 } from "@/hooks/use-content-trash";
 
 import { TrashOperationSurface, TrashPurgeDialog } from "./EmptyTrashDialog";
+import {
+  collectTrashFilterOptions,
+  trashFilterFields,
+  trashWhereFromFilterState,
+  type TrashFilterOptions,
+} from "./trash-filter-model";
 import { TrashFilters } from "./TrashFilters";
 import { TrashRecoveryActions } from "./TrashRecoveryActions";
 import {
@@ -53,7 +70,8 @@ import {
   TRASH_TABLE_WIDTHS,
   TrashRow,
   TrashTableHeader,
-  trashTableWidthsForViewport,
+  trashTableWidths,
+  type TrashColumnWidths,
 } from "./TrashRow";
 
 const TRASH_DATA_GRID_COLUMNS = TRASH_TABLE_COLUMNS.map((id) => ({
@@ -61,6 +79,13 @@ const TRASH_DATA_GRID_COLUMNS = TRASH_TABLE_COLUMNS.map((id) => ({
   width: TRASH_TABLE_WIDTHS[id],
   resizable: false,
 })) satisfies DataGridColumn<ContentTrashItem>[];
+
+function useStableWhere(where: ContentTrashWhere | undefined) {
+  const ref = useRef(where);
+  if (JSON.stringify(ref.current) !== JSON.stringify(where))
+    ref.current = where;
+  return ref.current;
+}
 
 export function TrashBrowser({
   initialPreviewId,
@@ -72,12 +97,53 @@ export function TrashBrowser({
   const t = useT();
   const navigate = useNavigate();
   const [filters, setFilters] = useState<ContentTrashFilters>({});
-  const [tableViewportWidth, setTableViewportWidth] = useState<number>();
-  const tableWidths = useMemo(
-    () => trashTableWidthsForViewport(tableViewportWidth),
-    [tableViewportWidth],
+  const [filterState, setFilterState] = useState<FilterState>(() =>
+    createFilterState([]),
   );
-  const deferredFilters = useDeferredValue(filters);
+  const [filterOptions, setFilterOptions] = useState<
+    Pick<TrashFilterOptions, "people" | "locations">
+  >({ people: [], locations: [] });
+  const [columnWidths, setColumnWidths] = useState(TRASH_TABLE_WIDTHS);
+  const [tableViewportWidth, setTableViewportWidth] = useState<number>();
+  const tableFrameRef = useRef<HTMLDivElement>(null);
+  const tableWidths = useMemo(
+    () => trashTableWidths(columnWidths, tableViewportWidth),
+    [columnWidths, tableViewportWidth],
+  );
+  const contentSpaces = useContentSpaces();
+  const spaces = useMemo(
+    () => contentSpaces.data?.spaces ?? [],
+    [contentSpaces.data],
+  );
+  const filterFields = useMemo(
+    () =>
+      trashFilterFields(
+        {
+          createdBy: t("trash.createdBy"),
+          updatedBy: t("trash.updatedBy"),
+          deletedBy: t("trash.deletedByColumn"),
+          workspace: t("trash.workspace"),
+          location: t("trash.location"),
+          kind: t("trash.kind"),
+          page: t("trash.page"),
+          collection: t("trash.collection"),
+          deletedAt: t("trash.deletedAtColumn"),
+        },
+        {
+          ...filterOptions,
+          spaces: spaces.map((space) => ({ id: space.id, label: space.name })),
+        },
+      ),
+    [filterOptions, spaces, t],
+  );
+  const where = useStableWhere(
+    trashWhereFromFilterState(filterState, filterFields, filterToday()),
+  );
+  const queryFilters = useMemo(
+    () => (where ? { ...filters, where } : filters),
+    [filters, where],
+  );
+  const deferredFilters = useDeferredValue(queryFilters);
   const filterMembershipKey = trashFilterMembershipKey(deferredFilters);
   const [selection, setSelection] = useState<ContentTrashSelection>(
     loadedTrashSelection([]),
@@ -90,6 +156,9 @@ export function TrashBrowser({
   const [selectionAnchorId, setSelectionAnchorId] = useState<string | null>(
     null,
   );
+  const [restoringIds, setRestoringIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const rowRefs = useRef(new Map<string, HTMLDivElement>());
   const emptyTrashRef = useRef<HTMLButtonElement>(null);
   const deleteSelectionRef = useRef<HTMLButtonElement>(null);
@@ -98,21 +167,23 @@ export function TrashBrowser({
   const [previewId, setPreviewId] = useState(initialPreviewId ?? null);
   const [purgeRequest, setPurgeRequest] = useState<{
     id: string;
-    input: ContentTrashPurgeInput;
+    request: ContentTrashPurgeRequest;
   } | null>(null);
-  const [trashOperationId, setTrashOperationId] = useState<
-    string | null | undefined
+  const [trashOperationIds, setTrashOperationIds] = useState<
+    string[] | undefined
   >(undefined);
   const [trashOperationStateError, setTrashOperationStateError] =
     useState(false);
   const query = useContentTrash(deferredFilters);
-  const contentSpaces = useContentSpaces();
-  const spaces = contentSpaces.data?.spaces ?? [];
   const restore = useRestoreTrashItem();
   const items = useMemo(
     () =>
       uniqueTrashItems(query.data?.pages.flatMap((page) => page.items) ?? []),
     [query.data],
+  );
+  const loadedItems = useMemo(
+    () => [...items, ...Object.values(nestedItems).flat()],
+    [items, nestedItems],
   );
   const selectedIds = selection.mode === "loaded" ? selection.documentIds : [];
   const visibleItems = useMemo(
@@ -124,30 +195,53 @@ export function TrashBrowser({
     [visibleItems],
   );
   const activeFocusedId = focusedId ?? visibleIds[0] ?? null;
-  const selected = selectedTrashItems(
-    [...items, ...Object.values(nestedItems).flat()],
-    selectedIds,
-  );
+  const selected = selectedTrashItems(loadedItems, selectedIds);
+  const spaceIds = spaces.map((space) => space.id);
   useTrashContext({
     filters: deferredFilters,
     selection,
     previewId,
-    operationId: trashOperationId,
+    operationIds: trashOperationIds,
   });
 
   useEffect(() => setSelection(clearTrashSelection()), [filterMembershipKey]);
   useEffect(() => setPreviewId(initialPreviewId ?? null), [initialPreviewId]);
-  async function loadTrashOperationId() {
+  useEffect(
+    () =>
+      setFilterOptions((current) =>
+        collectTrashFilterOptions(current, loadedItems),
+      ),
+    [loadedItems],
+  );
+
+  const showsFullPagePreview = fullPagePreview && Boolean(previewId);
+  useLayoutEffect(() => {
+    if (showsFullPagePreview) return;
+    const scroller = tableFrameRef.current?.querySelector(
+      "[data-data-grid-scroll-container]",
+    );
+    if (!scroller) return;
+    setTableViewportWidth(scroller.clientWidth);
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries)
+        setTableViewportWidth(entry.contentRect.width);
+    });
+    observer.observe(scroller);
+    return () => observer.disconnect();
+  }, [showsFullPagePreview]);
+
+  async function loadTrashOperationIds() {
     setTrashOperationStateError(false);
     try {
-      setTrashOperationId(await readTrashOperationId());
+      setTrashOperationIds(await readTrashOperationIds());
     } catch {
       setTrashOperationStateError(true);
     }
   }
 
   useEffect(() => {
-    void loadTrashOperationId();
+    void loadTrashOperationIds();
   }, []);
 
   useEffect(() => {
@@ -160,9 +254,12 @@ export function TrashBrowser({
     if (nextFocus !== focusedId) {
       setFocusedId(nextFocus);
       if (focusedId)
-        requestAnimationFrame(() =>
-          rowRefs.current.get(nextFocus ?? "")?.focus(),
-        );
+        requestAnimationFrame(() => {
+          const row = rowRefs.current.get(nextFocus ?? "");
+          if (row) row.focus();
+          else if (document.activeElement === document.body)
+            emptyTrashRef.current?.focus();
+        });
     }
   }, [focusedId, visibleIds]);
 
@@ -219,177 +316,242 @@ export function TrashBrowser({
     }
   }
 
-  async function restoreSelected() {
-    const target =
-      selected.length === 1 && selected[0]?.canRestore ? selected[0] : null;
-    if (!target) return;
-    try {
-      await restore.mutateAsync({ id: target.documentId });
-      setSelection(clearTrashSelection());
-      toast.success(t("trash.restored"));
-    } catch (error) {
-      toast.error(t("trash.restoreFailed"), {
-        description: isRestoreBusyError(error)
-          ? t("trash.restoreBusy")
-          : trashActionError(error, t("trash.restoreFailed")),
-      });
-    }
+  function updateFilterState(next: FilterState) {
+    setFilterState(next);
+    setExpandedIds([]);
+    setNestedItems({});
   }
 
-  if (fullPagePreview && previewId)
+  async function restoreItems(targets: ContentTrashItem[]) {
+    if (!targets.length) return;
+    const targetIds = targets.map((item) => item.documentId);
+    setRestoringIds((current) => new Set([...current, ...targetIds]));
+    const restoredIds = new Set<string>();
+    let restoredCount = 0;
+    let failure: unknown = null;
+    for (const target of targets) {
+      try {
+        await restore.mutateAsync({ id: target.documentId });
+        restoredCount += 1;
+        for (const id of restoredTrashItemIds(loadedItems, target.documentId))
+          restoredIds.add(id);
+      } catch (error) {
+        failure ??= error;
+      }
+    }
+    setRestoringIds((current) => {
+      const next = new Set(current);
+      for (const id of targetIds) next.delete(id);
+      return next;
+    });
+    setSelection((current) =>
+      current.mode === "loaded"
+        ? loadedTrashSelection(
+            current.documentIds.filter((id) => !restoredIds.has(id)),
+          )
+        : current,
+    );
+    if (previewId && restoredIds.has(previewId)) {
+      setPreviewId(null);
+      void navigate("/trash");
+    }
+    if (restoredCount)
+      toast.success(
+        restoredCount === 1
+          ? t("trash.restored")
+          : t("trash.restoredCount", { count: restoredCount }),
+      );
+    if (failure)
+      toast.error(t("trash.restoreFailed"), {
+        description: isRestoreBusyError(failure)
+          ? t("trash.restoreBusy")
+          : trashActionError(failure, t("trash.restoreFailed")),
+      });
+  }
+
+  function openPurge(
+    request: ContentTrashPurgeRequest,
+    invoker: HTMLElement | null,
+  ) {
+    purgeInvokerRef.current = invoker;
+    setPurgeRequest({ id: crypto.randomUUID(), request });
+  }
+
+  function rowHandlers(item: ContentTrashItem) {
+    return {
+      onRestore: () => void restoreItems([item]),
+      onDelete: () =>
+        openPurge(
+          trashDeleteRequest(
+            loadedTrashSelection([item.documentId]),
+            loadedItems,
+            spaceIds,
+          ),
+          rowRefs.current.get(item.documentId) ?? null,
+        ),
+      restoring: restoringIds.has(item.documentId),
+    };
+  }
+
+  if (showsFullPagePreview && previewId)
     return <TrashDocumentPreview documentId={previewId} fullPage />;
 
   return (
     <div className="relative flex min-h-0 flex-1 overflow-hidden bg-background">
-      <main className="flex min-w-0 flex-1 flex-col">
+      <main className="flex min-w-0 flex-1 flex-col gap-2 px-4 pt-3 sm:px-8 lg:px-10">
         <TrashFilters
           emptyTrashRef={emptyTrashRef}
           filters={filters}
-          spaces={spaces}
           onChange={updateFilters}
-          onEmptyTrash={() => {
-            purgeInvokerRef.current = emptyTrashRef.current;
-            setPurgeRequest({
-              id: crypto.randomUUID(),
-              input: trashScopePlanInput(
-                filters.spaceId ??
-                  (spaces.length === 1 ? spaces[0]?.id : undefined),
-              ),
-            });
-          }}
-        />
-        <ContentTableSurface
-          columnOrder={TRASH_TABLE_COLUMNS}
-          frozenThroughColumnId="name"
-          rows={items}
-          columns={TRASH_DATA_GRID_COLUMNS}
-          columnWidths={tableWidths}
-          onViewportWidthChange={setTableViewportWidth}
-          getRowId={(item) => item.documentId}
-          aria-label={t("trash.tableLabel")}
-          className="h-full"
-          scrollContainerProps={{ className: "h-full" }}
-          renderHeader={() =>
-            items.length > 0 ? (
-              <TrashTableHeader
-                checked={trashSelectionState(visibleIds, selectedIds)}
-                sort={filters.sort ?? "deletedAt"}
-                direction={filters.direction ?? "desc"}
-                onSelectLoaded={() =>
-                  setSelection(
-                    loadedTrashSelection(
-                      toggleVisibleTrashSelection(visibleIds, selectedIds),
-                    ),
-                  )
-                }
-                onSort={(sort) => updateFilters(changeTrashSort(filters, sort))}
-                widths={tableWidths}
-              />
-            ) : null
+          fields={filterFields}
+          filterState={filterState}
+          onFilterStateChange={updateFilterState}
+          onEmptyTrash={() =>
+            openPurge(trashEmptyRequest(spaceIds), emptyTrashRef.current)
           }
-          renderBody={() => (
-            <>
-              {query.isLoading ? (
-                <div className="grid gap-px">
-                  {Array.from({ length: 7 }, (_, index) => (
-                    <Skeleton
-                      key={index}
-                      className="h-12 w-full rounded-none"
-                    />
-                  ))}
-                </div>
-              ) : query.isError ? (
-                <div className="flex h-full items-center justify-center">
-                  <QueryErrorState
-                    onRetry={() => void query.refetch()}
-                    retrying={query.isFetching}
-                  />
-                </div>
-              ) : items.length === 0 ? (
-                <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                  {Object.keys(filters).some(
-                    (key) => filters[key as keyof ContentTrashFilters],
-                  )
-                    ? t("trash.noMatches")
-                    : t("trash.empty")}
-                </div>
-              ) : (
-                items.map((item) => (
-                  <TrashItemWithChildren
-                    key={item.documentId}
-                    item={item}
-                    sort={filters.sort}
-                    direction={filters.direction}
-                    selectedIds={selectedIds}
-                    expanded={expandedIds.includes(item.documentId)}
-                    onSelectionChange={(ids) =>
-                      setSelection(loadedTrashSelection(ids))
-                    }
-                    onToggle={() =>
-                      setExpandedIds((current) =>
-                        current.includes(item.documentId)
-                          ? current.filter((id) => id !== item.documentId)
-                          : [...current, item.documentId],
-                      )
-                    }
-                    onOpen={setPreviewId}
-                    onVisibleItemsChange={(children) =>
-                      setNestedItems((current) => ({
-                        ...current,
-                        [item.documentId]: children,
-                      }))
-                    }
-                    focusedId={activeFocusedId}
-                    onRowFocus={(id) => setFocusedId(id)}
-                    onRowRef={(id, node) =>
-                      node
-                        ? rowRefs.current.set(id, node)
-                        : rowRefs.current.delete(id)
-                    }
-                    onRowKeyDown={handleRowKeyDown}
-                    widths={tableWidths}
-                  />
-                ))
-              )}
-              {query.hasNextPage ? (
-                <div className="flex justify-center p-4">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={query.isFetchingNextPage}
-                    onClick={() => void query.fetchNextPage()}
-                  >
-                    {t("trash.loadMore")}
-                  </Button>
-                </div>
-              ) : null}
-            </>
-          )}
         />
-        {!trashOperationId &&
-        (selection.mode === "matching" || selected.length) ? (
-          <TrashRecoveryActions
-            deleteRef={deleteSelectionRef}
-            selection={selection}
-            selectedItems={selected}
-            pendingRestore={restore.isPending}
-            onRestore={() => void restoreSelected()}
-            onSelectMatching={() =>
-              setSelection({
-                mode: "matching",
-                filters: trashMatchingFilters(deferredFilters),
-              })
+        <div
+          ref={tableFrameRef}
+          className="flex min-h-0 min-w-0 flex-1 flex-col"
+        >
+          {selection.mode === "matching" || selected.length ? (
+            <TrashRecoveryActions
+              deleteRef={deleteSelectionRef}
+              selection={selection}
+              selectedItems={selected}
+              pendingRestore={restoringIds.size > 0}
+              onRestore={() => void restoreItems(trashRestoreTargets(selected))}
+              onSelectMatching={() =>
+                setSelection({
+                  mode: "matching",
+                  filters: trashMatchingFilters(deferredFilters),
+                })
+              }
+              onClear={() => setSelection(clearTrashSelection())}
+              onDelete={() =>
+                openPurge(
+                  trashDeleteRequest(selection, loadedItems, spaceIds),
+                  deleteSelectionRef.current,
+                )
+              }
+            />
+          ) : null}
+          <ContentTableSurface
+            columnOrder={TRASH_TABLE_COLUMNS}
+            frozenThroughColumnId="name"
+            rows={items}
+            columns={TRASH_DATA_GRID_COLUMNS}
+            columnWidths={tableWidths}
+            viewportWidth={tableViewportWidth}
+            getRowId={(item) => item.documentId}
+            aria-label={t("trash.tableLabel")}
+            className="h-full [&>div]:h-full"
+            scrollContainerProps={{ className: "h-full" }}
+            renderHeader={() =>
+              items.length > 0 ? (
+                <TrashTableHeader
+                  checked={trashSelectionState(visibleIds, selectedIds)}
+                  sort={filters.sort ?? "deletedAt"}
+                  direction={filters.direction ?? "desc"}
+                  onSelectLoaded={() =>
+                    setSelection(
+                      loadedTrashSelection(
+                        toggleVisibleTrashSelection(visibleIds, selectedIds),
+                      ),
+                    )
+                  }
+                  onSort={(sort) =>
+                    updateFilters(changeTrashSort(filters, sort))
+                  }
+                  onResize={(column, width) =>
+                    setColumnWidths((current) => ({
+                      ...current,
+                      [column]: width,
+                    }))
+                  }
+                  widths={tableWidths}
+                />
+              ) : null
             }
-            onClear={() => setSelection(clearTrashSelection())}
-            onDelete={() => {
-              purgeInvokerRef.current = deleteSelectionRef.current;
-              setPurgeRequest({
-                id: crypto.randomUUID(),
-                input: trashSelectionPlanInput(selection),
-              });
-            }}
+            renderBody={() => (
+              <>
+                {query.isLoading ? (
+                  <div className="grid gap-px">
+                    {Array.from({ length: 7 }, (_, index) => (
+                      <Skeleton
+                        key={index}
+                        className="h-12 w-full rounded-none"
+                      />
+                    ))}
+                  </div>
+                ) : query.isError ? (
+                  <div className="flex h-full items-center justify-center">
+                    <QueryErrorState
+                      onRetry={() => void query.refetch()}
+                      retrying={query.isFetching}
+                    />
+                  </div>
+                ) : items.length === 0 ? (
+                  <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                    {filters.query || where
+                      ? t("trash.noMatches")
+                      : t("trash.empty")}
+                  </div>
+                ) : (
+                  items.map((item) => (
+                    <TrashItemWithChildren
+                      key={item.documentId}
+                      item={item}
+                      sort={filters.sort}
+                      direction={filters.direction}
+                      selectedIds={selectedIds}
+                      expanded={expandedIds.includes(item.documentId)}
+                      onSelectionChange={(ids) =>
+                        setSelection(loadedTrashSelection(ids))
+                      }
+                      onToggle={() =>
+                        setExpandedIds((current) =>
+                          current.includes(item.documentId)
+                            ? current.filter((id) => id !== item.documentId)
+                            : [...current, item.documentId],
+                        )
+                      }
+                      onOpen={setPreviewId}
+                      rowHandlers={rowHandlers}
+                      onVisibleItemsChange={(children) =>
+                        setNestedItems((current) => ({
+                          ...current,
+                          [item.documentId]: children,
+                        }))
+                      }
+                      focusedId={activeFocusedId}
+                      onRowFocus={(id) => setFocusedId(id)}
+                      onRowRef={(id, node) =>
+                        node
+                          ? rowRefs.current.set(id, node)
+                          : rowRefs.current.delete(id)
+                      }
+                      onRowKeyDown={handleRowKeyDown}
+                      widths={tableWidths}
+                    />
+                  ))
+                )}
+                {query.hasNextPage ? (
+                  <div className="flex justify-center p-4">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={query.isFetchingNextPage}
+                      onClick={() => void query.fetchNextPage()}
+                    >
+                      {t("trash.loadMore")}
+                    </Button>
+                  </div>
+                ) : null}
+              </>
+            )}
           />
-        ) : null}
+        </div>
       </main>
       {previewId ? (
         <aside className="hidden min-w-0 flex-[0_0_48%] border-s lg:flex">
@@ -409,28 +571,38 @@ export function TrashBrowser({
       ) : null}
       <TrashPurgeDialog
         key={purgeRequest?.id ?? "closed"}
-        intent={purgeRequest?.input ?? null}
+        request={purgeRequest?.request ?? null}
+        spaceName={(spaceId) =>
+          spaces.find((space) => space.id === spaceId)?.name ??
+          t("trash.unknownLocation")
+        }
         onClose={() => setPurgeRequest(null)}
         returnFocus={() =>
           purgeInvokerRef.current?.isConnected
             ? purgeInvokerRef.current
             : (rowRefs.current.get(focusedId ?? "") ?? emptyTrashRef.current)
         }
-        onAcknowledged={(operationId) => {
-          setTrashOperationId(operationId);
+        onAcknowledged={(operationIds) => {
+          setTrashOperationIds(operationIds);
           setPurgeRequest(null);
           setSelection(clearTrashSelection());
         }}
       />
       <TrashOperationSurface
-        operationId={trashOperationId}
+        operationIds={trashOperationIds}
         stateError={trashOperationStateError}
-        onRetryState={loadTrashOperationId}
-        onDismiss={() => setTrashOperationId(null)}
+        onRetryState={() => void loadTrashOperationIds()}
+        onDismiss={() => setTrashOperationIds([])}
       />
     </div>
   );
 }
+
+type TrashRowHandlers = (item: ContentTrashItem) => {
+  onRestore: () => void;
+  onDelete: () => void;
+  restoring: boolean;
+};
 
 function TrashItemWithChildren({
   item,
@@ -441,6 +613,7 @@ function TrashItemWithChildren({
   onSelectionChange,
   onToggle,
   onOpen,
+  rowHandlers,
   onVisibleItemsChange,
   focusedId,
   onRowFocus,
@@ -456,12 +629,13 @@ function TrashItemWithChildren({
   onSelectionChange: (ids: string[]) => void;
   onToggle: () => void;
   onOpen: (id: string) => void;
+  rowHandlers: TrashRowHandlers;
   onVisibleItemsChange: (items: ContentTrashItem[]) => void;
   focusedId: string | null;
   onRowFocus: (id: string) => void;
   onRowRef: (id: string, node: HTMLDivElement | null) => void;
   onRowKeyDown: (event: KeyboardEvent<HTMLDivElement>, id: string) => void;
-  widths: Record<string, number>;
+  widths: TrashColumnWidths;
 }) {
   const t = useT();
   const children = useContentTrash({ sort, direction }, item.documentId, {
@@ -496,6 +670,7 @@ function TrashItemWithChildren({
         }
         onToggle={onToggle}
         onOpen={() => onOpen(item.documentId)}
+        {...rowHandlers(item)}
         focused={focusedId === item.documentId}
         rowRef={(node) => onRowRef(item.documentId, node)}
         onFocus={() => onRowFocus(item.documentId)}
@@ -527,6 +702,7 @@ function TrashItemWithChildren({
                   }
                   onToggle={() => {}}
                   onOpen={() => onOpen(child.documentId)}
+                  {...rowHandlers(child)}
                   focused={focusedId === child.documentId}
                   rowRef={(node) => onRowRef(child.documentId, node)}
                   onFocus={() => onRowFocus(child.documentId)}

@@ -289,6 +289,55 @@ describe("list-content-trash", () => {
     );
   });
 
+  it("matches where conditions joined by any or all, as the filter chips send them", async () => {
+    const either = await asOwner(() =>
+      listTrash.run(
+        listTrash.schema.parse({
+          where: JSON.stringify({
+            mode: "or",
+            items: [
+              { field: "createdBy", values: ["CREATOR-TWO@example.test"] },
+              { field: "updatedBy", values: ["editor-one@example.test"] },
+            ],
+          }),
+          limit: 50,
+        }),
+      ),
+    );
+    expect(either.items.map((item) => item.documentId).sort()).toEqual([
+      "trash-root",
+      "trash-root-two",
+    ]);
+    const both = await asOwner(() =>
+      listTrash.run(
+        listTrash.schema.parse({
+          where: {
+            mode: "and",
+            items: [
+              { field: "deletedBy", operator: "isNot", values: [OWNER] },
+              {
+                mode: "or",
+                conditions: [
+                  { field: "kind", values: ["page"] },
+                  { field: "createdBy", values: [OWNER] },
+                ],
+              },
+            ],
+          },
+          limit: 50,
+        }),
+      ),
+    );
+    expect(both.items.map((item) => item.documentId)).toEqual([
+      "trash-root-two",
+    ]);
+    expect(() =>
+      listTrash.schema.parse({
+        where: { mode: "and", items: [{ field: "deletedAt" }] },
+      }),
+    ).toThrow();
+  });
+
   it("paginates every stable sort in both directions without duplicates or omissions", async () => {
     for (const sort of [
       "name",
