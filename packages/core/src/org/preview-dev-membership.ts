@@ -14,7 +14,6 @@ import { invalidateMemberOrgCaches } from "./request-org-cache.js";
  * preview launcher sets `WORKSPACE_PREVIEW_JOIN_ORG=1`, make the dev account a
  * member of the workspace's single org in the current database.
  */
-export const PREVIEW_DEV_ACCOUNT_EMAIL = LOCAL_DEV_IDENTITY_EMAIL;
 
 /**
  * Hard guard. True only in a development runtime with AUTH_DISABLED and the
@@ -63,14 +62,14 @@ export async function ensurePreviewDevOrgMembership(
   const orgId = String((orgs.rows[0] as { id: unknown }).id);
   const existing = await exec.execute({
     sql: `SELECT 1 FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
-    args: [orgId, PREVIEW_DEV_ACCOUNT_EMAIL],
+    args: [orgId, LOCAL_DEV_IDENTITY_EMAIL],
   });
   if (existing.rows.length > 0) return { status: "already-member", orgId };
   await exec.execute({
     sql: `INSERT INTO org_members (id, org_id, email, role, joined_at)
           VALUES (?, ?, ?, 'member', ?)
           ON CONFLICT (org_id, LOWER(email)) DO NOTHING`,
-    args: [randomUUID(), orgId, PREVIEW_DEV_ACCOUNT_EMAIL, Date.now()],
+    args: [randomUUID(), orgId, LOCAL_DEV_IDENTITY_EMAIL, Date.now()],
   });
   invalidateMemberOrgCaches();
   return { status: "joined", orgId };

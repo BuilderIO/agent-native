@@ -209,6 +209,10 @@ Alle Methoden werden über `POST /_agent-native/a2a` im JSON-RPC 2.0-Format aufg
   {
     "status": "503",
     "description": "Hosted production runtime with no A2A_SECRET configured — fails closed instead of running unauthenticated."
+  },
+  {
+    "status": "401",
+    "description": "Missing or invalid credentials, or an unauthenticated call from another host on a development server with no A2A_SECRET."
   }
 ]}>
 
@@ -644,7 +648,7 @@ mountA2A(app, {
 const client = new A2AClient(url, process.env.A2A_API_KEY);
 ```
 
-Der Endpunkt der Agentenkarte ist immer öffentlich (keine Authentifizierung), sodass andere Agenten Funktionen erkennen können. Der `/_agent-native/a2a` JSON-RPC-Endpunkt akzeptiert von `A2A_SECRET` signierte JWT-Bearer-Token und akzeptiert bei Konfiguration auch das Legacy-`apiKeyEnv`-Token. In der lokalen Entwicklung kann die Authentifizierung weggelassen werden. In gehosteten Produktionslaufzeiten gibt die fehlende A2A-Authentifizierung 503 zurück, anstatt nicht authentifiziert ausgeführt zu werden.
+Der Endpunkt der Agentenkarte ist immer öffentlich (keine Authentifizierung), sodass andere Agenten Funktionen erkennen können. Der `/_agent-native/a2a` JSON-RPC-Endpunkt akzeptiert von `A2A_SECRET` signierte JWT-Bearer-Token und akzeptiert bei Konfiguration auch das Legacy-`apiKeyEnv`-Token. Ohne `A2A_SECRET` oder `apiKeyEnv` akzeptiert ein Entwicklungsserver nicht authentifizierte Aufrufe nur vom selben Rechner und gibt jedem anderen Host 401 zurück, auch wenn der Dev-Server über eine öffentliche Vorschau-URL erreichbar ist. In gehosteten Produktionslaufzeiten gibt die fehlende A2A-Authentifizierung 503 zurück, anstatt nicht authentifiziert ausgeführt zu werden.
 
 ### Authentifizierungsrichtliniengrenze {#auth-policy}
 
@@ -654,7 +658,7 @@ Bearer-Validierung wird an der Anforderungsgrenze ausgeführt – im JSON-RPC-Ha
 - `hasConfiguredA2ASecret()` gibt `true` zurück, wenn `A2A_SECRET` festgelegt ist.
 - `shouldAdvertiseJwtA2AAuth()` ist das, was die Agentenkarte verwendet, um zu entscheiden, ob ein `jwtBearer`-Sicherheitsschema veröffentlicht werden soll.
 
-Die Produktionsrichtlinie ist streng: In jeder Produktionslaufzeit verweigert die asynchrone Route `_process-task` den Versand, es sei denn, `A2A_SECRET` ist konfiguriert (gibt 503 zurück), und der Endpunkt JSON-RPC lehnt nicht authentifizierte Aufrufe ab. Der Dev-Fallback (einmal warnen, zulassen) wird nur ausgelöst, wenn kein Produktionsflag gesetzt ist.
+Die Produktionsrichtlinie ist streng: In jeder Produktionslaufzeit verweigert die asynchrone Route `_process-task` den Versand, es sei denn, `A2A_SECRET` ist konfiguriert (gibt 503 zurück), und der Endpunkt JSON-RPC lehnt nicht authentifizierte Aufrufe ab. Außerhalb der Produktion wird ein nicht authentifizierter Aufruf (mit einer einmaligen Warnung) nur zugelassen, wenn er vom selben Rechner kommt: Peer-Adresse, `Host` und alle Forwarding-Header müssen Loopback sein, und ein Builder-Cloud-Dev-Container gilt nie als lokal. Jeder andere nicht authentifizierte Aufruf, einschließlich eines nicht signierten `_process-task`-Versands, gibt 401 zurück; setzen Sie `A2A_SECRET` in der App, um ihn zu akzeptieren.
 
 Diese Grenze ist wichtig, da die Agentenschleife Freiformeingaben von einem Remote-Anrufer akzeptiert. Wenn Sie die Bearer-Prüfung in die Schleife einfügen oder sich auf ein Tool verlassen, um sie durchzusetzen, können Prompt-Injection oder ein fehlerhafter Handler die Authentifizierung umgehen. Wenn es an der HTTP-Grenze bleibt, führt ein Token-Fehler zu einem Kurzschluss vor jedem LLM-Aufruf.
 

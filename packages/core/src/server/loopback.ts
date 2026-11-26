@@ -84,11 +84,18 @@ function isLoopbackIpLiteral(value: string): boolean {
   return value === "::1" || IPV4_LOOPBACK_LITERAL.test(value);
 }
 
-function isLoopbackHostname(hostname: string): boolean {
+export function isLoopbackHostname(hostname: string): boolean {
   return (
     hostname === "localhost" ||
     hostname.endsWith(".localhost") ||
     isLoopbackIpLiteral(hostname)
+  );
+}
+
+export function isLoopbackUrl(value: string): boolean {
+  if (!URL.canParse(value)) return false;
+  return isLoopbackHostname(
+    new URL(value).hostname.toLowerCase().replace(/^\[(.*)\]$/, "$1"),
   );
 }
 
