@@ -1002,8 +1002,10 @@ const editorPropertiesMessages = {
   remove: "Remove",
   removeFileOrMedia: "Remove {{name}}",
   removeOption: "Remove option {{name}}",
-  optionInUse: "{{name}} is still in use. Move its rows to another option and take it out of view filters, then remove it.",
-  optionKeptByRule: "A rule depends on {{name}}, so it can't be removed until the rule changes.",
+  optionInUse:
+    "{{name}} is still in use. Move its rows to another option and take it out of view filters, then remove it.",
+  optionKeptByRule:
+    "A rule depends on {{name}}, so it can't be removed until the rule changes.",
   removePerson: "Remove {{name}}",
   renameOption: "Rename option {{name}}",
   reorderOption: "Reorder option {{name}}",

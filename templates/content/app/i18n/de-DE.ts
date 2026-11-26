@@ -1210,8 +1210,10 @@ const editor = {
     remove: "Entfernen",
     removeFileOrMedia: "Entfernen Sie {{name}}",
     removeOption: "Entfernen Sie die Option {{name}}",
-    optionInUse: "{{name}} wird noch verwendet. Verschieben Sie die Zeilen zu einer anderen Option und entfernen Sie {{name}} aus Ansichtsfiltern. Danach können Sie die Option entfernen.",
-    optionKeptByRule: "Eine Regel hängt von {{name}} ab, daher kann die Option erst entfernt werden, wenn die Regel geändert wird.",
+    optionInUse:
+      "{{name}} wird noch verwendet. Verschieben Sie die Zeilen zu einer anderen Option und entfernen Sie {{name}} aus Ansichtsfiltern. Danach können Sie die Option entfernen.",
+    optionKeptByRule:
+      "Eine Regel hängt von {{name}} ab, daher kann die Option erst entfernt werden, wenn die Regel geändert wird.",
     removePerson: "Entfernen Sie {{name}}",
     renameOption: "Benennen Sie die Option {{name}} um",
     reorderOption: "Option {{name}} neu anordnen",

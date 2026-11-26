@@ -13,12 +13,8 @@ export function optionRemovalErrorMessage(
   error: unknown,
   messages: { inUse: string; keptByRule: string },
 ): string | undefined {
-  switch (actionErrorCode(error)) {
-    case "OPTION_IN_USE":
-      return messages.inUse;
-    case "COLUMN_RULE_IN_USE":
-      return messages.keptByRule;
-    default:
-      return undefined;
-  }
+  const code = actionErrorCode(error);
+  if (code === "OPTION_IN_USE") return messages.inUse;
+  if (code === "COLUMN_RULE_IN_USE") return messages.keptByRule;
+  return undefined;
 }
