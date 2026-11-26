@@ -4,11 +4,16 @@ import type {
 } from "@shared/content-trash";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const appState = vi.hoisted(() => ({ value: null as unknown }));
+const appState = vi.hoisted(() => ({ values: new Map<string, unknown>() }));
 
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
-  readClientAppState: vi.fn(async () => appState.value),
+  readClientAppState: vi.fn(async (key: string) =>
+    appState.values.has(key) ? structuredClone(appState.values.get(key)) : null,
+  ),
+  setClientAppState: vi.fn(async (key: string, value: unknown) => {
+    appState.values.set(key, structuredClone(value));
+  }),
 }));
 
 import {
@@ -17,8 +22,12 @@ import {
   changeTrashSort,
   extendTrashSelection,
   loadedTrashSelection,
+  loadTrashPurgeStarts,
   nearestVisibleTrashRow,
   readTrashPurgeStarts,
+  removeTrashPurgeStarts,
+  saveTrashPurgeStarts,
+  TRASH_PURGES_STATE_KEY,
   reconcileTrashBrowseFilters,
   restoredTrashItemIds,
   selectedTrashItems,
@@ -30,8 +39,12 @@ import {
   trashMatchingFilters,
   trashFilterMembershipKey,
   trashOperationIdFromError,
+  trashPurgeRecoveryAfterError,
   trashPurgeStartAfterError,
   trashRestoreCollectionId,
+  trashRestoreRequest,
+  trashRestoreSelectionCleanup,
+  writeTrashContext,
   toggleVisibleTrashSelection,
   upsertTrashPurgeStarts,
   visibleTrashItems,
@@ -51,12 +64,13 @@ function purgeStart(
     status: "starting",
     operationId: null,
     error: null,
+    input: { mode: "scope", spaceId: "space-a" },
     ...fields,
   };
 }
 
 beforeEach(() => {
-  appState.value = null;
+  appState.values.clear();
 });
 
 function trashItem(
@@ -295,6 +309,86 @@ describe("Trash selection", () => {
     ).toBeNull();
   });
 
+  it("pins each restore to the deletion Trash listed", () => {
+    const at = "2026-11-01T00:00:00.000Z";
+    const collectionRestore = {
+      spaceId: "space-a",
+      databaseDocumentId: "legacy-row",
+      configurationRevision: "revision-1",
+    };
+
+    expect(
+      trashRestoreRequest(
+        trashItem("page", {
+          databaseId: null,
+          legacyRestoreDatabaseId: null,
+          collectionRestore: null,
+          trashedAt: at,
+        }),
+        "key-1",
+      ),
+    ).toEqual({
+      kind: "page",
+      input: { id: "page", expectedTrashedAt: at, idempotencyKey: "key-1" },
+    });
+    expect(
+      trashRestoreRequest(
+        trashItem("legacy-row", {
+          databaseId: "legacy-db",
+          legacyRestoreDatabaseId: "legacy-db",
+          collectionRestore,
+          trashedAt: at,
+        }),
+        "key-2",
+      ),
+    ).toEqual({
+      kind: "collection",
+      input: {
+        target: {
+          spaceId: "space-a",
+          databaseId: "legacy-db",
+          databaseDocumentId: "legacy-row",
+        },
+        expectedConfigurationRevision: "revision-1",
+        idempotencyKey: "key-2",
+      },
+    });
+    expect(
+      trashRestoreRequest(
+        trashItem("inline-row", {
+          databaseId: "inline-db",
+          legacyRestoreDatabaseId: "inline-db",
+          collectionRestore: null,
+          trashedAt: at,
+        }),
+        "key-3",
+      ),
+    ).toEqual({
+      kind: "collection",
+      input: { databaseId: "inline-db", expectedDeletedAt: at },
+    });
+  });
+
+  it("clears a restored row only while it still shows the deletion that was restored", () => {
+    const submitted = new Map([
+      ["kept", "2026-11-01T00:00:00.000Z"],
+      ["re-trashed", "2026-11-01T00:00:00.000Z"],
+      ["gone", "2026-11-01T00:00:00.000Z"],
+    ]);
+    const loaded = [
+      trashItem("kept", { trashedAt: "2026-11-01T00:00:00.000Z" }),
+      trashItem("re-trashed", { trashedAt: "2026-11-03T00:00:00.000Z" }),
+    ];
+
+    expect([
+      ...trashRestoreSelectionCleanup(
+        new Set(["kept", "re-trashed", "gone"]),
+        submitted,
+        loaded,
+      ),
+    ]).toEqual(["kept", "gone"]);
+  });
+
   it("restores each selected root once and skips rows it brings back", () => {
     const root = trashItem("root");
     const child = trashItem("child", { trashRootId: "root" });
@@ -352,10 +446,110 @@ describe("Trash selection", () => {
     expect(
       upsertTrashPurgeStarts([a], [purgeStart({ planId: "plan-c" })]),
     ).toHaveLength(2);
+    expect(
+      upsertTrashPurgeStarts(
+        [a],
+        [{ ...a, status: "unknown", operationId: null, error: "lost" }],
+      ),
+    ).toEqual([a]);
+    expect(
+      upsertTrashPurgeStarts(
+        [{ ...a, status: "starting", operationId: null }],
+        [a],
+      ),
+    ).toEqual([a]);
+  });
+
+  it("keeps every tab's purge records through another tab's start and browsing writes", async () => {
+    const a = purgeStart({ status: "started", operationId: "operation-a" });
+    const b = purgeStart({ spaceId: "space-b", planId: "plan-b" });
+    const tabBKnew = await loadTrashPurgeStarts();
+
+    await saveTrashPurgeStarts([], [a]);
+    await writeTrashContext({
+      filters: {},
+      selection: clearTrashSelection(),
+      previewId: null,
+    });
+    await saveTrashPurgeStarts(tabBKnew, [
+      b,
+      { ...a, status: "unknown", operationId: null },
+    ]);
+
+    await expect(readTrashPurgeStarts()).resolves.toEqual([
+      a,
+      { ...b, status: "unknown" },
+    ]);
+    expect(appState.values.get(TRASH_PURGES_STATE_KEY)).toMatchObject({
+      operationIds: ["operation-a"],
+    });
+    expect(appState.values.get("content-trash")).not.toHaveProperty(
+      "purgeStarts",
+    );
+
+    await removeTrashPurgeStarts(new Set(["plan-b"]));
+    await expect(readTrashPurgeStarts()).resolves.toEqual([a]);
+  });
+
+  it("moves older purge records out of the browsing state on first load", async () => {
+    appState.values.set("content-trash", { operationIds: ["operation-old"] });
+
+    await expect(loadTrashPurgeStarts()).resolves.toEqual([
+      purgeStart({
+        spaceId: null,
+        planId: null,
+        idempotencyKey: null,
+        status: "started",
+        operationId: "operation-old",
+        input: null,
+      }),
+    ]);
+    expect(appState.values.get(TRASH_PURGES_STATE_KEY)).toMatchObject({
+      operationIds: ["operation-old"],
+    });
+
+    appState.values.set("content-trash", { operationIds: ["operation-gone"] });
+    await expect(readTrashPurgeStarts()).resolves.toMatchObject([
+      { operationId: "operation-old" },
+    ]);
+  });
+
+  it("keeps a recovered start unresolved until the server settles it", () => {
+    const start = purgeStart({ status: "unknown" });
+    const messages = { expired: "expired", unknown: "unknown" };
+
+    expect(
+      trashPurgeRecoveryAfterError(
+        start,
+        { status: 409, errorCode: "start_pending" },
+        messages,
+      ),
+    ).toMatchObject({ status: "unknown", idempotencyKey: "key-a" });
+    expect(
+      trashPurgeRecoveryAfterError(
+        start,
+        { status: 409, errorCode: "invalid_scope" },
+        messages,
+      ),
+    ).toMatchObject({ status: "unknown" });
+    expect(
+      trashPurgeRecoveryAfterError(
+        start,
+        { status: 409, errorCode: "start_expired" },
+        messages,
+      ),
+    ).toMatchObject({ status: "failed", error: "expired" });
+    expect(
+      trashPurgeRecoveryAfterError(
+        start,
+        { status: 409, details: { operationId: "operation-a" } },
+        messages,
+      ),
+    ).toMatchObject({ status: "started", operationId: "operation-a" });
   });
 
   it("reloads saved starts, turning an interrupted one into unknown with its original key", async () => {
-    appState.value = {
+    appState.values.set(TRASH_PURGES_STATE_KEY, {
       purgeStarts: [
         purgeStart({ status: "starting" }),
         purgeStart({
@@ -364,7 +558,7 @@ describe("Trash selection", () => {
           operationId: "operation-b",
         }),
       ],
-    };
+    });
 
     await expect(readTrashPurgeStarts()).resolves.toEqual([
       purgeStart({ status: "unknown" }),
@@ -375,19 +569,9 @@ describe("Trash selection", () => {
       }),
     ]);
 
-    appState.value = { operationIds: ["operation-old"] };
-    await expect(readTrashPurgeStarts()).resolves.toEqual([
-      {
-        spaceId: null,
-        planId: null,
-        idempotencyKey: null,
-        status: "started",
-        operationId: "operation-old",
-        error: null,
-      },
-    ]);
-
-    appState.value = { purgeStarts: [{ planId: "plan-a", status: "done" }] };
+    appState.values.set(TRASH_PURGES_STATE_KEY, {
+      purgeStarts: [{ planId: "plan-a", status: "done" }],
+    });
     await expect(readTrashPurgeStarts()).rejects.toThrow(/malformed/);
   });
 

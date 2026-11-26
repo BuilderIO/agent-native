@@ -8,7 +8,6 @@ describe("trash messages", () => {
     "deleteCount",
     "running",
     "completed",
-    "confirmEmpty",
     "restoredCount",
   ] as const;
 

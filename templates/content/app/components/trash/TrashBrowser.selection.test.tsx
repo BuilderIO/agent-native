@@ -9,7 +9,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
-import type { ContentTrashPurgeStart } from "@/hooks/use-content-trash";
+import {
+  type ContentTrashPurgeStart,
+  TRASH_PURGES_STATE_KEY,
+} from "@/hooks/use-content-trash";
 
 import type { TrashPurgeDialog } from "./EmptyTrashDialog";
 import { TrashBrowser } from "./TrashBrowser";
@@ -43,6 +46,7 @@ function trashItem(
     canRestore: true,
     canPermanentlyDelete: true,
     hasAccessibleTrashedChildren: false,
+    collectionRestore: null,
     ...fields,
   } satisfies ContentTrashItem;
 }
@@ -52,6 +56,29 @@ type RestoreInput = {
   expectedTrashedAt: string;
   idempotencyKey: string;
 };
+type CollectionRestoreInput =
+  | { databaseId: string; expectedDeletedAt?: string }
+  | {
+      target: {
+        spaceId: string;
+        databaseId: string;
+        databaseDocumentId: string;
+      };
+      expectedConfigurationRevision: string;
+      idempotencyKey: string;
+    };
+
+const appState = vi.hoisted(() => new Map<string, unknown>());
+const readAppState = vi.hoisted(() =>
+  vi.fn<(key: string) => Promise<unknown>>(),
+);
+const readStoredAppState = async (key: string) =>
+  appState.has(key) ? structuredClone(appState.get(key)) : null;
+const writeAppState = vi.hoisted(() =>
+  vi.fn(async (key: string, value: unknown) => {
+    appState.set(key, structuredClone(value));
+  }),
+);
 
 const items = [
   trashItem("page-a", "Alpha"),
@@ -81,11 +108,16 @@ const purgeSpacesQuery: {
 };
 const restoreDocument = vi.fn<(input: RestoreInput) => Promise<unknown>>();
 const restoreCollection =
-  vi.fn<(input: { databaseId: string }) => Promise<unknown>>();
+  vi.fn<(input: CollectionRestoreInput) => Promise<unknown>>();
 const toastSuccess = vi.fn();
 const toastError = vi.fn();
 let latestDialogProps: ComponentProps<typeof TrashPurgeDialog> | undefined;
-let purgeStarts: ContentTrashPurgeStart[] = [];
+
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+  readClientAppState: (key: string) => readAppState(key),
+  setClientAppState: (key: string, value: unknown) => writeAppState(key, value),
+}));
 
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
@@ -120,7 +152,7 @@ vi.mock("@/hooks/use-content-database", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/hooks/use-content-database")>()),
   useRestoreContentDatabase: () => ({
     isPending: false,
-    mutateAsync: (input: { databaseId: string }) => restoreCollection(input),
+    mutateAsync: (input: CollectionRestoreInput) => restoreCollection(input),
   }),
 }));
 vi.mock("@/hooks/use-content-trash", async (importOriginal) => ({
@@ -134,8 +166,6 @@ vi.mock("@/hooks/use-content-trash", async (importOriginal) => ({
   useContentTrashPurgeSpaces: () => purgeSpacesQuery,
   useContentTrashFilterOptions: () => ({ data: undefined }),
   useTrashContext: () => {},
-  writeTrashContext: () => Promise.resolve({}),
-  readTrashPurgeStarts: () => Promise.resolve(purgeStarts),
 }));
 vi.mock("@/components/editor/TrashDocumentPreview", () => ({
   TrashDocumentPreview: () => null,
@@ -177,22 +207,53 @@ function deferred() {
   return { promise, resolve: () => handle.resolve() };
 }
 
+function purgeStart(
+  planId: string,
+  fields: Partial<ContentTrashPurgeStart> = {},
+): ContentTrashPurgeStart {
+  return {
+    spaceId: "space-a",
+    planId,
+    idempotencyKey: `key-${planId}`,
+    status: "started",
+    operationId: `op-${planId}`,
+    error: null,
+    input: { mode: "scope", spaceId: "space-a" },
+    ...fields,
+  };
+}
+
+function savedPurgeStarts() {
+  const saved = appState.get(TRASH_PURGES_STATE_KEY) as
+    | { purgeStarts: ContentTrashPurgeStart[] }
+    | undefined;
+  return saved?.purgeStarts.map((start) => start.planId);
+}
+
 beforeEach(() => {
+  readAppState.mockImplementation(readStoredAppState);
   restoreDocument.mockImplementation(restored);
-  restoreCollection.mockImplementation(({ databaseId }) =>
-    Promise.resolve({ success: true, databaseId }),
+  restoreCollection.mockImplementation((input) =>
+    Promise.resolve({
+      success: true,
+      databaseId:
+        "target" in input ? input.target.databaseId : input.databaseId,
+    }),
   );
 });
 
 afterEach(async () => {
   await act(async () => root?.unmount());
   root = null;
-  purgeStarts = [];
+  appState.clear();
+  readAppState.mockReset();
+  writeAppState.mockClear();
   rootQuery.data = { pages: [{ items }] };
   purgeSpacesQuery.data = {
     spaces: [{ spaceId: "space-a", name: "Personal", canPurge: true }],
   };
   purgeSpacesQuery.isFetching = false;
+  purgeSpacesQuery.refetch.mockReset();
   latestDialogProps = undefined;
   restoreDocument.mockReset();
   restoreCollection.mockReset();
@@ -240,6 +301,51 @@ function barButton(host: HTMLElement, label: string) {
   );
 }
 
+function checkedState(host: HTMLElement, title: string) {
+  return host
+    .querySelector(
+      `button[role="checkbox"][aria-label='trash.selectPage {"title":"${title}"}']`,
+    )
+    ?.getAttribute("aria-checked");
+}
+
+async function rowMenuLabels(host: HTMLElement, title: string) {
+  const trigger = host.querySelector<HTMLButtonElement>(
+    `button[aria-label='trash.rowActions {"title":"${title}"}']`,
+  );
+  expect(trigger).not.toBeNull();
+  await act(async () => {
+    trigger?.focus();
+    trigger?.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+    );
+  });
+  return [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map(
+    (item) => item.textContent,
+  );
+}
+
+function rowRestoreButton(host: HTMLElement, index: number) {
+  return host
+    .querySelectorAll<HTMLButtonElement>(
+      'button[data-trash-row-restore][aria-label="trash.restore"]',
+    )
+    .item(index);
+}
+
+function legacyCollection() {
+  return trashItem("legacy-row", "Old tasks", {
+    kind: "database",
+    databaseId: "legacy-db",
+    legacyRestoreDatabaseId: "legacy-db",
+    collectionRestore: {
+      spaceId: "space-a",
+      databaseDocumentId: "legacy-row",
+      configurationRevision: "revision-1",
+    },
+  });
+}
+
 const emptyTrashButton = (host: HTMLElement) =>
   host.querySelector<HTMLButtonElement>(
     'button[aria-label="trash.emptyTrash"]',
@@ -248,16 +354,7 @@ const latestDialog = () => latestDialogProps;
 
 describe("Trash selection bar", () => {
   it("shows the finished purge notice inline after the table, leaving the bar usable", async () => {
-    purgeStarts = [
-      {
-        spaceId: "space-a",
-        planId: "plan-1",
-        idempotencyKey: "key-1",
-        status: "started",
-        operationId: "op-1",
-        error: null,
-      },
-    ];
+    appState.set(TRASH_PURGES_STATE_KEY, { purgeStarts: [purgeStart("1")] });
     const host = await renderTrash();
     const surface = host.querySelector("main [data-operation-surface]");
     const table = host.querySelector('[aria-label="trash.tableLabel"]');
@@ -324,47 +421,145 @@ describe("Trash selection bar", () => {
     expect(toastSuccess).toHaveBeenCalledWith("trash.restored");
   });
 
-  it("restores a legacy Collection through the Collection path, from the arrow and in a mixed selection", async () => {
+  it("restores Collections against their listed deletion, from the arrow and in a mixed selection", async () => {
+    const pinned = {
+      target: {
+        spaceId: "space-a",
+        databaseId: "legacy-db",
+        databaseDocumentId: "legacy-row",
+      },
+      expectedConfigurationRevision: "revision-1",
+      idempotencyKey: expect.any(String),
+    };
     rootQuery.data = {
       pages: [
         {
           items: [
             trashItem("page-a", "Alpha"),
-            trashItem("legacy-row", "Old tasks", {
+            legacyCollection(),
+            trashItem("inline-row", "Inline tasks", {
               kind: "database",
-              legacyRestoreDatabaseId: "legacy-db",
+              databaseId: "inline-db",
+              legacyRestoreDatabaseId: "inline-db",
             }),
           ],
         },
       ],
     };
     const host = await renderTrash();
-    const arrows = host.querySelectorAll<HTMLButtonElement>(
-      'button[data-trash-row-restore][aria-label="trash.restore"]',
-    );
 
-    await act(async () => arrows[1]?.click());
+    await act(async () => rowRestoreButton(host, 1).click());
     await settle();
 
-    expect(restoreCollection).toHaveBeenCalledExactlyOnceWith({
-      databaseId: "legacy-db",
-    });
+    expect(restoreCollection).toHaveBeenCalledExactlyOnceWith(pinned);
     expect(restoreDocument).not.toHaveBeenCalled();
 
     restoreCollection.mockClear();
     await tick(host, "Alpha");
     await tick(host, "Old tasks");
+    await tick(host, "Inline tasks");
     await act(async () => barButton(host, "trash.restore")?.click());
     await settle();
 
     expect(restoreDocument.mock.calls.map(([input]) => input.id)).toEqual([
       "page-a",
     ]);
-    expect(restoreCollection).toHaveBeenCalledExactlyOnceWith({
-      databaseId: "legacy-db",
-    });
+    expect(restoreCollection.mock.calls.map(([input]) => input)).toEqual([
+      pinned,
+      {
+        databaseId: "inline-db",
+        expectedDeletedAt: "2026-11-20T00:00:00.000Z",
+      },
+    ]);
     expect(toastError).not.toHaveBeenCalled();
     expect(host.textContent).not.toContain("trash.selected");
+  });
+
+  it("keeps a legacy Collection ticked when another tab restored and deleted it again while it waited behind a page", async () => {
+    const page = deferred();
+    restoreDocument.mockImplementation(async (input) => {
+      await page.promise;
+      return restored(input);
+    });
+    restoreCollection.mockRejectedValue(
+      Object.assign(new Error("The database configuration changed."), {
+        status: 409,
+        errorCode: "CONFIGURATION_REVISION_CONFLICT",
+      }),
+    );
+    rootQuery.data = {
+      pages: [{ items: [trashItem("page-a", "Alpha"), legacyCollection()] }],
+    };
+    const host = await renderTrash();
+    await tick(host, "Alpha");
+    await tick(host, "Old tasks");
+
+    await act(async () => barButton(host, "trash.restore")?.click());
+    await act(async () => page.resolve());
+    await settle();
+
+    expect(restoreCollection).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ expectedConfigurationRevision: "revision-1" }),
+    );
+    expect(toastError).toHaveBeenCalledWith("trash.restoreFailed", {
+      description: "trash.restoreConflict",
+    });
+    expect(host.textContent).toContain('trash.selected {"count":1}');
+    expect(checkedState(host, "Old tasks")).toBe("true");
+  });
+
+  it("keeps a page ticked when its restore answers after another tab deleted it again", async () => {
+    const response = deferred();
+    restoreDocument.mockImplementation(async (input) => {
+      await response.promise;
+      return restored(input);
+    });
+    const host = await renderTrash();
+    await tick(host, "Beta");
+
+    await act(async () => barButton(host, "trash.restore")?.click());
+    rootQuery.data = {
+      pages: [
+        {
+          items: items.map((item) =>
+            item.documentId === "page-b"
+              ? { ...item, trashedAt: "2026-11-21T00:00:00.000Z" }
+              : item,
+          ),
+        },
+      ],
+    };
+    await rerenderTrash();
+    await act(async () => response.resolve());
+    await settle();
+
+    expect(toastSuccess).toHaveBeenCalledWith("trash.restored");
+    expect(checkedState(host, "Beta")).toBe("true");
+  });
+
+  it("retries an unanswered restore with its first key, and a refused one with a new key", async () => {
+    restoreDocument
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockRejectedValueOnce(
+        Object.assign(new Error("Restore is busy"), {
+          status: 409,
+          errorCode: "DATABASE_MEMBERSHIPS_CHANGED",
+        }),
+      );
+    const host = await renderTrash();
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await act(async () => rowRestoreButton(host, 1).click());
+      await settle();
+    }
+
+    const keys = restoreDocument.mock.calls.map(
+      ([input]) => input.idempotencyKey,
+    );
+    expect(keys).toHaveLength(3);
+    expect(keys[1]).toBe(keys[0]);
+    expect(keys[2]).not.toBe(keys[1]);
+    expect(toastSuccess).toHaveBeenCalledExactlyOnceWith("trash.restored");
   });
 
   it("keeps a page ticked when another tab restored and deleted it again first", async () => {
@@ -389,13 +584,7 @@ describe("Trash selection bar", () => {
       description: "trash.restoreConflict",
     });
     expect(host.textContent).toContain('trash.selected {"count":1}');
-    expect(
-      host
-        .querySelector(
-          `button[role="checkbox"][aria-label='trash.selectPage {"title":"Beta"}']`,
-        )
-        ?.getAttribute("aria-checked"),
-    ).toBe("true");
+    expect(checkedState(host, "Beta")).toBe("true");
   });
 
   it("clears restored rows from the selection the person has now, not the one the batch started with", async () => {
@@ -443,6 +632,56 @@ describe("Trash selection bar", () => {
         "trash.emptyTrash",
       ),
     );
+  });
+});
+
+describe("Trash purge records", () => {
+  it("saves a start made before the first read answers on top of what that read finds", async () => {
+    const firstRead = deferred();
+    readAppState.mockImplementationOnce(async (key) => {
+      await firstRead.promise;
+      return readStoredAppState(key);
+    });
+    const host = await renderTrash();
+    const saving = latestDialog()?.onStartsChange([purgeStart("mine")]);
+    appState.set(TRASH_PURGES_STATE_KEY, {
+      purgeStarts: [purgeStart("other-tab")],
+    });
+
+    await act(async () => {
+      firstRead.resolve();
+      await saving;
+    });
+    await settle();
+
+    expect(savedPurgeStarts()).toEqual(["other-tab", "mine"]);
+    expect(
+      host.querySelector("main [data-operation-surface]")?.textContent,
+    ).toBe("op-other-tab,op-mine");
+  });
+
+  it("starts nothing while purge records can't be read, then saves on top of them once they can", async () => {
+    const mine = purgeStart("mine", { status: "starting", operationId: null });
+    readAppState.mockRejectedValue(new Error("offline"));
+    await renderTrash();
+
+    await expect(latestDialog()?.onStartsChange([mine])).rejects.toThrow(
+      "offline",
+    );
+    expect(writeAppState).not.toHaveBeenCalledWith(
+      TRASH_PURGES_STATE_KEY,
+      expect.anything(),
+    );
+
+    readAppState.mockImplementation(readStoredAppState);
+    appState.set(TRASH_PURGES_STATE_KEY, {
+      purgeStarts: [purgeStart("other-tab")],
+    });
+    await act(async () => {
+      await latestDialog()?.onStartsChange([mine]);
+    });
+
+    expect(savedPurgeStarts()).toEqual(["other-tab", "mine"]);
   });
 });
 
@@ -528,6 +767,57 @@ describe("Trash permanent deletion", () => {
     await rerenderTrash();
 
     expect(latestDialog()?.returnFocus()).toBe(emptyTrashButton(host));
+  });
+
+  it("offers Delete permanently only on rows in workspaces the caller can purge", async () => {
+    purgeSpacesQuery.data = {
+      spaces: [
+        { spaceId: "space-a", name: "Personal", canPurge: true },
+        { spaceId: "viewer-space", name: "Team", canPurge: false },
+      ],
+    };
+    rootQuery.data = {
+      pages: [
+        {
+          items: [
+            trashItem("page-a", "Alpha"),
+            trashItem("page-team", "Team page", { spaceId: "viewer-space" }),
+          ],
+        },
+      ],
+    };
+    const host = await renderTrash();
+
+    expect(await rowMenuLabels(host, "Team page")).toEqual([
+      "trash.restore",
+      "trash.openPreview",
+    ]);
+  });
+
+  it("gives focus back to the row's ⋯ when the workspaces can't load", async () => {
+    purgeSpacesQuery.data = undefined;
+    purgeSpacesQuery.refetch.mockResolvedValueOnce({ data: undefined });
+    const host = await renderTrash();
+    const trigger = host.querySelector<HTMLButtonElement>(
+      `button[aria-label='trash.rowActions {"title":"Alpha"}']`,
+    );
+
+    await rowMenuLabels(host, "Alpha");
+    const deleteItem = [
+      ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ].find((item) => item.textContent === "trash.deletePermanently");
+    await act(async () => {
+      deleteItem?.focus();
+      deleteItem?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+
+    await vi.waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith("trash.workspacesFailed"),
+    );
+    expect(latestDialog()?.request ?? null).toBeNull();
+    await vi.waitFor(() => expect(document.activeElement).toBe(trigger));
   });
 
   it("ignores an older dialog's close and acknowledgment once a newer one is open", async () => {

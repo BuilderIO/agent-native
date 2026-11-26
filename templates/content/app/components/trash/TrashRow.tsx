@@ -237,6 +237,7 @@ export function TrashRow({
   onRestore,
   onDelete,
   restoring = false,
+  purgeable = true,
   focused,
   rowRef,
   onFocus,
@@ -253,6 +254,7 @@ export function TrashRow({
   onRestore: () => void;
   onDelete: (invoker: HTMLElement | null) => void;
   restoring?: boolean;
+  purgeable?: boolean;
   focused: boolean;
   rowRef: RefCallback<HTMLDivElement>;
   onFocus: () => void;
@@ -427,17 +429,21 @@ export function TrashRow({
                     {t("trash.openPreview")}
                   </Link>
                 </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  disabled={!item.canPermanentlyDelete}
-                  className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-                  onSelect={() => {
-                    deleteOnMenuCloseRef.current = true;
-                  }}
-                >
-                  <IconTrashX className="size-4" />
-                  {t("trash.deletePermanently")}
-                </DropdownMenuItem>
+                {purgeable ? (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      disabled={!item.canPermanentlyDelete}
+                      className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+                      onSelect={() => {
+                        deleteOnMenuCloseRef.current = true;
+                      }}
+                    >
+                      <IconTrashX className="size-4" />
+                      {t("trash.deletePermanently")}
+                    </DropdownMenuItem>
+                  </>
+                ) : null}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>

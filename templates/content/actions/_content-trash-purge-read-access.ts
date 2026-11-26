@@ -1,19 +1,28 @@
 import { fail } from "@agent-native/core/action";
-import { accessFilter } from "@agent-native/core/sharing";
+import { accessFilter, currentAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import { getDb, schema } from "../server/db/index.js";
 import { contentTrashPredicates } from "./_content-trash-query.js";
 
-export async function assertContentTrashPurgeReadAccess(planId: string) {
+const SETTLED_PURGE_OUTCOMES = new Set(["deleted", "conflicted"]);
+
+export async function assertContentTrashPurgeReadAccess(
+  planId: string,
+  orgId: string | null,
+) {
   const items = await getDb()
     .select({
       documentId: schema.contentTrashPurgePlanItems.documentId,
+      outcome: schema.contentTrashPurgePlanItems.outcome,
     })
     .from(schema.contentTrashPurgePlanItems)
     .where(eq(schema.contentTrashPurgePlanItems.planId, planId));
-  const documentIds = items.map(({ documentId }) => documentId);
+  const documentIds = items
+    .filter(({ outcome }) => !SETTLED_PURGE_OUTCOMES.has(outcome))
+    .map(({ documentId }) => documentId);
+  const ctx = orgId ? { ...currentAccess(), orgId } : currentAccess();
   const document = schema.documents;
   const database = alias(schema.contentDatabases, "purge_read_database");
   const host = alias(schema.documents, "purge_read_host");
@@ -21,9 +30,9 @@ export async function assertContentTrashPurgeReadAccess(planId: string) {
   const { authority, deletedAt } = contentTrashPredicates(
     document,
     database,
-    accessFilter(document, schema.documentShares, undefined, "admin"),
-    accessFilter(document, schema.documentShares),
-    accessFilter(host, schema.documentShares, undefined, "editor"),
+    accessFilter(document, schema.documentShares, ctx, "admin"),
+    accessFilter(document, schema.documentShares, ctx),
+    accessFilter(host, schema.documentShares, ctx, "editor"),
   );
   const authorized = documentIds.length
     ? await getDb()

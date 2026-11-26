@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
+import { eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
@@ -19,6 +20,7 @@ let getDb: () => any;
 let schema: typeof import("../server/db/schema.js");
 let listTrash: typeof import("./list-content-trash.js").default;
 let listFilterOptions: typeof import("./list-content-trash-filter-options.js").default;
+let restoreCollection: typeof import("./restore-content-database.js").default;
 
 const asOwner = <T>(run: () => Promise<T>) =>
   runWithRequestContext({ userEmail: OWNER }, run);
@@ -31,6 +33,7 @@ beforeAll(async () => {
   listTrash = (await import("./list-content-trash.js")).default;
   listFilterOptions = (await import("./list-content-trash-filter-options.js"))
     .default;
+  restoreCollection = (await import("./restore-content-database.js")).default;
   await (await import("../server/plugins/db.js")).default(undefined as any);
 
   const now = new Date().toISOString();
@@ -515,6 +518,126 @@ describe("list-content-trash", () => {
           listTrash.run({ ...changed, cursor: first.nextCursor!, limit: 1 }),
         ),
       ).rejects.toMatchObject({ errorCode: "invalid_cursor" });
+    }
+  });
+
+  it("restores a legacy collection only against the deletion Trash listed", async () => {
+    const now = new Date().toISOString();
+    const deletedAt = (id: string) =>
+      getDb()
+        .select({ deletedAt: schema.contentDatabases.deletedAt })
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.id, id))
+        .then((rows: Array<{ deletedAt: string | null }>) => rows);
+    const listed = async (databaseId: string) => {
+      const page = await asOwner(() =>
+        listTrash.run({ kind: "database", query: "Pinned legacy" }),
+      );
+      return page.items.find((item) => item.databaseId === databaseId);
+    };
+    await getDb()
+      .insert(schema.documents)
+      .values(
+        ["pinned-guarded-page", "pinned-legacy-page"].map((id) => ({
+          id,
+          spaceId: SPACE_ID,
+          ownerEmail: OWNER,
+          title: "Pinned legacy collection",
+          content: "",
+          visibility: "private",
+          createdAt: now,
+          updatedAt: now,
+        })),
+      );
+    await getDb()
+      .insert(schema.contentDatabases)
+      .values(
+        ["pinned-guarded", "pinned-legacy"].map((id) => ({
+          id,
+          spaceId: SPACE_ID,
+          ownerEmail: OWNER,
+          documentId: `${id}-page`,
+          title: "Pinned legacy collection",
+          deletedAt: "2026-09-13T00:00:00.000Z",
+          createdAt: now,
+          updatedAt: now,
+        })),
+      );
+    try {
+      const shown = await listed("pinned-guarded");
+      expect(shown).toMatchObject({
+        legacyRestoreDatabaseId: "pinned-guarded",
+        canRestore: true,
+        collectionRestore: {
+          spaceId: SPACE_ID,
+          databaseDocumentId: "pinned-guarded-page",
+          configurationRevision: expect.any(String),
+        },
+      });
+      const pinned = {
+        target: {
+          spaceId: SPACE_ID,
+          databaseId: "pinned-guarded",
+          databaseDocumentId: "pinned-guarded-page",
+        },
+        expectedConfigurationRevision:
+          shown?.collectionRestore?.configurationRevision ?? "",
+      };
+
+      await asOwner(() =>
+        restoreCollection.run({ ...pinned, idempotencyKey: "other-tab" }),
+      );
+      expect(await deletedAt("pinned-guarded")).toEqual([{ deletedAt: null }]);
+      await getDb()
+        .update(schema.contentDatabases)
+        .set({ deletedAt: "2026-09-15T00:00:00.000Z" })
+        .where(eq(schema.contentDatabases.id, "pinned-guarded"));
+
+      await expect(
+        asOwner(() =>
+          restoreCollection.run({ ...pinned, idempotencyKey: "this-tab" }),
+        ),
+      ).rejects.toMatchObject({ errorCode: "CONFIGURATION_REVISION_CONFLICT" });
+      expect(await deletedAt("pinned-guarded")).toEqual([
+        { deletedAt: "2026-09-15T00:00:00.000Z" },
+      ]);
+
+      await expect(
+        asOwner(() =>
+          restoreCollection.run({
+            databaseId: "pinned-legacy",
+            expectedDeletedAt: "2026-09-12T00:00:00.000Z",
+          }),
+        ),
+      ).rejects.toMatchObject({ errorCode: "TRASH_REVISION_CONFLICT" });
+      expect(await deletedAt("pinned-legacy")).toEqual([
+        { deletedAt: "2026-09-13T00:00:00.000Z" },
+      ]);
+      const legacy = await listed("pinned-legacy");
+      await asOwner(() =>
+        restoreCollection.run({
+          databaseId: "pinned-legacy",
+          expectedDeletedAt: legacy?.trashedAt,
+        }),
+      );
+      expect(await deletedAt("pinned-legacy")).toEqual([{ deletedAt: null }]);
+    } finally {
+      await getDb()
+        .delete(schema.contentDatabases)
+        .where(
+          inArray(schema.contentDatabases.id, [
+            "pinned-guarded",
+            "pinned-legacy",
+          ]),
+        );
+      await getDb()
+        .delete(schema.documents)
+        .where(
+          inArray(schema.documents.id, [
+            "pinned-guarded-page",
+            "pinned-legacy-page",
+          ]),
+        );
     }
   });
 });

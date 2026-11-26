@@ -11,7 +11,10 @@ import { getDb, schema } from "../server/db/index.js";
 import { hashTrashScopeToken } from "../server/lib/content-trash-purge.js";
 import type { ContentTrashPurgePlanResponse } from "../shared/content-trash.js";
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
-import { resolveTrashPurgeProvenance } from "./_content-trash-purge-scope.js";
+import {
+  resolveTrashPurgeProvenance,
+  trashPurgeAccessContext,
+} from "./_content-trash-purge-scope.js";
 import {
   contentTrashFilterFields,
   contentTrashPredicates,
@@ -67,15 +70,32 @@ export default defineAction({
     const parent = alias(document, "purge_parent");
     const space = schema.contentSpaces;
     const canonicalDatabaseId = sql<string>`(select min(${database.id}) from ${database} where ${database.documentId} = ${document.id})`;
+    const filters = args.mode === "matching" ? args.filters : undefined;
+    const selectedSpaces =
+      args.mode === "selection"
+        ? await db
+            .selectDistinct({ spaceId: document.spaceId })
+            .from(document)
+            .where(inArray(document.id, [...new Set(args.documentIds ?? [])]))
+            .limit(2)
+        : [];
+    const ctx = await trashPurgeAccessContext(
+      args.mode === "scope"
+        ? (args.spaceId ?? null)
+        : args.mode === "matching"
+          ? (filters?.spaceId ?? null)
+          : selectedSpaces.length === 1
+            ? (selectedSpaces.find(Boolean)?.spaceId ?? null)
+            : null,
+    );
     const { authority, deletedAt } = contentTrashPredicates(
       document,
       database,
-      accessFilter(document, schema.documentShares, undefined, "admin"),
-      accessFilter(document, schema.documentShares),
-      accessFilter(host, schema.documentShares, undefined, "editor"),
+      accessFilter(document, schema.documentShares, ctx, "admin"),
+      accessFilter(document, schema.documentShares, ctx),
+      accessFilter(host, schema.documentShares, ctx, "editor"),
     );
     const originalParent = sql<string>`coalesce(${document.trashParentId}, ${document.parentId})`;
-    const filters = args.mode === "matching" ? args.filters : undefined;
     const selected = await db
       .select({
         id: document.id,
@@ -98,7 +118,7 @@ export default defineAction({
         parent,
         and(
           eq(parent.id, originalParent),
-          accessFilter(parent, schema.documentShares),
+          accessFilter(parent, schema.documentShares, ctx),
         ),
       )
       .leftJoin(
@@ -194,14 +214,9 @@ export default defineAction({
       contentTrashPredicates(
         availableDocument,
         availableDatabase,
-        accessFilter(
-          availableDocument,
-          schema.documentShares,
-          undefined,
-          "admin",
-        ),
-        accessFilter(availableDocument, schema.documentShares),
-        accessFilter(availableHost, schema.documentShares, undefined, "editor"),
+        accessFilter(availableDocument, schema.documentShares, ctx, "admin"),
+        accessFilter(availableDocument, schema.documentShares, ctx),
+        accessFilter(availableHost, schema.documentShares, ctx, "editor"),
       );
     const authorizedDescendants = await db
       .select({
@@ -376,7 +391,7 @@ export default defineAction({
               schema.contentDatabaseItems.databaseId,
               ownedDatabases.map((item) => item.id),
             ),
-            accessFilter(document, schema.documentShares),
+            accessFilter(document, schema.documentShares, ctx),
           ),
         );
       const databaseOwnerUnit = new Map(

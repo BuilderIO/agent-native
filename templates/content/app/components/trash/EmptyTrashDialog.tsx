@@ -23,19 +23,19 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   isTerminalTrashOperation,
   trashActionError,
+  trashPurgeRecoveryAfterError,
   trashPurgeStartAfterError,
   useContentTrashOperation,
   useExecuteContentTrashPurge,
   usePlanContentTrashPurge,
   type ContentTrashOperation,
+  type ContentTrashPurgeInput,
   type ContentTrashPurgeRequest,
   type ContentTrashPurgeStart,
   type ContentTrashPurgeTarget,
 } from "@/hooks/use-content-trash";
 
 import { TrashPurgeScope, useTrashPurgeScopeReady } from "./TrashPurgeScope";
-
-export const PERSISTED_PURGE_RETRY_TOKEN = "persisted-operation-retry";
 
 export type TrashPurgePlanState =
   | { status: "planning"; target: ContentTrashPurgeTarget }
@@ -64,6 +64,7 @@ export function trashPlansToExecute(
 ) {
   const planned: Array<{
     spaceId: string | null;
+    input: ContentTrashPurgeInput;
     plan: ContentTrashPurgePlanResponse;
   }> = [];
   for (const entry of plans) {
@@ -71,7 +72,11 @@ export function trashPlansToExecute(
     if (entry.status !== "planned" || !readyPlanIds.has(entry.plan.planId))
       return null;
     if (entry.plan.eligibleCount > 0)
-      planned.push({ spaceId: entry.target.spaceId, plan: entry.plan });
+      planned.push({
+        spaceId: entry.target.spaceId,
+        input: entry.target.input,
+        plan: entry.plan,
+      });
   }
   return planned.length ? planned : null;
 }
@@ -79,13 +84,14 @@ export function trashPlansToExecute(
 export function trashStartsToRun(
   toExecute: ReadonlyArray<{
     spaceId: string | null;
+    input: ContentTrashPurgeInput;
     plan: ContentTrashPurgePlanResponse;
   }>,
   previous: readonly ContentTrashPurgeStart[],
   newKey: () => string,
 ): PendingStart[] {
   const saved = new Map(previous.map((start) => [start.planId, start]));
-  return toExecute.map(({ spaceId, plan }) => {
+  return toExecute.map(({ spaceId, input, plan }) => {
     const start = saved.get(plan.planId);
     return start?.status === "started"
       ? {
@@ -100,6 +106,7 @@ export function trashStartsToRun(
           status: "starting",
           operationId: null,
           error: null,
+          input,
         };
   });
 }
@@ -469,6 +476,7 @@ export function TrashOperationSurface({
   onRetryState,
   onStartsChange,
   onDismiss,
+  onReviewAgain,
 }: {
   starts: readonly ContentTrashPurgeStart[] | undefined;
   stateError: boolean;
@@ -476,6 +484,10 @@ export function TrashOperationSurface({
   onRetryState: () => void;
   onStartsChange: (starts: ContentTrashPurgeStart[]) => Promise<void>;
   onDismiss: () => void;
+  onReviewAgain: (
+    start: ContentTrashPurgeStart,
+    invoker: HTMLElement | null,
+  ) => void;
 }) {
   const t = useT();
   if (!starts?.length && !stateError) return null;
@@ -521,6 +533,7 @@ export function TrashOperationSurface({
               start={start}
               workspace={workspace}
               onStartsChange={onStartsChange}
+              onReviewAgain={onReviewAgain}
               actions={actions}
             />
           );
@@ -534,11 +547,16 @@ function TrashPurgeStartStatus({
   start,
   workspace,
   onStartsChange,
+  onReviewAgain,
   actions,
 }: {
   start: ContentTrashPurgeStart;
   workspace: string;
   onStartsChange: (starts: ContentTrashPurgeStart[]) => Promise<void>;
+  onReviewAgain: (
+    start: ContentTrashPurgeStart,
+    invoker: HTMLElement | null,
+  ) => void;
   actions: ReactNode;
 }) {
   const t = useT();
@@ -553,8 +571,8 @@ function TrashPurgeStartStatus({
     try {
       const result = await executor.mutateAsync({
         planId,
-        scopeToken: PERSISTED_PURGE_RETRY_TOKEN,
         idempotencyKey,
+        recover: true,
       });
       next = {
         ...start,
@@ -563,11 +581,10 @@ function TrashPurgeStartStatus({
         error: null,
       };
     } catch (cause) {
-      next =
-        (cause as { errorCode?: unknown } | undefined)?.errorCode ===
-        "invalid_scope"
-          ? { ...start, status: "failed", error: t("trash.startExpired") }
-          : trashPurgeStartAfterError(start, cause, t("trash.startFailed"));
+      next = trashPurgeRecoveryAfterError(start, cause, {
+        expired: t("trash.startExpired"),
+        unknown: t("trash.startFailed"),
+      });
     }
     try {
       await onStartsChange([next]);
@@ -589,6 +606,14 @@ function TrashPurgeStartStatus({
             onClick={() => void retry()}
           >
             {t("trash.retry")}
+          </Button>
+        ) : start.status === "failed" && start.input ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={(event) => onReviewAgain(start, event.currentTarget)}
+          >
+            {t("trash.reviewAgain")}
           </Button>
         ) : null}
         {actions}
@@ -650,8 +675,8 @@ function TrashOperationStatus({
     if (!progress) return;
     await executor.mutateAsync({
       planId: progress.planId,
-      scopeToken: PERSISTED_PURGE_RETRY_TOKEN,
       idempotencyKey: progress.idempotencyKey,
+      recover: true,
     });
     await operation.refetch();
   }

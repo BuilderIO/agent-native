@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
@@ -892,6 +892,127 @@ describe("Content Trash purge", () => {
     expect(operation.status).toBe("succeeded");
   });
 
+  it("keeps reading a paused operation after its first batch deleted Pages", async () => {
+    const ids = Array.from({ length: 6 }, (_, index) => `batched-${index}`);
+    for (const id of ids) await insertTrashed(id);
+    const plan = await asOwner(() =>
+      planPurge.run({ mode: "selection", documentIds: ids }),
+    );
+    const operationId = crypto.randomUUID();
+    await getDb().insert(schema.contentTrashPurgeOperations).values({
+      id: operationId,
+      planId: plan.planId,
+      actorEmail: OWNER,
+      idempotencyKey: "batched-read",
+      status: "queued",
+      eligibleCount: plan.eligibleCount,
+    });
+    await asOwner(() => processPurge(operationId));
+    const remaining = await getDb()
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(inArray(schema.documents.id, ids));
+    expect(remaining).toHaveLength(1);
+
+    const progress = await asOwner(() =>
+      getOperation.run({ operationId, limit: 100 }),
+    );
+    expect(progress).toMatchObject({ status: "retryable", deletedCount: 5 });
+    await expect(
+      asOwner(() => getPlan.run({ planId: plan.planId, limit: 100 })),
+    ).resolves.toMatchObject({ planId: plan.planId });
+
+    await getDb()
+      .update(schema.contentTrashPurgeOperations)
+      .set({ status: "running" })
+      .where(eq(schema.contentTrashPurgeOperations.id, operationId));
+    await expect(
+      asOwner(() => getOperation.run({ operationId, limit: 100 })),
+    ).resolves.toMatchObject({ status: "running" });
+  });
+
+  it("recovers a start without starting one: pending while the plan can start, then the operation it commits", async () => {
+    await insertTrashed("recover-in-flight");
+    const plan = await asOwner(() =>
+      planPurge.run({ mode: "selection", documentIds: ["recover-in-flight"] }),
+    );
+    const recover = () =>
+      asOwner(() =>
+        executePurge.run({
+          planId: plan.planId,
+          idempotencyKey: "recover-in-flight",
+          recover: true,
+        }),
+      );
+
+    await expect(recover()).rejects.toMatchObject({
+      errorCode: "start_pending",
+    });
+    const [stillReady] = await getDb()
+      .select({ state: schema.contentTrashPurgePlans.state })
+      .from(schema.contentTrashPurgePlans)
+      .where(eq(schema.contentTrashPurgePlans.id, plan.planId));
+    expect(stillReady.state).toBe("ready");
+
+    const operationId = crypto.randomUUID();
+    await getDb()
+      .insert(schema.contentTrashPurgeOperations)
+      .values({
+        id: operationId,
+        planId: plan.planId,
+        actorEmail: OWNER,
+        idempotencyKey: "recover-in-flight",
+        status: "running",
+        eligibleCount: plan.eligibleCount,
+        leaseToken: "in-flight-lease",
+        leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+      });
+    await getDb()
+      .update(schema.contentTrashPurgePlans)
+      .set({ state: "confirmed" })
+      .where(eq(schema.contentTrashPurgePlans.id, plan.planId));
+
+    await expect(recover()).resolves.toEqual({
+      operationId,
+      status: "running",
+    });
+  });
+
+  it("calls a start expired only once its plan can never start, and keeps it from starting later", async () => {
+    await insertTrashed("recover-expired");
+    const plan = await asOwner(() =>
+      planPurge.run({ mode: "selection", documentIds: ["recover-expired"] }),
+    );
+    await getDb()
+      .update(schema.contentTrashPurgePlans)
+      .set({ expiresAt: new Date(Date.now() - 1_000).toISOString() })
+      .where(eq(schema.contentTrashPurgePlans.id, plan.planId));
+
+    await expect(
+      asOwner(() =>
+        executePurge.run({
+          planId: plan.planId,
+          idempotencyKey: "recover-expired",
+          recover: true,
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "start_expired" });
+    await expect(
+      asOwner(() =>
+        executePurge.run({
+          planId: plan.planId,
+          scopeToken: plan.scopeToken,
+          idempotencyKey: "recover-expired",
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "stale_scope" });
+    const operations = await getDb()
+      .select({ id: schema.contentTrashPurgeOperations.id })
+      .from(schema.contentTrashPurgeOperations)
+      .where(eq(schema.contentTrashPurgeOperations.planId, plan.planId));
+    expect(operations).toEqual([]);
+  });
+
   it("enforces one durable operation per plan", async () => {
     await insertTrashed("duplicate-root");
     const plan = await asOwner(() =>
@@ -1032,6 +1153,42 @@ describe("Content Trash purge across workspaces", () => {
     await expect(
       inViewerOrg(() => getOperation.run({ operationId, limit: 100 })),
     ).resolves.toEqual(expect.objectContaining({ operationId }));
+  });
+
+  it("plans and reads a workspace's organization-shared Pages whether or not that organization is active", async () => {
+    await insertTrashed("org-granted-page", "org-granted-page", {
+      spaceId: ORG_SPACE_ID,
+      orgId: ORG_ID,
+      ownerEmail: "org-colleague@example.test",
+    });
+    await getDb().insert(schema.documentShares).values({
+      id: "org-granted-share",
+      resourceId: "org-granted-page",
+      principalType: "org",
+      principalId: ORG_ID,
+      role: "admin",
+      createdBy: "org-colleague@example.test",
+    });
+    for (const activeOrgId of [ORG_ID, VIEWER_ORG_ID]) {
+      const asActive = <T>(run: () => Promise<T>) =>
+        runWithRequestContext({ userEmail: OWNER, orgId: activeOrgId }, run);
+      const plan = await asActive(() =>
+        planPurge.run({ mode: "scope", spaceId: ORG_SPACE_ID }),
+      );
+      expect(await planItemIds(plan.planId)).toContain("org-granted-page");
+      const read = await asActive(() =>
+        getPlan.run({ planId: plan.planId, limit: 100 }),
+      );
+      expect(read.items.map((item) => item.documentId)).toContain(
+        "org-granted-page",
+      );
+    }
+    await getDb()
+      .delete(schema.documentShares)
+      .where(eq(schema.documentShares.id, "org-granted-share"));
+    await getDb()
+      .delete(schema.documents)
+      .where(eq(schema.documents.id, "org-granted-page"));
   });
 
   it("ignores where in a scope plan and applies it in a matching plan", async () => {

@@ -1,4 +1,5 @@
 import { fail, isActionContractError } from "@agent-native/core/action";
+import { currentAccess, type AccessContext } from "@agent-native/core/sharing";
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -60,6 +61,20 @@ export async function resolveTrashPurgeProvenance(
     orgId: spaces[0]!.orgId,
     spaceId: spaces.length === 1 ? spaces[0]!.id : null,
   };
+}
+
+export async function trashPurgeAccessContext(
+  spaceId: string | null,
+): Promise<AccessContext> {
+  const ctx = currentAccess();
+  if (!spaceId) return ctx;
+  try {
+    const { authority } = await resolveContentSpaceAccess(spaceId, "editor");
+    return authority.orgId ? { ...ctx, orgId: authority.orgId } : ctx;
+  } catch (error) {
+    if (!isActionContractError(error)) throw error;
+    return ctx;
+  }
 }
 
 export async function listTrashPurgeSpaces(email: string) {

@@ -34,6 +34,7 @@ import {
   contentTrashWhereSchema,
   validateContentTrashDateRange,
 } from "./_content-trash-query.js";
+import { configurationRevision } from "./_database-setup-mutation.js";
 
 const inputSchema = z
   .object({
@@ -243,6 +244,10 @@ export default defineAction({
         rawRootId: doc.trashRootId,
         documentTrashedAt: doc.trashedAt,
         databaseDeletedAt: database.deletedAt,
+        databaseSpaceId: database.spaceId,
+        databaseDocumentId: database.documentId,
+        databaseOwnerBlockId: database.ownerBlockId,
+        databaseViewConfigJson: database.viewConfigJson,
       })
       .from(doc)
       .leftJoin(database, eq(database.id, canonical))
@@ -382,10 +387,31 @@ export default defineAction({
           rawRootId,
           documentTrashedAt,
           databaseDeletedAt,
+          databaseSpaceId,
+          databaseDocumentId,
+          databaseOwnerBlockId,
+          databaseViewConfigJson,
           sortValue: _sortValue,
           ...row
         }) => ({
           ...row,
+          collectionRestore:
+            row.databaseId !== null &&
+            ownerDocumentId === null &&
+            databaseSpaceId !== null &&
+            databaseDocumentId !== null &&
+            databaseViewConfigJson !== null
+              ? {
+                  spaceId: databaseSpaceId,
+                  databaseDocumentId,
+                  configurationRevision: configurationRevision({
+                    viewConfigJson: databaseViewConfigJson,
+                    deletedAt: databaseDeletedAt,
+                    ownerDocumentId,
+                    ownerBlockId: databaseOwnerBlockId,
+                  }),
+                }
+              : null,
           createdByState: row.createdBy === null ? "unresolved" : "known",
           updatedByState: row.updatedBy === null ? "unresolved" : "known",
           trashedByState: row.trashedBy === null ? "unresolved" : "known",

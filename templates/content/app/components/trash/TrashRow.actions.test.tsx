@@ -48,6 +48,7 @@ const item = {
   canRestore: true,
   canPermanentlyDelete: true,
   hasAccessibleTrashedChildren: false,
+  collectionRestore: null,
 } satisfies ContentTrashItem;
 
 let root: Root | null = null;
@@ -58,7 +59,7 @@ afterEach(async () => {
   document.body.replaceChildren();
 });
 
-async function renderRow(row: ContentTrashItem = item) {
+async function renderRow(row: ContentTrashItem = item, purgeable = true) {
   const handlers = {
     onOpen: vi.fn(),
     onRestore: vi.fn(),
@@ -78,6 +79,7 @@ async function renderRow(row: ContentTrashItem = item) {
             onSelect={() => {}}
             onToggle={() => {}}
             {...handlers}
+            purgeable={purgeable}
             focused
             rowRef={() => {}}
             onFocus={() => {}}
@@ -190,5 +192,14 @@ describe("Trash row actions", () => {
     expect(disabled("trash.restore")).toBe(true);
     expect(disabled("trash.openPreview")).toBe(false);
     expect(disabled("trash.deletePermanently")).toBe(true);
+  });
+
+  it("leaves Delete permanently out in a workspace the caller can't purge", async () => {
+    const { host } = await renderRow(item, false);
+
+    expect((await openMenu(host)).map((entry) => entry.textContent)).toEqual([
+      "trash.restore",
+      "trash.openPreview",
+    ]);
   });
 });

@@ -266,17 +266,18 @@ export interface ContentTrashPurgeStart {
   status: "starting" | "started" | "failed" | "unknown";
   operationId: string | null;
   error: string | null;
+  input: ContentTrashPurgeInput | null;
 }
+
+export const TRASH_PURGES_STATE_KEY = "content-trash-purges";
 
 export interface TrashContextState {
   filters: ContentTrashFilters;
   selection: ContentTrashSelection;
   previewId: string | null;
-  purgeStarts: ContentTrashPurgeStart[];
 }
 
 export function writeTrashContext(state: TrashContextState) {
-  const operationIds = trashPurgeOperationIds(state.purgeStarts);
   return setClientAppState(
     "content-trash",
     {
@@ -289,28 +290,33 @@ export function writeTrashContext(state: TrashContextState) {
       matchingFilters:
         state.selection.mode === "matching" ? state.selection.filters : null,
       previewId: state.previewId,
-      operationId: operationIds[0] ?? null,
-      operationIds,
-      purgeStarts: state.purgeStarts,
     },
     { requestSource: "content-trash" },
   );
 }
 
 export function useTrashContext(
-  state: Omit<TrashContextState, "purgeStarts"> & {
-    purgeStarts: ContentTrashPurgeStart[] | undefined;
-  },
+  state: TrashContextState & { enabled: boolean },
 ) {
-  const { filters, selection, previewId, purgeStarts } = state;
+  const { filters, selection, previewId, enabled } = state;
   useEffect(() => {
-    if (purgeStarts === undefined) return;
-    void writeTrashContext({ filters, selection, previewId, purgeStarts });
-  }, [filters, purgeStarts, previewId, selection]);
+    if (!enabled) return;
+    void writeTrashContext({ filters, selection, previewId });
+  }, [enabled, filters, previewId, selection]);
 }
 
-function trashPurgeStartKey(start: ContentTrashPurgeStart) {
+export function trashPurgeStartKey(start: ContentTrashPurgeStart) {
   return start.planId ?? `operation:${start.operationId}`;
+}
+
+function mergeTrashPurgeStart(
+  saved: ContentTrashPurgeStart | undefined,
+  update: ContentTrashPurgeStart,
+) {
+  if (!saved) return update;
+  if (update.status === "started" && update.operationId) return update;
+  if (saved.status === "started" && saved.operationId) return saved;
+  return update;
 }
 
 export function upsertTrashPurgeStarts(
@@ -323,7 +329,7 @@ export function upsertTrashPurgeStarts(
       (start) => trashPurgeStartKey(start) === trashPurgeStartKey(update),
     );
     if (index < 0) next.push(update);
-    else next[index] = update;
+    else next[index] = mergeTrashPurgeStart(next[index], update);
   }
   return next;
 }
@@ -355,12 +361,31 @@ export function trashPurgeStartAfterError<T extends ContentTrashPurgeStart>(
   };
 }
 
+export function trashPurgeRecoveryAfterError(
+  start: ContentTrashPurgeStart,
+  error: unknown,
+  messages: { expired: string; unknown: string },
+): ContentTrashPurgeStart {
+  const operationId = trashOperationIdFromError(error);
+  if (operationId)
+    return { ...start, status: "started", operationId, error: null };
+  return (error as { errorCode?: unknown } | undefined)?.errorCode ===
+    "start_expired"
+    ? { ...start, status: "failed", error: messages.expired }
+    : {
+        ...start,
+        status: "unknown",
+        error: trashActionError(error, messages.unknown),
+      };
+}
+
 const PURGE_START_STATUSES = new Set<ContentTrashPurgeStart["status"]>([
   "starting",
   "started",
   "failed",
   "unknown",
 ]);
+const PURGE_INPUT_MODES = new Set<unknown>(["scope", "selection", "matching"]);
 
 function parseTrashPurgeStart(value: unknown): ContentTrashPurgeStart {
   if (typeof value !== "object" || value === null)
@@ -376,39 +401,106 @@ function parseTrashPurgeStart(value: unknown): ContentTrashPurgeStart {
     operationId: text(start.operationId),
     error: text(start.error),
   };
+  const input = start.input ?? null;
   if (
     Object.values(parsed).some((field) => field === undefined) ||
-    !PURGE_START_STATUSES.has(parsed.status as ContentTrashPurgeStart["status"])
+    !PURGE_START_STATUSES.has(
+      parsed.status as ContentTrashPurgeStart["status"],
+    ) ||
+    (input !== null &&
+      (typeof input !== "object" ||
+        !PURGE_INPUT_MODES.has((input as { mode?: unknown }).mode)))
   )
     throw new Error("Saved Trash purge state is malformed");
-  const known = parsed as ContentTrashPurgeStart;
+  const known = {
+    ...parsed,
+    input: input as ContentTrashPurgeInput | null,
+  } as ContentTrashPurgeStart;
   return known.status === "starting" ? { ...known, status: "unknown" } : known;
 }
 
-export async function readTrashPurgeStarts(): Promise<
-  ContentTrashPurgeStart[]
-> {
+async function readSavedTrashPurgeStarts() {
+  const records = await readClientAppState<{ purgeStarts?: unknown }>(
+    TRASH_PURGES_STATE_KEY,
+  );
+  if (records !== null) {
+    if (!Array.isArray(records.purgeStarts))
+      throw new Error("Saved Trash purge state is malformed");
+    return {
+      starts: records.purgeStarts.map(parseTrashPurgeStart),
+      legacy: false,
+    };
+  }
   const state = await readClientAppState<{
     operationId?: unknown;
     operationIds?: unknown;
     purgeStarts?: unknown;
   }>("content-trash");
   if (Array.isArray(state?.purgeStarts))
-    return state.purgeStarts.map(parseTrashPurgeStart);
+    return {
+      starts: state.purgeStarts.map(parseTrashPurgeStart),
+      legacy: true,
+    };
   const operationIds =
     Array.isArray(state?.operationIds) && state.operationIds.length
       ? state.operationIds.filter((id): id is string => typeof id === "string")
       : typeof state?.operationId === "string"
         ? [state.operationId]
         : [];
-  return operationIds.map((operationId) => ({
-    spaceId: null,
-    planId: null,
-    idempotencyKey: null,
-    status: "started",
-    operationId,
-    error: null,
-  }));
+  return {
+    starts: operationIds.map(
+      (operationId): ContentTrashPurgeStart => ({
+        spaceId: null,
+        planId: null,
+        idempotencyKey: null,
+        status: "started",
+        operationId,
+        error: null,
+        input: null,
+      }),
+    ),
+    legacy: true,
+  };
+}
+
+export async function readTrashPurgeStarts() {
+  return (await readSavedTrashPurgeStarts()).starts;
+}
+
+export async function loadTrashPurgeStarts() {
+  const { starts, legacy } = await readSavedTrashPurgeStarts();
+  return legacy && starts.length ? writeTrashPurgeStarts(starts) : starts;
+}
+
+async function writeTrashPurgeStarts(starts: ContentTrashPurgeStart[]) {
+  await setClientAppState(
+    TRASH_PURGES_STATE_KEY,
+    { purgeStarts: starts, operationIds: trashPurgeOperationIds(starts) },
+    { requestSource: "content-trash" },
+  );
+  return starts;
+}
+
+export async function saveTrashPurgeStarts(
+  known: readonly ContentTrashPurgeStart[],
+  updates: readonly ContentTrashPurgeStart[],
+) {
+  const saved = await readTrashPurgeStarts();
+  const savedKeys = new Set(saved.map(trashPurgeStartKey));
+  const unsaved = known.filter(
+    (start) =>
+      start.status !== "failed" && !savedKeys.has(trashPurgeStartKey(start)),
+  );
+  return writeTrashPurgeStarts(
+    upsertTrashPurgeStarts([...saved, ...unsaved], updates),
+  );
+}
+
+export async function removeTrashPurgeStarts(keys: ReadonlySet<string>) {
+  const saved = await readTrashPurgeStarts();
+  return writeTrashPurgeStarts(
+    saved.filter((start) => !keys.has(trashPurgeStartKey(start))),
+  );
 }
 
 export interface ContentTrashOperation {
@@ -476,7 +568,10 @@ export function useContentTrashPurgePlan(planId: string | null) {
 export function useExecuteContentTrashPurge() {
   return useContentActionMutation<
     { operationId: string; status: ContentTrashPurgeStatus },
-    { planId: string; scopeToken: string; idempotencyKey: string }
+    { planId: string; idempotencyKey: string } & (
+      | { scopeToken: string }
+      | { recover: true }
+    )
   >("execute-content-trash-purge", {
     invalidates: [["action", "list-content-trash"]],
   });
@@ -534,10 +629,16 @@ export function isRestoreBusyError(error: unknown) {
 }
 
 export function isTrashRevisionConflict(error: unknown) {
+  const errorCode = (error as { errorCode?: unknown } | undefined)?.errorCode;
   return (
-    (error as { errorCode?: unknown } | undefined)?.errorCode ===
-    "TRASH_REVISION_CONFLICT"
+    errorCode === "TRASH_REVISION_CONFLICT" ||
+    errorCode === "CONFIGURATION_REVISION_CONFLICT"
   );
+}
+
+export function isSettledRestoreFailure(error: unknown) {
+  const status = (error as { status?: unknown } | undefined)?.status;
+  return typeof status === "number" && status >= 400 && status < 500;
 }
 
 export function trashOperationIdFromError(error: unknown) {
@@ -565,6 +666,60 @@ export function useRestoreTrashPage() {
 
 export function trashRestoreCollectionId(item: ContentTrashItem) {
   return item.legacyRestoreDatabaseId ?? item.databaseId;
+}
+
+export function trashRestoreIntentKey(item: ContentTrashItem) {
+  return `${item.documentId}@${item.collectionRestore?.configurationRevision ?? item.trashedAt}`;
+}
+
+export function trashRestoreRequest(
+  item: ContentTrashItem,
+  idempotencyKey: string,
+) {
+  const databaseId = trashRestoreCollectionId(item);
+  if (databaseId && item.collectionRestore)
+    return {
+      kind: "collection",
+      input: {
+        target: {
+          spaceId: item.collectionRestore.spaceId,
+          databaseId,
+          databaseDocumentId: item.collectionRestore.databaseDocumentId,
+        },
+        expectedConfigurationRevision:
+          item.collectionRestore.configurationRevision,
+        idempotencyKey,
+      },
+    } as const;
+  if (databaseId)
+    return {
+      kind: "collection",
+      input: { databaseId, expectedDeletedAt: item.trashedAt },
+    } as const;
+  return {
+    kind: "page",
+    input: {
+      id: item.documentId,
+      expectedTrashedAt: item.trashedAt,
+      idempotencyKey,
+    },
+  } as const;
+}
+
+export function trashRestoreSelectionCleanup(
+  restoredIds: ReadonlySet<string>,
+  submitted: ReadonlyMap<string, string>,
+  loadedItems: readonly ContentTrashItem[],
+) {
+  const current = new Map(
+    loadedItems.map((item) => [item.documentId, item.trashedAt]),
+  );
+  return new Set(
+    [...restoredIds].filter((id) => {
+      const trashedAt = current.get(id);
+      return trashedAt === undefined || trashedAt === submitted.get(id);
+    }),
+  );
 }
 
 export function restoredTrashItemIds(

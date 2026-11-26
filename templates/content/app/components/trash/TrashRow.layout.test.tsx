@@ -50,6 +50,7 @@ const item = {
   canRestore: true,
   canPermanentlyDelete: true,
   hasAccessibleTrashedChildren: false,
+  collectionRestore: null,
 } satisfies ContentTrashItem;
 
 function renderRow(row: ContentTrashItem, selected = false) {

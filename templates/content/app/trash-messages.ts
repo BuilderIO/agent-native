@@ -66,7 +66,6 @@ const en = {
   emptyDescription:
     "This permanently deletes every Page you can manage in Trash, in all your workspaces. Search and filters do not limit it. This cannot be undone.",
   planning: "Preparing exact scope...",
-  planFailed: "Could not prepare Empty Trash",
   startFailed: "Permanent deletion could not start.",
   cannotPurgeWorkspace:
     "{{workspace}}: You cannot permanently delete Pages in this workspace",
@@ -108,8 +107,6 @@ const en = {
   survivorEffect: "Survivor effect: {{effect}}",
   reviewRemaining: "Load remaining outcomes",
   outcome: "Outcome: {{outcome}}",
-  confirmEmpty_one: "Delete {{count}} Page",
-  confirmEmpty_other: "Delete {{count}} Pages",
   close: "Close",
   reviewAgain: "Review Trash again",
   retry: "Retry",
@@ -198,7 +195,6 @@ const translations: Record<
     emptyDescription:
       "Se eliminarán permanentemente todas las páginas que puedes administrar en la papelera, en todos tus espacios de trabajo. La búsqueda y los filtros no la limitan. Esta acción no se puede deshacer.",
     planning: "Preparando el alcance exacto...",
-    planFailed: "No se pudo preparar el vaciado",
     startFailed: "No se pudo iniciar la eliminación permanente.",
     cannotPurgeWorkspace:
       "{{workspace}}: No puedes eliminar páginas permanentemente en este espacio de trabajo",
@@ -242,9 +238,6 @@ const translations: Record<
     survivorEffect: "Efecto en supervivientes: {{effect}}",
     reviewRemaining: "Cargar resultados restantes",
     outcome: "Resultado: {{outcome}}",
-    confirmEmpty_one: "Eliminar {{count}} página",
-    confirmEmpty_many: "Eliminar {{count}} páginas",
-    confirmEmpty_other: "Eliminar {{count}} páginas",
     close: "Cerrar",
     reviewAgain: "Revisar la papelera de nuevo",
     retry: "Reintentar",
@@ -327,7 +320,6 @@ const translations: Record<
     emptyDescription:
       "Supprime définitivement toutes les pages que vous pouvez gérer dans la corbeille, dans tous vos espaces de travail. La recherche et les filtres ne la limitent pas. Cette action est irréversible.",
     planning: "Préparation de la portée exacte...",
-    planFailed: "Impossible de preparer le vidage",
     startFailed: "La suppression définitive n'a pas pu démarrer.",
     cannotPurgeWorkspace:
       "{{workspace}} : vous ne pouvez pas supprimer définitivement de pages dans cet espace de travail",
@@ -372,9 +364,6 @@ const translations: Record<
     survivorEffect: "Effet sur les survivants : {{effect}}",
     reviewRemaining: "Charger les résultats restants",
     outcome: "Résultat : {{outcome}}",
-    confirmEmpty_one: "Supprimer {{count}} page",
-    confirmEmpty_many: "Supprimer {{count}} pages",
-    confirmEmpty_other: "Supprimer {{count}} pages",
     close: "Fermer",
     reviewAgain: "Revoir la corbeille",
     retry: "Reessayer",
@@ -454,7 +443,6 @@ const translations: Record<
     emptyDescription:
       "Alle verwaltbaren Seiten im Papierkorb werden in allen Arbeitsbereichen endgültig gelöscht. Suche und Filter schränken diesen Vorgang nicht ein. Dies kann nicht rückgängig gemacht werden.",
     planning: "Genauer Umfang wird vorbereitet...",
-    planFailed: "Leeren konnte nicht vorbereitet werden",
     startFailed: "Endgültiges Löschen konnte nicht gestartet werden.",
     cannotPurgeWorkspace:
       "{{workspace}}: Keine Berechtigung, in diesem Arbeitsbereich Seiten endgültig zu löschen",
@@ -497,8 +485,6 @@ const translations: Record<
     survivorEffect: "Auswirkung auf verbleibende Seiten: {{effect}}",
     reviewRemaining: "Verbleibende Ergebnisse laden",
     outcome: "Ergebnis: {{outcome}}",
-    confirmEmpty_one: "{{count}} Seite löschen",
-    confirmEmpty_other: "{{count}} Seiten löschen",
     close: "Schliessen",
     reviewAgain: "Papierkorb erneut prufen",
     retry: "Erneut versuchen",
@@ -581,7 +567,6 @@ const translations: Record<
     emptyDescription:
       "Exclui permanentemente todas as páginas gerenciáveis da lixeira, em todos os seus espaços de trabalho. A busca e os filtros não limitam esta operação. Não é possível desfazer.",
     planning: "Preparando o escopo exato...",
-    planFailed: "Nao foi possivel preparar o esvaziamento",
     startFailed: "Não foi possível iniciar a exclusão permanente.",
     cannotPurgeWorkspace:
       "{{workspace}}: Você não pode excluir páginas permanentemente neste espaço de trabalho",
@@ -625,9 +610,6 @@ const translations: Record<
     survivorEffect: "Efeito em sobreviventes: {{effect}}",
     reviewRemaining: "Carregar resultados restantes",
     outcome: "Resultado: {{outcome}}",
-    confirmEmpty_one: "Excluir {{count}} página",
-    confirmEmpty_many: "Excluir {{count}} páginas",
-    confirmEmpty_other: "Excluir {{count}} páginas",
     close: "Fechar",
     reviewAgain: "Revisar a lixeira novamente",
     retry: "Tentar novamente",
@@ -702,7 +684,6 @@ const translations: Record<
     emptyDescription:
       "这会永久删除你所有工作区回收站中可管理的页面。搜索和筛选不会限制此操作。此操作无法撤销。",
     planning: "正在准备准确范围...",
-    planFailed: "无法准备清空回收站",
     startFailed: "无法开始永久删除。",
     cannotPurgeWorkspace: "{{workspace}}：你无法在此工作区永久删除页面",
     startStarted: "{{workspace}}：已开始删除",
@@ -738,7 +719,6 @@ const translations: Record<
     survivorEffect: "对保留页面的影响：{{effect}}",
     reviewRemaining: "加载剩余结果",
     outcome: "结果：{{outcome}}",
-    confirmEmpty_other: "删除 {{count}} 个页面",
     close: "关闭",
     reviewAgain: "重新检查回收站",
     retry: "重试",
@@ -812,7 +792,6 @@ const translations: Record<
     emptyDescription:
       "這會永久刪除你所有工作區垃圾桶中可管理的頁面。搜尋和篩選不會限制此操作。此操作無法復原。",
     planning: "正在準備確切範圍...",
-    planFailed: "無法準備清空垃圾桶",
     startFailed: "無法開始永久刪除。",
     cannotPurgeWorkspace: "{{workspace}}：你無法在此工作區永久刪除頁面",
     startStarted: "{{workspace}}：已開始刪除",
@@ -848,7 +827,6 @@ const translations: Record<
     survivorEffect: "對保留頁面的影響：{{effect}}",
     reviewRemaining: "載入剩餘結果",
     outcome: "結果：{{outcome}}",
-    confirmEmpty_other: "刪除 {{count}} 個頁面",
     close: "關閉",
     reviewAgain: "重新檢查垃圾桶",
     retry: "重試",
@@ -924,7 +902,6 @@ const translations: Record<
     emptyDescription:
       "すべてのワークスペースのゴミ箱にある、管理可能なページをすべて完全に削除します。検索とフィルターはこの操作を制限しません。この操作は元に戻せません。",
     planning: "正確な範囲を準備中...",
-    planFailed: "ゴミ箱を空にする準備ができませんでした",
     startFailed: "完全削除を開始できませんでした。",
     cannotPurgeWorkspace:
       "{{workspace}}：このワークスペースではページを完全に削除できません",
@@ -964,7 +941,6 @@ const translations: Record<
     survivorEffect: "残るページへの影響: {{effect}}",
     reviewRemaining: "残りの結果を読み込む",
     outcome: "結果: {{outcome}}",
-    confirmEmpty_other: "{{count}} ページを削除",
     close: "閉じる",
     reviewAgain: "ゴミ箱を再確認",
     retry: "再試行",
@@ -1039,7 +1015,6 @@ const translations: Record<
     emptyDescription:
       "모든 워크스페이스의 휴지통에서 관리 가능한 모든 페이지를 영구 삭제합니다. 검색과 필터는 이 작업을 제한하지 않습니다. 이 작업은 되돌릴 수 없습니다.",
     planning: "정확한 범위 준비 중...",
-    planFailed: "휴지통 비우기를 준비할 수 없습니다",
     startFailed: "영구 삭제를 시작할 수 없습니다.",
     cannotPurgeWorkspace:
       "{{workspace}}: 이 워크스페이스에서는 페이지를 영구 삭제할 수 없습니다",
@@ -1079,7 +1054,6 @@ const translations: Record<
     survivorEffect: "남는 페이지에 미치는 영향: {{effect}}",
     reviewRemaining: "남은 결과 불러오기",
     outcome: "결과: {{outcome}}",
-    confirmEmpty_other: "페이지 {{count}}개 삭제",
     close: "닫기",
     reviewAgain: "휴지통 다시 검토",
     retry: "다시 시도",
@@ -1157,7 +1131,6 @@ const translations: Record<
     emptyDescription:
       "आपके सभी कार्यस्थानों के ट्रैश में मौजूद सभी प्रबंधनीय पेज हमेशा के लिए हट जाएंगे। खोज और फ़िल्टर इस कार्रवाई को सीमित नहीं करते। इसे वापस नहीं किया जा सकता।",
     planning: "सटीक दायरा तैयार हो रहा है...",
-    planFailed: "ट्रैश खाली करने की तैयारी नहीं हो सकी",
     startFailed: "स्थायी हटाना शुरू नहीं हो सका।",
     cannotPurgeWorkspace:
       "{{workspace}}: आप इस कार्यस्थान में पेज हमेशा के लिए नहीं हटा सकते",
@@ -1197,8 +1170,6 @@ const translations: Record<
     survivorEffect: "बचे पेज पर प्रभाव: {{effect}}",
     reviewRemaining: "बाकी परिणाम लोड करें",
     outcome: "परिणाम: {{outcome}}",
-    confirmEmpty_one: "{{count}} पेज हटाएं",
-    confirmEmpty_other: "{{count}} पेज हटाएं",
     close: "बंद करें",
     reviewAgain: "ट्रैश फिर जांचें",
     retry: "फिर कोशिश करें",
@@ -1288,7 +1259,6 @@ const translations: Record<
     emptyDescription:
       "يحذف نهائيا كل الصفحات القابلة للإدارة في المهملات، في كل مساحات العمل. لا يحد البحث أو التصفية من هذا الإجراء. لا يمكن التراجع عن ذلك.",
     planning: "جار تحضير النطاق الدقيق...",
-    planFailed: "تعذر تحضير إفراغ المهملات",
     startFailed: "تعذر بدء الحذف النهائي.",
     cannotPurgeWorkspace:
       "{{workspace}}: لا يمكنك حذف الصفحات نهائيا في مساحة العمل هذه",
@@ -1336,12 +1306,6 @@ const translations: Record<
     survivorEffect: "التأثير على الصفحات الباقية: {{effect}}",
     reviewRemaining: "تحميل النتائج المتبقية",
     outcome: "النتيجة: {{outcome}}",
-    confirmEmpty_zero: "حذف {{count}} صفحة",
-    confirmEmpty_one: "حذف صفحة واحدة ({{count}})",
-    confirmEmpty_two: "حذف صفحتين ({{count}})",
-    confirmEmpty_few: "حذف {{count}} صفحات",
-    confirmEmpty_many: "حذف {{count}} صفحة",
-    confirmEmpty_other: "حذف {{count}} صفحة",
     close: "إغلاق",
     reviewAgain: "مراجعة المهملات مجددا",
     retry: "إعادة المحاولة",

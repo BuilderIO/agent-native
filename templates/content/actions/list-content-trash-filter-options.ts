@@ -28,7 +28,9 @@ export default defineAction({
       .trim()
       .max(200)
       .optional()
-      .describe("Literal text an email, name or location title contains."),
+      .describe(
+        "Literal text a person's email or a location's title contains; people's names are not searched.",
+      ),
     limit: z.coerce
       .number()
       .int()

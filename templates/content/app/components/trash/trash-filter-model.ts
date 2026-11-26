@@ -90,13 +90,10 @@ export function trashFilterFields(
 }
 
 export function collectTrashFilterOptions(
-  previous: Pick<TrashFilterOptions, "people" | "locations">,
   items: readonly ContentTrashItem[],
 ): Pick<TrashFilterOptions, "people" | "locations"> {
-  const people = new Map(previous.people.map((option) => [option.id, option]));
-  const locations = new Map(
-    previous.locations.map((option) => [option.id, option]),
-  );
+  const people = new Map<string, FilterOption>();
+  const locations = new Map<string, FilterOption>();
   for (const item of items) {
     for (const [email, name] of [
       [item.createdBy, item.createdByName],
@@ -143,6 +140,15 @@ export function addTrashFilterOptions(
     people: sortOptions(people.values()),
     locations: sortOptions(locations.values()),
   };
+}
+
+export function trashFilterOptions(
+  items: readonly ContentTrashItem[],
+  response: ContentTrashFilterOptionsResponse | undefined,
+  untitled: string,
+): Pick<TrashFilterOptions, "people" | "locations"> {
+  const loaded = collectTrashFilterOptions(items);
+  return response ? addTrashFilterOptions(loaded, response, untitled) : loaded;
 }
 
 function sortOptions(options: Iterable<FilterOption>) {

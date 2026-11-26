@@ -84,26 +84,32 @@ describe("Trash purge confirmation planning", () => {
 
     expect(
       trashPlansToExecute(plans, new Set(["plan-a", "plan-c", "plan-d"]))?.map(
-        (entry) => entry.plan.planId,
+        (entry) => [entry.plan.planId, entry.input],
       ),
-    ).toEqual(["plan-a", "plan-d"]);
+    ).toEqual([
+      ["plan-a", target("a").input],
+      ["plan-d", target("d").input],
+    ]);
   });
 
   it("retries each unresolved start with its original plan and key, skipping started ones", () => {
-    const toExecute = [
-      { spaceId: "a", plan: plan("plan-a", 2) },
-      { spaceId: "b", plan: plan("plan-b", 1) },
-      { spaceId: "c", plan: plan("plan-c", 3) },
-    ];
+    const toExecute = ["a", "b", "c"].map((spaceId, index) => ({
+      ...target(spaceId),
+      plan: plan(`plan-${spaceId}`, index + 1),
+    }));
     let keys = 0;
     const first = trashStartsToRun(toExecute, [], () => `key-${++keys}`);
 
     expect(
-      first.map(({ idempotencyKey, status }) => [idempotencyKey, status]),
+      first.map(({ idempotencyKey, status, input }) => [
+        idempotencyKey,
+        status,
+        input,
+      ]),
     ).toEqual([
-      ["key-1", "starting"],
-      ["key-2", "starting"],
-      ["key-3", "starting"],
+      ["key-1", "starting", target("a").input],
+      ["key-2", "starting", target("b").input],
+      ["key-3", "starting", target("c").input],
     ]);
 
     const outcomes = [

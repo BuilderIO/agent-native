@@ -13,11 +13,7 @@ import {
   type ContentTrashPurgeStart,
 } from "@/hooks/use-content-trash";
 
-import {
-  PERSISTED_PURGE_RETRY_TOKEN,
-  TrashOperationSurface,
-  TrashPurgeDialog,
-} from "./EmptyTrashDialog";
+import { TrashOperationSurface, TrashPurgeDialog } from "./EmptyTrashDialog";
 
 (
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
@@ -25,9 +21,8 @@ import {
 
 type ExecuteInput = {
   planId: string;
-  scopeToken: string;
   idempotencyKey: string;
-};
+} & ({ scopeToken: string } | { recover: true });
 
 const pendingPlans: Array<{
   resolve: (value: unknown) => void;
@@ -492,22 +487,27 @@ describe("Saved purge starts after a reload", () => {
     status: "unknown",
     operationId: null,
     error: "Failed to fetch",
+    input: { mode: "scope", spaceId: "space-b" },
   };
+  const refusal = (errorCode: string) =>
+    Object.assign(new Error(errorCode), { status: 409, errorCode });
 
   async function renderSurface(starts: ContentTrashPurgeStart[]) {
     const host = document.createElement("div");
     document.body.append(host);
     const root = createRoot(host);
     const saves: ContentTrashPurgeStart[][] = [];
+    const reviewed: ContentTrashPurgeStart[] = [];
     await act(async () => {
       root.render(
         <SurfaceHarness
           initial={starts}
           onSave={(update) => saves.push(update)}
+          onReviewAgain={(start) => reviewed.push(start)}
         />,
       );
     });
-    return { host, root, saves };
+    return { host, root, saves, reviewed };
   }
 
   it("retries an unknown start with its saved plan and key, then follows the operation", async () => {
@@ -520,11 +520,7 @@ describe("Saved purge starts after a reload", () => {
     await act(async () => buttonStartingWith("trash.retry")?.click());
 
     expect(executed).toEqual([
-      {
-        planId: "plan-b",
-        scopeToken: PERSISTED_PURGE_RETRY_TOKEN,
-        idempotencyKey: "key-b",
-      },
+      { planId: "plan-b", idempotencyKey: "key-b", recover: true },
     ]);
     expect(saves).toEqual([
       [
@@ -540,15 +536,55 @@ describe("Saved purge starts after a reload", () => {
     await act(async () => root.unmount());
   });
 
-  it("says the start expired when the server never accepted that key", async () => {
-    executeFor = () =>
-      Promise.reject(
-        Object.assign(new Error("Purge plan or scope token is invalid"), {
-          status: 404,
-          errorCode: "invalid_scope",
-        }),
-      );
+  it("keeps retrying a start the server hasn't settled, until the original commits and is followed", async () => {
+    const answers = [
+      () => Promise.reject(refusal("start_pending")),
+      () => Promise.reject(refusal("invalid_scope")),
+      () => Promise.resolve({ operationId: "op-b" }),
+    ];
+    executeFor = () => {
+      const answer = answers.shift();
+      return answer ? answer() : Promise.reject(new Error("unexpected retry"));
+    };
     const { host, root, saves } = await renderSurface([unknownStart]);
+
+    await act(async () => buttonStartingWith("trash.retry")?.click());
+    await act(async () => buttonStartingWith("trash.retry")?.click());
+
+    expect(saves.map((update) => update.map((start) => start.status))).toEqual([
+      ["unknown"],
+      ["unknown"],
+    ]);
+    expect(host.textContent).toContain(
+      'trash.startUnknown {"workspace":"Workspace space-b"}',
+    );
+
+    await act(async () => buttonStartingWith("trash.retry")?.click());
+
+    expect(executed).toEqual(
+      Array.from({ length: 3 }, () => ({
+        planId: "plan-b",
+        idempotencyKey: "key-b",
+        recover: true,
+      })),
+    );
+    expect(saves.slice(2)).toEqual([
+      [
+        {
+          ...unknownStart,
+          status: "started",
+          operationId: "op-b",
+          error: null,
+        },
+      ],
+    ]);
+    expect(host.textContent).toContain('trash.running {"count":1}');
+    await act(async () => root.unmount());
+  });
+
+  it("says the start expired once the server rules it out, and offers a new review", async () => {
+    executeFor = () => Promise.reject(refusal("start_expired"));
+    const { host, root, saves, reviewed } = await renderSurface([unknownStart]);
 
     await act(async () => buttonStartingWith("trash.retry")?.click());
 
@@ -559,6 +595,12 @@ describe("Saved purge starts after a reload", () => {
       'trash.startDidNotStart {"workspace":"Workspace space-b","error":"trash.startExpired"}',
     );
     expect(buttonStartingWith("trash.retry")).toBeUndefined();
+
+    await act(async () => buttonStartingWith("trash.reviewAgain")?.click());
+
+    expect(reviewed).toEqual([
+      { ...unknownStart, status: "failed", error: "trash.startExpired" },
+    ]);
     await act(async () => root.unmount());
   });
 });
@@ -566,9 +608,11 @@ describe("Saved purge starts after a reload", () => {
 function SurfaceHarness({
   initial,
   onSave,
+  onReviewAgain,
 }: {
   initial: ContentTrashPurgeStart[];
   onSave: (starts: ContentTrashPurgeStart[]) => void;
+  onReviewAgain: (start: ContentTrashPurgeStart) => void;
 }) {
   const [starts, setStarts] = useState(initial);
   return (
@@ -582,6 +626,7 @@ function SurfaceHarness({
         setStarts((current) => upsertTrashPurgeStarts(current, updates));
       }}
       onDismiss={() => setStarts([])}
+      onReviewAgain={onReviewAgain}
     />
   );
 }

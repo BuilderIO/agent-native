@@ -25,6 +25,13 @@ export interface ContentTrashItem {
   canRestore: boolean;
   canPermanentlyDelete: boolean;
   hasAccessibleTrashedChildren: boolean;
+  collectionRestore: ContentTrashCollectionRestore | null;
+}
+
+export interface ContentTrashCollectionRestore {
+  spaceId: string;
+  databaseDocumentId: string;
+  configurationRevision: string;
 }
 
 export type ContentTrashWhereCondition =

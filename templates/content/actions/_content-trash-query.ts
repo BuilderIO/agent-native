@@ -68,7 +68,7 @@ const contentTrashConditionSchema = z.union([
 
 const contentTrashMatchModeSchema = z.enum(["and", "or"]);
 
-export const CONTENT_TRASH_WHERE_BUDGET = { conditions: 50, values: 200 };
+const CONTENT_TRASH_WHERE_BUDGET = { conditions: 50, values: 200 };
 
 export const contentTrashWhereSchema = z.preprocess(
   (value) => {

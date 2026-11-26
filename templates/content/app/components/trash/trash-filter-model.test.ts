@@ -9,6 +9,7 @@ import {
   addTrashFilterOptions,
   collectTrashFilterOptions,
   trashFilterFields,
+  trashFilterOptions,
   trashWhereFromFilterState,
 } from "./trash-filter-model";
 
@@ -157,8 +158,8 @@ describe("Trash filter chips", () => {
     ]);
   });
 
-  it("keeps people and locations seen in earlier results", () => {
-    const first = collectTrashFilterOptions({ people: [], locations: [] }, [
+  it("offers the people and locations of loaded rows, preferring names", () => {
+    const options = collectTrashFilterOptions([
       {
         createdBy: "ana@example.com",
         createdByName: null,
@@ -170,13 +171,37 @@ describe("Trash filter chips", () => {
         parentTitle: "Roadmap",
       } as ContentTrashItem,
     ]);
-    const next = collectTrashFilterOptions(first, []);
 
-    expect(next.people).toEqual([
+    expect(options.people).toEqual([
       { id: "ana@example.com", label: "Ana" },
       { id: "bo@example.com", label: "Bo" },
     ]);
-    expect(next.locations).toEqual([{ id: "parent-1", label: "Roadmap" }]);
+    expect(options.locations).toEqual([{ id: "parent-1", label: "Roadmap" }]);
+  });
+
+  it("rebuilds the options from the server's latest answer", () => {
+    const first = trashFilterOptions(
+      [],
+      {
+        people: [{ email: "gone@example.com", name: "Gone" }],
+        locations: [{ id: "old-parent", title: "Old" }],
+      },
+      "Untitled",
+    );
+    const refetched = trashFilterOptions(
+      [],
+      {
+        people: [{ email: "cy@example.com", name: "Cy" }],
+        locations: [],
+      },
+      "Untitled",
+    );
+
+    expect(first.people).toEqual([{ id: "gone@example.com", label: "Gone" }]);
+    expect(refetched).toEqual({
+      people: [{ id: "cy@example.com", label: "Cy" }],
+      locations: [],
+    });
   });
 
   it("adds people and locations from rows that are not loaded", () => {
