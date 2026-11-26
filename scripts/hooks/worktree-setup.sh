@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Makes a new git worktree ready to run: `pnpm install` plus the main checkout's ignored .env files.
 # Usage: worktree-setup.sh [--hook]. With --hook, failures are reported on stdout with exit 0.
-set -Eeuo pipefail
+set -euo pipefail
 
 hook=no
 if [ "${1:-}" = --hook ]; then hook=yes; shift; fi
