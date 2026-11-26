@@ -6,6 +6,11 @@ import { captureMarkerSchema } from "./lib/capture-schemas.js";
 
 export default defineAction({
   mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   description:
     "Mark action intent or an observed endpoint during recording. Wait for the returned marker to receive mediaTimeMs via get-capture-session before relying on its timeline position.",
   schema: z.object({
