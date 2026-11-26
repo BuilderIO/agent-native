@@ -32,5 +32,6 @@ export default defineAction({
   mcpTool: true,
   maxBodyBytes: 256 * 1024,
   audit: { enabled: false },
+  changeEvents: false,
   run: async (args, ctx) => submitContentFormByLink(args, ctx),
 });

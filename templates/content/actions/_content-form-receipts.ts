@@ -220,8 +220,8 @@ function receiptSender(
 
 export function contentFormReceipt(
   submission: ContentFormSubmissionRow,
+  stored = readStoredContentFormReceipt(submission),
 ): ContentFormReceipt {
-  const stored = readStoredContentFormReceipt(submission);
   return {
     receiptId: submission.id,
     formTitle: stored.formTitle,

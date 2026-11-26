@@ -20,5 +20,6 @@ export default defineAction({
   agentTool: false,
   maxBodyBytes: 256 * 1024,
   audit: { enabled: false },
+  changeEvents: false,
   run: async (args, ctx) => saveContentFormDraft(args, ctx),
 });

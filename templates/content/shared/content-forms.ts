@@ -86,7 +86,7 @@ export const contentFormAnswerEntrySchema = z.object({
   value: z
     .unknown()
     .describe(
-      "The answer: text, a number, true or false, a date as YYYY-MM-DD, one choice's label, or a list of labels for several choices",
+      "The answer: text, a number, true or false, a date as YYYY-MM-DD, one choice's label or id, or a list of them for several choices",
     ),
 });
 export type ContentFormAnswerEntry = z.infer<

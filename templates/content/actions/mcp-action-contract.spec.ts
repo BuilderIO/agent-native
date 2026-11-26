@@ -217,6 +217,16 @@ describe("Content action-owned agent catalogs", () => {
     }
   });
 
+  it("publishes no change marker for a link submit or a draft, which would name the sender", () => {
+    for (const linkWrite of [
+      submitContentForm,
+      saveContentFormDraft,
+      clearContentFormDraft,
+    ]) {
+      expect(linkWrite.changeEvents).toBe(false);
+    }
+  });
+
   it("classifies shareable local-file copies as disclosure-capable writes", () => {
     expect(shareLocalFileDocument.mcpAnnotations).toMatchObject({
       readOnlyHint: false,

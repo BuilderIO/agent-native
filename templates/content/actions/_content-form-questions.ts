@@ -104,6 +104,56 @@ function formUnavailable(message: string): never {
   return fail(message, { errorCode: "form_unavailable", statusCode: 409 });
 }
 
+function contentFormSettingsSnapshot(settings: ContentFormRow | undefined) {
+  return JSON.stringify(
+    settings
+      ? [
+          settings.linkToken,
+          settings.audience,
+          settings.oneAnswerPerPerson,
+          settings.acceptingAnswers,
+          settings.canvasDocumentId,
+        ]
+      : null,
+  );
+}
+
+export async function assertContentFormUnchanged(
+  db: ContentDb,
+  form: ContentFormIdentity,
+  read: {
+    settings: ContentFormRow | undefined;
+    canvas: ContentFormCanvas | null;
+  },
+): Promise<void> {
+  const settings = await readContentFormRow(db, form);
+  const canvas = read.canvas
+    ? firstRow(
+        await db
+          .select({
+            content: schema.documents.content,
+            trashedAt: schema.documents.trashedAt,
+          })
+          .from(schema.documents)
+          .where(eq(schema.documents.id, read.canvas.documentId))
+          .limit(1),
+      )
+    : undefined;
+  if (
+    contentFormSettingsSnapshot(settings) !==
+      contentFormSettingsSnapshot(read.settings) ||
+    (read.canvas &&
+      (!canvas ||
+        canvas.trashedAt !== null ||
+        canvas.content !== read.canvas.content))
+  ) {
+    fail(
+      "This form changed while it was being answered. Read it again, then send the answers.",
+      { errorCode: "form_changed", statusCode: 409 },
+    );
+  }
+}
+
 async function readContentFormCanvas(
   database: ContentDatabaseRow,
   canvasDocumentId: string,
@@ -209,6 +259,7 @@ export async function loadContentFormQuestions(input: {
   view: ContentDatabaseView;
   definitions: PropertyDefinitionRow[];
   settings: ContentFormRow | undefined;
+  channel: ContentFormChannel;
 }): Promise<{
   questions: ResolvedContentFormQuestion[];
   canvas: ContentFormCanvas | null;
@@ -250,8 +301,18 @@ export async function loadContentFormQuestions(input: {
       systemRole: definition.systemRole as DocumentPropertySystemRole | null,
     },
   }));
+  const listed = new Set(
+    (input.view.formQuestions ?? []).map((question) => question.key),
+  );
   const questions = contentDatabaseFormQuestions(input.view, properties)
-    .filter((question) => question.enabled)
+    .filter(
+      (question) =>
+        question.enabled &&
+        (input.channel === "collection" ||
+          (listed.size === 0
+            ? question.key === FORM_TITLE_QUESTION_KEY
+            : listed.has(question.key))),
+    )
     .flatMap((question) => {
       const definition =
         question.key === FORM_TITLE_QUESTION_KEY
@@ -262,19 +323,6 @@ export async function loadContentFormQuestions(input: {
         : [resolvedQuestion(definition, { required: question.required })];
     });
   return { questions, canvas: null };
-}
-
-export async function resolveContentFormQuestions(input: {
-  database: ContentDatabaseRow;
-  view: ContentDatabaseView;
-  definitions: PropertyDefinitionRow[];
-  settings: ContentFormRow | undefined;
-  channel: ContentFormChannel;
-}): Promise<ResolvedContentFormQuestion[]> {
-  const { questions } = await loadContentFormQuestions(input);
-  return input.channel === "link"
-    ? linkContentFormQuestions(questions)
-    : questions;
 }
 
 export function linkContentFormQuestions(
@@ -317,6 +365,26 @@ export function publicContentFormQuestion(
   };
 }
 
+function choiceAnswers(definition: PropertyDefinitionRow): string[] {
+  const choices = questionChoices(definition);
+  const ids = new Set(choices.map((choice) => choice.id));
+  const labelCounts = new Map<string, number>();
+  for (const choice of choices) {
+    const label = choice.label.trim().toLocaleLowerCase();
+    labelCounts.set(label, (labelCounts.get(label) ?? 0) + 1);
+  }
+  return [
+    ...new Set(
+      choices.map((choice) =>
+        (labelCounts.get(choice.label.trim().toLocaleLowerCase()) ?? 0) > 1 ||
+        ids.has(choice.label.trim())
+          ? choice.id
+          : choice.label,
+      ),
+    ),
+  ];
+}
+
 function answerValueSchema(
   question: AnswerableContentFormQuestion,
 ): Record<string, unknown> {
@@ -324,13 +392,17 @@ function answerValueSchema(
     title: question.wording,
     ...(question.help ? { description: question.help } : {}),
   };
-  const labels = question.definition
-    ? [
-        ...new Set(
-          questionChoices(question.definition).map((choice) => choice.label),
-        ),
-      ]
-    : [];
+  const text = {
+    ...base,
+    type: "string",
+    ...(question.required ? { minLength: 1 } : {}),
+  };
+  const list = {
+    ...base,
+    type: "array",
+    ...(question.required ? { minItems: 1 } : {}),
+  };
+  const choices = question.definition ? choiceAnswers(question.definition) : [];
   switch (question.answerType) {
     case "number":
       return { ...base, type: "number" };
@@ -338,28 +410,26 @@ function answerValueSchema(
       return { ...base, type: "boolean" };
     case "date":
       return {
-        ...base,
-        type: "string",
+        ...text,
         pattern: "^\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2})?$",
       };
     case "one_choice":
-      return { ...base, type: "string", enum: labels };
+      return { ...text, enum: choices };
     case "several_choices":
       return {
-        ...base,
-        type: "array",
-        items: { type: "string", enum: labels },
+        ...list,
+        items: { type: "string", enum: choices },
         uniqueItems: true,
       };
     case "people":
-      return { ...base, type: "array", items: { type: "string" } };
+      return { ...list, items: { type: "string" } };
     case "text":
     case "long_text":
     case "email":
     case "url":
     case "phone":
     case "place":
-      return { ...base, type: "string" };
+      return text;
   }
 }
 

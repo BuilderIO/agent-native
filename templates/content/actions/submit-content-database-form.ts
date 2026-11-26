@@ -1,5 +1,9 @@
 import { defineAction, embedApp } from "@agent-native/core";
-import { fail, type ActionRunContext } from "@agent-native/core/action";
+import {
+  fail,
+  isActionContractError,
+  type ActionRunContext,
+} from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
 import {
@@ -44,9 +48,10 @@ import {
 } from "./_content-database-mutation-lock.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import {
+  assertContentFormUnchanged,
   contentFormReceiptAnswers,
+  loadContentFormQuestions,
   readContentFormRow,
-  resolveContentFormQuestions,
 } from "./_content-form-questions.js";
 import {
   assertNoContentFormSubmission,
@@ -59,6 +64,10 @@ import {
   sortedContentFormEntries,
   type ContentFormSubmissionRow,
 } from "./_content-form-receipts.js";
+import {
+  ensureNaturalKeyClaim,
+  strictValue,
+} from "./_database-row-mutation.js";
 import { assertCollectionAcceptsNewRows } from "./_document-source.js";
 import { nextAppendPosition } from "./_position-utils.js";
 import { nanoid, parseDatabaseViewConfig } from "./_property-utils.js";
@@ -217,17 +226,52 @@ function isValidSubmittedDatePart(value: unknown): boolean {
   );
 }
 
-function normalizeSubmittedPropertyValue(
+const CHECKBOX_WORDS = new Map([
+  ["true", true],
+  ["yes", true],
+  ["on", true],
+  ["1", true],
+  ["checked", true],
+  ["false", false],
+  ["no", false],
+  ["off", false],
+  ["0", false],
+  ["unchecked", false],
+]);
+
+function readableSubmittedValue(
+  type: DocumentPropertyType,
+  value: unknown,
+  explicitlyEmpty: boolean,
+): unknown {
+  if (type === "date" || isBlocksPropertyType(type)) {
+    return normalizePropertyValue(type, value);
+  }
+  if (explicitlyEmpty) return null;
+  if (typeof value === "string") {
+    if (type === "checkbox") {
+      return CHECKBOX_WORDS.get(value.trim().toLocaleLowerCase()) ?? value;
+    }
+    if (type === "email" || type === "url") return value.trim();
+    return normalizePropertyValue(type, value);
+  }
+  return Array.isArray(value) &&
+    (type === "person" || type === "files_media" || type === "relation")
+    ? normalizePropertyValue(type, value)
+    : value;
+}
+
+async function normalizeSubmittedPropertyValue(
   definition: PropertyDefinitionRow,
   value: unknown,
-): DocumentPropertyValue {
+): Promise<DocumentPropertyValue> {
   const type = definition.type as DocumentPropertyType;
   const explicitlyEmpty =
     value === undefined ||
     value === null ||
     (typeof value === "string" && value.trim() === "") ||
     (Array.isArray(value) && value.length === 0);
-  let normalized: DocumentPropertyValue;
+  let normalized: unknown;
   if (type === "select" || type === "status" || type === "multi_select") {
     if (Array.isArray(value)) {
       const invalidCandidates = value.filter(
@@ -341,7 +385,7 @@ function normalizeSubmittedPropertyValue(
         );
       }
     }
-    normalized = normalizePropertyValue(type, value);
+    normalized = readableSubmittedValue(type, value, explicitlyEmpty);
   }
   const rawDateEnd =
     type === "date" &&
@@ -384,12 +428,18 @@ function normalizeSubmittedPropertyValue(
       `Invalid value for "${definition.name}"; the supplied date end is before the start.`,
     );
   }
-  if (!explicitlyEmpty && isEmptyPropertyValue(normalized)) {
+  if (
+    !explicitlyEmpty &&
+    isEmptyPropertyValue(normalized as DocumentPropertyValue)
+  ) {
     throw new FormAnswerProblem(
       `Invalid value for "${definition.name}"; the supplied value could not be preserved as ${type}.`,
     );
   }
-  return normalized;
+  if (isBlocksPropertyType(type)) {
+    return typeof normalized === "string" ? normalized : null;
+  }
+  return strictValue(definition, normalized);
 }
 
 export type CollectionFormScope = "collection" | "form";
@@ -418,7 +468,7 @@ export interface CollectionFormRecordCreated {
 type ContentDb = ReturnType<typeof getDb>;
 type ContentDatabaseRow = typeof schema.contentDatabases.$inferSelect;
 
-function resolveSubmittedProperties(
+async function resolveSubmittedProperties(
   definitions: PropertyDefinitionRow[],
   questionPropertyIds: Set<string>,
   submitted: ReadonlyArray<readonly [string, unknown]>,
@@ -493,17 +543,25 @@ function resolveSubmittedProperties(
     try {
       resolved.set(
         definition.id,
-        normalizeSubmittedPropertyValue(definition, inputValue),
+        await normalizeSubmittedPropertyValue(definition, inputValue),
       );
     } catch (error) {
-      if (!(error instanceof FormAnswerProblem)) throw error;
+      if (
+        !(error instanceof FormAnswerProblem) &&
+        !(
+          isActionContractError(error) &&
+          error.errorCode === "INVALID_PROPERTY_VALUE"
+        )
+      ) {
+        throw error;
+      }
       problem(error.message);
     }
   }
   return { values: resolved, problems };
 }
 
-export function prepareCollectionFormRecord(input: {
+export async function prepareCollectionFormRecord(input: {
   definitions: PropertyDefinitionRow[];
   questions: CollectionFormQuestionRule[];
   title?: string | undefined;
@@ -511,16 +569,17 @@ export function prepareCollectionFormRecord(input: {
   entries: ReadonlyArray<readonly [string, unknown]>;
   scope: CollectionFormScope;
   ctx?: ActionRunContext | undefined;
-}):
+}): Promise<
   | { ok: false; problems: ContentFormProblem[] }
-  | { ok: true; record: PreparedCollectionFormRecord } {
+  | { ok: true; record: PreparedCollectionFormRecord }
+> {
   const { definitions, questions, content } = input;
   const questionPropertyIds = new Set(
     questions
       .filter((question) => question.key !== FORM_TITLE_QUESTION_KEY)
       .map((question) => question.key),
   );
-  const { values, problems } = resolveSubmittedProperties(
+  const { values, problems } = await resolveSubmittedProperties(
     definitions,
     questionPropertyIds,
     input.entries,
@@ -653,6 +712,7 @@ export async function writeCollectionFormRecord<TInserted>(input: {
         .select({
           viewConfigJson: schema.contentDatabases.viewConfigJson,
           deletedAt: schema.contentDatabases.deletedAt,
+          naturalKeyPropertyId: schema.contentDatabases.naturalKeyPropertyId,
         })
         .from(schema.contentDatabases)
         .where(eq(schema.contentDatabases.id, databaseId)),
@@ -706,6 +766,27 @@ export async function writeCollectionFormRecord<TInserted>(input: {
         statusCode: 409,
       });
     }
+    await ensureNaturalKeyClaim(
+      lockedDb,
+      {
+        database: {
+          ...database,
+          naturalKeyPropertyId: lockedDatabase.naturalKeyPropertyId,
+        },
+      },
+      {
+        itemId,
+        documentId,
+        values: new Map(
+          standardValues.flatMap(([propertyId, value]) =>
+            value === null
+              ? []
+              : [[propertyId, serializePropertyValue(value)] as const],
+          ),
+        ),
+        now,
+      },
+    );
     const maxDocumentPosition = firstRow(
       await tx
         .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
@@ -1021,7 +1102,7 @@ export default defineAction({
     );
     const form = { databaseId, viewId: formView.id };
     const settings = await readContentFormRow(db, form);
-    const questions = await resolveContentFormQuestions({
+    const { questions, canvas } = await loadContentFormQuestions({
       database,
       view: formView,
       definitions,
@@ -1055,7 +1136,7 @@ export default defineAction({
     const existing = await findContentFormSubmission(db, form, submissionKey);
     if (existing) return replay(existing);
 
-    const prepared = prepareCollectionFormRecord({
+    const prepared = await prepareCollectionFormRecord({
       definitions,
       questions,
       title,
@@ -1085,6 +1166,9 @@ export default defineAction({
         shareCreatedBy: actor ?? database.ownerEmail,
         privateMediaActor: actor,
         verifyLocked: async (tx) => {
+          await assertNoContentFormSubmission(tx, form, submissionKey);
+          await assertContentFormUnchanged(tx, form, { settings, canvas });
+          await assertCollectionAcceptsNewRows(database.id, tx);
           const lockedAccess = firstRow(
             await tx
               .select({ id: schema.documents.id })
@@ -1106,7 +1190,6 @@ export default defineAction({
               `Requires editor role on document ${database.documentId}`,
             );
           }
-          await assertNoContentFormSubmission(tx, form, submissionKey);
         },
         afterInsert: async (tx, inserted) => {
           const submission = await insertContentFormSubmission(tx, {

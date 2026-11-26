@@ -40,6 +40,7 @@ import {
   takeContentFormFloodSlot,
 } from "./_content-form-flood.js";
 import {
+  assertContentFormUnchanged,
   contentFormAnswerSchema,
   contentFormReceiptAnswers,
   linkContentFormQuestions,
@@ -59,7 +60,6 @@ import {
   ContentFormSubmissionExists,
   countRecentContentFormSubmissions,
   deleteContentFormDraftRow,
-  findContentFormSubmission,
   insertContentFormSubmission,
   listSenderContentFormSubmissions,
   sortedContentFormEntries,
@@ -227,7 +227,12 @@ async function assertContentFormCanvas(
     await db
       .select({ id: schema.contentDatabaseItems.id })
       .from(schema.contentDatabaseItems)
-      .where(eq(schema.contentDatabaseItems.documentId, canvasDocumentId))
+      .where(
+        and(
+          eq(schema.contentDatabaseItems.databaseId, database.id),
+          eq(schema.contentDatabaseItems.documentId, canvasDocumentId),
+        ),
+      )
       .limit(1),
   );
   if (row) invalidSettings("A collection row can't be a form's page.");
@@ -461,6 +466,7 @@ async function linkFormQuestions(linked: LinkedContentForm): Promise<{
     view: linked.view,
     definitions: linked.definitions,
     settings: linked.settings,
+    channel: "link",
   });
   return {
     questions: linkContentFormQuestions(loaded.questions),
@@ -481,6 +487,7 @@ export async function readContentFormByLink(
 ): Promise<ContentFormRead> {
   const linked = await resolveLinkedContentForm(link);
   const { sender, refusal } = await contentFormSender(linked, ctx);
+  if (refusal) refuseContentForm(refusal);
   const { questions, canvas } = await linkFormQuestions(linked);
   const sent =
     sender.kind === "signed_in"
@@ -493,12 +500,11 @@ export async function readContentFormByLink(
       : [];
   const latest = firstRow(sent);
   const answeringRefusal =
-    refusal ??
-    (linked.settings.acceptingAnswers !== 1
+    linked.settings.acceptingAnswers !== 1
       ? FORM_CLOSED
       : linked.settings.oneAnswerPerPerson === 1 && latest
         ? alreadyAnswered(latest)
-        : null);
+        : null;
   return {
     title: contentFormTitle(linked, canvas),
     canvas: canvas?.content ?? null,
@@ -509,18 +515,8 @@ export async function readContentFormByLink(
       canSubmit: answeringRefusal === null,
       refusal: answeringRefusal,
     },
-    sent: sent.map(contentFormReceipt),
+    sent: sent.map((submission) => contentFormReceipt(submission)),
   };
-}
-
-function settingsSnapshot(settings: ContentFormRow) {
-  return JSON.stringify([
-    settings.linkToken,
-    settings.audience,
-    settings.oneAnswerPerPerson,
-    settings.acceptingAnswers,
-    settings.canvasDocumentId,
-  ]);
 }
 
 function submittedMessage(receipt: ContentFormReceipt) {
@@ -537,8 +533,10 @@ function replayedSubmission(
   submission: ContentFormSubmissionRow,
   attempt: { sender: ContentFormSender; digest: string },
 ): ContentFormSubmitResult {
-  assertSameContentFormSubmission(submission, attempt);
-  const receipt = contentFormReceipt(submission);
+  const receipt = contentFormReceipt(
+    submission,
+    assertSameContentFormSubmission(submission, attempt),
+  );
   return {
     outcome: "submitted",
     replayed: true,
@@ -547,30 +545,43 @@ function replayedSubmission(
   };
 }
 
+async function refuseFlood(
+  linked: LinkedContentForm,
+  idempotencyKey: string,
+  message: string,
+  retryAfterSeconds: number,
+): Promise<never> {
+  await assertNoContentFormSubmission(getDb(), linked.identity, idempotencyKey);
+  return refuseContentForm(
+    { code: "too_many_submissions", message },
+    { retryAfterSeconds },
+  );
+}
+
 async function assertFloodAllows(
   linked: LinkedContentForm,
   ctx: ActionRunContext | undefined,
+  idempotencyKey: string,
 ) {
+  const sourceKey = contentFormSourceKey({
+    email: documentAttributionActor(ctx),
+    headers: ctx?.requestHeaders,
+  });
   const slot = takeContentFormFloodSlot([
-    {
-      key: `source:${contentFormSourceKey({
-        email: documentAttributionActor(ctx),
-        headers: ctx?.requestHeaders,
-      })}`,
-      limit: CONTENT_FORM_SOURCE_LIMIT,
-    },
+    ...(sourceKey
+      ? [{ key: `source:${sourceKey}`, limit: CONTENT_FORM_SOURCE_LIMIT }]
+      : []),
     {
       key: `form:${linked.identity.databaseId}:${linked.identity.viewId}`,
       limit: CONTENT_FORM_FORM_LIMIT,
     },
   ]);
   if (!slot.ok) {
-    refuseContentForm(
-      {
-        code: "too_many_submissions",
-        message: `Too many answers were sent ${slot.key.startsWith("source:") ? "from here" : "to this form"} just now. Try again in ${slot.retryAfterSeconds} seconds.`,
-      },
-      { retryAfterSeconds: slot.retryAfterSeconds },
+    await refuseFlood(
+      linked,
+      idempotencyKey,
+      `Too many answers were sent ${slot.key.startsWith("source:") ? "from here" : "to this form"} just now. Try again in ${slot.retryAfterSeconds} seconds.`,
+      slot.retryAfterSeconds,
     );
   }
   const windowSeconds = CONTENT_FORM_FLOOD_WINDOW_MS / 1000;
@@ -580,12 +591,11 @@ async function assertFloodAllows(
     new Date(Date.now() - CONTENT_FORM_FLOOD_WINDOW_MS).toISOString(),
   );
   if (recent >= CONTENT_FORM_FORM_LIMIT) {
-    refuseContentForm(
-      {
-        code: "too_many_submissions",
-        message: `Too many answers were sent to this form just now. Try again in ${windowSeconds} seconds.`,
-      },
-      { retryAfterSeconds: windowSeconds },
+    await refuseFlood(
+      linked,
+      idempotencyKey,
+      `Too many answers were sent to this form just now. Try again in ${windowSeconds} seconds.`,
+      windowSeconds,
     );
   }
 }
@@ -594,6 +604,7 @@ async function assertNotAnsweredYet(
   db: ContentDb,
   linked: LinkedContentForm,
   sender: ContentFormSender,
+  idempotencyKey: string,
 ) {
   if (linked.settings.oneAnswerPerPerson !== 1 || sender.kind !== "signed_in") {
     return;
@@ -606,10 +617,24 @@ async function assertNotAnsweredYet(
       1,
     ),
   );
-  if (prior) {
-    refuseContentForm(alreadyAnswered(prior), {
-      receipt: contentFormReceipt(prior),
-    });
+  if (!prior) return;
+  if (prior.idempotencyKey === idempotencyKey) {
+    throw new ContentFormSubmissionExists(prior);
+  }
+  refuseContentForm(alreadyAnswered(prior), {
+    receipt: contentFormReceipt(prior),
+  });
+}
+
+async function assertLinkedCollectionOpen(
+  linked: LinkedContentForm,
+  db: ContentDb,
+) {
+  try {
+    await assertCollectionAcceptsNewRows(linked.database.id, db);
+  } catch (error) {
+    if (!isActionContractError(error)) throw error;
+    refuseContentForm(FORM_CLOSED);
   }
 }
 
@@ -699,7 +724,6 @@ export async function submitContentFormByLink(
   const linked = await resolveLinkedContentForm(input.link);
   const { sender, refusal } = await contentFormSender(linked, ctx);
   if (refusal) refuseContentForm(refusal);
-  const db = getDb();
   const entries = input.answers.map(
     ({ question, value }) => [question, value] as const,
   );
@@ -707,25 +731,41 @@ export async function submitContentFormByLink(
     sender,
     digest: contentFormAnswersDigest(sortedContentFormEntries(entries)),
   };
-  const existing = await findContentFormSubmission(
-    db,
-    linked.identity,
-    input.idempotencyKey,
-  );
-  if (existing) return replayedSubmission(existing, attempt);
-  if (linked.settings.acceptingAnswers !== 1) refuseContentForm(FORM_CLOSED);
-  await assertFloodAllows(linked, ctx);
-  await assertNotAnsweredYet(db, linked, sender);
   try {
-    await assertCollectionAcceptsNewRows(linked.database.id, db);
+    return await submitNewContentFormAnswers(
+      linked,
+      { ...attempt, entries, idempotencyKey: input.idempotencyKey },
+      ctx,
+    );
   } catch (error) {
-    if (!isActionContractError(error)) throw error;
-    refuseContentForm(FORM_CLOSED);
+    if (error instanceof ContentFormSubmissionExists) {
+      return replayedSubmission(error.submission, attempt);
+    }
+    throw error;
   }
+}
+
+async function submitNewContentFormAnswers(
+  linked: LinkedContentForm,
+  attempt: {
+    sender: ContentFormSender;
+    digest: string;
+    entries: ReadonlyArray<readonly [string, unknown]>;
+    idempotencyKey: string;
+  },
+  ctx: ActionRunContext | undefined,
+): Promise<ContentFormSubmitResult> {
+  const { sender, idempotencyKey } = attempt;
+  const db = getDb();
+  await assertNoContentFormSubmission(db, linked.identity, idempotencyKey);
+  if (linked.settings.acceptingAnswers !== 1) refuseContentForm(FORM_CLOSED);
+  await assertFloodAllows(linked, ctx, idempotencyKey);
+  await assertNotAnsweredYet(db, linked, sender, idempotencyKey);
+  await assertLinkedCollectionOpen(linked, db);
 
   const { questions, canvas } = await linkFormQuestions(linked);
-  const split = splitTitleAnswer(questions, entries);
-  const prepared = prepareCollectionFormRecord({
+  const split = splitTitleAnswer(questions, attempt.entries);
+  const prepared = await prepareCollectionFormRecord({
     definitions: linked.definitions,
     questions,
     title: split.title,
@@ -748,7 +788,6 @@ export async function submitContentFormByLink(
   }
 
   const { record } = prepared;
-  const snapshot = settingsSnapshot(linked.settings);
   const { database } = linked;
   let created: CollectionFormRecordCreated & {
     inserted: ContentFormSubmissionRow;
@@ -771,20 +810,17 @@ export async function submitContentFormByLink(
           shareCreatedBy: database.ownerEmail,
           privateMediaActor: false,
           verifyLocked: async (tx) => {
-            const current = await readContentFormRow(tx, linked.identity);
-            if (!current || settingsSnapshot(current) !== snapshot) {
-              refuseContentForm({
-                code: "form_changed",
-                message:
-                  "This form changed while it was being answered. Read it again, then send the answers.",
-              });
-            }
             await assertNoContentFormSubmission(
               tx,
               linked.identity,
-              input.idempotencyKey,
+              idempotencyKey,
             );
-            await assertNotAnsweredYet(tx, linked, sender);
+            await assertContentFormUnchanged(tx, linked.identity, {
+              settings: linked.settings,
+              canvas,
+            });
+            await assertNotAnsweredYet(tx, linked, sender, idempotencyKey);
+            await assertLinkedCollectionOpen(linked, tx);
           },
           afterInsert: async (tx, inserted) => {
             const submission = await insertContentFormSubmission(tx, {
@@ -792,7 +828,7 @@ export async function submitContentFormByLink(
               created: inserted,
               channel: "link",
               sender,
-              idempotencyKey: input.idempotencyKey,
+              idempotencyKey,
               digest: attempt.digest,
               receipt: {
                 formTitle: contentFormTitle(linked, canvas),
@@ -817,10 +853,9 @@ export async function submitContentFormByLink(
       },
     );
   } catch (error) {
-    if (error instanceof ContentFormSubmissionExists) {
-      return replayedSubmission(error.submission, attempt);
-    }
-    throw error;
+    const takenKey = naturalKeyQuestion(error, questions);
+    if (!takenKey) throw error;
+    return needsChanges(questions, [takenKey]);
   }
   const receipt = contentFormReceipt(created.inserted);
   return {
@@ -829,4 +864,26 @@ export async function submitContentFormByLink(
     message: submittedMessage(receipt),
     receipt,
   };
+}
+
+function naturalKeyQuestion(
+  error: unknown,
+  questions: AnswerableContentFormQuestion[],
+): ContentFormProblem | null {
+  if (
+    !isActionContractError(error) ||
+    error.errorCode !== "NATURAL_KEY_CONFLICT"
+  ) {
+    return null;
+  }
+  const question = questions.find(
+    (candidate) => candidate.key === error.details?.propertyId,
+  );
+  return question
+    ? {
+        question: question.key,
+        wording: question.wording,
+        message: error.message,
+      }
+    : null;
 }

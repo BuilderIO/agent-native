@@ -4,11 +4,21 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { ActionRunContext } from "@agent-native/core/action";
+import { readAppState } from "@agent-native/core/application-state";
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import type { ContentFormAnswerEntry } from "../shared/content-forms.js";
 import { formQuestionBlockRaw } from "../shared/form-question-block.js";
@@ -38,6 +48,9 @@ let clearDraft: typeof import("./clear-content-form-draft.js").default;
 let submitCollectionForm: typeof import("./submit-content-database-form.js").default;
 let flood: typeof import("./_content-form-flood.js");
 let drafts: typeof import("./_content-form-drafts.js");
+let receipts: typeof import("./_content-form-receipts.js");
+let files: typeof import("./_content-files.js");
+let deleteDocument: typeof import("./delete-document.js");
 let spaceId: string;
 
 beforeAll(async () => {
@@ -56,6 +69,9 @@ beforeAll(async () => {
     .default;
   flood = await import("./_content-form-flood.js");
   drafts = await import("./_content-form-drafts.js");
+  receipts = await import("./_content-form-receipts.js");
+  files = await import("./_content-files.js");
+  deleteDocument = await import("./delete-document.js");
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as never);
 
@@ -117,6 +133,10 @@ afterAll(() => {
 
 beforeEach(() => {
   flood.resetContentFormFloodForTests();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 type Seeded = Awaited<ReturnType<typeof seedCollection>>;
@@ -301,6 +321,9 @@ async function seedCollection(options: { orgId?: string } = {}) {
     definition(ids.secretId, "Internal margin", "text", 4),
     definition(ids.relatedId, "Related deal", "relation", 5),
   ]);
+  await as(OWNER, () =>
+    files.ensureDocumentFilesMembership(db, ids.canvasDocumentId),
+  );
   return ids;
 }
 
@@ -311,7 +334,7 @@ function caller(
   return {
     caller: "http",
     requestHeaders: new Headers({
-      "x-forwarded-for": ip,
+      "x-nf-client-connection-ip": ip,
       "user-agent": USER_AGENT,
     }),
     ...extra,
@@ -483,6 +506,26 @@ describe("Content forms: settings", () => {
     );
   });
 
+  it("takes an ordinary page inside the collection as the form's page, even though the space's Files collection lists it", async () => {
+    const ids = await seedCollection();
+    const memberships = await getDb()
+      .select({ databaseId: schema.contentDatabaseItems.databaseId })
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.documentId, ids.canvasDocumentId));
+    expect(memberships).toHaveLength(1);
+    expect(memberships[0].databaseId).not.toBe(ids.databaseId);
+
+    await expect(
+      as(OWNER, () =>
+        configureForm.run({
+          databaseId: ids.databaseId,
+          viewId: ids.viewId,
+          canvasDocumentId: ids.canvasDocumentId,
+        }),
+      ),
+    ).resolves.toMatchObject({ canvasDocumentId: ids.canvasDocumentId });
+  });
+
   it("refuses settings a form can't keep", async () => {
     const ids = await seedCollection();
     const form = { databaseId: ids.databaseId, viewId: ids.viewId };
@@ -613,7 +656,7 @@ describe("Content forms: reading a form by its link", () => {
     }
   });
 
-  it("asks the Form view's own questions when the form has no page, and refuses links that don't work", async () => {
+  it("asks only the questions the Form view lists when the form has no page, and refuses links that don't work", async () => {
     const ids = await seedCollection();
     const link = await setUpForm(ids, {
       audience: "anonymous",
@@ -628,8 +671,6 @@ describe("Content forms: reading a form by its link", () => {
       ["name", true],
       [ids.priorityId, true],
       [ids.emailId, false],
-      [ids.descriptionId, false],
-      [ids.countId, false],
     ]);
 
     for (const broken of [
@@ -676,7 +717,7 @@ describe("Content forms: submitting", () => {
           question: ids.countId,
           wording: "Seats",
           message:
-            'Invalid value for "Seats"; the supplied value could not be preserved as number.',
+            'Invalid value for property "Seats": expected a finite number',
         },
         {
           question: ids.secretId,
@@ -924,18 +965,18 @@ describe("Content forms: who may answer", () => {
         audience: "signed_in",
       }),
     );
-    const read = await getForm.run(
-      { link: anonymousLink },
-      caller("192.0.2.13"),
-    );
-    expect(read.answering).toEqual({
-      as: "signed_in",
-      canSubmit: false,
-      refusal: {
-        code: "sign_in_required",
-        message: "Sign in to answer this form.",
-      },
+    const refused = await getForm
+      .run({ link: anonymousLink }, caller("192.0.2.13"))
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+    expect(refused).toMatchObject({
+      errorCode: "sign_in_required",
+      statusCode: 401,
+      message: "Sign in to answer this form.",
     });
+    expect(JSON.stringify(refused)).not.toContain("Tell us what you need");
     await expect(send(anonymousLink, validAnswers(ids))).rejects.toMatchObject({
       errorCode: "sign_in_required",
       statusCode: 401,
@@ -952,10 +993,23 @@ describe("Content forms: who may answer", () => {
 
     const outsider = await as("outsider@example.com", () =>
       getForm.run({ link }, caller("192.0.2.14")),
+    ).then(
+      () => null,
+      (error: unknown) => error,
     );
-    expect(outsider.answering).toMatchObject({
-      canSubmit: false,
-      refusal: { code: "organization_only" },
+    expect(outsider).toMatchObject({
+      errorCode: "organization_only",
+      statusCode: 403,
+      details: undefined,
+    });
+    for (const content of ["Tell us what you need", "Request a design", "P0"]) {
+      expect(JSON.stringify(outsider)).not.toContain(content);
+    }
+    await expect(
+      as(MEMBER, () => getForm.run({ link }, caller("192.0.2.14"))),
+    ).resolves.toMatchObject({
+      title: "Request a design",
+      answering: { as: "signed_in", canSubmit: true, refusal: null },
     });
     await expect(
       send(link, validAnswers(ids), { as: "outsider@example.com" }),
@@ -1026,20 +1080,30 @@ describe("Content forms: one answer per person", () => {
 });
 
 describe("Content forms: flood limits", () => {
-  it("refuses a burst from one network source, and says when to try again", async () => {
+  it("refuses a burst from one network however it labels itself, and says when to try again", async () => {
     const ids = await seedCollection();
     const link = await setUpForm(ids, { audience: "anonymous" });
+    const fromNetwork = (address: string, forwardedFor: string) => ({
+      requestHeaders: new Headers({
+        "x-nf-client-connection-ip": address,
+        "x-forwarded-for": forwardedFor,
+      }),
+    });
     for (
       let attempt = 0;
       attempt < flood.CONTENT_FORM_SOURCE_LIMIT;
       attempt++
     ) {
       await expect(
-        send(link, [], { ip: "203.0.113.5" }),
+        send(link, [], {
+          ctx: fromNetwork(`2001:db8:5:7::${attempt + 1}`, `10.0.0.${attempt}`),
+        }),
       ).resolves.toMatchObject({ outcome: "needs_changes" });
     }
     await expect(
-      send(link, validAnswers(ids), { ip: "203.0.113.5" }),
+      send(link, validAnswers(ids), {
+        ctx: fromNetwork("2001:db8:5:7::ff", "10.0.0.200"),
+      }),
     ).rejects.toMatchObject({
       errorCode: "too_many_submissions",
       statusCode: 429,
@@ -1048,7 +1112,27 @@ describe("Content forms: flood limits", () => {
       ),
     });
     await expect(
-      send(link, validAnswers(ids), { ip: "203.0.113.6" }),
+      send(link, validAnswers(ids), {
+        ctx: fromNetwork("2001:db8:5:8::1", "10.0.0.200"),
+      }),
+    ).resolves.toMatchObject({ outcome: "submitted" });
+  });
+
+  it("holds a caller with no address from Content's edge to the form's own limit only", async () => {
+    const ids = await seedCollection();
+    const link = await setUpForm(ids, { audience: "anonymous" });
+    const unaddressed = {
+      requestHeaders: new Headers({ "x-forwarded-for": "203.0.113.5" }),
+    };
+    for (
+      let attempt = 0;
+      attempt < flood.CONTENT_FORM_SOURCE_LIMIT;
+      attempt++
+    ) {
+      await send(link, [], { ctx: unaddressed });
+    }
+    await expect(
+      send(link, validAnswers(ids), { ctx: unaddressed }),
     ).resolves.toMatchObject({ outcome: "submitted" });
   });
 
@@ -1293,5 +1377,572 @@ describe("the collection's own form", () => {
       errorCode: "invalid_answers",
       message: '"Priority" is required.',
     });
+  });
+});
+
+async function whileLocked<T>(
+  ids: Seeded,
+  statements: string[],
+  run: () => Promise<T>,
+): Promise<T> {
+  const name = `forms_race_${randomUUID().replaceAll("-", "")}`;
+  // raw-sql-ok: the trigger's name and statements come from this file's seeded ids, never from input.
+  await getDbExec().execute(
+    `CREATE FUNCTION ${name}() RETURNS trigger LANGUAGE plpgsql AS $race$ BEGIN ${statements.join("; ")}; RETURN NEW; END; $race$`,
+  );
+  // raw-sql-ok: the trigger's name and the collection page's id come from this file's seeded ids.
+  await getDbExec().execute(
+    `CREATE TRIGGER ${name} AFTER UPDATE ON documents FOR EACH ROW WHEN (NEW.id = '${ids.databaseDocumentId}') EXECUTE FUNCTION ${name}()`,
+  );
+  try {
+    return await run();
+  } finally {
+    // raw-sql-ok: the trigger's name is built above from a UUID.
+    await getDbExec().execute(`DROP TRIGGER ${name} ON documents`);
+    // raw-sql-ok: the function's name is built above from a UUID.
+    await getDbExec().execute(`DROP FUNCTION ${name}()`);
+  }
+}
+
+async function hideReceiptKey(receiptId: string) {
+  await getDb()
+    .update(schema.contentFormSubmissions)
+    .set({ idempotencyKey: `hidden-${receiptId}` })
+    .where(eq(schema.contentFormSubmissions.id, receiptId));
+}
+
+async function addProperty(
+  ids: Seeded,
+  property: { id: string; name: string; type: string; optionsJson?: string },
+) {
+  const now = new Date().toISOString();
+  await getDb()
+    .insert(schema.documentPropertyDefinitions)
+    .values({
+      ownerEmail: OWNER,
+      databaseId: ids.databaseId,
+      position: 10,
+      createdAt: now,
+      updatedAt: now,
+      ...property,
+    });
+}
+
+async function askOnCanvas(
+  ids: Seeded,
+  questions: Array<{ propertyId: string; required: boolean }>,
+) {
+  const [canvas] = await getDb()
+    .select({ content: schema.documents.content })
+    .from(schema.documents)
+    .where(eq(schema.documents.id, ids.canvasDocumentId));
+  await getDb()
+    .update(schema.documents)
+    .set({
+      content: [
+        canvas.content,
+        ...questions.map((question) =>
+          formQuestionBlockRaw(`q-${question.propertyId}`, question),
+        ),
+      ].join("\n\n"),
+    })
+    .where(eq(schema.documents.id, ids.canvasDocumentId));
+}
+
+describe("Content forms: a reader the audience doesn't let in", () => {
+  it("gets the audience refusal even when the form's page is broken", async () => {
+    const ids = await seedCollection({ orgId: ORG_ID });
+    const link = await setUpForm(ids, { audience: "organization" });
+    await getDb()
+      .update(schema.documents)
+      .set({ trashedAt: new Date().toISOString() })
+      .where(eq(schema.documents.id, ids.canvasDocumentId));
+
+    await expect(
+      as("outsider@example.com", () =>
+        getForm.run({ link }, caller("192.0.2.30")),
+      ),
+    ).rejects.toMatchObject({ errorCode: "organization_only" });
+    await expect(
+      as(MEMBER, () => getForm.run({ link }, caller("192.0.2.30"))),
+    ).rejects.toMatchObject({ errorCode: "form_unavailable" });
+
+    await as(OWNER, () =>
+      configureForm.run({
+        databaseId: ids.databaseId,
+        viewId: ids.viewId,
+        audience: "signed_in",
+      }),
+    );
+    await expect(
+      as(null, () => getForm.run({ link }, caller("192.0.2.30"))),
+    ).rejects.toMatchObject({ errorCode: "sign_in_required" });
+  });
+});
+
+describe("Content forms: the collection's own checks", () => {
+  it("refuses values the collection refuses anywhere else, all at once, on both channels", async () => {
+    const ids = await seedCollection();
+    const urgentId = `urgent_${ids.databaseId}`;
+    await addProperty(ids, { id: urgentId, name: "Urgent", type: "checkbox" });
+    await askOnCanvas(ids, [{ propertyId: urgentId, required: false }]);
+    const link = await setUpForm(ids, { audience: "anonymous" });
+    const before = await rowsOf(ids);
+
+    const refused = await send(link, [
+      { question: "name", value: "New landing page" },
+      { question: ids.priorityId, value: "P1 — High" },
+      { question: ids.emailId, value: "not-an-email" },
+      { question: urgentId, value: { yes: true } },
+    ]);
+    expect(refused).toMatchObject({
+      outcome: "needs_changes",
+      problems: [
+        {
+          question: ids.emailId,
+          wording: "Email",
+          message:
+            'Invalid value for property "Email": expected an email address',
+        },
+        {
+          question: urgentId,
+          wording: "Urgent",
+          message: 'Invalid value for property "Urgent": expected a boolean',
+        },
+      ],
+    });
+    await expect(
+      as(OWNER, () =>
+        submitCollectionForm.run({
+          databaseId: ids.databaseId,
+          viewId: ids.viewId,
+          title: "From the collection",
+          propertyEntries: [
+            { property: ids.priorityId, value: "P1 — High" },
+            { property: ids.emailId, value: "not-an-email" },
+          ],
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "invalid_answers",
+      message: 'Invalid value for property "Email": expected an email address',
+    });
+    await expect(rowsOf(ids)).resolves.toEqual(before);
+    await expect(receiptsOf(ids)).resolves.toEqual([]);
+
+    const sent = await send(link, [
+      ...validAnswers(ids),
+      { question: urgentId, value: "yes" },
+    ]);
+    if (sent.outcome !== "submitted") throw new Error(sent.message);
+    const [urgent] = await getDb()
+      .select({ valueJson: schema.documentPropertyValues.valueJson })
+      .from(schema.documentPropertyValues)
+      .where(
+        and(
+          eq(
+            schema.documentPropertyValues.documentId,
+            sent.receipt.record.documentId,
+          ),
+          eq(schema.documentPropertyValues.propertyId, urgentId),
+        ),
+      );
+    expect(urgent.valueJson).toBe("true");
+  });
+
+  it("keeps the collection's natural key to one record, and saves nothing for a key already taken", async () => {
+    const ids = await seedCollection();
+    const ticketId = `ticket_${ids.databaseId}`;
+    await addProperty(ids, { id: ticketId, name: "Ticket", type: "text" });
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({ naturalKeyPropertyId: ticketId })
+      .where(eq(schema.contentDatabases.id, ids.databaseId));
+    await askOnCanvas(ids, [{ propertyId: ticketId, required: false }]);
+    const link = await setUpForm(ids, { audience: "anonymous" });
+    const withTicket = [
+      ...validAnswers(ids),
+      { question: ticketId, value: "T-100" },
+    ];
+
+    const first = await send(link, withTicket);
+    if (first.outcome !== "submitted") throw new Error(first.message);
+    const rows = await rowsOf(ids);
+
+    await expect(send(link, withTicket)).resolves.toMatchObject({
+      outcome: "needs_changes",
+      problems: [
+        {
+          question: ticketId,
+          wording: "Ticket",
+          message: "The natural key is already in use.",
+        },
+      ],
+    });
+    await expect(
+      as(OWNER, () =>
+        submitCollectionForm.run({
+          databaseId: ids.databaseId,
+          viewId: ids.viewId,
+          title: "Same ticket",
+          propertyEntries: [
+            { property: ids.priorityId, value: "P1 — High" },
+            { property: ticketId, value: "T-100" },
+          ],
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "NATURAL_KEY_CONFLICT",
+      message: "The natural key is already in use.",
+    });
+    await expect(rowsOf(ids)).resolves.toEqual(rows);
+    await expect(receiptsOf(ids)).resolves.toHaveLength(1);
+    await expect(
+      getDb()
+        .select({
+          documentId: schema.contentDatabaseItemKeyClaims.documentId,
+          keyValueJson: schema.contentDatabaseItemKeyClaims.keyValueJson,
+        })
+        .from(schema.contentDatabaseItemKeyClaims)
+        .where(
+          eq(schema.contentDatabaseItemKeyClaims.databaseId, ids.databaseId),
+        ),
+    ).resolves.toEqual([
+      {
+        documentId: first.receipt.record.documentId,
+        keyValueJson: '"T-100"',
+      },
+    ]);
+  });
+});
+
+describe("Content forms: a resent key always gets its receipt", () => {
+  it("replays a twin that committed while the resend waited for the lock, even though the form changed", async () => {
+    const ids = await seedCollection();
+    const link = await setUpForm(ids, { audience: "anonymous" });
+    const key = `twin-${randomUUID()}`;
+    const first = await send(link, validAnswers(ids), { key });
+    if (first.outcome !== "submitted") throw new Error(first.message);
+    const rows = await rowsOf(ids);
+    await hideReceiptKey(first.receipt.receiptId);
+
+    const resent = await whileLocked(
+      ids,
+      [
+        `UPDATE content_form_submissions SET idempotency_key = '${key}' WHERE id = '${first.receipt.receiptId}'`,
+        `UPDATE content_forms SET accepting_answers = 0 WHERE database_id = '${ids.databaseId}'`,
+      ],
+      () => send(link, validAnswers(ids), { key }),
+    );
+    expect(resent).toEqual({
+      outcome: "submitted",
+      replayed: true,
+      message: expect.stringContaining(first.receipt.receiptId),
+      receipt: first.receipt,
+    });
+    await expect(rowsOf(ids)).resolves.toEqual(rows);
+  });
+
+  it("replays rather than calling the twin a second answer from the same person", async () => {
+    const ids = await seedCollection();
+    const link = await setUpForm(ids, {
+      audience: "signed_in",
+      oneAnswerPerPerson: true,
+    });
+    const person = "twin-once@example.com";
+    const key = `twin-${randomUUID()}`;
+    const first = await send(link, validAnswers(ids), { as: person, key });
+    if (first.outcome !== "submitted") throw new Error(first.message);
+
+    vi.spyOn(receipts, "assertNoContentFormSubmission").mockResolvedValueOnce(
+      undefined,
+    );
+    await expect(
+      send(link, validAnswers(ids), { as: person, key }),
+    ).resolves.toMatchObject({
+      outcome: "submitted",
+      replayed: true,
+      receipt: first.receipt,
+    });
+    await expect(rowsOf(ids)).resolves.toHaveLength(2);
+  });
+
+  it("replays rather than refusing a flood the twin helped fill", async () => {
+    const ids = await seedCollection();
+    const link = await setUpForm(ids, { audience: "anonymous" });
+    const key = `twin-${randomUUID()}`;
+    const first = await send(link, validAnswers(ids), {
+      key,
+      ip: "203.0.113.40",
+    });
+    if (first.outcome !== "submitted") throw new Error(first.message);
+    for (
+      let attempt = 0;
+      attempt < flood.CONTENT_FORM_SOURCE_LIMIT;
+      attempt++
+    ) {
+      await send(link, [], { ip: "203.0.113.41" });
+    }
+
+    vi.spyOn(receipts, "assertNoContentFormSubmission").mockResolvedValueOnce(
+      undefined,
+    );
+    await expect(
+      send(link, validAnswers(ids), { key, ip: "203.0.113.41" }),
+    ).resolves.toMatchObject({
+      outcome: "submitted",
+      replayed: true,
+      receipt: first.receipt,
+    });
+  });
+
+  it("replays a twin in the collection's own form that committed while it waited for the lock", async () => {
+    const ids = await seedCollection();
+    await setUpForm(ids, { audience: "anonymous" });
+    const key = `twin-${randomUUID()}`;
+    const submit = () =>
+      as(OWNER, () =>
+        submitCollectionForm.run({
+          databaseId: ids.databaseId,
+          viewId: ids.viewId,
+          title: "Editor request",
+          propertyEntries: [{ property: ids.priorityId, value: "P1 — High" }],
+          idempotencyKey: key,
+        }),
+      );
+    const first = await submit();
+    const [stored] = await receiptsOf(ids);
+    await hideReceiptKey(stored.id);
+
+    const resent = await whileLocked(
+      ids,
+      [
+        `UPDATE content_form_submissions SET idempotency_key = '${key}' WHERE id = '${stored.id}'`,
+        `UPDATE content_forms SET accepting_answers = 0 WHERE database_id = '${ids.databaseId}'`,
+      ],
+      submit,
+    );
+    expect(resent).toEqual(first);
+    await expect(rowsOf(ids)).resolves.toHaveLength(2);
+  });
+});
+
+describe("Content forms: rules that change while answers wait", () => {
+  it("refuses with form_changed when the form's page or settings change before the write, on both channels", async () => {
+    const ids = await seedCollection();
+    const link = await setUpForm(ids, { audience: "anonymous" });
+    const before = await rowsOf(ids);
+    const editCanvas = `UPDATE documents SET content = content || ' Now also asks for a budget.' WHERE id = '${ids.canvasDocumentId}'`;
+    const collectionSubmit = () =>
+      as(OWNER, () =>
+        submitCollectionForm.run({
+          databaseId: ids.databaseId,
+          viewId: ids.viewId,
+          title: "Editor request",
+          propertyEntries: [{ property: ids.priorityId, value: "P1 — High" }],
+        }),
+      );
+
+    await expect(
+      whileLocked(ids, [editCanvas], () => send(link, validAnswers(ids))),
+    ).rejects.toMatchObject({ errorCode: "form_changed", statusCode: 409 });
+    await expect(
+      whileLocked(ids, [editCanvas], collectionSubmit),
+    ).rejects.toMatchObject({ errorCode: "form_changed" });
+    await expect(
+      whileLocked(
+        ids,
+        [
+          `UPDATE content_forms SET canvas_document_id = NULL WHERE database_id = '${ids.databaseId}'`,
+        ],
+        collectionSubmit,
+      ),
+    ).rejects.toMatchObject({ errorCode: "form_changed" });
+    await expect(rowsOf(ids)).resolves.toEqual(before);
+    await expect(receiptsOf(ids)).resolves.toEqual([]);
+  });
+
+  it("refuses once the collection stops taking new rows before the write", async () => {
+    const ids = await seedCollection();
+    const link = await setUpForm(ids, { audience: "anonymous" });
+    const followGitHub = `INSERT INTO content_database_sources (id, database_id, source_type, source_name, source_table) VALUES ('source_${ids.databaseId}', '${ids.databaseId}', 'github', 'docs', 'docs')`;
+
+    await expect(
+      whileLocked(ids, [followGitHub], () => send(link, validAnswers(ids))),
+    ).rejects.toMatchObject({ errorCode: "form_closed" });
+    await expect(
+      whileLocked(ids, [followGitHub], () =>
+        as(OWNER, () =>
+          submitCollectionForm.run({
+            databaseId: ids.databaseId,
+            viewId: ids.viewId,
+            title: "Editor request",
+            propertyEntries: [{ property: ids.priorityId, value: "P1 — High" }],
+          }),
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "SOURCE_READ_ONLY" });
+    await expect(rowsOf(ids)).resolves.toHaveLength(1);
+  });
+});
+
+describe("Content forms: a link without a page", () => {
+  it("never asks a property the Form view doesn't list, such as one added after the link was shared", async () => {
+    const ids = await seedCollection();
+    const link = await setUpForm(ids, {
+      audience: "anonymous",
+      canvasDocumentId: null,
+    });
+    const budgetId = `budget_${ids.databaseId}`;
+    await addProperty(ids, { id: budgetId, name: "Budget", type: "text" });
+
+    const read = await getForm.run({ link }, caller("192.0.2.40"));
+    expect(read.questions.map((question) => question.key)).toEqual([
+      "name",
+      ids.priorityId,
+      ids.emailId,
+    ]);
+    expect(JSON.stringify(read)).not.toContain("Budget");
+    await expect(
+      send(link, [...validAnswers(ids), { question: budgetId, value: "$10k" }]),
+    ).resolves.toMatchObject({
+      outcome: "needs_changes",
+      problems: [
+        {
+          question: budgetId,
+          wording: null,
+          message: `This form has no question "${budgetId}".`,
+        },
+      ],
+    });
+
+    const [database] = await getDb()
+      .select({ viewConfigJson: schema.contentDatabases.viewConfigJson })
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, ids.databaseId));
+    const config = JSON.parse(database.viewConfigJson) as {
+      views: Array<{ id: string; formQuestions?: unknown[] }>;
+    };
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({
+        viewConfigJson: JSON.stringify({
+          ...config,
+          views: config.views.map((view) =>
+            view.id === ids.viewId ? { ...view, formQuestions: [] } : view,
+          ),
+        }),
+      })
+      .where(eq(schema.contentDatabases.id, ids.databaseId));
+    await expect(
+      getForm.run({ link }, caller("192.0.2.40")),
+    ).resolves.toMatchObject({
+      questions: [{ key: "name", required: true }],
+    });
+  });
+});
+
+describe("Content forms: the answer schema", () => {
+  it("refuses what the form refuses, and tells apart choices that share a label", async () => {
+    const ids = await seedCollection();
+    const teamsId = `teams_${ids.databaseId}`;
+    await addProperty(ids, {
+      id: teamsId,
+      name: "Teams",
+      type: "multi_select",
+      optionsJson: serializePropertyOptions({
+        options: [
+          { id: "design-a", name: "Design", color: "blue" },
+          { id: "design-b", name: "design ", color: "green" },
+          { id: "eng", name: "Engineering", color: "gray" },
+          { id: "ops", name: "eng", color: "red" },
+        ],
+      }),
+    });
+    await askOnCanvas(ids, [{ propertyId: teamsId, required: true }]);
+    const link = await setUpForm(ids, { audience: "anonymous" });
+
+    const read = await getForm.run({ link }, caller("192.0.2.41"));
+    expect(read.answerSchema).toMatchObject({
+      required: ["name", ids.priorityId, teamsId],
+      properties: {
+        name: { type: "string", minLength: 1 },
+        [ids.priorityId]: {
+          type: "string",
+          minLength: 1,
+          enum: ["P0 — Urgent", "P1 — High"],
+        },
+        [teamsId]: {
+          type: "array",
+          minItems: 1,
+          uniqueItems: true,
+          items: {
+            type: "string",
+            enum: ["design-a", "design-b", "Engineering", "ops"],
+          },
+        },
+      },
+    });
+    const properties = read.answerSchema.properties as Record<
+      string,
+      Record<string, unknown>
+    >;
+    expect(properties[ids.emailId]).not.toHaveProperty("minLength");
+
+    const sent = await send(link, [
+      ...validAnswers(ids),
+      { question: teamsId, value: ["design-b", "Engineering"] },
+    ]);
+    if (sent.outcome !== "submitted") throw new Error(sent.message);
+    const [teams] = await getDb()
+      .select({ valueJson: schema.documentPropertyValues.valueJson })
+      .from(schema.documentPropertyValues)
+      .where(
+        and(
+          eq(
+            schema.documentPropertyValues.documentId,
+            sent.receipt.record.documentId,
+          ),
+          eq(schema.documentPropertyValues.propertyId, teamsId),
+        ),
+      );
+    expect(JSON.parse(teams.valueJson)).toEqual(["design-b", "eng"]);
+  });
+});
+
+describe("Content forms: what a link submit leaves behind", () => {
+  it("refreshes the collection owner's sessions without naming the sender", async () => {
+    const ids = await seedCollection();
+    const link = await setUpForm(ids, { audience: "anonymous" });
+    const sender = `refresh-sender-${randomUUID()}@example.com`;
+    const before = Date.now();
+    const result = await send(link, validAnswers(ids), {
+      as: sender,
+      ctx: { userEmail: sender },
+    });
+    expect(result.outcome).toBe("submitted");
+    const signal = await as(OWNER, () => readAppState("refresh-signal"));
+    expect(Number(signal?.ts)).toBeGreaterThanOrEqual(before);
+    await expect(durableTextContaining([sender])).resolves.toEqual([]);
+  });
+
+  it("deletes a record's receipts when its page is permanently deleted", async () => {
+    const ids = await seedCollection();
+    const link = await setUpForm(ids, { audience: "anonymous" });
+    const kept = await send(link, validAnswers(ids));
+    const purged = await send(link, validAnswers(ids));
+    if (kept.outcome !== "submitted" || purged.outcome !== "submitted") {
+      throw new Error("Both submissions should have been saved.");
+    }
+    await as(OWNER, () =>
+      deleteDocument.deleteDocumentRecursive(
+        getDb(),
+        purged.receipt.record.documentId,
+        OWNER,
+      ),
+    );
+    await expect(receiptsOf(ids)).resolves.toEqual([
+      expect.objectContaining({ id: kept.receipt.receiptId }),
+    ]);
   });
 });

@@ -1,40 +1,25 @@
 import { createHash, randomBytes } from "node:crypto";
 
+import { publicClipVisitor } from "../server/lib/clip-public-visitor.js";
+
 export const CONTENT_FORM_FLOOD_WINDOW_MS = 60_000;
 export const CONTENT_FORM_SOURCE_LIMIT = 10;
 export const CONTENT_FORM_FORM_LIMIT = 60;
 
 const MAX_TRACKED_KEYS = 10_000;
-const NETWORK_HEADERS = [
-  "x-nf-client-connection-ip",
-  "cf-connecting-ip",
-  "true-client-ip",
-  "x-real-ip",
-] as const;
 
 const salt = randomBytes(16);
 const attempts = new Map<string, number[]>();
 
-function networkAddress(headers: Headers | undefined): string | null {
-  if (!headers) return null;
-  for (const name of NETWORK_HEADERS) {
-    const value = headers.get(name)?.trim();
-    if (value) return value;
-  }
-  const forwarded = headers.get("x-forwarded-for");
-  if (!forwarded) return null;
-  const comma = forwarded.indexOf(",");
-  return (comma === -1 ? forwarded : forwarded.slice(0, comma)).trim() || null;
-}
-
 export function contentFormSourceKey(input: {
   email: string | null;
   headers: Headers | undefined;
-}): string {
-  const source = input.email
-    ? `person:${input.email}`
-    : `network:${networkAddress(input.headers) ?? "unknown"}`;
-  return createHash("sha256").update(salt).update(source).digest("base64url");
+}): string | null {
+  if (input.email) {
+    return `person:${createHash("sha256").update(salt).update(input.email).digest("base64url")}`;
+  }
+  const visitor = publicClipVisitor(input.headers);
+  return visitor.key === null ? null : `network:${visitor.key}`;
 }
 
 function forgetIdleKeys(cutoff: number) {

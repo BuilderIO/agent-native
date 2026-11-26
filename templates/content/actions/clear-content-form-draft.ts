@@ -12,5 +12,6 @@ export default defineAction({
   http: { method: "POST" },
   agentTool: false,
   audit: { enabled: false },
+  changeEvents: false,
   run: async (args, ctx) => clearContentFormDraft(args, ctx),
 });
