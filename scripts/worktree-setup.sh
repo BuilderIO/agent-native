@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Makes a new git worktree ready to run: `pnpm install` plus the main checkout's ignored .env files.
-# Usage: worktree-setup.sh [--hook] [worktree-dir]. With --hook, failures are reported on stdout with exit 0.
+# Usage: worktree-setup.sh [--hook]. With --hook, failures are reported on stdout with exit 0.
 set -euo pipefail
 
 hook=no
@@ -12,7 +12,7 @@ fail() { # a Claude SessionStart hook only shows the agent stdout from a run tha
   exit 1
 }
 
-wt=$(git -C "${1:-$(dirname "$0")}" rev-parse --show-toplevel)
+wt=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 cd "$wt"
 git_dir=$(git rev-parse --path-format=absolute --git-dir)
 common_dir=$(git rev-parse --path-format=absolute --git-common-dir)
