@@ -15,10 +15,18 @@ import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
-import { EmailList, InboxZero } from "@/components/email/EmailList";
+import {
+  EmailList,
+  InboxZero,
+  type EmailListSection,
+} from "@/components/email/EmailList";
 import { EmailThread } from "@/components/email/EmailThread";
 import { IntegrationsSidebar } from "@/components/email/IntegrationsSidebar";
 import { ReadingPaneDivider } from "@/components/email/ReadingPaneDivider";
+import {
+  DraftsHeaderActions,
+  RequestedDrafts,
+} from "@/components/email/RequestedDrafts";
 import { GoogleConnectBanner } from "@/components/GoogleConnectBanner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAccountFilter } from "@/hooks/use-account-filter";
@@ -26,6 +34,7 @@ import {
   FOCUS_COMPOSE_DRAFT_EVENT,
   useComposeState,
 } from "@/hooks/use-compose-state";
+import { useQueuedDrafts } from "@/hooks/use-draft-queue";
 import {
   EMPTY_LABELS,
   useEmails,
@@ -917,6 +926,48 @@ export function InboxPage() {
     savedFilterQueries,
   ]);
 
+  const isDraftsView = view === "drafts";
+  const { data: scheduledEmails } = useEmails(
+    "scheduled",
+    searchQuery,
+    undefined,
+    { enabled: isDraftsView },
+  );
+  const requestedDrafts = useQueuedDrafts({
+    scope: "review",
+    status: "active",
+    limit: 100,
+  });
+  const draftSections = useMemo<EmailListSection[] | undefined>(() => {
+    if (!isDraftsView) return undefined;
+    const scheduled = (scheduledEmails ?? EMPTY_EMAILS).filter(
+      (e) =>
+        activeAccounts.size === 0 ||
+        (e.accountEmail && activeAccounts.has(e.accountEmail)),
+    );
+    return [
+      {
+        id: "scheduled",
+        title: t("mail.views.scheduled"),
+        emails: scheduled,
+        soonestFirst: true,
+      },
+      { id: "drafts", title: t("mail.views.drafts"), emails },
+    ];
+  }, [isDraftsView, scheduledEmails, activeAccounts, emails, t]);
+  const listEmails = useMemo(
+    () => draftSections?.flatMap((section) => section.emails) ?? emails,
+    [draftSections, emails],
+  );
+  const draftsHeaderActions = useMemo(
+    () => (isDraftsView ? <DraftsHeaderActions /> : undefined),
+    [isDraftsView],
+  );
+  const requestedSection =
+    isDraftsView && !searchQuery && requestedDrafts.drafts.length > 0 ? (
+      <RequestedDrafts drafts={requestedDrafts.drafts} />
+    ) : undefined;
+
   useEffect(
     () => setSelectedIds(new Set()),
     [view, activeLabel, activeInboxTab, activeFilterId],
@@ -996,7 +1047,7 @@ export function InboxPage() {
     } else if (targetView === "draft-queue") {
       const target = navCommand.queuedDraftId
         ? `/draft-queue?id=${encodeURIComponent(navCommand.queuedDraftId)}`
-        : "/draft-queue";
+        : "/drafts";
       void navigate(target);
     } else if (targetView === "settings") {
       void navigate(mailSettingsRoute(navCommand.settingsSection ?? "general"));
@@ -1007,7 +1058,7 @@ export function InboxPage() {
     } else if (targetThread) {
       void navigate(openThreadPath(targetView, targetThread));
     } else if (targetView !== view) {
-      void navigate(`/${targetView}`);
+      void navigate(`/${targetView === "scheduled" ? "drafts" : targetView}`);
     }
 
     void navState.clearCommand();
@@ -1019,7 +1070,7 @@ export function InboxPage() {
   // cascades through EmailThread's props and re-renders the whole detail
   // view. With this, the props only change when the list of threads (or
   // their latest-message identities) actually changes.
-  const rawThreads = useMemo(() => groupIntoThreads(emails), [emails]);
+  const rawThreads = useMemo(() => groupIntoThreads(listEmails), [listEmails]);
   const prevThreadsRef = useRef<ThreadSummary[]>([]);
   const threads = useMemo(() => {
     const prev = prevThreadsRef.current;
@@ -1147,7 +1198,10 @@ export function InboxPage() {
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1">
         <EmailList
-          emails={emails}
+          emails={listEmails}
+          sections={draftSections}
+          topSection={requestedSection}
+          headerActions={draftsHeaderActions}
           focusedId={focusedId}
           setFocusedId={setFocusedId}
           selectedIds={selectedIds}
@@ -1231,7 +1285,7 @@ export function InboxPage() {
           )}
           {!paneLayout && hasThread && !isMobile && !isMaximized && (
             <ThreadListSidebar
-              emails={emails}
+              emails={listEmails}
               activeThreadId={threadId}
               view={view}
               searchParams={searchParams}
