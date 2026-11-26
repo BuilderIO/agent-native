@@ -6,26 +6,36 @@ vi.mock("./loopback.js", () => ({
     (event as { loopback?: boolean }).loopback === true,
 }));
 
-const { isLocalDevIdentityEmail, refusesLocalDevCredential } =
-  await import("./local-dev-identity.js");
+const {
+  isLocalDevIdentityEmail,
+  LEGACY_LOCAL_DEV_IDENTITY_EMAIL,
+  LOCAL_DEV_IDENTITY_EMAIL,
+  refusesLocalDevCredential,
+} = await import("./local-dev-identity.js");
 
 const loopbackEvent = { loopback: true } as unknown as H3Event;
 const hostedEvent = { loopback: false } as unknown as H3Event;
 
 describe("isLocalDevIdentityEmail", () => {
-  it.each(["dev@local.test", " Dev@Local.Test ", "dev@local"])(
-    "matches %j",
-    (email) => {
-      expect(isLocalDevIdentityEmail(email)).toBe(true);
-    },
-  );
+  it("names the AUTH_DISABLED identity and its legacy address", () => {
+    expect(LOCAL_DEV_IDENTITY_EMAIL).toBe("dev@local.test");
+    expect(LEGACY_LOCAL_DEV_IDENTITY_EMAIL).toBe("dev@local");
+  });
 
-  it.each([undefined, "", "dev@local.test.example.com", "person@example.com"])(
-    "does not match %j",
-    (email) => {
-      expect(isLocalDevIdentityEmail(email)).toBe(false);
-    },
-  );
+  it("matches both addresses, ignoring case and surrounding whitespace", () => {
+    expect(isLocalDevIdentityEmail("dev@local.test")).toBe(true);
+    expect(isLocalDevIdentityEmail("dev@local")).toBe(true);
+    expect(isLocalDevIdentityEmail("  DEV@Local.Test ")).toBe(true);
+    expect(isLocalDevIdentityEmail(" Dev@LOCAL")).toBe(true);
+  });
+
+  it("rejects other addresses and a missing email", () => {
+    expect(isLocalDevIdentityEmail(undefined)).toBe(false);
+    expect(isLocalDevIdentityEmail("")).toBe(false);
+    expect(isLocalDevIdentityEmail("dev@local.test.example.com")).toBe(false);
+    expect(isLocalDevIdentityEmail("admin@example.com")).toBe(false);
+    expect(isLocalDevIdentityEmail("dev@localhost")).toBe(false);
+  });
 });
 
 describe("refusesLocalDevCredential", () => {

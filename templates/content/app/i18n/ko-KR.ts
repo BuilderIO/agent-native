@@ -1197,6 +1197,7 @@ const editor = {
       "모든 행, 모든 사용자에게 적용됩니다. 보기에서는 여전히 숨길 수 있습니다.",
   },
   slash: {
+    ai: "AI",
     audio: "오디오",
     audioDescription: "오디오 업로드 또는 삽입",
     basicBlocks: "기본 블록",

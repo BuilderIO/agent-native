@@ -2913,6 +2913,25 @@ audio.media-block__content {
   outline-offset: 0;
 }
 
+/* The block an open block menu acts on: the editor's selection fill laid
+   over the whole block, in place of a selected block's outline or ring. */
+.content-block-menu-tint {
+  position: absolute;
+  border-radius: 6px;
+  background: hsl(210 100% 52% / 0.08);
+  pointer-events: none;
+}
+
+.visual-editor-wrapper:has(> .content-block-menu-tint)
+  .content-editor
+  .ProseMirror-selectednode {
+  outline: none;
+}
+
+.visual-editor-wrapper:has(> .content-block-menu-tint) .media-block--selected {
+  box-shadow: none;
+}
+
 .content-editor .content-linked-block {
   border-radius: 4px;
   background-color: hsl(var(--primary) / 0.08);
@@ -3469,44 +3488,6 @@ button.discussion-subject-quote:hover {
   .comment-stack-front-leave {
     animation: comment-stack-front-fade-out 120ms linear forwards;
   }
-}
-
-.slash-command-menu {
-  background: hsl(var(--popover));
-  border: 1px solid hsl(var(--border));
-  border-radius: 8px;
-  box-shadow:
-    0 10px 28px rgb(0 0 0 / 0.12),
-    0 2px 8px rgb(0 0 0 / 0.08),
-    0 0 0 1px rgb(0 0 0 / 0.04);
-  min-width: 300px;
-  max-height: 380px;
-  overflow-y: auto;
-}
-.slash-command-menu button {
-  color: hsl(var(--foreground));
-}
-.slash-command-menu button:hover,
-.slash-command-menu button.active {
-  background: hsl(var(--accent));
-}
-.slash-command-menu .text-gray-400 {
-  color: hsl(var(--muted-foreground));
-}
-.slash-command-menu .text-gray-900 {
-  color: hsl(var(--foreground));
-}
-.slash-command-menu .text-gray-500 {
-  color: hsl(var(--muted-foreground));
-}
-.slash-command-menu .border-gray-200 {
-  border-color: hsl(var(--border));
-}
-.slash-command-menu .bg-white {
-  background: hsl(var(--popover));
-}
-.slash-command-menu .bg-gray-100 {
-  background: hsl(var(--accent));
 }
 
 /* A collaborator's selection: a tint in their colour, as strong as a local

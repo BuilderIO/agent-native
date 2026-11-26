@@ -66,6 +66,7 @@ import {
   McpCredentialIssuanceError,
   withMcpCredentialIssuance,
 } from "./credential-issuance.js";
+import { assertOrgCredentialIssuableTo } from "./local-dev-credential-gate.js";
 import { getMcpOAuthIssuer, resolveMcpOAuthIssuer } from "./oauth-route.js";
 import {
   MCP_OAUTH_DEFAULT_SCOPE,
@@ -349,6 +350,7 @@ export async function mintOrgServiceToken(params: {
   serviceEmail: string;
   ttlDays: number;
 }> {
+  assertOrgCredentialIssuableTo(params.createdBy);
   const serviceName = normalizeServiceName(params.serviceName);
   const serviceEmail = serviceIdentityEmail(serviceName, params.orgId);
   const orgDomain = await resolveOrgDomain(params.orgId);
