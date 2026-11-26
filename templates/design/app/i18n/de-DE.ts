@@ -2005,7 +2005,8 @@ export default {
     bringToFront: "In den Vordergrund",
     sendBackward: "Nach hinten",
     sendToBack: "In den Hintergrund",
-    arrangeUnavailable: "Wähle eine Ebene in einem bearbeitbaren Design aus, um sie neu anzuordnen",
+    arrangeUnavailable:
+      "Wähle eine Ebene in einem bearbeitbaren Design aus, um sie neu anzuordnen",
     pasteToReplace: "Einfügen zum Ersetzen",
     frameSelection: "Auswahl rahmen",
     flipHorizontal: "Horizontal spiegeln",
