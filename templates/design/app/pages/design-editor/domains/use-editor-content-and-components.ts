@@ -1105,6 +1105,12 @@ export function useEditorContentAndComponents({
   );
 
   const handleOpenLibraryComponent = selectLinkedComponentNode;
+  const { data: componentLibrary } = useActionQuery(
+    "list-design-components",
+    { designId: id ?? "" },
+    { enabled: Boolean(id) },
+  );
+  const libraryComponents = componentLibrary?.components;
 
   const handleGoToMainComponentMenuAction = useCallback(() => {
     if (!id || !selectedInstanceActionNodeId) return;
@@ -1271,6 +1277,7 @@ export function useEditorContentAndComponents({
     handleShaderSourceEdit,
     handleGoToMainComponentMenuAction,
     handleOpenLibraryComponent,
+    libraryComponents,
     handleDetachInstanceMenuAction,
     handleSwapInstanceMenuAction,
     handleToggleMinimalUi,

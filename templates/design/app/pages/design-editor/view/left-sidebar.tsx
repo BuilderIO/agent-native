@@ -174,13 +174,11 @@ export function renderLeftSidebar({
   const { handleLayerLeave } = editorCanvasAndScreens;
   const { initialGenerationChromeLimited, resolveAssetScreenPoint } =
     editorLiveEditsAndPresence;
-  const { hoveredCodeLayerNode, handleOpenLibraryComponent } =
-    editorContentAndComponents;
-  const { data: componentLibrary } = useActionQuery(
-    "list-design-components",
-    { designId: id ?? "" },
-    { enabled: Boolean(id) },
-  );
+  const {
+    hoveredCodeLayerNode,
+    handleOpenLibraryComponent,
+    libraryComponents,
+  } = editorContentAndComponents;
   const { designExtensionContext } = editorSelectionAndStyles;
   const { handleSidebarScreenSelect } = editorModes;
   const { layersPanelRef } = editorExportAndHandoff;
@@ -301,7 +299,7 @@ export function renderLeftSidebar({
                   expandedIds={layerPanelExpandedIds}
                   searchQuery={layersSearchQuery}
                   onScreenSelect={handleSidebarScreenSelect}
-                  components={componentLibrary?.components}
+                  components={libraryComponents}
                   onComponentSelect={(component) =>
                     void handleOpenLibraryComponent({
                       fileId: component.sampleFileId,
