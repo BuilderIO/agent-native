@@ -246,6 +246,36 @@ describe("Mail notes collection", () => {
     expect(read?.markdown.endsWith("Line 3999 of a long history")).toBe(true);
   });
 
+  it("keeps the newest whole lines that fit once escaped", async () => {
+    const user = "notes-fit@example.com";
+    const added = await as(user, () =>
+      notes.addMailNote({ email: "ada@example.com", text: "First" }, undefined),
+    );
+    const setBody = (content: string) =>
+      getDb()
+        .update(schema.documents)
+        .set({ content })
+        .where(eq(schema.documents.id, idFromUrl(added.note.url)));
+    const read = () => as(user, () => notes.readMailNote("ada@example.com"));
+
+    const newest = "x".repeat(99_997);
+    await setBody(`old\n${newest}\n`);
+    expect(await read()).toMatchObject({
+      markdown: `${newest}\n`,
+      truncated: true,
+    });
+
+    await setBody(`old\n${"y".repeat(100_001)}`);
+    expect(await read()).toMatchObject({ markdown: "", truncated: true });
+
+    const escaped = `- **2026-11-25** ${"\u0001".repeat(1_900)}`;
+    await setBody(Array.from({ length: 50 }, () => escaped).join("\n"));
+    const note = await read();
+    expect(note?.truncated).toBe(true);
+    expect(note?.markdown.startsWith("- **2026-11-25** ")).toBe(true);
+    expect(JSON.stringify(note?.markdown).length).toBeLessThanOrEqual(100_002);
+  });
+
   it("refuses when Email is no longer the collection's key", async () => {
     const user = "notes-key@example.com";
     await as(user, () =>

@@ -59,7 +59,8 @@ type CollectionTarget = Pick<
   "spaceId" | "databaseId" | "databaseDocumentId"
 >;
 
-const MAIL_NOTE_MAX_CHARS = 100_000;
+const MAIL_NOTE_MAX_JSON_CHARS = 100_000;
+const NEWLINE_JSON_CHARS = 2;
 export const MAIL_NOTE_MAX_RESULT_CHARS = 400_000;
 
 export const mailNoteSchema = z.object({
@@ -132,6 +133,13 @@ async function collectionRow(databaseId: string) {
   return firstRow(rows) ?? null;
 }
 
+function failKeyChanged(): never {
+  fail(
+    "Email is no longer the key of your Mail notes collection in Content. Make Email its key again to see or add notes.",
+    { errorCode: "mail_notes_key_changed", statusCode: 409 },
+  );
+}
+
 async function liveCollection(userEmail: string, stored: StoredCollection) {
   const row = await collectionRow(stored.databaseId);
   if (!row) return null;
@@ -155,12 +163,7 @@ async function liveCollection(userEmail: string, stored: StoredCollection) {
       { errorCode: "mail_notes_moved", statusCode: 409 },
     );
   }
-  if (row.naturalKeyPropertyId !== stored.emailPropertyId) {
-    fail(
-      "Email is no longer the key of your Mail notes collection in Content. Make Email its key again to see or add notes.",
-      { errorCode: "mail_notes_key_changed", statusCode: 409 },
-    );
-  }
+  if (row.naturalKeyPropertyId !== stored.emailPropertyId) failKeyChanged();
   return stored;
 }
 
@@ -284,10 +287,24 @@ async function readPage(documentId: string, role: "viewer" | "editor") {
   return page;
 }
 
-function newestLines(markdown: string) {
-  const tail = markdown.slice(-MAIL_NOTE_MAX_CHARS);
-  const lineStart = tail.indexOf("\n");
-  return lineStart === -1 ? tail : tail.slice(lineStart + 1);
+function jsonChars(text: string) {
+  return JSON.stringify(text).length - 2;
+}
+
+function newestLines(
+  markdown: string,
+): Pick<MailNote, "markdown" | "truncated"> {
+  if (jsonChars(markdown) <= MAIL_NOTE_MAX_JSON_CHARS) {
+    return { markdown, truncated: false };
+  }
+  const kept: string[] = [];
+  let size = -NEWLINE_JSON_CHARS;
+  for (const line of markdown.split("\n").reverse()) {
+    size += jsonChars(line) + NEWLINE_JSON_CHARS;
+    if (size > MAIL_NOTE_MAX_JSON_CHARS) break;
+    kept.push(line);
+  }
+  return { markdown: kept.reverse().join("\n"), truncated: true };
 }
 
 function noteOf(page: {
@@ -295,11 +312,8 @@ function noteOf(page: {
   content: unknown;
   updatedAt: unknown;
 }): MailNote {
-  const markdown = typeof page.content === "string" ? page.content : "";
-  const truncated = markdown.length > MAIL_NOTE_MAX_CHARS;
   return {
-    markdown: truncated ? newestLines(markdown) : markdown,
-    truncated,
+    ...newestLines(typeof page.content === "string" ? page.content : ""),
     url: noteUrl(page.id),
     updatedAt: String(page.updatedAt ?? ""),
   };
@@ -335,6 +349,7 @@ async function ensurePersonPage(
   const existing = await claimedPage(stored.databaseId, keyPropertyId, email);
   if (existing) return { documentId: existing, created: false };
   const contract = await getDatabaseMutationContract(targetOf(stored));
+  if (contract.naturalKeyPropertyId !== keyPropertyId) failKeyChanged();
   try {
     const result = await upsertDatabaseRow(
       {

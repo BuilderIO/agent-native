@@ -115,6 +115,14 @@ describe("Content notes", () => {
       statusCode: 409,
     });
 
+    invokeAgentAction.mockResolvedValue(
+      reply("failed", "Error: bad (errorCode: mail_notes_setting_invalid)"),
+    );
+    await expect(readContactNote("ada@example.com")).rejects.toMatchObject({
+      errorCode: "mail_notes_setting_invalid",
+      statusCode: 500,
+    });
+
     invokeAgentAction.mockResolvedValue(reply("failed", "Error: boom"));
     await expect(
       addContactNote({ email: "ada@example.com", text: "Hi" }),

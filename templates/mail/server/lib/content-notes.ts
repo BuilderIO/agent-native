@@ -60,6 +60,11 @@ const NOTE_ERRORS: Record<string, { message: string; statusCode: number }> = {
       "Your Mail notes collection is no longer in your Personal space in Content. Move it back to see or add notes.",
     statusCode: 409,
   },
+  mail_notes_setting_invalid: {
+    message:
+      "Content's saved setting for your Mail notes collection is unreadable or doesn't name your own collection.",
+    statusCode: 500,
+  },
   DOCUMENT_REVISION_CONFLICT: {
     message: "The note page changed while your note was saved. Try again.",
     statusCode: 409,

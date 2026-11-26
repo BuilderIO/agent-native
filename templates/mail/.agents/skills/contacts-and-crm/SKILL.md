@@ -114,7 +114,9 @@ rest. `appended: false` means the page already ended with that exact line, so
 nothing was added. Both fail loudly when Content can't be reached
 (`content_unavailable`), the page is in Trash (`mail_note_trashed`), or the
 collection left Personal or lost its Email key (`mail_notes_moved`,
-`mail_notes_key_changed`); say so rather than reporting no notes.
+`mail_notes_key_changed`), or Content's saved pointer to the collection is
+unreadable (`mail_notes_setting_invalid`); say so rather than reporting no
+notes.
 
 ## Related Skills
 
