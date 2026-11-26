@@ -41,8 +41,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, options?: Record<string, unknown>) =>
     options ? `${key} ${JSON.stringify(options)}` : key,
   useFormatters: () => ({
-    formatList: (value: string[], options?: Intl.ListFormatOptions) =>
-      new Intl.ListFormat("en-US", options).format(value),
+    formatList: (value: string[]) => value.join(" and "),
   }),
 }));
 vi.mock("sonner", () => ({
