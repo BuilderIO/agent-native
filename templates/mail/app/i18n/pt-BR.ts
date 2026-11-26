@@ -912,6 +912,15 @@ const messages = {
     readingPane: {
       empty: "Nenhum e-mail selecionado",
       resizeList: "Redimensionar lista de e-mails",
+      openHint: "Pressione J ou Enter para abri-lo.",
+      reopenHint:
+        "Pressione Enter para abri-lo de novo ou J para ir ao próximo e-mail.",
+      noSubject: "(sem assunto)",
+    },
+    list: {
+      newMailAbove_one: "{{count}} novo",
+      newMailAbove_many: "{{count}} novos",
+      newMailAbove_other: "{{count}} novos",
     },
   },
   agent: {

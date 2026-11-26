@@ -923,6 +923,14 @@ const messages = {
     readingPane: {
       empty: "Keine E-Mail ausgewählt",
       resizeList: "Größe der E-Mail-Liste ändern",
+      openHint: "Drücke J oder Enter, um sie zu öffnen.",
+      reopenHint:
+        "Drücke Enter, um sie erneut zu öffnen, oder J für die nächste E-Mail.",
+      noSubject: "(kein Betreff)",
+    },
+    list: {
+      newMailAbove_one: "{{count}} neu",
+      newMailAbove_other: "{{count}} neu",
     },
   },
   agent: {

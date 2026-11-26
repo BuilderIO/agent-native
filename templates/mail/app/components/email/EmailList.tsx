@@ -16,6 +16,7 @@ import type { EmailMessage, Label } from "@shared/types";
 import {
   IconAlertCircle,
   IconArchive,
+  IconArrowUp,
   IconCheck,
   IconChevronDown,
   IconDots,
@@ -65,6 +66,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -107,6 +109,7 @@ import {
   isKeyboardShortcutTarget,
   useKeyboardShortcuts,
 } from "@/hooks/use-keyboard-shortcuts";
+import { useNewMailAbove } from "@/hooks/use-new-mail-above";
 import {
   useConfirmUncertainScheduledEmail,
   useDeleteScheduledJob,
@@ -617,6 +620,7 @@ const LIST_NAVIGATION_KEYS = new Set([
   "K",
   "ArrowDown",
   "ArrowUp",
+  "Home",
 ]);
 
 export function EmailList({
@@ -2246,18 +2250,62 @@ export function EmailList({
     ? RICH_ROW_HEIGHT_ESTIMATE
     : rowHeightEstimate;
 
+  const listScrolledRef = useRef(false);
   const rowVirtualizer = useVirtualizer({
     count: threads.length,
     getScrollElement: () => scrollParentRef.current,
     estimateSize: () => estimatedRowHeight,
     overscan: 10,
     getItemKey: (index) => threads[index]?.latestMessage.id ?? index,
+    anchorTo: listScrolledRef.current ? "end" : "start",
   });
+  listScrolledRef.current = (rowVirtualizer.scrollOffset ?? 0) > 0;
 
+  const scrolledToFocusedIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (focusedIndex < 0) return;
+    if (focusedIndex < 0 || scrolledToFocusedIdRef.current === focusedId) {
+      return;
+    }
+    scrolledToFocusedIdRef.current = focusedId;
     rowVirtualizer.scrollToIndex(focusedIndex, { align: "auto" });
-  }, [focusedIndex, rowVirtualizer]);
+  }, [focusedId, focusedIndex, rowVirtualizer]);
+
+  const newMailListKey = JSON.stringify([
+    view,
+    searchQuery ?? "",
+    labelParam ?? "",
+    searchParams.get("tab") ?? "",
+    [...activeAccounts].sort(),
+  ]);
+  const listOffset = Math.min(
+    rowVirtualizer.scrollOffset ?? 0,
+    rowVirtualizer.getTotalSize() - (rowVirtualizer.scrollRect?.height ?? 0),
+  );
+  const newMailAbove = useNewMailAbove(
+    newMailListKey,
+    threads,
+    rowVirtualizer.getVirtualItemForOffset(Math.max(0, listOffset))?.index ?? 0,
+  );
+  const clearNewMailAbove = newMailAbove.clear;
+  const jumpToNewest = useCallback(() => {
+    clearNewMailAbove();
+    const newest = threads[0] as ThreadSummary | undefined;
+    if (!newest) return;
+    setSelectedIds(new Set());
+    setFocusedId(newest.latestMessage.id);
+    focusedIndexRef.current = 0;
+    rowVirtualizer.scrollToIndex(0, { align: "start" });
+    if (readingPane && threadId) previewThread(newest);
+  }, [
+    clearNewMailAbove,
+    threads,
+    setSelectedIds,
+    setFocusedId,
+    rowVirtualizer,
+    readingPane,
+    threadId,
+    previewThread,
+  ]);
 
   const pageFocus = useCallback(
     (direction: 1 | -1) => {
@@ -2273,6 +2321,7 @@ export function EmailList({
     [
       { key: " ", handler: () => pageFocus(1) },
       { key: " ", shift: true, handler: () => pageFocus(-1) },
+      { key: "Home", handler: jumpToNewest },
     ],
     keyboardEnabled,
   );
@@ -3123,6 +3172,20 @@ export function EmailList({
       {cooldownNotice}
       {topSection}
       <div className="flex-1 overflow-y-auto" ref={scrollParentRef}>
+        {newMailAbove.count > 0 && (
+          <div className="pointer-events-none sticky top-2 z-10 flex h-0 justify-center overflow-visible">
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              onClick={jumpToNewest}
+              className="pointer-events-auto rounded-full shadow-sm"
+            >
+              <IconArrowUp aria-hidden="true" />
+              {t("mail.list.newMailAbove", { count: newMailAbove.count })}
+            </Button>
+          </div>
+        )}
         <AiFilterDialog
           open={!!aiFilterDialog}
           onOpenChange={(open) => !open && setAiFilterDialog(null)}

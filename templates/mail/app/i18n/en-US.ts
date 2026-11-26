@@ -882,6 +882,13 @@ const messages = {
     readingPane: {
       empty: "No email selected",
       resizeList: "Resize email list",
+      openHint: "Press J or Enter to open it.",
+      reopenHint: "Press Enter to open it again, or J for the next email.",
+      noSubject: "(no subject)",
+    },
+    list: {
+      newMailAbove_one: "{{count}} new",
+      newMailAbove_other: "{{count}} new",
     },
   },
   agent: {

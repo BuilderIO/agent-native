@@ -849,6 +849,13 @@ const messages = {
     readingPane: {
       empty: "未选择邮件",
       resizeList: "调整邮件列表大小",
+      openHint: "按 J 或 Enter 打开。",
+      reopenHint: "按 Enter 重新打开，或按 J 查看下一封邮件。",
+      noSubject: "（无主题）",
+    },
+    list: {
+      newMailAbove_one: "{{count}} 封新邮件",
+      newMailAbove_other: "{{count}} 封新邮件",
     },
   },
   agent: {

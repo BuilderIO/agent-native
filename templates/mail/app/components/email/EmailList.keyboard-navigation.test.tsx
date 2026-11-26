@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { AI_PRIORITY_MAX_EMAILS } from "@shared/ai-priority";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   act,
   cleanup,
@@ -26,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   virtualStart: 0,
   virtualWindowSize: Number.POSITIVE_INFINITY,
   freezeVirtualStart: false,
+  scrollRect: null as { width: number; height: number } | null,
   view: "all",
   threadId: undefined as string | undefined,
   headerActions: null as unknown,
@@ -67,7 +69,7 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 
 vi.mock("@tanstack/react-virtual", () => ({
-  useVirtualizer: ({ count }: { count: number }) => ({
+  useVirtualizer: vi.fn(({ count }: { count: number }) => ({
     getVirtualItems: () => {
       const start = Math.min(mocks.virtualStart, count);
       const end = Math.min(count, start + mocks.virtualWindowSize);
@@ -81,6 +83,12 @@ vi.mock("@tanstack/react-virtual", () => ({
       });
     },
     getTotalSize: () => count * 48,
+    scrollOffset: Math.min(mocks.virtualStart, count) * 48,
+    scrollRect: mocks.scrollRect,
+    getVirtualItemForOffset: (offset: number) =>
+      count === 0
+        ? undefined
+        : { index: Math.min(count - 1, Math.floor(offset / 48)) },
     measureElement: vi.fn(),
     scrollToIndex: (index: number, options?: { align: string }) => {
       mocks.scrollToIndex(index, options);
@@ -94,7 +102,7 @@ vi.mock("@tanstack/react-virtual", () => ({
         );
       }
     },
-  }),
+  })),
 }));
 
 vi.mock("react-router", () => ({
@@ -425,6 +433,7 @@ describe("EmailList keyboard navigation interactions", () => {
     mocks.virtualStart = 0;
     mocks.virtualWindowSize = Number.POSITIVE_INFINITY;
     mocks.freezeVirtualStart = false;
+    mocks.scrollRect = null;
     mocks.view = "all";
     mocks.threadId = undefined;
     mocks.headerActions = null;
@@ -1838,6 +1847,125 @@ describe("EmailList keyboard navigation interactions", () => {
       "/all/thread-middle?accountEmail=synthetic%40example.test",
       { replace: true },
     );
+  });
+
+  describe("new mail above the rows in view", () => {
+    const arrival = {
+      id: "new",
+      threadId: "thread-new",
+      from: { name: "Sender new", email: "new@example.test" },
+      to: [{ name: "Synthetic User", email: "user@example.test" }],
+      subject: "Subject new",
+      snippet: "Snippet new",
+      body: "Body new",
+      date: new Date(Date.UTC(2026, 0, 4)).toISOString(),
+      isRead: false,
+      isStarred: false,
+      isArchived: false,
+      isTrashed: false,
+      labelIds: [],
+      accountEmail: "synthetic@example.test",
+    };
+    const newMailButton = () =>
+      screen.queryByRole("button", { name: "mail.list.newMailAbove" });
+    const clickNewMailButton = () =>
+      fireEvent.click(
+        screen.getByRole("button", { name: "mail.list.newMailAbove" }),
+      );
+
+    it("offers a button that jumps to the newest email and marks it", () => {
+      mocks.virtualStart = 2;
+      const { rerender } = render(<Harness />);
+      expect(newMailButton()).toBeNull();
+
+      rerender(<Harness emails={[arrival, ...messages]} />);
+      clickNewMailButton();
+
+      expect(screen.getByLabelText("Focused id").textContent).toBe("new");
+      expect(mocks.scrollToIndex).toHaveBeenCalledWith(0, { align: "start" });
+      expect(newMailButton()).toBeNull();
+      expect(mocks.navigate).not.toHaveBeenCalled();
+    });
+
+    it("jumps to the newest email on Home and clears the button", () => {
+      mocks.virtualStart = 2;
+      const { rerender } = render(<Harness />);
+      rerender(<Harness emails={[arrival, ...messages]} />);
+      expect(newMailButton()).not.toBeNull();
+
+      press("Home");
+
+      expect(screen.getByLabelText("Focused id").textContent).toBe("new");
+      expect(mocks.scrollToIndex).toHaveBeenCalledWith(0, { align: "start" });
+      expect(newMailButton()).toBeNull();
+    });
+
+    it("leaves out mail that arrives in view or already read", () => {
+      const { rerender } = render(<Harness />);
+      rerender(<Harness emails={[arrival, ...messages]} />);
+      expect(newMailButton()).toBeNull();
+      cleanup();
+
+      mocks.virtualStart = 2;
+      const scrolled = render(<Harness />);
+      scrolled.rerender(
+        <Harness emails={[{ ...arrival, isRead: true }, ...messages]} />,
+      );
+      expect(newMailButton()).toBeNull();
+    });
+
+    it("leaves out mail that fits in view on a list too short to scroll", () => {
+      mocks.virtualStart = 2;
+      mocks.scrollRect = { width: 320, height: (messages.length + 1) * 48 };
+      const { rerender } = render(<Harness />);
+      rerender(<Harness emails={[arrival, ...messages]} />);
+      expect(newMailButton()).toBeNull();
+    });
+
+    it("opens the newest email when one is already open beside the list", () => {
+      mocks.threadId = "thread-middle";
+      mocks.virtualStart = 2;
+      const { rerender } = render(<Harness readingPane />);
+      rerender(<Harness readingPane emails={[arrival, ...messages]} />);
+      clickNewMailButton();
+
+      expect(mocks.navigate).toHaveBeenLastCalledWith(
+        "/all/thread-new?accountEmail=synthetic%40example.test",
+        { replace: true },
+      );
+    });
+
+    it("holds the rows in view in place only while scrolled down", () => {
+      const anchorTo = () =>
+        vi.mocked(useVirtualizer).mock.lastCall?.[0].anchorTo;
+      const { rerender } = render(<Harness />);
+      rerender(<Harness emails={[arrival, ...messages]} />);
+      expect(anchorTo()).toBe("start");
+
+      mocks.virtualStart = 2;
+      rerender(<Harness />);
+      rerender(<Harness emails={[arrival, ...messages]} />);
+      expect(anchorTo()).toBe("end");
+    });
+
+    it("does not scroll to the marked email when new mail pushes it down", () => {
+      mocks.virtualStart = 2;
+      const { rerender } = render(<Harness />);
+      mocks.scrollToIndex.mockClear();
+
+      rerender(<Harness emails={[arrival, ...messages]} />);
+
+      expect(screen.getByLabelText("Focused id").textContent).toBe("first");
+      expect(mocks.scrollToIndex).not.toHaveBeenCalled();
+    });
+
+    it("starts counting again after a search", () => {
+      mocks.virtualStart = 2;
+      const { rerender } = render(<Harness />);
+      mocks.searchQuery = "synthetic";
+      rerender(<Harness emails={[arrival, ...messages]} />);
+      expect(newMailButton()).toBeNull();
+    });
   });
 
   it("leaves j and k to the open email when it owns the keyboard", () => {

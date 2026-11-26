@@ -876,6 +876,18 @@ const messages = {
     readingPane: {
       empty: "لم يتم تحديد أي رسالة",
       resizeList: "تغيير حجم قائمة الرسائل",
+      openHint: "اضغط J أو Enter لفتحها.",
+      reopenHint:
+        "اضغط Enter لفتحها مرة أخرى، أو J للانتقال إلى الرسالة التالية.",
+      noSubject: "(بلا موضوع)",
+    },
+    list: {
+      newMailAbove_zero: "{{count}} رسائل جديدة",
+      newMailAbove_one: "{{count}} رسالة جديدة",
+      newMailAbove_two: "{{count}} رسالتان جديدتان",
+      newMailAbove_few: "{{count}} رسائل جديدة",
+      newMailAbove_many: "{{count}} رسالة جديدة",
+      newMailAbove_other: "{{count}} رسالة جديدة",
     },
   },
   agent: {
