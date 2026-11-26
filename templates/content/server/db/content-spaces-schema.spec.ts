@@ -9,9 +9,7 @@ import {
   documents,
 } from "./schema";
 
-// source-read-ok: the named additive migrations and their indexes are the
-// contract an existing database is upgraded by; the schema checks above cannot
-// see a missing migration.
+// source-read-ok: the named additive migrations and their indexes are the contract an existing database is upgraded by; the schema checks above cannot see a missing migration.
 const migrationsSource = readFileSync(
   new URL("../plugins/db.ts", import.meta.url),
   "utf8",

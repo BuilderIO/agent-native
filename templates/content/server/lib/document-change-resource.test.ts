@@ -4,7 +4,6 @@ import { documentChangeResource } from "./document-change-resource";
 
 // Actions whose change events must reach collaborators who have the document
 // open: their body, comments, and properties refresh without a reload.
-// documentKey is the input field each action names its document with.
 const COLLABORATOR_VISIBLE_ACTIONS = [
   { name: "add-comment", documentKey: "documentId" },
   { name: "delete-comment", documentKey: "documentId" },

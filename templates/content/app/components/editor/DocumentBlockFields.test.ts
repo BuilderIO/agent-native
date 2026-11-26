@@ -20,8 +20,6 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   useT: () => (key: string) => key,
 }));
 
-// The property read is the one stand-in; whether it failed is still decided
-// by the real hook module.
 const propertyRead = vi.hoisted(() => ({
   current: {} as Record<string, unknown>,
 }));
@@ -381,7 +379,6 @@ describe("property-query failure UI", () => {
     const state = container.querySelector("[data-block-fields-state]");
     expect(state?.getAttribute("data-block-fields-state")).toBe("error");
     expect(container.querySelector("[data-primary-editor]")).toBeNull();
-    // Its column can still shrink below its widest line.
     expect(state?.classList.contains("grid-cols-[minmax(0,1fr)]")).toBe(true);
     const retry = Array.from(container.querySelectorAll("button")).find(
       (button) => button.textContent === "database.retry",

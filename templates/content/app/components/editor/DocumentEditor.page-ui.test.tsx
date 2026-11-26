@@ -164,8 +164,6 @@ vi.mock("./comment-ai", () => ({
 }));
 vi.mock("./CommentsSidebar", async (original) => ({
   ...(await original<typeof import("./CommentsSidebar")>()),
-  // The @ menu, emoji picker and model menu of an open comment render in a
-  // portal, outside the page's DOM but inside its React tree.
   CommentsSidebar: (props: SidebarProps) => {
     fixture.sidebars.push(props);
     return [
@@ -210,7 +208,6 @@ vi.mock("./DocumentReconcileRecovery", () => ({
 }));
 vi.mock("./VisualEditor", async (original) => ({
   ...(await original<typeof import("./VisualEditor")>()),
-  // The page's text, with one comment highlight in it.
   VisualEditor: (props: ComponentProps<typeof VisualEditor>) => {
     fixture.editors.push(props);
     return createElement(
@@ -331,7 +328,6 @@ function toolbar(documentId = "page") {
   return last(fixture.toolbars, (props) => props.documentId === documentId)!;
 }
 
-/** The thread the page's open comments show as selected. */
 function selectedThread(documentId = "page") {
   const selected = Array.from(
     owner(documentId).querySelectorAll<HTMLElement>("[data-sidebar-fixture]"),
@@ -557,8 +553,6 @@ describe("clicking the page's padding", () => {
     )!;
     const text = owner().querySelector<HTMLElement>(".ProseMirror")!;
     const body = text.closest<HTMLElement>('[data-startup-anchor="body"]')!;
-    // The browser scrolls the caret into view as focus lands, and the first
-    // time again once layout settles.
     const focus = vi
       .spyOn(text, "focus")
       .mockImplementation(() => {
@@ -666,9 +660,6 @@ describe("the comment margin", () => {
         disconnect() {}
       },
     );
-    // A wide page whose text ends 40px before the margin starts. The margin
-    // measures where it's drawn, so a margin moved by its own offset would
-    // read that offset back.
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
       function (this: HTMLElement) {
         if (this.matches("[data-comments-flow-lane]")) {
@@ -694,7 +685,6 @@ describe("the comment margin", () => {
       "style.transform",
       "translateX(-40px)",
     );
-    // Moving the comments doesn't start the measuring over.
     expect(observed.filter((element) => element === lane)).toHaveLength(1);
   });
 });
@@ -733,7 +723,6 @@ describe("a local file whose page history can't be updated", () => {
 
 describe("a new comment's quoted text", () => {
   it("checks the page still marks it whenever the comment moves, not as it's written", async () => {
-    // The page is checked on the next frame, which the test draws.
     const frames: FrameRequestCallback[] = [];
     vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) =>
       frames.push(callback),
@@ -748,7 +737,6 @@ describe("a new comment's quoted text", () => {
     const pending = () =>
       last(fixture.sidebars, (props) => props.pendingComment)!;
 
-    // Until the page has been checked, text it may not mark isn't offered.
     await act(async () => last(fixture.editors)!.onComment!("Gone", 0));
     expect(pending().pendingTargetValid).toBe(false);
     await frame();

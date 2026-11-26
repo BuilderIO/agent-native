@@ -38,7 +38,6 @@ function mouse(type: string, target: EventTarget, clientY: number) {
   );
 }
 
-// Two lines on a page, with the first line's grip showing.
 function mountPage() {
   const wrapper = document.createElement("div");
   wrapper.className = "visual-editor-wrapper";
@@ -82,7 +81,6 @@ describe("VisualEditor read-only mode", () => {
     ({ editable, drags }) => {
       const { editor, wrapper, handle } = mountPage();
       try {
-        // The page can turn read-only while the grip is showing.
         editor.setEditable(editable);
         const first = editor.view.nodeDOM(0) as HTMLElement;
 

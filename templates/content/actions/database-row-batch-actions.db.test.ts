@@ -1627,11 +1627,7 @@ describe("database row batch actions", () => {
   });
 
   it("keeps copied property values inside the membership-locked transaction", () => {
-    // source-read-ok: lock scope across two transactions is only observable
-    // with two PostgreSQL connections. On PGlite, "leaves no copied value when
-    // property duplication races membership removal" still passes with the
-    // lock removed or the copy moved out of the transaction, and the
-    // PostgreSQL lock-order suite has no case for this action.
+    // source-read-ok: lock scope across two transactions is only observable with two PostgreSQL connections. On PGlite, "leaves no copied value when property duplication races membership removal" still passes with the lock removed or the copy moved out of the transaction, and the PostgreSQL lock-order suite has no case for this action.
     const source = readFileSync(
       new URL("./duplicate-document-property.ts", import.meta.url),
       "utf8",

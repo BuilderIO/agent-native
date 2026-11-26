@@ -323,7 +323,6 @@ describe("media node suggestion policy", () => {
         await act(async () => {
           input.dispatchEvent(new Event("change", { bubbles: true }));
         });
-        // Suggesting starts while the file is still uploading.
         allowed = stillAllowed;
         await act(async () => finishUpload("https://example.com/new.mp3"));
 

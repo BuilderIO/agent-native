@@ -23,8 +23,6 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
   useT: () => (key: string) => key,
 }));
-// The page's read never answers, so the surface stays on its loading view,
-// unless a test fails it.
 vi.mock("@/hooks/use-documents", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/hooks/use-documents")>()),
   usePageOpenDocument: () => ({

@@ -14,8 +14,6 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   useT: () => (key: string) => key,
 }));
 
-// One trashed page. Each read answers with the same objects, as a cached
-// query does.
 const reads = vi.hoisted(() => {
   const page = {
     documentId: "page-1",
@@ -60,7 +58,6 @@ vi.mock("@/hooks/use-content-spaces", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/hooks/use-content-spaces")>()),
   useContentSpaces: () => reads.spaces,
 }));
-// The preview reads the trashed page; here it only offers its close button.
 vi.mock("@/components/editor/TrashDocumentPreview", () => ({
   TrashDocumentPreview: ({ onClose }: { onClose?: () => void }) =>
     onClose

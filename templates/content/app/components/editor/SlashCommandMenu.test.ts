@@ -16,7 +16,6 @@ import { MemoryRouter, useLocation } from "react-router";
 import { toast } from "sonner";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 
-// The Generate popover's composer and the agent chat it hands a prompt to.
 const agentChat = vi.hoisted(() => ({ send: vi.fn() }));
 vi.mock("@agent-native/toolkit/app/chat", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/toolkit/app/chat")>()),
@@ -37,7 +36,6 @@ vi.mock("@agent-native/toolkit/app/chat/composer/index", async () => {
       ),
   };
 });
-// The collections a slash command creates, which the server makes.
 const collections = vi.hoisted(() => ({
   inline: { mutateAsync: vi.fn() },
   fullPage: { mutateAsync: vi.fn() },
@@ -82,7 +80,6 @@ import {
 } from "./SlashCommandMenu";
 import { createVisualEditorExtensions } from "./VisualEditor";
 
-/** Renders the slash menu beside an editor with the page's own blocks. */
 async function mountSlashMenu(
   props: Partial<Parameters<typeof SlashCommandMenu>[0]> = {},
 ) {
@@ -304,7 +301,6 @@ describe("generate command affordances", () => {
       extensions: [StarterKit],
       content: "<p></p>",
     });
-    // The page editor's Markdown extension, which Generate reads the page through.
     (editor.storage as any).markdown = { getMarkdown: () => "" };
 
     try {

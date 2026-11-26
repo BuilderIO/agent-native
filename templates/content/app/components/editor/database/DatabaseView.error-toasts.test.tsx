@@ -322,8 +322,6 @@ vi.mock("./database-cell-comments", async (importOriginal) => ({
   },
 }));
 
-// A row preview mounts the shared page surface; its props show which page it
-// opened and the collection it opened it in.
 const pageSurfaces = vi.hoisted(() => ({
   props: [] as object[],
 }));

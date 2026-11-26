@@ -261,7 +261,6 @@ describe("scheduleStartupMaintenance — lazy post-boot maintenance", () => {
     resetMaintenanceMemo();
     blocksRepair.mockClear();
     blocksRepair.mockRejectedValueOnce(new Error("repair exploded"));
-    // Only timers that keep the event loop alive are listed.
     const liveTimers = () =>
       process.getActiveResourcesInfo().filter((type) => type === "Timeout")
         .length;

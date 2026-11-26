@@ -17,9 +17,7 @@ import * as schema from "../db/schema";
  * against: a schema column with zero mentions in the migration history.
  */
 
-// source-read-ok: the migration list and the boot order in db.ts are the
-// contract these check (every column has a migration, names are unique, boot
-// does not await maintenance); the same read guards every template db.ts.
+// source-read-ok: the migration list and the boot order in db.ts are the contract these check (every column has a migration, names are unique, boot does not await maintenance); the same read guards every template db.ts.
 const dbTsSource = readFileSync(new URL("./db.ts", import.meta.url), "utf8");
 
 interface DrizzleColumn {

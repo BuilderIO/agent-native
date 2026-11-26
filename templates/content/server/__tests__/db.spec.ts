@@ -6,9 +6,7 @@ import { describe, expect, it } from "vitest";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// source-read-ok: these pin the hand-written migration SQL itself (additive
-// ALTERs, tables and indexes an existing production database must get), which
-// is the contract; no schema read or fresh-database test sees a missing ALTER.
+// source-read-ok: these pin the hand-written migration SQL itself (additive ALTERs, tables and indexes an existing production database must get), which is the contract; no schema read or fresh-database test sees a missing ALTER.
 const source = readFileSync(join(__dirname, "..", "plugins", "db.ts"), "utf8");
 
 // oracle-change: removed the _database-utils.ts delete-order source check; it pinned deleteDatabaseDataForDocument, which no production code calls (page deletion cleans sources in delete-document.ts, whose receipt cleanup content-database-lifecycle.db.test.ts covers), and the tables have no foreign keys, so the order is not observable

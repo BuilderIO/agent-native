@@ -189,9 +189,7 @@ describe("document editor layout", () => {
     }
   });
 
-  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "keeps an open
-  // comment while its portalled menus are used", which clicks a portalled menu
-  // of an open comment.
+  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "keeps an open comment while its portalled menus are used", which clicks a portalled menu of an open comment.
 
   it("attests an identified revert even when its snapshot matches the saved page", () => {
     const base = {
@@ -585,14 +583,9 @@ describe("document editor layout", () => {
     expect(unmapped()).toBe(unmapped());
   });
 
-  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "renders the
-  // page again only when the placed suggestions change" and
-  // VisualEditor.comment-highlights.test.tsx "reports placed suggestions after
-  // typing only outside Suggesting", which run the anchor reports.
+  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "renders the page again only when the placed suggestions change" and VisualEditor.comment-highlights.test.tsx "reports placed suggestions after typing only outside Suggesting", which run the anchor reports.
 
-  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "shows the
-  // editor's history, and leaves Suggesting's to the editor", which counts the
-  // page's renders.
+  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "shows the editor's history, and leaves Suggesting's to the editor", which counts the page's renders.
   it("blocks a changed pending selection without dropping its recovery position", () => {
     expect(
       pendingCommentTargetMatches(
@@ -620,9 +613,7 @@ describe("document editor layout", () => {
       placement: "below",
     });
   });
-  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "checks the page
-  // still marks it whenever the comment moves, not as it's written", which
-  // starts and types a comment.
+  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "checks the page still marks it whenever the comment moves, not as it's written", which starts and types a comment.
   it("keeps an unchanged anchored comment position out of state", () => {
     const position = {
       left: 16,
@@ -647,31 +638,21 @@ describe("document editor layout", () => {
       }),
     ).toBe(false);
   });
-  // oracle-change: replaced by VisualEditor.comment-highlights.test.tsx "hides
-  // a suggestion with comment indicators and still reports it placed", which
-  // renders the real editor.
-  // oracle-change: the source half is now "locks the title, icon and embedded
-  //   blocks while Suggesting" in DocumentEditor.recovery-save-state.test.tsx.
-  //   The title paste check repeats handleTitleChange's own guard, so removing
-  //   it alone changes nothing a user sees.
+  // oracle-change: replaced by VisualEditor.comment-highlights.test.tsx "hides a suggestion with comment indicators and still reports it placed", which renders the real editor.
+  // oracle-change: the source half is now "locks the title, icon and embedded blocks while Suggesting" in DocumentEditor.recovery-save-state.test.tsx. The title paste check repeats handleTitleChange's own guard, so removing it alone changes nothing a user sees.
   it("blocks every document metadata mutation while suggesting", () => {
     expect(documentCanonicalMutationsEnabled(true, false)).toBe(true);
     expect(documentCanonicalMutationsEnabled(false, false)).toBe(false);
     expect(documentCanonicalMutationsEnabled(true, true)).toBe(false);
   });
 
-  // oracle-change: replaced by "keeps the Suggesting draft out of the Page's own
-  // reconcile" in DocumentEditor.recovery-save-state.test.tsx.
+  // oracle-change: replaced by "keeps the Suggesting draft out of the Page's own reconcile" in DocumentEditor.recovery-save-state.test.tsx.
 
-  // oracle-change: replaced by "saves words typed during an autosave when
-  //   Suggesting ends before it answers" in
-  //   DocumentEditor.recovery-save-state.test.tsx.
+  // oracle-change: replaced by "saves words typed during an autosave when Suggesting ends before it answers" in DocumentEditor.recovery-save-state.test.tsx.
 
-  // oracle-change: replaced by the two "withdraws a reopened suggestion typed
-  //   back to the Page" tests in DocumentEditor.recovery-save-state.test.tsx.
+  // oracle-change: replaced by the two "withdraws a reopened suggestion typed back to the Page" tests in DocumentEditor.recovery-save-state.test.tsx.
 
-  // oracle-change: replaced by "gives an amendment typed back to earlier words
-  //   a new idempotency key" in DocumentEditor.recovery-save-state.test.tsx.
+  // oracle-change: replaced by "gives an amendment typed back to earlier words a new idempotency key" in DocumentEditor.recovery-save-state.test.tsx.
 
   it("recognizes resolved amendment targets and action conflicts", () => {
     expect(
@@ -692,10 +673,7 @@ describe("document editor layout", () => {
       ),
     ).toBe(true);
     expect(isSuggestionConflictActionError(new Error("network"))).toBe(false);
-    // oracle-change: the source checks became "leaves an unchanged reopened
-    // suggestion another tab accepted without amending it" and "drops the amendment
-    // alert once the reopened suggestion is typed back to what was saved" in
-    // DocumentEditor.recovery-save-state.test.tsx.
+    // oracle-change: the source checks became "leaves an unchanged reopened suggestion another tab accepted without amending it" and "drops the amendment alert once the reopened suggestion is typed back to what was saved" in DocumentEditor.recovery-save-state.test.tsx.
   });
 
   it.each(["accepted", "rejected"] as const)(
@@ -1080,9 +1058,7 @@ describe("document editor layout", () => {
   });
   // oracle-change: the page's Escape moved into usePagePanelEscape; that a
   // menu's Escape leaves comment focus alone is pressed in CommentsSidebar.escape.
-  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "moves its
-  // comments beside the text without measuring itself moved", which lays out
-  // the margin.
+  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "moves its comments beside the text without measuring itself moved", which lays out the margin.
   it("opens an accept that can't be placed instead of treating it as accepted", () => {
     expect(
       isSuggestionStaleActionError(
@@ -1097,9 +1073,7 @@ describe("document editor layout", () => {
       ),
     ).toBe(false);
     expect(isSuggestionStaleActionError(new Error("network"))).toBe(false);
-    // oracle-change: the source checks became "opens Discussion on a saved
-    // edit/proposal whose accept can't be placed instead of treating it as
-    // accepted" in DocumentEditor.recovery-save-state.test.tsx.
+    // oracle-change: the source checks became "opens Discussion on a saved edit/proposal whose accept can't be placed instead of treating it as accepted" in DocumentEditor.recovery-save-state.test.tsx.
   });
   it("dismisses mobile comment focus without closing Info", () => {
     expect(utilityPanelAfterCommentFocusDismissal("comments")).toBeNull();
@@ -1483,19 +1457,13 @@ describe("document editor layout", () => {
     expect(key(0)).not.toBe(key(1));
   });
 
-  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "says when the
-  // file was deleted and stops editing", which reads a deleted file.
+  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "says when the file was deleted and stops editing", which reads a deleted file.
 
-  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "stays
-  // read-only, without saying it's deleted, when this client can't reach the
-  // file" and DocumentToolbar.clipboard.test.tsx "offers only the relative path
-  // of a local file this tab can't edit", which render both.
+  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "stays read-only, without saying it's deleted, when this client can't reach the file" and DocumentToolbar.clipboard.test.tsx "offers only the relative path of a local file this tab can't edit", which render both.
 
-  // oracle-change: replaced by "tells other tabs about typing in the keystroke
-  // that made it" in DocumentEditor.recovery-save-state.test.tsx.
+  // oracle-change: replaced by "tells other tabs about typing in the keystroke that made it" in DocumentEditor.recovery-save-state.test.tsx.
 
-  // oracle-change: replaced by "holds typing out of autosave while a recovery
-  // prompt is open" in DocumentEditor.recovery-save-state.test.tsx.
+  // oracle-change: replaced by "holds typing out of autosave while a recovery prompt is open" in DocumentEditor.recovery-save-state.test.tsx.
 
   it("keeps a seeded document behind the skeleton while its fetch is pending", () => {
     expect(
@@ -2285,8 +2253,7 @@ describe("document editor layout", () => {
     expect(isDocumentLoadUnavailableError({ status: 401 })).toBe(false);
     expect(isDocumentLoadUnavailableError({ status: 403 })).toBe(true);
     expect(isDocumentLoadUnavailableError({ status: 404 })).toBe(true);
-    // oracle-change: replaced by DocumentEditor.preview-placeholder.test.tsx "a
-    // page whose read fails", which clicks Retry and reads a 403.
+    // oracle-change: replaced by DocumentEditor.preview-placeholder.test.tsx "a page whose read fails", which clicks Retry and reads a 403.
   });
 
   it("resizes the title to its content and reacts only to width changes", () => {
@@ -2302,9 +2269,7 @@ describe("document editor layout", () => {
     expect(documentTitleWidthChanged(640, 639.75)).toBe(false);
     expect(documentTitleWidthChanged(640, 420)).toBe(true);
     expect(documentTitleWidthChanged(420, 640)).toBe(true);
-    // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "grows to fit
-    // its text when its width changes, and only then", which resizes the
-    // mounted title.
+    // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "grows to fit its text when its width changes, and only then", which resizes the mounted title.
   });
 
   it("serializes overlapping document saves without dropping the fuller snapshot", async () => {
@@ -2702,10 +2667,7 @@ describe("document editor layout", () => {
     ).toEqual({ icon: "🌱" });
   });
 
-  // oracle-change: covered by "closing a page this tab never edited journals a
-  //   failed rename of a page another writer rewrote on its stored body" in
-  //   DocumentEditor.recovery-save-state.test.tsx, which fails when the title
-  //   ref waits a microtask.
+  // oracle-change: covered by "closing a page this tab never edited journals a failed rename of a page another writer rewrote on its stored body" in DocumentEditor.recovery-save-state.test.tsx, which fails when the title ref waits a microtask.
 
   it("does not mistake an optimistic title cache patch for a confirmed save", () => {
     const renamed = {
@@ -2918,8 +2880,7 @@ describe("document editor layout", () => {
     expect(documentEditorTitleRegionClassName(false)).toContain("pb-8");
   });
 
-  // oracle-change: removed an absence test for the collection starter button
-  //   that #7138 deleted; nothing renders it and no string for it remains.
+  // oracle-change: removed an absence test for the collection starter button that #7138 deleted; nothing renders it and no string for it remains.
 
   it("gives database pages a wider database surface", () => {
     expect(documentEditorTitleRegionClassName(true)).toContain("max-w-none");
@@ -2930,9 +2891,7 @@ describe("document editor layout", () => {
     expect(documentEditorDatabaseRegionClassName()).toContain("min-w-0");
   });
 
-  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "focuses the
-  // text where the page was scrolled, until the reader scrolls", which clicks
-  // the padding.
+  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "focuses the text where the page was scrolled, until the reader scrolls", which clicks the padding.
 
   it("keeps metadata in Info while reusing canonical properties inline in previews", () => {
     const source = readFileSync(
@@ -2965,10 +2924,7 @@ describe("document editor layout", () => {
     expect(properties).toMatch(
       /<AddProperty[\s\S]*?popoverContainer=\{popoverContainer\}/,
     );
-    // oracle-change: Info's Properties and a preview's inline Properties are
-    // replaced by DocumentInfoPanel.ui.test.tsx "reads a row's Properties from
-    // the Collection it belongs to" and DocumentEditor.page-ui.test.tsx "shows
-    // the row's Properties inline", which render them.
+    // oracle-change: Info's Properties and a preview's inline Properties are replaced by DocumentInfoPanel.ui.test.tsx "reads a row's Properties from the Collection it belongs to" and DocumentEditor.page-ui.test.tsx "shows the row's Properties inline", which render them.
     expect(source).toMatch(
       /<DocumentBlockFields[\s\S]*?databaseId=\{[\s\S]*?databaseId \?\?[\s\S]*?document\.databaseMembership\.databaseId[\s\S]*?databaseDocumentId=\{[\s\S]*?databaseDocumentId \?\?[\s\S]*?document\.databaseMembership\.databaseDocumentId[\s\S]*?\}/,
     );
@@ -3027,17 +2983,11 @@ describe("document editor layout", () => {
     ).toBe(true);
   });
 
-  // oracle-change: replaced by "is saved when the editor closes" and "is saved
-  // when the page turns read-only before the autosave" in DocumentEditor.recovery-save-state.test.tsx.
+  // oracle-change: replaced by "is saved when the editor closes" and "is saved when the page turns read-only before the autosave" in DocumentEditor.recovery-save-state.test.tsx.
 
-  // oracle-change: replaced by "asks the editor for its latest words before the
-  // page closes", "still drains a property write held when the page closes" and
-  // "requires fresh confirmation before flushing a reverted failed field under
-  // suggestion lock" in DocumentEditor.recovery-save-state.test.tsx.
+  // oracle-change: replaced by "asks the editor for its latest words before the page closes", "still drains a property write held when the page closes" and "requires fresh confirmation before flushing a reverted failed field under suggestion lock" in DocumentEditor.recovery-save-state.test.tsx.
 
-  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "dismisses only
-  // the comment in the editor the key came from", which presses Escape in a
-  // nested editor.
+  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "dismisses only the comment in the editor the key came from", which presses Escape in a nested editor.
 
   it("renders viewers from SQL while retaining scoped presence", () => {
     const documentEditorSource = readFileSync(
@@ -3152,18 +3102,11 @@ describe("document editor layout", () => {
     );
   });
 
-  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "keeps the
-  // Collection the cached page belongs to", which fails a local file's history
-  // save.
+  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "keeps the Collection the cached page belongs to", which fails a local file's history save.
 
-  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "opens a comment
-  // on the whole page in the Discussion panel, selected", which opens one from
-  // the margin. A pick in the open panel keeps the panel open with or without
-  // its `presentation === "history"` argument, so that argument isn't pinned.
+  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "opens a comment on the whole page in the Discussion panel, selected", which opens one from the margin. A pick in the open panel keeps the panel open with or without its `presentation === "history"` argument, so that argument isn't pinned.
 
-  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "keeps the
-  // comment through the start of a touch or scroll gesture", which presses on
-  // the page.
+  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "keeps the comment through the start of a touch or scroll gesture", which presses on the page.
 
   it("keeps title and content save watermarks independent after partial saves", () => {
     const source = readFileSync(
@@ -3181,19 +3124,14 @@ describe("document editor layout", () => {
     );
   });
 
-  // oracle-change: replaced by "settles a clean merge against the title another
-  // tab gave the Page" and "asks about a merged edit when the Page has moved past
-  // what it merged with" in DocumentEditor.recovery-save-state.test.tsx.
+  // oracle-change: replaced by "settles a clean merge against the title another tab gave the Page" and "asks about a merged edit when the Page has moved past what it merged with" in DocumentEditor.recovery-save-state.test.tsx.
 
-  // oracle-change: replaced by "sends the unload-safe copy the base its words were
-  // typed on" in DocumentEditor.recovery-save-state.test.tsx.
+  // oracle-change: replaced by "sends the unload-safe copy the base its words were typed on" in DocumentEditor.recovery-save-state.test.tsx.
 
-  // oracle-change: replaced by "goes out as an unload-safe copy and an ordinary
-  // save when the tab hides" in DocumentEditor.recovery-save-state.test.tsx.
+  // oracle-change: replaced by "goes out as an unload-safe copy and an ordinary save when the tab hides" in DocumentEditor.recovery-save-state.test.tsx.
 
   it("derives the hidden-tab keepalive copy's load watermark like the ordinary flush", () => {
-    // oracle-change: the source checks became "gives the unload-safe copy the load
-    // watermark of the ordinary save" in DocumentEditor.recovery-save-state.test.tsx.
+    // oracle-change: the source checks became "gives the unload-safe copy the load watermark of the ordinary save" in DocumentEditor.recovery-save-state.test.tsx.
     expect(
       loadedUpdatedAtForSave(
         { updatedAt: "2026-09-30T22:59:32.852Z" },
@@ -3206,8 +3144,7 @@ describe("document editor layout", () => {
     expect(loadedUpdatedAtForSave(undefined, null)).toBeUndefined();
   });
 
-  // oracle-change: replaced by "journals the attempt that confirms words typed
-  // back to this tab's own save" in DocumentEditor.recovery-save-state.test.tsx.
+  // oracle-change: replaced by "journals the attempt that confirms words typed back to this tab's own save" in DocumentEditor.recovery-save-state.test.tsx.
 
   it("preserves unobserved overlapping edits before adopting the winner", () => {
     const source = readFileSync(
@@ -3239,43 +3176,24 @@ describe("document editor layout", () => {
     );
   });
 
-  // oracle-change: replaced by "keeps the page body read-only when its live copy
-  // fails to start" in DocumentEditor.recovery-save-state.test.tsx.
+  // oracle-change: replaced by "keeps the page body read-only when its live copy fails to start" in DocumentEditor.recovery-save-state.test.tsx.
 
-  // oracle-change: covered by "moves the typing onto the newer Page and saves
-  //   it there, with no alert" and four sibling tests in
-  //   DocumentEditor.recovery-save-state.test.tsx, which fail when a proposal
-  //   takes the live body or revision.
+  // oracle-change: covered by "moves the typing onto the newer Page and saves it there, with no alert" and four sibling tests in DocumentEditor.recovery-save-state.test.tsx, which fail when a proposal takes the live body or revision.
 
-  // oracle-change: replaced by "starts Suggesting only from a Page that holds the
-  // words typed before it" and "stays out of Suggesting when the words typed
-  // before it can't be saved" in DocumentEditor.recovery-save-state.test.tsx.
+  // oracle-change: replaced by "starts Suggesting only from a Page that holds the words typed before it" and "stays out of Suggesting when the words typed before it can't be saved" in DocumentEditor.recovery-save-state.test.tsx.
 
   // oracle-change: suggestion activation scrolling without taking Reply focus is now checked by behavior in suggestion-page-view.test.ts
-  // oracle-change: replaced by "holds the draft still while leaving Suggesting
-  //   saves it" in DocumentEditor.recovery-save-state.test.tsx. The
-  //   second-exit guard has no way in while the editor is frozen; removing it
-  //   broke no test.
+  // oracle-change: replaced by "holds the draft still while leaving Suggesting saves it" in DocumentEditor.recovery-save-state.test.tsx. The second-exit guard has no way in while the editor is frozen; removing it broke no test.
 
-  // oracle-change: replaced by "sends one decision for a Reject pressed twice and
-  // stays in Suggesting" and "shows the server's answer while a Reject that
-  // another tab beat to Accept reloads the Page" in DocumentEditor.recovery-save-state.test.tsx.
+  // oracle-change: replaced by "sends one decision for a Reject pressed twice and stays in Suggesting" and "shows the server's answer while a Reject that another tab beat to Accept reloads the Page" in DocumentEditor.recovery-save-state.test.tsx.
 
-  // oracle-change: replaced by "shows the server's answer while a Reject that
-  // another tab beat to Accept reloads the Page" in DocumentEditor.recovery-save-state.test.tsx and "keeps a thread's
-  // highlight on text replaced before its new quote arrives" in
-  // VisualEditor.comment-highlights.test.tsx.
+  // oracle-change: replaced by "shows the server's answer while a Reject that another tab beat to Accept reloads the Page" in DocumentEditor.recovery-save-state.test.tsx and "keeps a thread's highlight on text replaced before its new quote arrives" in VisualEditor.comment-highlights.test.tsx.
 
-  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "draws saved
-  // suggestions and the one being typed together", which types a suggestion
-  // beside a saved one.
+  // oracle-change: replaced by DocumentEditor.page-ui.test.tsx "draws saved suggestions and the one being typed together", which types a suggestion beside a saved one.
 
-  // oracle-change: replaced by "opens Discussion on the suggestion a link names"
-  // and "opens Discussion on a saved edit/proposal whose accept can't be placed
-  // instead of treating it as accepted" in DocumentEditor.recovery-save-state.test.tsx.
+  // oracle-change: replaced by "opens Discussion on the suggestion a link names" and "opens Discussion on a saved edit/proposal whose accept can't be placed instead of treating it as accepted" in DocumentEditor.recovery-save-state.test.tsx.
 
-  // oracle-change: replaced by SlashCommandMenu.undo.test.tsx "/page", which
-  // makes a page and saves or takes back its link.
+  // oracle-change: replaced by SlashCommandMenu.undo.test.tsx "/page", which makes a page and saves or takes back its link.
 
   it("routes Content text-copy controls through the shared clipboard boundary", () => {
     const sources = [
@@ -3801,12 +3719,9 @@ describe("document editor layout", () => {
     expect(items.map((item) => item.iconKind)).toEqual(["folder", "folder"]);
   });
 
-  // oracle-change: replaced by DocumentToolbar.breadcrumb.test.tsx "marks
-  // folders and leaves the page usable while a hover menu is open", which
-  // hovers the menu.
+  // oracle-change: replaced by DocumentToolbar.breadcrumb.test.tsx "marks folders and leaves the page usable while a hover menu is open", which hovers the menu.
 
-  // oracle-change: replaced by "keeps the Page's own save time when an agent
-  // writes its linked file" in DocumentEditor.recovery-save-state.test.tsx.
+  // oracle-change: replaced by "keeps the Page's own save time when an agent writes its linked file" in DocumentEditor.recovery-save-state.test.tsx.
 
   it("saves a new page after its own title edit instead of parking it in a draft", () => {
     // A new page: the query already holds the typed title, the save base is "".

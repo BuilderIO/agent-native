@@ -221,8 +221,6 @@ describe("breadcrumb folders and hover menus", () => {
       null,
     );
     expect(item("Notes")?.querySelector("svg.tabler-icon-folder")).toBeNull();
-    // A modal menu would block the page's pointer events and hide it from
-    // assistive tech until the menu closed.
     expect(document.body.style.pointerEvents).not.toBe("none");
     expect(container.closest("[aria-hidden]")).toBeNull();
 

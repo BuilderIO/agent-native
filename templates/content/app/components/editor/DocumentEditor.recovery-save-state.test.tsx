@@ -359,7 +359,6 @@ vi.mock("./LinkedLocalDocumentAgentBridge", () => ({
     return null;
   },
 }));
-// A linked file holds what the Page holds and never changes on disk.
 vi.mock("@/lib/local-content-source-files", async (importOriginal) => ({
   ...(await importOriginal<
     typeof import("@/lib/local-content-source-files")
@@ -415,7 +414,6 @@ vi.mock("./VisualEditor", async (original) => {
   function FixtureVisualEditor(props: ComponentProps<typeof VisualEditor>) {
     const primary = !props.localFileMode;
     const blocks = useOptionalBlockRegistry();
-    // Content's block context carries canEdit beyond the toolkit's type.
     if (primary)
       fixture.blocksCanEdit = (
         blocks?.ctx as { canEdit?: boolean } | undefined
@@ -616,7 +614,6 @@ afterEach(async () => {
   __resetBlockFieldSaveRegistry();
 });
 
-// A wide window leaves room beside the text for the Page's comment margin.
 const WIDE_LAYOUT = {
   sidebar: "docked",
   sidebarAutoCollapsed: false,
@@ -2356,13 +2353,11 @@ it("asks the editor for its latest words before the page closes", async () => {
 });
 
 it("tells other tabs about typing in the keystroke that made it", async () => {
-  // The live copy carries the body, so no autosave marks the typing unsaved.
   mounted(fixture.page).writePath = "live_copy";
   await act(async () => renderEditor());
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   const awareness = mounted(fixture.awareness);
   expect(awareness.getLocalState()?.unsavedEdits).toBe(false);
-  // Another tab's save checks this state at once, not after a redraw.
   let typing = false;
   let shownWhileTyping = false;
   awareness.on("change", () => {
@@ -2443,7 +2438,6 @@ it("keeps the Page's own save time when an agent writes its linked file", async 
     mounted(fixture.linkedFileBridge).onPersisted({
       ...page,
       content: "Written by the agent",
-      // The file's own modified time, not the Page's.
       updatedAt: "2026-10-19T13:00:00.000Z",
     }),
   );
@@ -3722,7 +3716,6 @@ describe("a Suggesting draft typed while another tab saves the Page", () => {
     );
   });
 
-  // On a wide window, so Discussion shows only when it is opened.
   async function saveTypedSuggestion() {
     await startSuggesting();
     act(() => fixture.editor?.onChange(typed));
@@ -3734,7 +3727,6 @@ describe("a Suggesting draft typed while another tab saves the Page", () => {
     };
     await act(async () => renderEditor({ host: "page", wide: true }));
     await act(async () => fixture.toolbar?.onUtilityPanelChange?.("comments"));
-    // The panel slides in once the margin has faded.
     await advance(100);
     return saved;
   }
@@ -3782,7 +3774,6 @@ describe("a Suggesting draft typed while another tab saves the Page", () => {
       });
       await advance(500);
       expect(decisions.sent).toHaveLength(1);
-      // Discussion closes, and slides away, before the server answers.
       await act(async () => fixture.toolbar?.onUtilityPanelChange?.(null));
       await advance(300);
       const closed = fixture.commentsSidebars.length;
@@ -3819,7 +3810,6 @@ describe("a Suggesting draft typed while another tab saves the Page", () => {
     });
     await advance(500);
     expect(decisions.sent).toEqual(["saved-0"]);
-    // A press that reaches the Reject drawn before the decision showed.
     act(() => {
       onDecideSuggestion!(saved, "rejected");
     });
