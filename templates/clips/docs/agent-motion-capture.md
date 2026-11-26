@@ -1,0 +1,38 @@
+# Agent motion capture
+
+Clips supplies recording control and visual evidence. Drive the application under test with its appropriate interaction tools. Use real clicks and keys when the story tests handlers, focus, or keyboard behavior. An application MCP operation can drive an animation-only test only when it triggers the same visible transition.
+
+## Recording lifecycle
+
+A person first selects a surface and arms one capture in Clips Desktop or the Chrome extension. The host stays bound to that surface and signed-in owner. Screen permissions remain visible OS/browser decisions. Arming does not start recording. A disconnected, consumed, or released surface needs rearming.
+
+1. Call `get-capture-capabilities` and choose the explicit connected, armed host.
+2. Call `start-capture` with its `hostId`, a new `requestId`, `captureMode` of `normal` or `motion`, and `maxDurationMs` (1–120 seconds). Retrying the same operation uses the same request ID and arguments.
+3. Poll `get-capture-session`. Only `state: recording` with a recording ID and recorder-origin timestamp is READY. Queued, starting or beginning is not permission to begin the test interaction. Fail the attempt if readiness never arrives.
+4. Call `mark-capture` with an `action-intent` marker, drive the target, then mark an `observed-endpoint` when the actual expected endpoint appears. Markers are queued until the recorder acknowledges them. Poll for the media-time result.
+5. Call `stop-capture` after settlement or the story's timeout. Retries are safe. A stop before READY discards the take: it ends `cancelled` and no Clip is kept. After READY the take moves through `finalizing` and is kept. Wait for finalization separately from media readiness. `mediaReady` describes the retained Clip; a stop acknowledgement alone does not prove playable media.
+6. Inspect the bounded interval with `get-recording-frames` and `timeline: "source"`, passing the marker as `markerId` or an explicit `startMs` and `endMs`. Preserve the recording ID, marker uncertainty, frame identifiers, and presentation times in the result. Existing Clip sharing and retention controls still apply.
+
+The recorder begins only after the begin gate: the server moves the take from `starting` to `beginning` in one compare-and-set, and refuses it once a stop or cancel was asked for, so a stop acknowledged during the countdown never yields a recording. A recorder that began but whose READY the server never accepted discards its take when stopped, disarmed or out of startup time. Disarm settles a queued or starting take. A terminal report is never dropped: the recorder retries it with backoff, and `pendingOutcome` on the session names the outcome it is still delivering.
+
+The host stops locally at its duration limit even when the network is unavailable. A host lost beyond its recording bound and recovery grace is reported as failed with an **unconfirmed recorder outcome**, never as a confirmed successful stop. Reconnect does not allow another host or user to adopt the old recorder. A late completion does not erase the uncertainty already recorded by recovery.
+
+## Time and evidence
+
+Marker `mediaTimeMs` is the recorder's receipt-time estimate. Its `uncertaintyMs` includes the recorder sample age and a conservative request-delivery bound. The requested marker lies within `[mediaTimeMs - uncertaintyMs, mediaTimeMs + uncertaintyMs]`. An intent marker does not prove when an input occurred or when its pixels appeared. Inspect a padded interval when these bounds overlap an important transition.
+
+The normal target is 24 fps; motion targets 60 fps. Motion recordings cannot carry the Rich recordings tracks, and desktop agent capture records the full screen only. Requested frame rate and a track-reported setting are not measured encoded cadence. Neither establishes smoothness. Inspect the exact saved media used for the verdict; transcoding, source capture, or overload can reduce the available evidence. Clips never compresses, frame-rate-reduces, or timeline-normalizes a Motion take; a seekability repair only remuxes it, keeps every packet's presentation timestamp, and keeps the original bytes when it cannot prove that. A Clip stays Motion once stored as Motion, including a local copy uploaded later. Source frames always decode the uncompressed media, even where an older compressed playback copy replaced it or was itself repaired.
+
+Two edits replace the stored media, and `sourceEvidence.sourceDerivation` lists them. `redacted`: redactions were burned in, so the source is a re-encode at up to 60 fps that keeps the redacted areas hidden; its frame timing is not the original capture's. `rewind_extended`: Rewind prepended `rewindPreRollMs` of pre-roll, so a marker's window is read at its `sourceTimeMs` (`mediaTimeMs` plus the pre-roll), while `startMs` and `endMs` stay on the stored media. An empty list means the frames come from the capture as stored.
+
+On the source timeline, `get-recording-frames` returns up to four JPEG frames per page, with the measurements in `sourceEvidence`. `sampling: "consecutive"` retains captured-frame order and actual presentation timestamps; follow `sourceEvidence.pagination.nextCursor` through `cursor` until the interval is exhausted before excluding a single-frame flash. `sampling: "filmstrip"` is sparse orientation evidence. It cannot rule out defects between samples. `sampleCount` applies only to filmstrip sampling; a cursor issued for another `sampleCount` fails with `invalid_cursor`. Decode completion does not establish that capture contained every screen presentation. No interpolated frames are added. A cursor holds the last frame's exact presentation timestamp in the stream's timebase plus how many frames at that timestamp were already returned, so frames that share a timestamp are neither skipped nor repeated. A decode that fails is `frame_extraction_failed`, never an empty page; an empty page means the interval holds no decoded frame.
+
+Use the optional `crop: {x, y, width, height}` only as a focused supplement after orienting on the full surface. Coordinates are integer source pixels. Clips reads the actual decoded dimensions, rejects any rectangle outside them, and reports both the source dimensions and crop in the result. A crop keeps the selected frames' source presentation timestamps; it does not show pixels outside the rectangle. Keep the same crop with `cursor`, because pagination binds it.
+
+Use **Motion PASS**, **Motion FAIL**, or **Motion UNVERIFIED** separately from functional, latency, and capture-quality results. A visible discontinuity can support FAIL when coverage and context identify it. Missing frames or a timestamp gap alone cannot establish an application stall. Metadata alone cannot support a visual PASS. Retain a failed or uncertain interval for review instead of silently trying again until a favorable recording appears.
+
+Temporary decoded frames are bounded and removed by the extraction operation. The Clip remains under normal retention. Disarm releases the selected capture surface; it does not delete a retained Clip. Use the existing recording lifecycle actions only when deletion is part of the user's requested cleanup.
+
+## Validation status
+
+This document describes the development contract. Unit, database, and decoder checks do not establish capture fidelity or end-to-end motion acceptance. The release evidence must identify the exact validated revision, capture surface, processing path, viewport, and smallest demonstrated defect interval. Do not advertise a surface as accepted before its real-interface stories pass.
