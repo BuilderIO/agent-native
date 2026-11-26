@@ -51,9 +51,6 @@ Use `/sidecar <task>` for read-only investigations.
 - Never add `Co-Authored-By` or other agent attribution to commits.
 - Branch without asking; in a shared checkout, use a new worktree. PRs are
   ready for review unless drafts are requested.
-- A new worktree gets `pnpm install` and the main checkout's ignored `.env`
-  files from `scripts/hooks/worktree-setup.sh` (Claude SessionStart hook, Codex
-  environment); run it in worktrees made otherwise.
 - Deployment split: `.github/workflows/deploy-beta-sites-prebuilt.yml` is the
   sole beta publisher; Actions uploads prebuilt artifacts to independent
   `beta.*.agent-native.com` sites. Netlify Git builds are disabled; do not wait
@@ -173,9 +170,8 @@ that a peer session is mid-edit in the same file right now. Re-read and build on
 their change; never force past it. It is a Claude Code mechanism only: it gives
 Codex sessions and plain human edits nothing, so it is a backstop, not a
 guarantee. Read `concurrent-agents` before working in a shared checkout.
-The other registered hook, `scripts/hooks/worktree-setup.sh`, enforces
-nothing: on `SessionStart` in a fresh worktree it runs `pnpm install` and
-copies the main checkout's ignored `.env` files.
+`scripts/hooks/worktree-setup.sh`, also registered, only installs
+dependencies in fresh worktrees.
 `guard:hooks-registered` keeps this section and that file from drifting apart.
 `guard:i18n-catalogs` checks catalog shape, placeholders, raw UI literals,
 English-value debt, and localized docs coverage. `guard:i18n-changed-copy`
