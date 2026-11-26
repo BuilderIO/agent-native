@@ -92,6 +92,7 @@ export type ChunkUploadParams = {
   height?: number | null;
   hasAudio?: boolean;
   hasCamera?: boolean;
+  captureMetadata?: string;
   attemptId?: string;
   uploadGenerationId?: string;
 };
@@ -130,6 +131,9 @@ export function chunkUploadQuery(params: ChunkUploadParams): string {
   }
   if (params.hasCamera !== undefined) {
     q.set("hasCamera", params.hasCamera ? "1" : "0");
+  }
+  if (params.captureMetadata) {
+    q.set("captureMetadata", params.captureMetadata);
   }
   if (params.attemptId) q.set("attemptId", params.attemptId);
   if (params.uploadGenerationId) {

@@ -2,12 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockWriteAppState = vi.hoisted(() => vi.fn());
 const mockReadAppState = vi.hoisted(() => vi.fn());
+const mockAppStateGet = vi.hoisted(() => vi.fn());
+const mockAppStatePut = vi.hoisted(() => vi.fn());
 const mockDbExecute = vi.hoisted(() => vi.fn());
 const mockRunWithRequestContext = vi.hoisted(() =>
   vi.fn((_ctx: unknown, fn: () => unknown) => fn()),
 );
 const mockOwnerEmailMatches = vi.hoisted(() => vi.fn());
 const mockRecordingRow = vi.hoisted(() => ({
+  captureMetadataJson: null as string | null,
   ownerEmail: "owner@example.com",
   orgId: "org-test",
   durationMs: 1_592_773,
@@ -26,6 +29,8 @@ const mockUpdateSet = vi.hoisted(() =>
 );
 
 vi.mock("@agent-native/core/application-state", () => ({
+  appStateGet: (...args: unknown[]) => mockAppStateGet(...args),
+  appStatePut: (...args: unknown[]) => mockAppStatePut(...args),
   readAppState: (...args: unknown[]) => mockReadAppState(...args),
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
@@ -69,6 +74,7 @@ vi.mock("../db/index.js", () => ({
       trashedAt: "recordings.trashedAt",
       videoUrl: "recordings.videoUrl",
       durationMs: "recordings.durationMs",
+      captureMetadataJson: "recordings.captureMetadataJson",
     },
   },
 }));
@@ -88,6 +94,8 @@ import {
   builderCompressedMediaUrl,
   extractBuilderMediaTarget,
   mediaDurationsMateriallyMatch,
+  noteCompressedCopyRewritten,
+  preCompressionSourceMedia,
   queueBuilderMediaCompression,
   runBuilderMediaCompressionSweepOnce,
   runBuilderMediaCompressionForRecording,
@@ -420,6 +428,194 @@ describe("builder-media-compression", () => {
       recordingId: "rec-1",
     });
     expect(mockUpdateSet).not.toHaveBeenCalled();
+  });
+
+  it("never queues compression for a Motion take", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+    mockRecordingRows.push({
+      ...mockRecordingRow,
+      captureMetadataJson: JSON.stringify({ captureMode: "motion" }),
+    });
+
+    const result = await queueBuilderMediaCompression({
+      recordingId: "rec-motion",
+      ownerEmail: "owner@example.com",
+      videoUrl: mockRecordingRow.videoUrl,
+      mimeType: "video/webm",
+      providerId: "builder",
+      sourceSizeBytes: 50,
+    });
+
+    expect(result).toEqual({
+      queued: false,
+      reason: "source-timeline-preserved",
+    });
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps a Motion take's original media when a compression job finishes anyway", async () => {
+    const compressedUrl =
+      "https://cdn.builder.io/o/assets%2Forg-probe%2Fasset-worker%2Fcompressed?apiKey=org-probe&token=asset-worker&alt=media&optimized=true";
+    mockRecordingRows.push(mockRecordingRow, {
+      ...mockRecordingRow,
+      captureMetadataJson: JSON.stringify({ captureMode: "motion" }),
+    });
+    mockReadAppState.mockResolvedValue({
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.com",
+      sourceUrl: mockRecordingRow.videoUrl,
+      compressedUrl,
+      objectPath: "assets/org-probe/asset-worker",
+      origin: "https://cdn.builder.io",
+      apiKey: "org-probe",
+      assetId: "asset-worker",
+      status: "worker-queued",
+      attempts: 1,
+      queuedAt: "2026-07-06T00:00:00.000Z",
+      updatedAt: "2026-07-06T00:00:00.000Z",
+      mediaWorker: {
+        jobId: "rec-1:compress",
+        outputUrl: compressedUrl,
+        callbackUrl: "https://clips.example.com/api/media-worker/callback",
+        attempts: 1,
+      },
+    });
+
+    const result = await applyMediaWorkerCallback({
+      jobId: "rec-1:compress",
+      status: "done",
+      outputUrl: compressedUrl,
+      durationMs: 1_592_773,
+    });
+
+    expect(result).toEqual({ ok: true, status: 200, recordingId: "rec-1" });
+    expect(mockUpdateSet).not.toHaveBeenCalled();
+    expect(mockWriteAppState).toHaveBeenLastCalledWith(
+      "recording-builder-compression-rec-1",
+      expect.objectContaining({ status: "skipped-source-preserved" }),
+    );
+  });
+
+  it("names the original media only while a compressed copy replaced it", async () => {
+    const compressedUrl =
+      "https://cdn.builder.io/o/assets%2Forg-probe%2Fasset-worker%2Fcompressed?apiKey=org-probe&token=asset-worker&alt=media&optimized=true";
+    const state = {
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.com",
+      sourceUrl: mockRecordingRow.videoUrl,
+      compressedUrl,
+      objectPath: "assets/org-probe/asset-worker",
+      origin: "https://cdn.builder.io",
+      apiKey: "org-probe",
+      assetId: "asset-worker",
+      sourceSizeBytes: 9_000,
+      status: "ready",
+      attempts: 1,
+      queuedAt: "2026-07-06T00:00:00.000Z",
+      updatedAt: "2026-07-06T00:00:00.000Z",
+    };
+    const recording = {
+      id: "rec-1",
+      ownerEmail: "owner@example.com",
+      videoUrl: compressedUrl,
+    };
+
+    mockAppStateGet.mockResolvedValueOnce(state);
+    await expect(preCompressionSourceMedia(recording)).resolves.toEqual({
+      videoUrl: mockRecordingRow.videoUrl,
+      sizeBytes: 9_000,
+    });
+    expect(mockAppStateGet).toHaveBeenCalledWith(
+      "owner@example.com",
+      "recording-builder-compression-rec-1",
+    );
+
+    mockAppStateGet.mockResolvedValueOnce(state);
+    await expect(
+      preCompressionSourceMedia({
+        ...recording,
+        videoUrl: "https://example.com/replaced-video.mp4",
+      }),
+    ).resolves.toBeNull();
+
+    mockAppStateGet.mockResolvedValueOnce({
+      ...state,
+      status: "worker-queued",
+    });
+    await expect(preCompressionSourceMedia(recording)).resolves.toBeNull();
+  });
+
+  it("still names the original after seekability repair rewrote the compressed copy", async () => {
+    const compressedUrl =
+      "https://cdn.builder.io/o/assets%2Forg-probe%2Fasset-worker%2Fcompressed?apiKey=org-probe&token=asset-worker&alt=media&optimized=true";
+    const repairedUrl = "https://cdn.example.com/repaired-compressed.mp4";
+    const state = {
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.com",
+      sourceUrl: mockRecordingRow.videoUrl,
+      compressedUrl,
+      objectPath: "assets/org-probe/asset-worker",
+      origin: "https://cdn.builder.io",
+      apiKey: "org-probe",
+      assetId: "asset-worker",
+      sourceSizeBytes: 9_000,
+      status: "ready",
+      attempts: 1,
+      queuedAt: "2026-07-06T00:00:00.000Z",
+      updatedAt: "2026-07-06T00:00:00.000Z",
+    };
+
+    mockAppStateGet.mockResolvedValueOnce(state);
+    await expect(
+      noteCompressedCopyRewritten({
+        recordingId: "rec-1",
+        ownerEmail: "owner@example.com",
+        fromUrl: compressedUrl,
+        toUrl: repairedUrl,
+      }),
+    ).resolves.toBe(true);
+    expect(mockAppStatePut).toHaveBeenCalledWith(
+      "owner@example.com",
+      "recording-builder-compression-rec-1",
+      expect.objectContaining({
+        compressedUrl,
+        rewrittenCompressedUrls: [repairedUrl],
+      }),
+    );
+    const rewritten = mockAppStatePut.mock.calls[0]?.[2];
+
+    mockAppStateGet.mockResolvedValueOnce(rewritten);
+    await expect(
+      preCompressionSourceMedia({
+        id: "rec-1",
+        ownerEmail: "owner@example.com",
+        videoUrl: repairedUrl,
+      }),
+    ).resolves.toEqual({
+      videoUrl: mockRecordingRow.videoUrl,
+      sizeBytes: 9_000,
+    });
+
+    mockAppStateGet.mockResolvedValueOnce(rewritten);
+    await expect(
+      preCompressionSourceMedia({
+        id: "rec-1",
+        ownerEmail: "owner@example.com",
+        videoUrl: "https://example.com/redactions-burned-in.mp4",
+      }),
+    ).resolves.toBeNull();
+
+    mockAppStateGet.mockResolvedValueOnce(state);
+    await expect(
+      noteCompressedCopyRewritten({
+        recordingId: "rec-1",
+        ownerEmail: "owner@example.com",
+        fromUrl: "https://example.com/replaced-by-an-edit.mp4",
+        toUrl: "https://example.com/repaired-edit.mp4",
+      }),
+    ).resolves.toBe(false);
+    expect(mockAppStatePut).toHaveBeenCalledTimes(1);
   });
 
   it("does not swap to compressed media when the recording URL changes during the atomic update", async () => {

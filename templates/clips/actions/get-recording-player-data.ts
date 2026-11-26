@@ -464,6 +464,7 @@ export default defineAction({
         mediaUpdatedAt: rec.mediaUpdatedAt ?? null,
         width: rec.width,
         height: rec.height,
+        captureMetadata: safeJsonObject(rec.captureMetadataJson),
         hasAudio: Boolean(rec.hasAudio),
         hasCamera: Boolean(rec.hasCamera),
         status: rec.status,

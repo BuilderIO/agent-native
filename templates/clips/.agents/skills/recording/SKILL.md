@@ -128,7 +128,9 @@ AAC). It preserves audio and duplicates the last decoded video frame through
 missing-frame gaps. The action uploads to a new media object and atomically
 repoints the row only after verified output is stored; any transcode, audio
 verification, upload, or concurrent-update failure leaves the original URL and
-format untouched.
+format untouched. A Motion clip refuses it (`skipped-authoritative-source`):
+its source timestamps are the evidence. Repair only remuxes a Motion clip and
+never queues it for compression.
 
 ## Loom and YouTube import
 
@@ -263,7 +265,7 @@ When mode is `screen+camera`, "the bubble" is two different things:
 - **On-screen self-view.** `CameraBubble` renders a plain, unrecorded `<video>` element the user drags around to frame themselves during countdown/recording. It is never captured — it's just local framing UI.
 - **Recorded composite.** Display capture can't include that DOM element once the user records another window/app, so the saved video has to bake the camera circle in before `MediaRecorder` ever sees a frame. `createCameraCompositeStream` (`app/lib/camera-composite.ts`) draws the display video plus a clipped, mirrored camera circle onto an offscreen `<canvas>` and feeds `canvas.captureStream()` into a single `MediaRecorder`. There is **no** second `MediaRecorder` and **no** server-side ffmpeg stitching — the composite happens client-side, live, before upload.
 
-Because that draw loop runs continuously for the whole recording, keep its CPU/GPU cost bounded: a Worker-based timer drives the draw loop at the capture frame rate (`SCREEN_CAPTURE_FRAME_RATE`, 24fps — falling back to `requestAnimationFrame` only if Worker creation fails, e.g. under a strict CSP), the canvas is hard-capped to 1080p-class dimensions (1920px on its longest edge) even if the source display track is Retina/4K, and the bubble's drop shadow is pre-rendered into a small cached sprite (keyed by bubble size) instead of re-blurring with `shadowBlur` every frame.
+Because that draw loop runs continuously for the whole recording, keep its CPU/GPU cost bounded: a Worker-based timer drives the draw loop at the take's capture frame rate (`captureFrameRate`: 24fps Normal, 60fps Motion — falling back to `requestAnimationFrame` only if Worker creation fails, e.g. under a strict CSP), the canvas is hard-capped to 1080p-class dimensions (1920px on its longest edge) even if the source display track is Retina/4K, and the bubble's drop shadow is pre-rendered into a small cached sprite (keyed by bubble size) instead of re-blurring with `shadowBlur` every frame.
 
 ## Restart (desktop)
 

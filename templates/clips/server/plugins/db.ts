@@ -197,7 +197,12 @@ async function backfillRecordingOrgIdsInBatches(): Promise<void> {
 
 function scheduleRecordingOrgIdBackfill(): void {
   const timer = setTimeout(() => {
-    void backfillRecordingOrgIdsInBatches();
+    backfillRecordingOrgIdsInBatches().catch((err) => {
+      console.warn(
+        "[db] recording org-id backfill failed; it will retry in a later process:",
+        err instanceof Error ? err.message : err,
+      );
+    });
   }, 1_000);
   if (typeof timer.unref === "function") timer.unref();
 }
@@ -1480,6 +1485,11 @@ export const migrations = runMigrations(
       name: "recording-comments-add-missing-to-review-kit",
       sql: {},
       run: addMissingRecordingComments,
+    },
+    {
+      version: 110,
+      name: "recording-capture-metadata",
+      sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS capture_metadata_json TEXT`,
     },
   ]),
   { table: "clips_migrations" },

@@ -364,6 +364,10 @@ const messages = {
     noAccess: "हो सकता है कि आपके पास इस क्लिप तक पहुंच न हो.",
     backToLibrary: "लाइब्रेरी पर वापस जाएँ",
     sharedWithYou: "आपके साथ साझा किया गया",
+    motionCaptureRequested: "मोशन कैप्चर का अनुरोध किया गया",
+    captureTrackReported: "ट्रैक ने {{fps}} fps रिपोर्ट किया",
+    captureRateMeasured: "मापा गया: {{fps}} fps",
+    captureRateUnverified: "फ़्रेम दर सत्यापित नहीं है",
     storageStillDisconnected: "संग्रहण अभी भी कनेक्ट नहीं है",
     finishBuilderOrS3:
       "Builder.io स्टोरेज इस्तेमाल करें या S3-संगत स्टोरेज कॉन्फ़िगर करें, फिर दोबारा कोशिश करें।",
@@ -1890,6 +1894,7 @@ const messages = {
       "Fix camera access or switch to Screen mode before recording. (स्थानीयकृत)",
     captureSource: "Capture source (स्थानीयकृत)",
     selectedSurface: "{{surface}} selected (स्थानीयकृत)",
+    captureFrameRate: "कैप्चर फ़्रेम दर",
     change: "Change (स्थानीयकृत)",
     audioAndCamera: "Audio & camera (स्थानीयकृत)",
     audio: "Audio (स्थानीयकृत)",

@@ -1,3 +1,5 @@
+import type { RecordingCaptureMetadata } from "@shared/recording-capture";
+
 const DB_NAME = "clips-web-recording-backups";
 const DB_VERSION = 1;
 const META_STORE = "recordings";
@@ -73,6 +75,7 @@ export interface RecordingBackupMeta {
   ownerEmail?: string | null;
   /** Absent on copies saved before the recorder stored it. */
   recordingPlatform?: LocalRecorderPlatform | null;
+  captureMetadata?: RecordingCaptureMetadata | null;
   title?: string | null;
   createdAt?: string;
   transcript?: string | null;

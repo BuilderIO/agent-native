@@ -20,6 +20,7 @@ import {
   isStoredButUnservableFinalizeError,
   waitForAcceptedRecordingAfterFinalizeError,
 } from "@shared/finalize-recovery";
+import type { CaptureQuality } from "@shared/recording-capture";
 import {
   classifyUploadResponseError,
   chunkUploadParallelism,
@@ -460,6 +461,7 @@ function getPolicyBlockedCaptureLabel(opts: {
 function directRecorderUrl(opts?: {
   mode?: RecordingMode;
   displaySurface?: DisplaySurface;
+  captureQuality?: CaptureQuality;
 }): string {
   if (typeof window === "undefined") return "/record";
   const url = new URL(window.location.href);
@@ -468,6 +470,9 @@ function directRecorderUrl(opts?: {
   }
   if (opts?.displaySurface) {
     url.searchParams.set("surface", opts.displaySurface);
+  }
+  if (opts?.captureQuality) {
+    url.searchParams.set("captureQuality", opts.captureQuality);
   }
   return url.toString();
 }
@@ -1476,9 +1481,11 @@ export default function RecordRoute() {
     const params = new URLSearchParams(location.search);
     const mode = params.get("mode");
     const surface = params.get("surface");
+    const captureQuality = params.get("captureQuality");
     return {
       mode: getRecordingModeParam(mode),
       surface: getDisplaySurfaceParam(surface),
+      captureQuality: captureQuality === "motion" ? ("motion" as const) : null,
     };
   }, [location.search]);
   const extensionCapture = useMemo<ClipsExtensionCapture | null>(() => {
@@ -1662,6 +1669,7 @@ export default function RecordRoute() {
     micDeviceId: string | null;
     micDeviceLabel?: string | null;
     cameraDeviceId: string | null;
+    captureQuality: CaptureQuality;
   } | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
   const fileUploadAbortRef = useRef<AbortController | null>(null);
@@ -1734,6 +1742,7 @@ export default function RecordRoute() {
       micDeviceId: string | null;
       micDeviceLabel?: string | null;
       cameraDeviceId: string | null;
+      captureQuality: CaptureQuality;
     }) => {
       const blockedFeature = isEmbeddedWindow()
         ? getPolicyBlockedCaptureLabel({
@@ -1773,6 +1782,7 @@ export default function RecordRoute() {
         const engine = new RecorderEngine({
           recordingId: "__pending__",
           mode: opts.mode,
+          captureQuality: opts.captureQuality,
           displaySurface: opts.displaySurface,
           micDeviceId: opts.micDeviceId,
           micDeviceLabel: opts.micDeviceLabel,
@@ -1877,6 +1887,7 @@ export default function RecordRoute() {
           folderId: folderIdFromUrl ?? undefined,
           mimeType: pickMimeType() || undefined,
           requestStreaming: canUseTimeslicedRecorderChunks(pickMimeType()),
+          captureMetadata: engine.getCaptureMetadata(),
         };
         engine.setBackupDetails({
           ownerEmail: authSessionEmailRef.current,
@@ -4264,6 +4275,10 @@ export default function RecordRoute() {
                     initialDisplaySurface={
                       rememberedRecorderOptions?.displaySurface ??
                       initialRecorderOptions.surface
+                    }
+                    initialCaptureQuality={
+                      rememberedRecorderOptions?.captureQuality ??
+                      initialRecorderOptions.captureQuality
                     }
                   />
                   {showHostedClipsRemaining && storageQuery.data ? (

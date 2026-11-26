@@ -26,6 +26,7 @@ import {
 } from "h3";
 
 import finalizeRecording from "../../../../../actions/finalize-recording.js";
+import { recordingCaptureMetadataSchema } from "../../../../../actions/lib/capture-metadata-schema.js";
 import { getDb, schema } from "../../../../db/index.js";
 import { refuseContentUploadChunk } from "../../../../lib/content-uploads.js";
 import { debugLog } from "../../../../lib/debug.js";
@@ -1502,6 +1503,24 @@ function buildFinalizeArgs(
     if (Array.isArray(value)) return queryBoolean(value[0]);
     return value === "1" || value === "true" || value === true;
   };
+  const rawCaptureMetadata = Array.isArray(query.captureMetadata)
+    ? query.captureMetadata[0]
+    : query.captureMetadata;
+  let captureMetadata;
+  if (typeof rawCaptureMetadata === "string" && rawCaptureMetadata.length) {
+    try {
+      const parsed = recordingCaptureMetadataSchema.safeParse(
+        JSON.parse(rawCaptureMetadata),
+      );
+      if (!parsed.success) throw new Error("schema");
+      captureMetadata = parsed.data;
+    } catch {
+      throw createError({
+        statusCode: 400,
+        statusMessage: "captureMetadata must be valid JSON",
+      });
+    }
+  }
 
   return {
     id: recordingId,
@@ -1513,6 +1532,7 @@ function buildFinalizeArgs(
     locallyTranscoded: queryBoolean(query.locallyTranscoded),
     mimeType,
     uploadAttemptId,
+    ...(captureMetadata === undefined ? {} : { captureMetadata }),
     ...(uploadGenerationId ? { uploadGenerationId } : {}),
   };
 }

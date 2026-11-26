@@ -509,6 +509,36 @@ describe("uploadLocalRecording", () => {
       expectAcceptedByCreateRecording();
     });
 
+    it("carries a Motion take's capture metadata to the new clip and its final chunk", async () => {
+      const captureMetadata = {
+        captureMode: "motion" as const,
+        requestedFrameRate: 60,
+        trackReportedFrameRate: 60,
+        observedFrameRate: null,
+        width: 1920,
+        height: 1080,
+        startedAtMs: 1_790_000_000_000,
+        startUncertaintyMs: 4,
+        startClockSource: "media-recorder-start-event" as const,
+      };
+      mocks.readRecoverableRecordingBackup.mockResolvedValue(
+        copy({ captureMetadata }),
+      );
+
+      await uploadLocalRecording("local-1", ME);
+
+      expect(createArgs()?.captureMetadata).toEqual(captureMetadata);
+      expectAcceptedByCreateRecording();
+      const uploads = mocks.uploadChunkRequest.mock.calls;
+      const finalUrl = new URL(
+        String(uploads[uploads.length - 1]?.[0].url),
+        "https://clips.example.test",
+      );
+      expect(
+        JSON.parse(finalUrl.searchParams.get("captureMetadata") ?? "null"),
+      ).toEqual(captureMetadata);
+    });
+
     it("sends no platform for a copy saved before it was stored, so the server records unknown", async () => {
       mocks.readRecoverableRecordingBackup.mockResolvedValue(copy());
 

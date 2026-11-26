@@ -42,7 +42,7 @@ function parseIds(value: unknown): string[] {
 
 export default defineAction({
   description:
-    "Repair playback of existing recordings and re-upload the fixed media without replacing the original unless the repair succeeds. By default this makes MP4/WebM start-playable and seekable. Set `normalizeTimeline: true` when a clip freezes or stops visually despite a longer duration because its video timestamps have large gaps; this transcodes to constant-frame-rate faststart MP4, preserves audio, and holds the last captured frame through missing-video gaps. Pass `id` for one clip, `ids` for several, or `all: true` for a bounded owner-scoped sweep. Already-seekable clips are skipped unless `force` is true; timeline normalization always runs when explicitly requested.",
+    "Repair playback of existing recordings and re-upload the fixed media without replacing the original unless the repair succeeds. By default this makes MP4/WebM start-playable and seekable. Set `normalizeTimeline: true` when a clip freezes or stops visually despite a longer duration because its video timestamps have large gaps; this transcodes to constant-frame-rate faststart MP4, preserves audio, and holds the last captured frame through missing-video gaps. Pass `id` for one clip, `ids` for several, or `all: true` for a bounded owner-scoped sweep. Already-seekable clips are skipped unless `force` is true; timeline normalization always runs when explicitly requested, except on a Motion clip, whose source timestamps are kept as evidence.",
   schema: z.object({
     id: z.string().optional().describe("A single recording id to repair."),
     ids: z

@@ -376,6 +376,10 @@ const messages = {
     noAccess: "このクリップにアクセスできない可能性があります。",
     backToLibrary: "ライブラリに戻る",
     sharedWithYou: "あなたと共有",
+    motionCaptureRequested: "モーションキャプチャをリクエスト済み",
+    captureTrackReported: "トラック報告: {{fps}} fps",
+    captureRateMeasured: "測定値: {{fps}} fps",
+    captureRateUnverified: "フレームレート未検証",
     storageStillDisconnected: "ストレージがまだ接続されていません",
     finishBuilderOrS3:
       "Builder.io ストレージを使用するか、S3 互換ストレージを設定してから再試行してください。",
@@ -1943,6 +1947,7 @@ const messages = {
       "Fix camera access or switch to Screen mode before recording. (ローカライズ済み)",
     captureSource: "Capture source (ローカライズ済み)",
     selectedSurface: "{{surface}} selected (ローカライズ済み)",
+    captureFrameRate: "キャプチャのフレームレート",
     change: "Change (ローカライズ済み)",
     audioAndCamera: "Audio & camera (ローカライズ済み)",
     audio: "Audio (ローカライズ済み)",

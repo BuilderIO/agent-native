@@ -1,6 +1,7 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { callAction } from "@agent-native/core/client/hooks";
 import { waitForAcceptedRecordingAfterFinalizeError } from "@shared/finalize-recovery";
+import type { RecordingCaptureMetadata } from "@shared/recording-capture";
 import {
   chunkUploadUrl,
   classifyUploadResponseError,
@@ -250,6 +251,7 @@ export interface LocalUploadOptions {
     /** The account that recorded it; the stored copy's owner wins. */
     ownerEmail?: string | null;
     recordingPlatform?: LocalRecorderPlatform | null;
+    captureMetadata?: RecordingCaptureMetadata | null;
     /** False when the recorder never delivered its final chunk. */
     whole?: boolean;
   };
@@ -323,6 +325,8 @@ export async function uploadLocalRecording(
           ownerEmail: stored?.meta.ownerEmail ?? memorySource.ownerEmail,
           recordingPlatform:
             stored?.meta.recordingPlatform ?? memorySource.recordingPlatform,
+          captureMetadata:
+            memorySource.captureMetadata ?? stored?.meta.captureMetadata,
           recordingId: localId,
           localOnly: stored?.meta.localOnly ?? true,
           bytes: memorySource.blob.size,
@@ -568,6 +572,7 @@ async function createAndUpload(
         width: meta.width,
         height: meta.height,
         mimeType: meta.mimeType,
+        captureMetadata: meta.captureMetadata ?? undefined,
         requestStreaming: true,
         folderId: options.folderId ?? undefined,
         spaceIds: options.spaceIds,
@@ -636,6 +641,9 @@ async function createAndUpload(
               height: meta.height,
               hasAudio: meta.hasAudio,
               hasCamera: meta.hasCamera,
+              captureMetadata: meta.captureMetadata
+                ? JSON.stringify(meta.captureMetadata)
+                : undefined,
             }
           : {}),
       });

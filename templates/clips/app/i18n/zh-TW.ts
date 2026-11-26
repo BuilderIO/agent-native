@@ -349,6 +349,10 @@ const messages = {
     noAccess: "您可能無權存取此剪輯。",
     backToLibrary: "返回媒體庫",
     sharedWithYou: "與你共享",
+    motionCaptureRequested: "已要求動態擷取",
+    captureTrackReported: "軌道回報 {{fps}} fps",
+    captureRateMeasured: "實測 {{fps}} fps",
+    captureRateUnverified: "影格率未驗證",
     storageStillDisconnected: "儲存仍未連線",
     finishBuilderOrS3:
       "使用 Builder.io 儲存空間，或設定 S3 相容儲存空間，然後重試。",
@@ -1822,6 +1826,7 @@ const messages = {
     fixCameraAccess: "請修正攝影機存取權，或在錄製前切換到螢幕模式。",
     captureSource: "擷取來源",
     selectedSurface: "已選取 {{surface}}",
+    captureFrameRate: "擷取影格率",
     change: "變更",
     audioAndCamera: "音訊與攝影機",
     audio: "音訊",

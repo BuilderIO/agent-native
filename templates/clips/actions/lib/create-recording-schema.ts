@@ -3,6 +3,7 @@ import { z } from "zod";
 import { SOURCE_HEAD_SHA256_PATTERN } from "../../shared/source-fingerprint.js";
 import { RECORDING_TITLE_SOURCES } from "../../shared/title-source.js";
 import { MAX_UPLOAD_BYTES } from "../../shared/upload-limits.js";
+import { recordingCaptureMetadataSchema } from "./capture-metadata-schema.js";
 
 const cliBoolean = z
   .union([z.boolean(), z.enum(["true", "false"])])
@@ -38,7 +39,7 @@ export const createRecordingSchema = z.object({
     .enum(["recorder", "file_upload", "local_copy_upload", "agent_upload"])
     .optional()
     .describe(
-      "How the clip reached Clips: a live recording, an uploaded file, a local copy recorded without storage, or a file an agent uploaded. Analytics only.",
+      "How the clip reached Clips: a live recording, an uploaded file, a local copy recorded without storage, or a file an agent uploaded. Used for analytics; a local copy upload also keeps its original clip's Motion capture mode.",
     ),
   recordingAttemptId: z
     .string()
@@ -131,5 +132,10 @@ export const createRecordingSchema = z.object({
     .optional()
     .describe(
       "Optional client implementation marker for diagnostics and compatibility decisions.",
+    ),
+  captureMetadata: recordingCaptureMetadataSchema
+    .optional()
+    .describe(
+      "Capture-side requested cadence, track-reported cadence, dimensions, and start clock. Observed cadence must remain null until measured from media.",
     ),
 });

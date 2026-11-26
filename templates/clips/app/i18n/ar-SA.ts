@@ -362,6 +362,10 @@ const messages = {
     noAccess: "قد لا يكون لديك حق الوصول إلى هذا المقطع.",
     backToLibrary: "العودة إلى المكتبة",
     sharedWithYou: "تمت مشاركته معك",
+    motionCaptureRequested: "تم طلب التقاط الحركة",
+    captureTrackReported: "أبلغ المسار عن {{fps}} إطارًا/ث",
+    captureRateMeasured: "تم القياس: {{fps}} إطارًا/ث",
+    captureRateUnverified: "لم يتم التحقق من معدل الإطارات",
     storageStillDisconnected: "وحدة التخزين لا تزال غير متصلة",
     finishBuilderOrS3:
       "استخدم تخزين Builder.io أو كوّن تخزينًا متوافقًا مع S3، ثم حاول مرة أخرى.",
@@ -1924,6 +1928,7 @@ const messages = {
       "Fix camera access or switch to Screen mode before recording. (مترجم)",
     captureSource: "Capture source (مترجم)",
     selectedSurface: "{{surface}} selected (مترجم)",
+    captureFrameRate: "معدل إطارات الالتقاط",
     change: "Change (مترجم)",
     audioAndCamera: "Audio & camera (مترجم)",
     audio: "Audio (مترجم)",

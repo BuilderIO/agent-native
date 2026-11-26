@@ -9,11 +9,13 @@ import {
   recorderSetupModeToBrowser,
   type RecorderSetup,
 } from "@shared/recorder-setup";
+import type { CaptureQuality } from "@shared/recording-capture";
 import {
   IconCamera,
   IconChevronDown,
   IconDeviceDesktop,
   IconMicrophone,
+  IconSparkles,
   IconVideo,
 } from "@tabler/icons-react";
 import {
@@ -95,9 +97,11 @@ export interface PreRecordPanelProps {
     micDeviceId: string | null;
     micDeviceLabel?: string | null;
     cameraDeviceId: string | null;
+    captureQuality: CaptureQuality;
   }) => void;
   initialMode?: RecordingMode | null;
   initialDisplaySurface?: DisplaySurface | null;
+  initialCaptureQuality?: CaptureQuality | null;
   onCancel?: () => void;
   busy?: boolean;
 }
@@ -327,6 +331,7 @@ export function PreRecordPanel({
   onStart,
   initialMode,
   initialDisplaySurface,
+  initialCaptureQuality,
   onCancel,
   busy,
 }: PreRecordPanelProps) {
@@ -365,6 +370,9 @@ export function PreRecordPanel({
     normalizeDisplaySurfaceForRuntime(
       initialDisplaySurface ?? savedPrefs.displaySurface ?? "window",
     ),
+  );
+  const [captureQuality, setCaptureQuality] = useState<CaptureQuality>(
+    () => initialCaptureQuality ?? savedPrefs.captureQuality ?? "normal",
   );
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
@@ -583,6 +591,10 @@ export function PreRecordPanel({
     setDisplaySurface(next);
     saveRecorderPreferences({ displaySurface: next });
   }, []);
+  const chooseCaptureQuality = useCallback((value: CaptureQuality) => {
+    setCaptureQuality(value);
+    saveRecorderPreferences({ captureQuality: value });
+  }, []);
   const chooseMic = useCallback(
     (value: string) => {
       const label =
@@ -668,6 +680,9 @@ export function PreRecordPanel({
   const supportsCameraToggle = screenCaptureSupported;
   const needsCamera = cameraOn;
   const needsScreen = mode === "screen" || mode === "screen+camera";
+  const effectiveCaptureQuality: CaptureQuality = needsScreen
+    ? captureQuality
+    : "normal";
   const audioEnabled = micId !== NO_MIC_DEVICE_ID;
 
   const selectedMicLabel = useMemo(() => {
@@ -693,8 +708,17 @@ export function PreRecordPanel({
           ? null
           : selectedMicLabel,
       cameraDeviceId: needsCamera && cameraId !== "default" ? cameraId : null,
+      captureQuality: effectiveCaptureQuality,
     }),
-    [mode, needsCamera, displaySurface, micId, selectedMicLabel, cameraId],
+    [
+      mode,
+      needsCamera,
+      displaySurface,
+      micId,
+      selectedMicLabel,
+      cameraId,
+      effectiveCaptureQuality,
+    ],
   );
 
   const handleStartClick = useCallback(() => {
@@ -842,6 +866,7 @@ export function PreRecordPanel({
     queueRecordingSetupStateWrite({
       view: "record",
       mode,
+      captureQuality: effectiveCaptureQuality,
       microphone: {
         enabled: audioEnabled,
         selected:
@@ -888,6 +913,7 @@ export function PreRecordPanel({
     microphoneLabelsUnlocked,
     mics.length,
     mode,
+    effectiveCaptureQuality,
     needsCamera,
     selectedCameraLabel,
     selectedMicLabel,
@@ -1009,6 +1035,39 @@ export function PreRecordPanel({
                   </DropdownMenuRadioGroup>
                 </DropdownMenuContent>
               </DropdownMenu>
+            </div>
+          ) : null}
+
+          {needsScreen ? (
+            <div className={cn(CONTROL_ROW_CLASS, "hover:bg-muted/45")}>
+              <IconSparkles
+                className="size-5 text-foreground"
+                stroke={1.75}
+                aria-hidden="true"
+              />
+              <ToggleGroup
+                type="single"
+                value={captureQuality}
+                onValueChange={(value) => {
+                  if (value) chooseCaptureQuality(value as CaptureQuality);
+                }}
+                variant="outline"
+                aria-label={t("preRecord.captureFrameRate")}
+                className="col-span-2 grid h-9 grid-cols-2 gap-1 rounded-md border border-border bg-muted p-1"
+              >
+                <ToggleGroupItem
+                  value="normal"
+                  className="h-7 rounded-sm border-0 px-3 text-xs shadow-none data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"
+                >
+                  24 fps
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value="motion"
+                  className="h-7 rounded-sm border-0 px-3 text-xs shadow-none data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"
+                >
+                  60 fps
+                </ToggleGroupItem>
+              </ToggleGroup>
             </div>
           ) : null}
 

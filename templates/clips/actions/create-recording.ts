@@ -13,6 +13,7 @@ import { eq } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import { withReservedHostedClipAllowance } from "../server/lib/hosted-clip-allowance.js";
+import { inheritedMotionCaptureMetadataJson } from "../server/lib/original-capture-metadata.js";
 import { trackRecordingCreated } from "../server/lib/recording-created.js";
 import {
   builderGatewayFailure,
@@ -202,6 +203,14 @@ export default defineAction({
 
       await snapshotUploadRecoveryPolicy(ownerEmail, organizationId, id);
 
+      const inheritedCaptureMetadataJson = args.captureMetadata
+        ? null
+        : await inheritedMotionCaptureMetadataJson({
+            recordingSource: args.recordingSource,
+            originalRecordingId: args.recordingAttemptId,
+            ownerEmail,
+          });
+
       return {
         uploaded: null,
         db,
@@ -210,6 +219,7 @@ export default defineAction({
         visibility,
         spaceIds,
         recordingPlatform,
+        inheritedCaptureMetadataJson,
       };
     })().catch((error: unknown) => {
       if (isActionContractError(error)) throw error;
@@ -250,6 +260,7 @@ export default defineAction({
       visibility,
       spaceIds,
       recordingPlatform,
+      inheritedCaptureMetadataJson,
     } = prepared;
 
     const storage = await resolveClipsVideoStorage({
@@ -364,6 +375,9 @@ export default defineAction({
         visibility,
         width: args.width ?? 0,
         height: args.height ?? 0,
+        captureMetadataJson: args.captureMetadata
+          ? JSON.stringify(args.captureMetadata)
+          : inheritedCaptureMetadataJson,
         ownerEmail,
         storageMode,
         createdAt: now,

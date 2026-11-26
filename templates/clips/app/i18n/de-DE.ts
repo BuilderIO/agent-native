@@ -389,6 +389,10 @@ const messages = {
     noAccess: "Möglicherweise haben Sie keinen Zugriff auf diesen Clip.",
     backToLibrary: "Zurück zur Bibliothek",
     sharedWithYou: "Mit Ihnen geteilt",
+    motionCaptureRequested: "Bewegungsaufnahme angefordert",
+    captureTrackReported: "Spur meldet {{fps}} fps",
+    captureRateMeasured: "Gemessen: {{fps}} fps",
+    captureRateUnverified: "Bildrate nicht verifiziert",
     storageStillDisconnected: "Der Speicher ist immer noch nicht verbunden",
     finishBuilderOrS3:
       "Nutze Builder.io-Speicher oder konfiguriere S3-kompatiblen Speicher und versuche es erneut.",
@@ -1979,6 +1983,7 @@ const messages = {
       "Fix camera access or switch to Screen mode before recording. (Lokalisiert)",
     captureSource: "Capture source (Lokalisiert)",
     selectedSurface: "{{surface}} selected (Lokalisiert)",
+    captureFrameRate: "Aufnahmebildrate",
     change: "Change (Lokalisiert)",
     audioAndCamera: "Audio & camera (Lokalisiert)",
     audio: "Audio (Lokalisiert)",
