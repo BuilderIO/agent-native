@@ -64,9 +64,7 @@ function invalidResponse(): never {
   });
 }
 
-export async function readContactNote(
-  email: string,
-) {
+export async function readContactNote(email: string) {
   const result = await invokeContentAction(
     "get-mail-note",
     { email },
