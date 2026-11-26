@@ -3617,6 +3617,55 @@ describe("useChatThreads", () => {
     ).toBeNull();
   });
 
+  it("drops a local scope when a refreshed list row reports the thread unscoped", async () => {
+    const row = {
+      id: "moved-thread",
+      title: "Moved chat",
+      preview: "moved",
+      messageCount: 1,
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    let scope: ChatThreadScope | null = { type: "project", id: "7" };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: [{ ...row, scope }], hasMore: false });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat");
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(
+      hook?.threads.find((thread) => thread.id === "moved-thread")?.scope,
+    ).toEqual({ type: "project", id: "7" });
+
+    scope = null;
+    await act(async () => {
+      hook?.refreshThreads();
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      hook?.threads.find((thread) => thread.id === "moved-thread")?.scope,
+    ).toBeNull();
+  });
+
   it("ignores a save response that was in flight when the thread was detached", async () => {
     let draftCount = 0;
     vi.stubGlobal("crypto", { randomUUID: () => `draft-${++draftCount}` });

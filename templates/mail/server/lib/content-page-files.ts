@@ -109,44 +109,63 @@ function contentTarget(): string {
   return laneUrl === builtinUrl ? "content" : laneUrl;
 }
 
-function contentErrorCode(output: string) {
-  return /\(errorCode: ([a-z0-9_]+)\)/.exec(output)?.[1];
+export function contentErrorCode(output: string) {
+  return /\(errorCode: ([A-Za-z0-9_]+)\)/.exec(output)?.[1];
 }
 
-async function readDocumentFile(input: Record<string, unknown>) {
+export async function invokeContentAction(
+  action: string,
+  input: Record<string, unknown>,
+  signInMessage: string,
+) {
   const auth = await resolveA2ACallerAuth();
   if (!auth.userEmail) {
-    fail("Sign in to attach a Content page.", {
-      statusCode: 401,
-      errorCode: "unauthorized",
-    });
+    fail(signInMessage, { statusCode: 401, errorCode: "unauthorized" });
   }
-  let response;
   try {
-    response = await invokeAgentAction({
+    const response = await invokeAgentAction({
       target: contentTarget(),
       selfAppId: "mail",
-      action: "read-document-file",
+      action,
       input,
       userEmail: auth.userEmail,
       ...(auth.orgDomain ? { orgDomain: auth.orgDomain } : {}),
       ...(auth.orgSecret ? { orgSecret: auth.orgSecret } : {}),
       requestTimeoutMs: 30_000,
     });
+    return response.result;
   } catch {
     fail("Could not reach Content. Check its connection and try again.", {
       statusCode: 502,
       errorCode: "content_unavailable",
     });
   }
-  if (response.result.status !== "completed") {
-    const code = contentErrorCode(response.result.output);
+}
+
+export function parseContentOutput(output: string): unknown {
+  try {
+    return JSON.parse(output) as unknown;
+  } catch {
+    fail("Content returned an incomplete response. Try again.", {
+      statusCode: 502,
+      errorCode: "content_invalid_response",
+    });
+  }
+}
+
+async function readDocumentFile(input: Record<string, unknown>) {
+  const result = await invokeContentAction(
+    "read-document-file",
+    input,
+    "Sign in to attach a Content page.",
+  );
+  if (result.status !== "completed") {
+    const code = contentErrorCode(result.output);
     const known = code ? CONTENT_ERRORS[code] : undefined;
     if (
       input.format === "pdf" &&
       (code === "document_file_pdf_failed" ||
-        (!known &&
-          response.result.output.includes("Invalid action parameters")))
+        (!known && result.output.includes("Invalid action parameters")))
     ) {
       fail(
         "Content couldn't make a PDF of this page. Attach it as Markdown instead.",
@@ -162,14 +181,7 @@ async function readDocumentFile(input: Record<string, unknown>) {
       },
     );
   }
-  try {
-    return JSON.parse(response.result.output) as unknown;
-  } catch {
-    fail("Content returned an incomplete response. Try again.", {
-      statusCode: 502,
-      errorCode: "content_invalid_response",
-    });
-  }
+  return parseContentOutput(result.output);
 }
 
 export async function listContentPages(args: {

@@ -5,7 +5,9 @@ import {
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { CommentBody } from "@agent-native/toolkit/app/review";
 import {
+  IconArrowBackUp,
   IconArrowUp,
+  IconCircleCheck,
   IconMessageCircle,
   IconMoodSmile,
   IconCornerDownRight,
@@ -172,20 +174,23 @@ function buildCommentThread(comments: Comment[]): CommentThreadNode | null {
   return root;
 }
 
-export function collectCommentSubtreeIds(comments: Comment[], rootId: string) {
-  const ids = new Set([rootId]);
-  let frontier = [rootId];
-  while (frontier.length > 0) {
-    const nextIds = comments
-      .filter(
-        (comment) => comment.parentId && frontier.includes(comment.parentId),
-      )
-      .map((comment) => comment.id)
-      .filter((id) => !ids.has(id));
-    nextIds.forEach((id) => ids.add(id));
-    frontier = nextIds;
-  }
-  return ids;
+export function commentIdsDeletedWith(comments: Comment[], id: string) {
+  const target = comments.find((comment) => comment.id === id);
+  if (!target) return new Set<string>();
+  return new Set(
+    target.parentId
+      ? [target.id]
+      : comments
+          .filter((comment) => comment.threadId === target.threadId)
+          .map((comment) => comment.id),
+  );
+}
+
+function markThreadResolved(threadId: string | undefined, resolved: boolean) {
+  return (list: Comment[]) =>
+    list.map((comment) =>
+      comment.threadId === threadId ? { ...comment, resolved } : comment,
+    );
 }
 
 function updateReactionUsers(
@@ -217,6 +222,7 @@ export interface CommentsPanelProps {
    * owner reviewing history with comments off may delete without commenting.
    */
   canDeleteOwnComments?: boolean;
+  canReopenAnyThread?: boolean;
   onSeek: (ms: number) => void;
   queryKey: readonly unknown[];
   selectComments?: CommentsLens["selectComments"];
@@ -236,6 +242,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
     enableComments,
     canComment,
     canDeleteOwnComments = canComment,
+    canReopenAnyThread = false,
     onSeek,
     onUnauthenticated,
     queryKey,
@@ -653,10 +660,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
     errorNotification: "shared",
     onMutate: async (vars: any) => {
       const current = visibleCommentsRef.current;
-      const target = current.find((comment) => comment.id === vars.id);
-      const removedIds = target
-        ? collectCommentSubtreeIds(current, target.id)
-        : new Set<string>();
+      const removedIds = commentIdsDeletedWith(current, vars.id);
       const removed = current.filter((comment) => removedIds.has(comment.id));
       const withoutRemoved = (list: Comment[]) =>
         list.filter((comment) => !removedIds.has(comment.id));
@@ -756,6 +760,37 @@ export function CommentsPanel(props: CommentsPanelProps) {
       reconcileEditMutation(ctx, data, true);
     },
   });
+
+  const threadOf = (commentId: string) =>
+    visibleCommentsRef.current.find((comment) => comment.id === commentId)
+      ?.threadId;
+
+  const reopenThread = useActionMutation<
+    undefined,
+    { id: string; resolved: boolean }
+  >("resolve-comment", {
+    headers: commentHeaders,
+    errorNotification: "shared",
+    onMutate: async (vars) => {
+      const threadId = threadOf(vars.id);
+      await prepareCommentWrite(
+        () => patchComments(markThreadResolved(threadId, false)),
+        () => patchComments(markThreadResolved(threadId, true)),
+      );
+    },
+    onError: (_err, vars) => {
+      refuseCommentAccess();
+      patchComments(markThreadResolved(threadOf(vars.id), true));
+      void queryClient.invalidateQueries({ queryKey });
+    },
+  });
+
+  const mayReopen = (root: Comment) =>
+    canComment &&
+    isSignedIn &&
+    (canReopenAnyThread ||
+      root.authorEmail.trim().toLowerCase() ===
+        currentUserEmail.trim().toLowerCase());
 
   // Failed sends stay out of the query cache, so a refetch cannot drop them.
   const threads = useMemo(() => {
@@ -934,6 +969,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
   const renderCommentNode = (
     node: CommentThreadNode,
     depth: number,
+    threadResolved: boolean,
     ancestors = new Set<string>(),
   ): ReactNode => {
     if (ancestors.has(node.comment.id)) return null;
@@ -972,7 +1008,14 @@ export function CommentsPanel(props: CommentsPanelProps) {
             reactToComment.mutate({ commentId, emoji })
           }
           onUnauthenticated={onUnauthenticated}
-          canReply={replyAllowed}
+          canReply={replyAllowed && !threadResolved}
+          threadResolved={depth === 0 && threadResolved}
+          onReopen={
+            depth === 0 && threadResolved && mayReopen(node.comment)
+              ? () =>
+                  reopenThread.mutate({ id: node.comment.id, resolved: false })
+              : undefined
+          }
           isReply={depth > 0}
           sendFailure={
             failedSend
@@ -985,7 +1028,10 @@ export function CommentsPanel(props: CommentsPanelProps) {
               : undefined
           }
         />
-        {canComment && replyAllowed && replyTo?.id === node.comment.id ? (
+        {canComment &&
+        replyAllowed &&
+        !threadResolved &&
+        replyTo?.id === node.comment.id ? (
           <div className="ps-8">
             <InlineReplyComposer
               draft={replyDraft}
@@ -1019,7 +1065,12 @@ export function CommentsPanel(props: CommentsPanelProps) {
             )}
           >
             {node.children.map((child) =>
-              renderCommentNode(child, childDepth, nextAncestors),
+              renderCommentNode(
+                child,
+                childDepth,
+                threadResolved,
+                nextAncestors,
+              ),
             )}
           </ul>
         ) : null}
@@ -1048,7 +1099,9 @@ export function CommentsPanel(props: CommentsPanelProps) {
               isInlinePresentation && "gap-0 pb-16",
             )}
           >
-            {threadRoots.map((root) => renderCommentNode(root, 0))}
+            {threadRoots.map((root) =>
+              renderCommentNode(root, 0, Boolean(root.comment.resolved)),
+            )}
           </ul>
         )}
       </div>
@@ -1410,6 +1463,8 @@ function CommentCard({
   onReact,
   onUnauthenticated,
   canReply = true,
+  threadResolved = false,
+  onReopen,
   isReply,
   sendFailure,
 }: {
@@ -1433,6 +1488,8 @@ function CommentCard({
   onReact: (commentId: string, emoji: string) => void;
   onUnauthenticated?: (intent: "comment" | "react") => void;
   canReply?: boolean;
+  threadResolved?: boolean;
+  onReopen?: (() => void) | undefined;
   isReply?: boolean;
   sendFailure?: { onRetry?: (() => void) | undefined; onDelete: () => void };
 }) {
@@ -1493,6 +1550,12 @@ function CommentCard({
           <span className="text-xs leading-4 text-muted-foreground">
             {relativeTime(comment.createdAt, formatRelativeTime)}
           </span>
+          {threadResolved ? (
+            <span className="inline-flex shrink-0 items-center gap-1 text-xs leading-4 text-muted-foreground">
+              <IconCircleCheck className="size-3" />
+              {t("commentsPanel.resolved")}
+            </span>
+          ) : null}
           {!isReply ? (
             <button
               type="button"
@@ -1564,6 +1627,19 @@ function CommentCard({
                   >
                     <IconCornerDownRight className="size-3" />
                     {t("commentsPanel.reply")}
+                  </Button>
+                ) : null}
+
+                {onReopen ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={onReopen}
+                    className="h-7 gap-1.5 rounded-md px-2 text-xs font-medium text-foreground hover:bg-accent hover:text-accent-foreground"
+                  >
+                    <IconArrowBackUp className="size-3" />
+                    {t("commentsPanel.unresolve")}
                   </Button>
                 ) : null}
 

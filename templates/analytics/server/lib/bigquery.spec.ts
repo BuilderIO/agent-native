@@ -3245,6 +3245,52 @@ describe("runQuery cancellation", () => {
       },
     );
 
+    it.each([
+      { code: "resourcesExceeded", reason: "resources_exceeded" },
+      { code: "invalidQuery", reason: "invalid_query" },
+    ])(
+      "reports an existing job's $code failure instead of running the same SQL again",
+      async ({ code, reason }) => {
+        vi.useFakeTimers();
+        const { fetchMock } = fakeBigQuery({
+          complete: () => false,
+          lookup: () => ({
+            status: { state: "DONE", errorResult: { reason: code } },
+          }),
+        });
+        vi.stubGlobal("fetch", fetchMock);
+        await callUntilDeadline();
+
+        const trace = newBigQueryQueryTrace();
+        const failure = await runQuery(sql, {
+          resumeAfter: new AbortController().signal,
+          trace,
+        }).catch((error: unknown) => error);
+
+        const [resumableId] = submissions(fetchMock);
+        expect(submissions(fetchMock)).toEqual([resumableId, resumableId]);
+        expect(failure).toBeInstanceOf(BigQueryBackendError);
+        expect(failure).toMatchObject({
+          operation: "job",
+          backendStatus: null,
+          backendReason: reason,
+        });
+        expect(trace.jobs).toEqual([
+          {
+            job: "existing",
+            slot: 1,
+            collectable: false,
+            state: "DONE",
+            ageSeconds: 0,
+            sameQuery: true,
+            failureReason: reason,
+            failureCode: code,
+          },
+        ]);
+        expect(cancellations(fetchMock)).toHaveLength(0);
+      },
+    );
+
     it("leaves a replacement job its deadline stopped running for the next call", async () => {
       vi.useFakeTimers();
       let complete = false;

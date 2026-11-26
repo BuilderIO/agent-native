@@ -1083,6 +1083,37 @@ export function useEditorContentAndComponents({
     ],
   );
 
+  const selectLinkedComponentNode = useCallback(
+    async (target: { fileId: string; nodeId: string }) => {
+      const releaseSource = sourceLoader?.lease(target.fileId);
+      try {
+        await sourceLoader?.request(target.fileId);
+        const state = sourceLoader?.get(target.fileId);
+        if (state?.status !== "ready" || state.refreshError)
+          throw new Error(t("common.genericError"));
+        applyLinkedComponentSelection(
+          { fileId: target.fileId, nodeIds: [target.nodeId] },
+          state.content,
+        );
+      } catch {
+        toast.error(t("designEditor.componentInstances.resolveMainFailed"));
+      } finally {
+        releaseSource?.();
+      }
+    },
+    [applyLinkedComponentSelection, sourceLoader, t],
+  );
+
+  const handleOpenLibraryComponent = selectLinkedComponentNode;
+  const [libraryComponentsOpen, setLibraryComponentsOpen] = useState(false);
+  const { data: componentLibrary, isLoading: libraryComponentsLoading } =
+    useActionQuery(
+      "list-design-components",
+      { designId: id ?? "" },
+      { enabled: Boolean(id) && libraryComponentsOpen },
+    );
+  const libraryComponents = componentLibrary?.components;
+
   const handleGoToMainComponentMenuAction = useCallback(() => {
     if (!id || !selectedInstanceActionNodeId) return;
     goToMainComponentMutation.mutate(
@@ -1115,29 +1146,11 @@ export function useEditorContentAndComponents({
           }
           // The action's navigation request only moves the camera; the
           // selection has to be applied here.
-          const main = result.main;
-          if (!main) {
+          if (!result.main) {
             toast.error(t("designEditor.componentInstances.resolveMainFailed"));
             return;
           }
-          const releaseSource = sourceLoader?.lease(main.fileId);
-          try {
-            await sourceLoader?.request(main.fileId);
-            const state = sourceLoader?.get(main.fileId);
-            if (state?.status !== "ready" || state.refreshError)
-              throw new Error(t("common.genericError"));
-            applyLinkedComponentSelection(
-              {
-                fileId: main.fileId,
-                nodeIds: [main.nodeId],
-              },
-              state.content,
-            );
-          } catch {
-            toast.error(t("designEditor.componentInstances.resolveMainFailed"));
-          } finally {
-            releaseSource?.();
-          }
+          await selectLinkedComponentNode(result.main);
         },
         onError: () =>
           toast.error(t("designEditor.componentInstances.resolveMainFailed")),
@@ -1145,9 +1158,9 @@ export function useEditorContentAndComponents({
     );
   }, [
     activeFileId,
-    applyLinkedComponentSelection,
     goToMainComponentMutation,
     id,
+    selectLinkedComponentNode,
     selectedInstanceActionNodeId,
     sourceLoader,
     t,
@@ -1265,6 +1278,10 @@ export function useEditorContentAndComponents({
     handleShaderSourceApplied,
     handleShaderSourceEdit,
     handleGoToMainComponentMenuAction,
+    handleOpenLibraryComponent,
+    libraryComponents,
+    libraryComponentsLoading,
+    setLibraryComponentsOpen,
     handleDetachInstanceMenuAction,
     handleSwapInstanceMenuAction,
     handleToggleMinimalUi,

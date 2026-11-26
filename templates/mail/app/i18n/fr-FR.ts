@@ -15,7 +15,6 @@ const messages = {
       starred: "Starred",
       snoozed: "Snoozed",
       sent: "Sent",
-      draftQueue: "File de brouillons",
       scheduled: "Scheduled",
       drafts: "Drafts",
       archive: "Archiver",
@@ -334,14 +333,10 @@ const messages = {
       close: "Fermer",
     },
     integrations: {
-      addIntegration: "Ajouter une intégration",
       checking: "Vérification...",
       connect: "Connecter",
       disconnect: "Déconnecter",
       getApiKey: "Pour obtenir votre clé API :",
-      newIntegration: "Nouvelle intégration",
-      newIntegrationPlaceholder:
-        "p. ex. Salesforce CRM — afficher l’étape du deal et l’activité récente du contact",
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "Enrichissement des contacts et données d’entreprise",
       hubspotDescription: "Contacts CRM, affaires et tickets",
@@ -357,8 +352,6 @@ const messages = {
       experience: "Expérience",
       tickets: "Tickets",
       save: "Enregistrer",
-      submit: "Submit",
-      submitShortcut: "Submit ({{shortcut}})",
       updateKey: "Mettre à jour la clé",
     },
     recipients: {
@@ -827,7 +820,7 @@ const messages = {
       addOpenAiApiKey: "Ajouter une clé API OpenAI",
     },
     draftQueue: {
-      title: "Cola de borradores",
+      title: "Brouillons demandés",
       queueDraft: "Poner borrador en cola",
       reviewer: "Revisor",
       chooseMember: "Elegir miembro",
@@ -852,15 +845,20 @@ const messages = {
       send: "Enviar",
       awaitingApproval: "Pendiente de aprobación",
       newDraftRequest: "Nueva solicitud de borrador",
-      needsOrg: "La cola de borradores necesita una organización activa.",
+      needsOrg:
+        "Les demandes de brouillon nécessitent une organisation active.",
       openSettings: "Abrir ajustes",
       statusInReview: "en revisión",
       awaitingApprovalCount: "{{count}} brouillons en attente d’approbation",
       requestedCount: "{{count}} demandes de brouillon créées",
+      requested: "Demandés",
+      askedBy: "{{name}} a demandé :",
+      toReview: "À relire",
+      moreOptions: "Plus d'options de brouillon",
     },
     routeTitles: {
       notFound: "No encontrado - Mail",
-      draftQueue: "Cola de borradores - Mail",
+      draftQueue: "Brouillons demandés - Mail",
       settings: "Ajustes - Mail",
       team: "Equipo - Mail",
       emailThread: "Conversación de email",
@@ -887,6 +885,41 @@ const messages = {
     },
     contacts: {
       noContactSelected: "Aucun contact sélectionné",
+    },
+    contactPanel: {
+      addToPanel: "Ajouter à ce panneau",
+      builtIn: "Intégrés",
+      connections: "Connexions",
+      yourWidgets: "Vos widgets",
+      notes: "Notes",
+      attachments: "Pièces jointes",
+      recent: "Récents",
+      connected: "Activé",
+      buildYourOwn: "Créer le vôtre…",
+      buildYourOwnTitle: "Créer le vôtre",
+      back: "Retour",
+      widgetSees:
+        "Un widget voit le nom et l’adresse e-mail de cette personne, ainsi que la conversation ouverte.",
+      widgetDoes:
+        "Il peut afficher vos données Mail, appeler d’autres services avec les clés que vous enregistrez et tenir ses propres notes.",
+      examplePrompt:
+        'Crée un widget pour le panneau à côté d’un e-mail ouvert (emplacement "{{slotId}}") et ajoute-le à mon panneau : {{idea}}',
+      exampleDeals:
+        "Afficher les affaires en cours de cette personne dans Salesforce",
+      exampleLinks:
+        "Lier le site web de l’entreprise de cette personne et sa page LinkedIn",
+      addNote: "Ajouter une note",
+      notesLoadError: "Impossible de charger les notes.",
+      notesContentUnreachable: "Impossible de joindre Content.",
+      olderNotesInContent:
+        "Les notes plus anciennes sont sur la page dans Content.",
+      noteSaveError: "Impossible d’enregistrer la note.",
+      savedToMailNotes: "Enregistré dans les notes Mail",
+      open: "Ouvrir",
+      openInContent: "Ouvrir dans Content",
+      attachmentsLoadError: "Impossible de charger les fichiers.",
+      noAttachments: "Aucun fichier pour l’instant",
+      moreAttachments: "{{count}} de plus",
     },
     readingPane: {
       empty: "Aucun e-mail sélectionné",
@@ -994,8 +1027,8 @@ const messages = {
     slackDraftRequests: "Demandes de brouillons",
     slackDraftQueue: "Mettre en file des brouillons depuis Slack",
     slackDraftQueueDescription:
-      "Vos collègues mentionnent l'agent dans Slack pour demander un brouillon d'e-mail. Les brouillons attendent votre relecture dans la file de brouillons.",
-    openDraftQueue: "Ouvrir la file de brouillons",
+      "Vos collègues mentionnent l'agent dans Slack pour demander un brouillon d'e-mail. Vous relisez chaque brouillon avant son envoi.",
+    openDraftQueue: "Ouvrir les brouillons demandés",
     aiFilter: "Tri par IA",
     gmailFilters: "Filtres Gmail",
     aliases: "Alias",

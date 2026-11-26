@@ -1,14 +1,25 @@
 import {
+  listReviewThreadParticipantEmails,
+  type ReviewComment,
+} from "@agent-native/core/review";
+import {
   notifyActivity,
   runActivityNotification,
   type ActivityNotificationResult,
 } from "@agent-native/core/server";
 import { filterRecipientsByResourceAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import { CLIPS_USER_PREFS_KEY } from "../../shared/clips-ai-prefs.js";
 import { getDb, schema } from "../db/index.js";
+import { resolveCommentMentions } from "./comment-mentions.js";
 import { filterClipsNotificationRecipients } from "./notification-preferences.js";
+import {
+  clipsMentions,
+  commentEmailsSentLater,
+  commentVideoTimestampMs,
+  RECORDING_REVIEW_RESOURCE,
+} from "./recording-comments.js";
 import { canReceiveRecordingActivity } from "./recording-page-access.js";
 import { sendClipsTransactionalEmail } from "./transactional-email-templates.js";
 
@@ -42,20 +53,15 @@ async function getRecording(recordingId: string) {
   return row ?? null;
 }
 
-async function threadParticipants(
+function threadParticipants(
   recordingId: string,
   threadId: string,
 ): Promise<string[]> {
-  const rows = await getDb()
-    .select({ authorEmail: schema.recordingComments.authorEmail })
-    .from(schema.recordingComments)
-    .where(
-      and(
-        eq(schema.recordingComments.recordingId, recordingId),
-        eq(schema.recordingComments.threadId, threadId),
-      ),
-    );
-  return rows.map((row) => row.authorEmail);
+  return listReviewThreadParticipantEmails({
+    resourceType: RECORDING_REVIEW_RESOURCE,
+    resourceId: recordingId,
+    threadId,
+  });
 }
 
 export interface RecordingCommentNotificationInput {
@@ -77,6 +83,35 @@ export async function notifyRecordingComment(
   );
 }
 
+export async function sendRecordingCommentEmails(
+  comment: ReviewComment,
+): Promise<ActivityNotificationResult | null> {
+  const sending = notifyRecordingComment({
+    recordingId: comment.resourceId,
+    threadId: comment.threadId,
+    authorEmail: comment.authorEmail ?? "",
+    authorName: comment.authorName,
+    content: comment.body,
+    mentions: clipsMentions(comment.mentions),
+    videoTimestampMs: commentVideoTimestampMs(comment.anchor),
+    isReply: Boolean(comment.parentCommentId),
+  });
+  const later = commentEmailsSentLater();
+  if (later) {
+    later(sending);
+    return null;
+  }
+  const result = await sending;
+  return result.status === "recording-missing"
+    ? {
+        status: "notification-error",
+        error: `Recording ${comment.resourceId} not found`,
+        sent: [],
+        failed: [],
+      }
+    : result;
+}
+
 async function deliverRecordingCommentEmails(
   input: RecordingCommentNotificationInput,
 ): Promise<ClipsActivityNotificationResult> {
@@ -86,7 +121,10 @@ async function deliverRecordingCommentEmails(
     return RECORDING_MISSING;
   }
 
-  const mentions = input.mentions ?? [];
+  const mentions = await resolveCommentMentions(
+    input.mentions ?? [],
+    recording.orgId,
+  );
   const mentioned = new Set(
     mentions.map((mention) => mention.email.trim().toLowerCase()),
   );

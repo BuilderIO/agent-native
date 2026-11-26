@@ -845,6 +845,10 @@ export default {
     exportPreview: {
       rendering: "正在生成预览…",
       failed: "无法生成预览",
+      noPreview: "没有可预览的屏幕",
+      externalPreview: "预览需要实时应用",
+      readOnlyPreview: "只读模式下无法预览",
+      selectionUnresolved: "在此屏幕上找不到所选内容",
     },
     framePresets: {
       title: "画框",
@@ -1853,6 +1857,7 @@ export default {
   layersPanel: {
     title: "图层",
     screens: "页面",
+    components: "组件",
     resizeScreens: "调整页面区域大小",
     thumbnail: "缩略图",
     addScreen: "添加页面",

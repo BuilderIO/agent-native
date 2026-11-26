@@ -861,6 +861,10 @@ export default {
     exportPreview: {
       rendering: "Gerando pré-visualização…",
       failed: "Pré-visualização indisponível",
+      noPreview: "Nenhuma tela para visualizar",
+      externalPreview: "A visualização precisa do app ao vivo",
+      readOnlyPreview: "Visualização indisponível no modo somente leitura",
+      selectionUnresolved: "Seleção não encontrada nesta tela",
     },
     framePresets: {
       title: "Quadro",
@@ -1947,6 +1951,7 @@ export default {
   layersPanel: {
     title: "Camadas",
     screens: "Páginas",
+    components: "Componentes",
     resizeScreens: "Redimensionar a seção de páginas",
     thumbnail: "Miniatura",
     addScreen: "Adicionar página",

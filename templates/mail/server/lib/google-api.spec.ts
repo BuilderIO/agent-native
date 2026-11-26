@@ -13,7 +13,12 @@ vi.mock("./inbox-store.js", () => ({
   },
   readGmailTokenAccount: async (tokenHash: string) =>
     quotaState.tokens.get(tokenHash),
-  readGmailQuotaCooldowns: async () => new Map<string, number>(),
+  readGmailQuotaCooldowns: async (_scope: unknown, now = Date.now()) =>
+    new Map(
+      [...quotaState.rows]
+        .filter(([, row]) => (row.cooldownUntil ?? 0) > now)
+        .map(([account, row]) => [account, row.cooldownUntil as number]),
+    ),
   reserveGmailQuota: async (
     ownerEmail: string,
     accountEmail: string,
@@ -131,6 +136,7 @@ describe("googleFetch quota handling", () => {
       "quota-token-whole-batch",
       "quota-token-b",
       "chunk-token-c",
+      "people-token-a",
       "shared-token-a",
       "shared-token-b",
       "streak-token-a",
@@ -694,12 +700,15 @@ describe("googleFetch quota handling", () => {
     ).rejects.toThrow(/briefly busy/);
   });
 
-  it("splits large Gmail batches by quota cost instead of sending one burst", async () => {
+  it("splits large Gmail batches into requests of at most 10 parts", async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
-      const requestBody = String(init?.body || "");
-      const partCount = (requestBody.match(/Content-ID: <part-/g) || []).length;
+      const requestIds = [
+        ...String(init?.body ?? "").matchAll(
+          /GET \/gmail\/v1\/users\/me\/messages\/([^?\r\n]+)/g,
+        ),
+      ].map(([, id = ""]) => decodeURIComponent(id));
       const boundary = "batch_chunked";
-      const parts = Array.from({ length: partCount }, (_, i) =>
+      const parts = requestIds.map((id, i) =>
         [
           `--${boundary}`,
           "Content-Type: application/http",
@@ -708,7 +717,7 @@ describe("googleFetch quota handling", () => {
           "HTTP/1.1 200 OK",
           "Content-Type: application/json",
           "",
-          JSON.stringify({ id: `message-${i}` }),
+          JSON.stringify({ id }),
         ].join("\r\n"),
       );
       const body = [...parts, `--${boundary}--`, ""].join("\r\n");
@@ -726,8 +735,98 @@ describe("googleFetch quota handling", () => {
       "metadata",
     );
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    expect(result).toHaveLength(137);
+    expect(fetchMock).toHaveBeenCalledTimes(14);
+    for (const [, init] of fetchMock.mock.calls) {
+      const partCount = (
+        String(init?.body || "").match(/Content-ID: <part-/g) || []
+      ).length;
+      expect(partCount).toBeLessThanOrEqual(10);
+    }
+    expect(result.map(({ id, data }) => [id, data?.id])).toEqual(
+      ids.map((id) => [id, id]),
+    );
+  });
+
+  it("stops a batch group when a cooldown starts between its requests", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const partCount = (
+        String(init?.body ?? "").match(/Content-ID: <part-/g) || []
+      ).length;
+      const boundary = "batch_interrupted";
+      const parts = Array.from({ length: partCount }, (_, i) =>
+        [
+          `--${boundary}`,
+          "Content-Type: application/http",
+          `Content-ID: <response-part-${i}>`,
+          "",
+          "HTTP/1.1 200 OK",
+          "Content-Type: application/json",
+          "",
+          JSON.stringify({ id: `message-${i}` }),
+        ].join("\r\n"),
+      );
+      quotaState.rows.get("account@example.com").cooldownUntil =
+        Date.now() + 30_000;
+      return new Response([...parts, `--${boundary}--`, ""].join("\r\n"), {
+        status: 200,
+        headers: { "content-type": `multipart/mixed; boundary=${boundary}` },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const batch = gmailBatchGetMessages(
+      "chunk-token-c",
+      Array.from({ length: 30 }, (_, i) => `msg-${i}`),
+      "metadata",
+    );
+
+    await expect(batch).rejects.toBeInstanceOf(GmailQuotaRefusedError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats a Calendar URL that mentions gmail.googleapis.com as a Calendar request", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(429, { error: { code: 429, message: "Quota exceeded" } }),
+      ),
+    );
+
+    const result = googleFetch(
+      "https://www.googleapis.com/calendar/v3/calendars/gmail.googleapis.com/events/event-1",
+      "people-token-a",
+    );
+
+    await expect(result).rejects.toMatchObject({ status: 429 });
+    await expect(result).rejects.not.toBeInstanceOf(GmailQuotaCooldownError);
+    expect(quotaState.rows.get("account@example.com")?.cooldownUntil ?? 0).toBe(
+      0,
+    );
+  });
+
+  it("leaves Gmail's cooldown alone when another Google API is rate limited", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(429, {
+          error: {
+            code: 429,
+            message: "Quota exceeded for quota metric 'Read requests'",
+          },
+        }),
+      ),
+    );
+
+    const result = googleFetch(
+      "https://people.googleapis.com/v1/people/me?personFields=photos",
+      "people-token-a",
+    );
+
+    await expect(result).rejects.toMatchObject({ status: 429 });
+    await expect(result).rejects.not.toBeInstanceOf(GmailQuotaCooldownError);
+    expect(quotaState.rows.get("account@example.com")?.cooldownUntil ?? 0).toBe(
+      0,
+    );
   });
 
   it("charges the published Gmail unit costs", () => {
@@ -924,7 +1023,7 @@ describe("googleFetch quota handling", () => {
           result.reason instanceof GmailQuotaCooldownError,
       ),
     ).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(fetchMock).toHaveBeenCalledTimes(30);
   });
 
   it("increases consecutive 429 cooldowns and carries each through its quota window", async () => {

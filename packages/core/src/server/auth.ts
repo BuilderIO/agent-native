@@ -161,6 +161,7 @@ import {
   resolveNativeAuthCopy,
   signupDomainNotAllowedMessage,
 } from "../shared/auth-copy.js";
+import { isAuthDisabled } from "../shared/auth-disabled.js";
 import type {
   AuthPageProps,
   ResetPasswordPageProps,
@@ -4986,11 +4987,6 @@ const AUTO_DEV_ACCOUNT_EMAIL = LOCAL_DEV_IDENTITY_EMAIL;
 const LEGACY_AUTO_DEV_ACCOUNT_EMAIL = LEGACY_LOCAL_DEV_IDENTITY_EMAIL;
 
 let authDisabledWarningLogged = false;
-
-function isAuthDisabled(): boolean {
-  const value = process.env.AUTH_DISABLED?.trim().toLowerCase();
-  return value === "1" || value === "true";
-}
 
 function getAuthDisabledSession(event: H3Event): AuthSession | null {
   if (!isAuthDisabled()) return null;

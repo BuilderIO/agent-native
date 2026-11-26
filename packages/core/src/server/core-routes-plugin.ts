@@ -235,6 +235,7 @@ import {
   getBuilderBrowserOriginForEvent,
   getBuilderBrowserStatusForEvent,
   BuilderAccountProvisioningError,
+  classifyBuilderProvisioningFailure,
   isBuilderAccountAlreadyExistsError,
   isBuilderAccountProvisioningEnabled,
   isBuilderConnectCallbackUrlAllowed,
@@ -2700,11 +2701,12 @@ export async function activateBuilderAccount(
         "account_exists",
       );
     }
+    const failure = classifyBuilderProvisioningFailure(provisioningError);
     return fail(
       BUILDER_UPSTREAM_FAILURE_STATUS,
-      "Couldn't create your Builder.io account. Try again or sign in with an existing account.",
-      "provision_failed",
-      "provision_failed",
+      failure.message,
+      failure.code,
+      failure.code,
       {
         upstream_response_received: provisioningError?.upstreamStatus != null,
         upstream_status: provisioningError?.upstreamStatus ?? null,

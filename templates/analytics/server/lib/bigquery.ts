@@ -106,6 +106,7 @@ export type BigQueryBackendReason =
   | "quota_exceeded"
   | "rate_limited"
   | "backend_error"
+  | "resources_exceeded"
   | "timeout"
   | "other";
 
@@ -120,8 +121,15 @@ const BIGQUERY_BACKEND_REASONS: Readonly<
   jobRateLimitExceeded: "rate_limited",
   backendError: "backend_error",
   internalError: "backend_error",
+  resourcesExceeded: "resources_exceeded",
   jobTimeout: "timeout",
 };
+
+const REPEATED_JOB_FAILURE_REASONS = new Set([
+  "invalidQuery",
+  "resourcesExceeded",
+  "responseTooLarge",
+]);
 
 function safeBigQueryReason(reason: unknown): BigQueryBackendReason {
   return typeof reason === "string"
@@ -1305,6 +1313,7 @@ async function resumableJobState(
   signal?: AbortSignal,
 ): Promise<{
   collectable: boolean;
+  repeatsFailure?: boolean;
   location: string | undefined;
   attempt: Omit<BigQueryJobAttempt, "slot">;
 }> {
@@ -1364,10 +1373,15 @@ async function resumableJobState(
     const sameQuery =
       typeof existingQuery === "string" ? existingQuery === sql : null;
     const failed = Boolean(job.status?.errorResult);
-    const collectable =
-      sameQuery === true && !failed && createdAt >= createdAfter;
+    const recentSameQuery = sameQuery === true && createdAt >= createdAfter;
+    const collectable = recentSameQuery && !failed;
+    const failureReason = job.status?.errorResult?.reason;
     return {
       collectable,
+      repeatsFailure:
+        recentSameQuery &&
+        typeof failureReason === "string" &&
+        REPEATED_JOB_FAILURE_REASONS.has(failureReason),
       location: job.jobReference.location ?? location,
       attempt: {
         job: "existing",
@@ -2327,6 +2341,15 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
         jobLocation = existing.location;
         attachedJob = true;
         break;
+      }
+      if (existing.repeatsFailure) {
+        jobLocation = existing.location;
+        jobId = null;
+        throw new BigQueryBackendError(
+          "job",
+          null,
+          existing.attempt.failureReason ?? "other",
+        );
       }
       usage.location = existing.location;
       await finalizeBigQueryJobUsage(usage, token, usageStarted, signal);

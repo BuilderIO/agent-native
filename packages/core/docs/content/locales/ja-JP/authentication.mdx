@@ -93,12 +93,12 @@ description: "電子メール/パスワード、ソーシャル プロバイダ�
 いくつかのフラグでこれを調整します。詳細は [Environment Variables](#environment-variables) テーブルにあります:
 
 - `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` — 自動開発アカウントではなく、ローカル開発の通常のサインアップ ページを使用します。
-- `AUTH_DISABLED=true` — ログイン/サインアップを完全にスキップし、すべてのリクエストを 1 人の共有ユーザーとして実行します (ローカル開発/プレビュー/デモのみ。実際のユーザーによる運用は決して行わないでください)。
+- `AUTH_DISABLED=true` — ログイン/サインアップを完全にスキップし、すべてのリクエストを 1 人の共有ユーザーとして実行します。ループバック (`localhost`) 上のローカル開発専用です。ホストされたプレビュー、デモ、本番環境では絶対に設定しないでください。
 - `AUTH_MODE=local` — CLI/エージェント ID (開発ユーザー `pnpm action` が実行される) にのみ影響します。これはブラウザのログイン バイパスではありません\*\*。
 
 <Callout id="doc-block-18jli2j" tone="warning">
 
-`AUTH_DISABLED=true` runs **every request as one shared user**. Use it only for local dev, previews, or demos — never in production with real users, where it would expose all data to anyone.
+`AUTH_DISABLED=true` は**すべてのリクエストを同じ共有ユーザーとしてサインイン**させるため、サーバーに到達できる人は誰でもフルアクセスできます。ループバック (`localhost`) 上のローカル開発でのみ使用してください。ホストされたプレビュー、デモ、本番環境には実際のサインインが必要です。QA プレビューでは、`AUTH_SKIP_EMAIL_VERIFICATION=1` を使うと認証を無効にせずにメール待ちを省けます。
 
 </Callout>
 
@@ -463,7 +463,7 @@ const state = encodeOAuthState({
 | `BETTER_AUTH_SECRET`                    | Better Auth 用の署名キー (設定されていない場合は自動生成されます)                                                                                                                                                  |
 | `AUTH_SKIP_EMAIL_VERIFICATION`          | QA/プレビュー環境で `1` に設定すると、電子メール/パスワードのサインアップが検証なしで続行できるようになります。ローカルの開発/テストはデフォルトでスキップされます                                                 |
 | `AUTH_REQUIRE_EMAIL_VERIFICATION`       | `0` または `1` を設定すると、本番環境を含むあらゆる環境でパスワードサインアップの検証ポリシーを宣言できます。`AUTH_SKIP_EMAIL_VERIFICATION` より優先されます                                                       |
-| `AUTH_DISABLED`                         | ログイン/サインアップをスキップするには、`true` または `1` に設定します。すべてのリクエストは 1 人の共有ユーザーとして実行されます (ローカルの開発/プレビューのみ。実際のユーザーによる本番環境では使用できません) |
+| `AUTH_DISABLED`                         | ログイン/サインアップをスキップするには、`true` または `1` に設定します。すべてのリクエストは 1 人の共有ユーザーとして実行されます (ループバック (localhost) のローカル開発専用。ホスト環境や本番環境では使用不可) |
 | `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | 新しい開発データベースでローカルホストの自動サインインを無効にするには、`1` に設定します                                                                                                                           |
 | `AUTH_MODE`                             | `local` は、CLI/エージェント ID のみを解決します (開発ユーザー `pnpm action` が実行される)。ブラウザのログインをバイパスしない                                                                                     |
 | `COOKIE_DOMAIN`                         | 同じデータベースのサブドメイン間で共有セッション Cookie をオプトインします ([Cookie Realms](#cookie-realms) を参照)                                                                                                |

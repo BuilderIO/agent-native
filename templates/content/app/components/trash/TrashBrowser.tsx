@@ -48,6 +48,7 @@ import {
 import { TrashOperationSurface, TrashPurgeDialog } from "./EmptyTrashDialog";
 import { TrashFilters } from "./TrashFilters";
 import { TrashRecoveryActions } from "./TrashRecoveryActions";
+import { TrashRetentionNotice } from "./TrashRetentionNotice";
 import {
   TRASH_TABLE_COLUMNS,
   TRASH_TABLE_WIDTHS,
@@ -366,6 +367,7 @@ export function TrashBrowser({
             </>
           )}
         />
+        <TrashRetentionNotice />
         {!trashOperationId &&
         (selection.mode === "matching" || selected.length) ? (
           <TrashRecoveryActions

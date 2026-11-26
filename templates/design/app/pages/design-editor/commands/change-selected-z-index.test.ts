@@ -859,3 +859,85 @@ describe("runChangeSelectedZIndex — refusal is atomic and visible", () => {
     expect(args.commitVisualStyles).toHaveBeenCalled();
   });
 });
+
+describe("runChangeSelectedZIndex — overview selection in an unfocused screen", () => {
+  const PASTED = `<html><body><div data-agent-native-node-id="wrap">
+<img data-agent-native-node-id="sunset" src="https://example.test/sunset.png" style="position:absolute;left:0;top:0">
+<div data-agent-native-node-id="card" style="position:absolute;left:0;top:40px"></div>
+<div data-agent-native-node-id="badge" style="position:absolute;left:0;top:80px"></div>
+</div></body></html>`;
+
+  function unfocusedHarness(authoredId: string) {
+    const target = buildCodeLayerProjection(PASTED, {
+      source: { kind: "design-file", fileId: "pasted-file" },
+    }).nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === authoredId,
+    );
+    if (!target) throw new Error(`no projection node for ${authoredId}`);
+    const targetId = target.id;
+    const owners = new Map([[targetId, { fileId: "pasted-file" } as never]]);
+    const args = {
+      canEditDesign: true,
+      commitVisualStyles: vi.fn(),
+      selectedElement: {
+        selector: `[data-agent-native-node-id="${targetId}"]`,
+        tagName: "img",
+        classes: [],
+        computedStyles: { position: "absolute" },
+        boundingRect: { x: 0, y: 0, width: 10, height: 10 },
+        isFlexChild: false,
+        isFlexContainer: false,
+      },
+      selectedLayerIdsState: [targetId],
+      setSelectedElement: vi.fn(),
+    };
+    let stored = PASTED;
+    const focusedWrites = vi.fn();
+    const next = {
+      ...args,
+      activeFile: { id: "focused-file" },
+      applyLocalContentUpdate: focusedWrites,
+      getFreshActiveContent: () => "<html><body></body></html>",
+      codeLayerOwnerByNodeIdRef: { current: owners },
+      resolveScreen: (fileId: string) =>
+        fileId === "pasted-file"
+          ? {
+              file: { id: "pasted-file" },
+              getContent: () => stored,
+              applyContent: (content: string) => {
+                stored = content;
+                return {
+                  status: "accepted" as const,
+                  content,
+                  nodeIdMap: new Map<string, string>(),
+                };
+              },
+            }
+          : undefined,
+    } as unknown as Parameters<typeof runChangeSelectedZIndex>[0];
+    const order = () =>
+      [...stored.matchAll(/data-agent-native-node-id="(\w+)"/g)]
+        .map((match) => match[1])
+        .filter((id) => id !== "wrap");
+    return { args: next, focusedWrites, order };
+  }
+
+  it.each([
+    ["front", ["card", "badge", "sunset"]],
+    ["forward", ["card", "sunset", "badge"]],
+  ] as const)("reorders the owner screen's siblings (%s)", (mode, expected) => {
+    const { args, focusedWrites, order } = unfocusedHarness("sunset");
+    expect(runChangeSelectedZIndex(args, mode)).toEqual({ status: "applied" });
+    expect(order()).toEqual(expected);
+    expect(focusedWrites).not.toHaveBeenCalled();
+  });
+
+  it("sends a later sibling backward and to the back", () => {
+    const first = unfocusedHarness("badge");
+    runChangeSelectedZIndex(first.args, "backward");
+    expect(first.order()).toEqual(["sunset", "badge", "card"]);
+    const second = unfocusedHarness("badge");
+    runChangeSelectedZIndex(second.args, "back");
+    expect(second.order()).toEqual(["badge", "sunset", "card"]);
+  });
+});

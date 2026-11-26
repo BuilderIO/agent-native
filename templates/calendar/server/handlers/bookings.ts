@@ -1980,6 +1980,10 @@ export async function cancelBookingById(
   const bookAgainUrl = existing.slug
     ? `${withConfiguredAppBasePath(getAppProductionUrl())}/book/${existing.slug}`
     : undefined;
+  await db
+    .update(schema.bookings)
+    .set({ status: "cancelled", zoomNeedsReview: false })
+    .where(eq(schema.bookings.id, id));
   await sendBookingCancellationEmails({
     booking: rowToBooking(existing),
     hostEmail,
@@ -1987,10 +1991,6 @@ export async function cancelBookingById(
     timeZone: bookingTimeZone,
   });
   await deleteGoogleEventForBooking({ booking: existing, hostEmail });
-  await db
-    .update(schema.bookings)
-    .set({ status: "cancelled", zoomNeedsReview: false })
-    .where(eq(schema.bookings.id, id));
   recordBookingsChanged(hostEmail);
   return { success: true };
 }

@@ -4,6 +4,7 @@ import { getDbExec } from "../db/client.js";
 import { isProductionServerBuild } from "../db/server-runtime.js";
 import { isProductionLikeRuntime } from "../server/credential-provider.js";
 import { LOCAL_DEV_IDENTITY_EMAIL } from "../server/local-dev-identity.js";
+import { isAuthDisabled } from "../shared/auth-disabled.js";
 import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 
 /**
@@ -14,11 +15,6 @@ import { invalidateMemberOrgCaches } from "./request-org-cache.js";
  * member of the workspace's single org in the current database.
  */
 export const PREVIEW_DEV_ACCOUNT_EMAIL = LOCAL_DEV_IDENTITY_EMAIL;
-
-function truthy(value: string | undefined): boolean {
-  const v = value?.trim().toLowerCase();
-  return v === "1" || v === "true";
-}
 
 /**
  * Hard guard. True only in a development runtime with AUTH_DISABLED and the
@@ -34,7 +30,7 @@ export function shouldJoinPreviewDevOrg(
 ): boolean {
   if (runtime.productionLike || runtime.productionBuild) return false;
   if (env.NODE_ENV !== "development") return false;
-  if (!truthy(env.AUTH_DISABLED)) return false;
+  if (!isAuthDisabled(env)) return false;
   return env.WORKSPACE_PREVIEW_JOIN_ORG === "1";
 }
 

@@ -22,6 +22,9 @@ const mockIsSeekableRepairPending = vi.hoisted(() => vi.fn());
 const mockCountRecordingViews = vi.hoisted(() => vi.fn());
 const mockCountRecordingAgentViews = vi.hoisted(() => vi.fn());
 const mockHasExplicitRecordingShare = vi.hoisted(() => vi.fn());
+const mockListComments = vi.hoisted(() =>
+  vi.fn(async (_recordingId: string): Promise<unknown[]> => []),
+);
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
@@ -62,11 +65,6 @@ vi.mock("../../db/index.js", () => ({
   schema: {
     recordings: { id: "recordings.id" },
     recordingTranscripts: { recordingId: "transcripts.recordingId" },
-    recordingComments: {
-      recordingId: "comments.recordingId",
-      videoTimestampMs: "comments.videoTimestampMs",
-      createdAt: "comments.createdAt",
-    },
     recordingReactions: {
       recordingId: "reactions.recordingId",
       createdAt: "reactions.createdAt",
@@ -85,6 +83,10 @@ vi.mock("../../lib/recordings.js", () => ({
   parseSpaceIds: vi.fn(() => []),
   sameOwnerEmail: (left: string, right: string) =>
     left.trim().toLowerCase() === right.trim().toLowerCase(),
+}));
+
+vi.mock("../../lib/recording-comments.js", () => ({
+  listRecordingComments: mockListComments,
 }));
 
 vi.mock("../../lib/agent-views.js", () => ({
@@ -306,28 +308,24 @@ describe("/api/public-recording route", () => {
       });
       mockResolveAccess.mockResolvedValue({ role, resource: recording });
       mockGetDb.mockReturnValue(
-        createDbWithSelectResults([
-          [recording],
-          [],
-          [
-            {
-              id: "comment-test",
-              content: "Fake saved comment",
-              authorEmail: "author@example.com",
-              authorName: "Fake author",
-            },
-          ],
-          [],
-          [],
-          [],
-        ]),
+        createDbWithSelectResults([[recording], [], [], []]),
       );
+      mockListComments.mockResolvedValueOnce([
+        {
+          id: "comment-test",
+          content: "Fake saved comment",
+          authorEmail: "author@example.com",
+          authorName: "Fake author",
+          mentions: [],
+        },
+      ]);
       const result = await handler({ setCookies: [] } as unknown as Parameters<
         typeof handler
       >[0]);
       expect(result).toMatchObject({
         comments: role === "owner" ? [{ content: "Fake saved comment" }] : [],
       });
+      expect(mockListComments).toHaveBeenCalledTimes(role === "owner" ? 1 : 0);
     },
   );
 

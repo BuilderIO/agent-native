@@ -2302,7 +2302,10 @@ describe("queryFirstPartyAnalytics", () => {
       lexAgentSql(scoped.sql, { dialect: "postgres" }).length,
     ).toBeLessThan(50_000);
     expect(rendered.length).toBeLessThan(1_000_000);
-    expect(rendered).toContain("JSON_VALUE(terminal_row.member_payload");
+    expect(rendered).toContain("JSON_VALUE(cohort_row.member_payload");
+    expect(rendered.match(/ AS member_payload\b/g)).toHaveLength(1);
+    expect(rendered.match(/\bFROM cohort_rows\b/g)).toHaveLength(1);
+    expect(rendered.match(/\bFROM cohort_keys\b/g)).toHaveLength(1);
   });
 
   it("rejects event and session replay joins after the cutover", async () => {
