@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -9,6 +9,8 @@ export default defineAction({
   description:
     "Delete an asset library and its collections, assets, generation presets, generation sessions, generation runs, folders, and shares. Requires admin access.",
   schema: z.object({ id: z.string() }),
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async ({ id }) => {
     await assertAccess("asset-library", id, "admin");
     const db = getDb();

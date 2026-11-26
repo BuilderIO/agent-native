@@ -301,6 +301,7 @@ export default defineAction({
     title: z.string().max(200).optional(),
     description: z.string().max(1000).optional(),
   }),
+  mcpTool: "search",
   run: async (args) => {
     const { libraryId, url, role, category, title, description } = args;
     const collectionId = args.collectionId || null;
