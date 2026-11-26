@@ -7,6 +7,7 @@ export const X_USER_READ_USD = 0.01;
 export const X_PAGE_SIZE = 100;
 export const X_MIN_PAGE_SIZE = 5;
 export const X_POST_FIELDS = "created_at,public_metrics,entities,note_post";
+export const X_REQUEST_TIMEOUT_MS = 60_000;
 
 export type XUser = { id: string; username: string };
 
@@ -18,12 +19,12 @@ export type XPostLink = {
 };
 
 export type XPostMetrics = {
-  views: number | null;
-  likes: number | null;
-  reposts: number | null;
-  replies: number | null;
-  quotes: number | null;
-  bookmarks: number | null;
+  views: number;
+  likes: number;
+  reposts: number;
+  replies: number;
+  quotes: number;
+  bookmarks: number;
 };
 
 export type XPost = {
@@ -121,6 +122,35 @@ function problemDetail(problem: XProblem): string | undefined {
   return problem.detail ?? problem.message ?? problem.title;
 }
 
+const NOTHING_READ_PROBLEMS = new Set([
+  "resource-not-found",
+  "not-authorized-for-resource",
+  "resource-unavailable",
+  "usage-capped",
+]);
+
+const FORBIDDEN_PROBLEMS = new Set([
+  "client-forbidden",
+  "unsupported-authentication",
+  "not-authorized-for-resource",
+  "disallowed-resource",
+  "usage-capped",
+]);
+
+function leadingProblem(problems: XProblem[]): XProblem | undefined {
+  return (
+    problems.find((problem) => problemKind(problem) === "usage-capped") ??
+    firstOf(problems)
+  );
+}
+
+function billedWithoutData(problems: XProblem[]): number | null {
+  return problems.length > 0 &&
+    problems.every((problem) => NOTHING_READ_PROBLEMS.has(problemKind(problem)))
+    ? 0
+    : null;
+}
+
 function decode(text: string): { body: unknown } | null {
   try {
     return { body: JSON.parse(text) };
@@ -140,11 +170,24 @@ async function send(
   for (const [name, value] of Object.entries(params)) {
     url.searchParams.set(name, value);
   }
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-    ...(signal ? { signal } : {}),
-  });
-  const decoded = decode(await res.text());
+  const timeout = AbortSignal.timeout(X_REQUEST_TIMEOUT_MS);
+  let res: Response;
+  let text: string;
+  try {
+    res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    });
+    text = await res.text();
+  } catch (error) {
+    if (!timeout.aborted) throw error;
+    throw xError(
+      `X API ${path} didn't answer within ${X_REQUEST_TIMEOUT_MS / 1000} seconds.`,
+      "x_request_timed_out",
+      null,
+    );
+  }
+  const decoded = decode(text);
   if (res.ok) {
     if (!decoded || !isRecord(decoded.body)) {
       throw xError(
@@ -162,7 +205,17 @@ async function send(
     : ([] as XProblem[]);
   const detail =
     problems.map(problemDetail).find(Boolean) ?? `HTTP ${res.status}`;
-  const billed = decoded && res.status < 500 ? 0 : null;
+  const refused =
+    body !== null &&
+    body.data === undefined &&
+    (res.status === 401 ||
+      res.status === 402 ||
+      res.status === 429 ||
+      (res.status === 403 &&
+        problems.some((problem) =>
+          FORBIDDEN_PROBLEMS.has(problemKind(problem)),
+        )));
+  const billed = refused ? 0 : null;
   const capped = problems.some((problem) =>
     /usage-?cap|spend/i.test(`${problem.type ?? ""} ${problem.title ?? ""}`),
   );
@@ -209,7 +262,7 @@ async function send(
 function requestProblem(
   path: string,
   problem: XProblem,
-  billed: number,
+  billed: number | null,
 ): XRequestError {
   const detail = problemDetail(problem) ?? "no detail";
   if (problemKind(problem) === "usage-capped") {
@@ -268,9 +321,30 @@ function link(entity: RawUrlEntity): XPostLink {
   };
 }
 
+function postMetrics(raw: RawPost["public_metrics"]): XPostMetrics | null {
+  if (!raw) return null;
+  const views = count(raw.impression_count);
+  const likes = count(raw.like_count);
+  const reposts = count(raw.repost_count ?? raw.retweet_count);
+  const replies = count(raw.reply_count);
+  const quotes = count(raw.quote_count);
+  const bookmarks = count(raw.bookmark_count);
+  if (
+    views === null ||
+    likes === null ||
+    reposts === null ||
+    replies === null ||
+    quotes === null ||
+    bookmarks === null
+  ) {
+    return null;
+  }
+  return { views, likes, reposts, replies, quotes, bookmarks };
+}
+
 export function parseXPost(raw: RawPost): XPost | null {
   const created = raw.created_at ? Date.parse(raw.created_at) : Number.NaN;
-  const metrics = raw.public_metrics;
+  const metrics = postMetrics(raw.public_metrics);
   if (!raw.id || !/^\d+$/.test(raw.id) || Number.isNaN(created) || !metrics) {
     return null;
   }
@@ -282,14 +356,7 @@ export function parseXPost(raw: RawPost): XPost | null {
     links: [...(raw.entities?.urls ?? []), ...(note?.entities?.urls ?? [])].map(
       link,
     ),
-    metrics: {
-      views: count(metrics.impression_count),
-      likes: count(metrics.like_count),
-      reposts: count(metrics.repost_count ?? metrics.retweet_count),
-      replies: count(metrics.reply_count),
-      quotes: count(metrics.quote_count),
-      bookmarks: count(metrics.bookmark_count),
-    },
+    metrics,
   };
 }
 
@@ -312,7 +379,7 @@ function parsePosts(path: string, data: unknown[]): XPost[] {
   });
   if (posts.length < data.length) {
     throw xError(
-      `X API ${path} returned ${data.length - posts.length} of ${data.length} posts without an id, created_at or public_metrics, which this collection asks for with post.fields=${X_POST_FIELDS}. X may have renamed a field.`,
+      `X API ${path} returned ${data.length - posts.length} of ${data.length} posts without an id, a created_at or all six public_metrics counts, which this collection asks for with post.fields=${X_POST_FIELDS}. X may have renamed a field.`,
       "x_fields_missing",
       data.length,
     );
@@ -378,17 +445,18 @@ export async function lookupXUsers(
     reported.add(name);
     if (problemKind(problem) === "resource-not-found") notFound.add(name);
   }
-  const general = problemList(body.errors).find(
+  const generals = problemList(body.errors).filter(
     (problem) =>
       !asked.has((problem.value ?? problem.resource_id ?? "").toLowerCase()),
   );
+  const general = leadingProblem(generals);
   if (users.length === 0 && reported.size === 0) {
     throw general
-      ? requestProblem("users/by", general, 0)
+      ? requestProblem("users/by", general, billedWithoutData(generals))
       : xError(
           "X API users/by answered with neither accounts nor a reason.",
           "x_unexpected_response",
-          0,
+          null,
         );
   }
   return {
@@ -405,6 +473,7 @@ export async function lookupXUsers(
 
 export type XTimelineRange = ({ sinceId: string } | { startTime: string }) & {
   untilId?: string;
+  paginationToken?: string;
 };
 
 export type XTimelinePage = {
@@ -413,7 +482,7 @@ export type XTimelinePage = {
   newestId: string | null;
   oldestId: string | null;
   oldestAt: string | null;
-  more: boolean;
+  nextToken: string | null;
   problem: XRequestError | null;
 };
 
@@ -433,7 +502,7 @@ function inRange(post: XPost, range: XTimelineRange): boolean {
 function timelineProblem(
   path: string,
   problem: XProblem,
-  billed: number,
+  billed: number | null,
 ): XRequestError {
   const detail = problemDetail(problem) ?? "no detail";
   switch (problemKind(problem)) {
@@ -485,18 +554,36 @@ export async function listXUserPostsPage(
         ? { since_id: range.sinceId }
         : { start_time: range.startTime }),
       ...(range.untilId ? { until_id: range.untilId } : {}),
+      ...(range.paginationToken
+        ? { pagination_token: range.paginationToken }
+        : {}),
     },
     signal,
   );
   const data = rawItems(path, body);
-  const problem = firstOf(problemList(body.errors));
+  const problems = problemList(body.errors);
+  const problem = leadingProblem(problems);
+  const resultCount = body.meta?.result_count;
+  const nextToken =
+    typeof body.meta?.next_token === "string" && body.meta.next_token
+      ? body.meta.next_token
+      : null;
+  if (resultCount !== undefined && resultCount !== data.length) {
+    throw xError(
+      `X API ${path} sent ${data.length} posts with a post count that doesn't match.`,
+      "x_unexpected_response",
+      null,
+    );
+  }
   if (data.length === 0) {
-    if (problem) throw timelineProblem(path, problem, 0);
-    if (body.meta?.result_count !== 0) {
+    if (problem) {
+      throw timelineProblem(path, problem, billedWithoutData(problems));
+    }
+    if (resultCount !== 0) {
       throw xError(
         `X API ${path} answered with neither posts nor a post count of 0.`,
         "x_unexpected_response",
-        0,
+        null,
       );
     }
     return {
@@ -505,7 +592,7 @@ export async function listXUserPostsPage(
       newestId: null,
       oldestId: null,
       oldestAt: null,
-      more: false,
+      nextToken,
       problem: null,
     };
   }
@@ -520,7 +607,7 @@ export async function listXUserPostsPage(
     newestId: newest?.id ?? null,
     oldestId: oldest?.id ?? null,
     oldestAt: oldest?.createdAt ?? null,
-    more: typeof body.meta?.next_token === "string",
+    nextToken,
     problem: problem ? timelineProblem(path, problem, data.length) : null,
   };
 }
@@ -569,14 +656,14 @@ export async function lookupXPosts(
     reported.add(id);
     if (problemKind(problem) === "resource-not-found") gone.add(id);
   }
-  const problem = firstOf(general);
+  const problem = leadingProblem(general);
   if (data.length === 0 && reported.size === 0) {
     throw problem
-      ? requestProblem("tweets", problem, 0)
+      ? requestProblem("tweets", problem, billedWithoutData(general))
       : xError(
           "X API tweets answered with neither posts nor a reason.",
           "x_unexpected_response",
-          0,
+          null,
         );
   }
   return {

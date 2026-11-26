@@ -15,6 +15,7 @@ const {
   lookupXUsers,
   parseXPost,
   testXBearerToken,
+  X_REQUEST_TIMEOUT_MS,
   xBearerToken,
 } = await import("./x-api");
 
@@ -126,7 +127,7 @@ describe("X API client", () => {
         newestId: "9",
         oldestId: "8",
         oldestAt: "2026-11-20T12:00:00.000Z",
-        more: true,
+        nextToken: "page-2",
         problem: null,
       }),
     );
@@ -136,8 +137,15 @@ describe("X API client", () => {
       { startTime: "2026-10-27T00:00:00Z", untilId: "10" },
       33,
     );
+    await listXUserPostsPage(
+      "test-token",
+      "111",
+      { sinceId: "4", untilId: "10", paginationToken: "page-2" },
+      100,
+    );
 
     expect(requests.map(({ url }) => url.pathname)).toEqual([
+      "/2/users/111/tweets",
       "/2/users/111/tweets",
       "/2/users/111/tweets",
     ]);
@@ -156,6 +164,14 @@ describe("X API client", () => {
         "post.fields": "created_at,public_metrics,entities,note_post",
         start_time: "2026-10-27T00:00:00Z",
         until_id: "10",
+      },
+      {
+        max_results: "100",
+        exclude: "retweets,replies",
+        "post.fields": "created_at,public_metrics,entities,note_post",
+        since_id: "4",
+        until_id: "10",
+        pagination_token: "page-2",
       },
     ]);
   });
@@ -177,7 +193,7 @@ describe("X API client", () => {
     expect(page.returned).toBe(4);
     expect(page.newestId).toBe("9");
     expect(page.oldestId).toBe("4");
-    expect(page.more).toBe(false);
+    expect(page.nextToken).toBeNull();
   });
 
   it("reads a page size of 5 to 100 posts only", async () => {
@@ -200,13 +216,16 @@ describe("X API client", () => {
       newestId: null,
       oldestId: null,
       oldestAt: null,
-      more: false,
+      nextToken: null,
       problem: null,
     });
     serve(() => ({ body: {} }));
     await expect(
       listXUserPostsPage("test-token", "111", { sinceId: "4" }, 100),
-    ).rejects.toMatchObject({ errorCode: "x_unexpected_response", billed: 0 });
+    ).rejects.toMatchObject({
+      errorCode: "x_unexpected_response",
+      billed: null,
+    });
     serve(() => ({
       body: {
         errors: [
@@ -236,6 +255,97 @@ describe("X API client", () => {
     await expect(
       listXUserPostsPage("test-token", "111", { sinceId: "4" }, 100),
     ).rejects.toMatchObject({ errorCode: "x_account_unavailable", billed: 0 });
+  });
+
+  it("hands back the token of an empty page that X says has more after it", async () => {
+    serve(() => ({
+      body: { meta: { result_count: 0, next_token: "page-3" } },
+    }));
+    expect(
+      await listXUserPostsPage("test-token", "111", { sinceId: "4" }, 100),
+    ).toMatchObject({ returned: 0, nextToken: "page-3", problem: null });
+  });
+
+  it("keeps the whole reservation when a page's post count doesn't match its posts or an empty page's errors aren't ones that read nothing", async () => {
+    serve(() => ({ body: { meta: { result_count: 3 } } }));
+    await expect(
+      listXUserPostsPage("test-token", "111", { sinceId: "4" }, 100),
+    ).rejects.toMatchObject({
+      errorCode: "x_unexpected_response",
+      billed: null,
+    });
+    serve(() => ({
+      body: { data: [rawPost("9")], meta: { result_count: 2 } },
+    }));
+    await expect(
+      listXUserPostsPage("test-token", "111", { sinceId: "4" }, 100),
+    ).rejects.toMatchObject({
+      errorCode: "x_unexpected_response",
+      billed: null,
+    });
+    serve(() => ({
+      body: {
+        errors: [
+          { title: "Not Found Error", type: NOT_FOUND },
+          {
+            title: "Something new",
+            type: "https://api.x.com/2/problems/something-new",
+          },
+        ],
+        meta: { result_count: 0 },
+      },
+    }));
+    await expect(
+      listXUserPostsPage("test-token", "111", { sinceId: "4" }, 100),
+    ).rejects.toMatchObject({ billed: null });
+  });
+
+  it("puts X's spending limit first wherever it falls among the errors", async () => {
+    const capped = { title: "Usage capped", type: USAGE_CAPPED };
+    const errors = [
+      {
+        title: "Something new",
+        type: "https://api.x.com/2/problems/something-new",
+      },
+      capped,
+    ];
+    serve(() => ({
+      body: { data: [rawPost("9")], errors, meta: { result_count: 1 } },
+    }));
+    const page = await listXUserPostsPage(
+      "test-token",
+      "111",
+      { sinceId: "4" },
+      100,
+    );
+    expect(page.posts.map((post) => post.id)).toEqual(["9"]);
+    expect(page.problem).toMatchObject({
+      errorCode: "x_spending_limit_reached",
+      billed: 1,
+    });
+    serve(() => ({
+      body: {
+        errors: [{ title: "Not Found Error", type: NOT_FOUND }, capped],
+        meta: { result_count: 0 },
+      },
+    }));
+    await expect(
+      listXUserPostsPage("test-token", "111", { sinceId: "4" }, 100),
+    ).rejects.toMatchObject({
+      errorCode: "x_spending_limit_reached",
+      billed: 0,
+    });
+    serve(() => ({ body: { data: [rawPost("1")], errors } }));
+    expect(
+      (await lookupXPosts("test-token", ["1", "2"])).problem,
+    ).toMatchObject({ errorCode: "x_spending_limit_reached", billed: 1 });
+    serve(() => ({ body: { errors } }));
+    await expect(
+      lookupXUsers("test-token", ["builderio"]),
+    ).rejects.toMatchObject({
+      errorCode: "x_spending_limit_reached",
+      billed: null,
+    });
   });
 
   it("keeps the posts of a page that came with X's spending limit and hands the limit back", async () => {
@@ -279,6 +389,20 @@ describe("X API client", () => {
     await expect(failure).rejects.toThrow(
       "post.fields=created_at,public_metrics,entities,note_post",
     );
+    const counts = rawPost("7").public_metrics;
+    for (const name of Object.keys(counts)) {
+      serve(() => ({
+        body: {
+          data: [
+            rawPost("7", { public_metrics: { ...counts, [name]: undefined } }),
+          ],
+          meta: { result_count: 1 },
+        },
+      }));
+      await expect(
+        listXUserPostsPage("test-token", "111", { sinceId: "4" }, 100),
+      ).rejects.toMatchObject({ errorCode: "x_fields_missing", billed: 1 });
+    }
   });
 
   it("reads a long post's note_post text and a link that only the note carries, and either name for reposts", () => {
@@ -326,14 +450,24 @@ describe("X API client", () => {
         id: "2",
         created_at: "2026-11-20T12:00:00.000Z",
         note_tweet: { text: "Older note name" },
-        public_metrics: { retweet_count: 7 },
+        public_metrics: {
+          impression_count: 1000,
+          like_count: 10,
+          retweet_count: 7,
+          reply_count: 2,
+          quote_count: 1,
+          bookmark_count: 4,
+        },
       }),
     ).toEqual(
       expect.objectContaining({
         text: "Older note name",
-        metrics: expect.objectContaining({ reposts: 7, views: null }),
+        metrics: expect.objectContaining({ reposts: 7, views: 1000 }),
       }),
     );
+    expect(
+      parseXPost(rawPost("4", { public_metrics: { retweet_count: 7 } })),
+    ).toBeNull();
     expect(parseXPost({ id: "3", text: "No created_at" })).toBeNull();
   });
 
@@ -380,7 +514,13 @@ describe("X API client", () => {
     serve(() => ({ body: {} }));
     await expect(lookupXPosts("test-token", ["1"])).rejects.toMatchObject({
       errorCode: "x_unexpected_response",
-      billed: 0,
+      billed: null,
+    });
+    await expect(
+      lookupXUsers("test-token", ["builderio"]),
+    ).rejects.toMatchObject({
+      errorCode: "x_unexpected_response",
+      billed: null,
     });
   });
 
@@ -429,7 +569,76 @@ describe("X API client", () => {
     serve(() => ({ status: 401, body: { title: "Unauthorized" } }));
     await expect(lookupXPosts("test-token", ["1"])).rejects.toMatchObject({
       errorCode: "x_token_rejected",
+      billed: 0,
     });
+  });
+
+  it("releases a reservation only for a refusal X names, and keeps it for any other answer", async () => {
+    const refusals: Array<[number, unknown]> = [
+      [401, { title: "Unauthorized" }],
+      [402, { title: "Payment Required" }],
+      [429, { title: "Too Many Requests" }],
+      [
+        403,
+        {
+          title: "Forbidden",
+          type: "https://api.x.com/2/problems/client-forbidden",
+        },
+      ],
+    ];
+    for (const [status, body] of refusals) {
+      serve(() => ({ status, body }));
+      await expect(lookupXPosts("test-token", ["1"])).rejects.toMatchObject({
+        billed: 0,
+      });
+    }
+    const unread: Array<[number, unknown]> = [
+      [403, { title: "Forbidden" }],
+      [400, { title: "Invalid Request" }],
+      [404, { title: "Not Found" }],
+      [429, { data: [rawPost("1")], title: "Too Many Requests" }],
+      [402, "Payment Required"],
+    ];
+    for (const [status, body] of unread) {
+      serve(() => ({ status, body }));
+      await expect(lookupXPosts("test-token", ["1"])).rejects.toMatchObject({
+        billed: null,
+      });
+    }
+  });
+
+  it("gives up on a request X hasn't answered in X_REQUEST_TIMEOUT_MS, leaving what it cost unknown", async () => {
+    const timeout = new AbortController();
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockReturnValue(timeout.signal);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_input: URL, init: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init.signal?.addEventListener("abort", () =>
+              reject(init.signal?.reason),
+            );
+          }),
+      ),
+    );
+    try {
+      const pending = lookupXPosts("test-token", ["1"]);
+      timeout.abort(new DOMException("timed out", "TimeoutError"));
+      await expect(pending).rejects.toMatchObject({
+        errorCode: "x_request_timed_out",
+        billed: null,
+      });
+      expect(timeoutSpy).toHaveBeenCalledWith(X_REQUEST_TIMEOUT_MS);
+      timeoutSpy.mockReturnValue(new AbortController().signal);
+      const cancelled = new AbortController();
+      const stopped = lookupXPosts("test-token", ["1"], cancelled.signal);
+      cancelled.abort(new Error("run cancelled"));
+      await expect(stopped).rejects.toThrow("run cancelled");
+    } finally {
+      timeoutSpy.mockRestore();
+    }
   });
 
   it("leaves what a request cost unknown when X's answer can't be read or X failed", async () => {

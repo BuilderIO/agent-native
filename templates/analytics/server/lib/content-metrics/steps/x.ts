@@ -1,4 +1,5 @@
 import {
+  compareXIds,
   isXSpendingLimitError,
   listXUserPostsPage,
   lookupXPosts,
@@ -11,6 +12,7 @@ import {
   xErrorBilled,
   type XPost,
   type XRequestError,
+  type XTimelinePage,
   type XTimelineRange,
   type XUser,
 } from "../../x-api.js";
@@ -51,6 +53,7 @@ export const X_BACKFILL_DAYS = 30;
 export const X_MAX_TIMELINE_PAGES = 8;
 export const X_TIMELINE_POST_LIMIT = 800;
 export const X_ACCOUNT_RELEVANCE = "account";
+export const X_MONTH_END_MARGIN_MS = 2 * 60 * 1000;
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -272,7 +275,7 @@ function postSnapshots(
   readDate: string,
   now: Date,
 ): ContentSnapshotInput[] {
-  const counts: Record<string, number | null> = {
+  const counts: Record<string, number> = {
     [X_METRICS.views]: post.metrics.views,
     [X_METRICS.likes]: post.metrics.likes,
     [X_METRICS.reposts]: post.metrics.reposts,
@@ -284,19 +287,13 @@ function postSnapshots(
       Math.floor(hoursBetween(post.createdAt, now)),
     ),
   };
-  return Object.entries(counts).flatMap(([metric, value]) =>
-    value === null
-      ? []
-      : [
-          {
-            itemSource: "x" as const,
-            itemExternalId: post.id,
-            metricDate: readDate,
-            metric,
-            value,
-          },
-        ],
-  );
+  return Object.entries(counts).map(([metric, value]) => ({
+    itemSource: "x" as const,
+    itemExternalId: post.id,
+    metricDate: readDate,
+    metric,
+    value,
+  }));
 }
 
 export function xPostItem(read: ReadPost, now: Date): ContentItemInput {
@@ -328,6 +325,7 @@ type XCursor = {
   topId: string | null;
   topAt: string | null;
   scanCount: number;
+  olderPromised: boolean;
 };
 
 const NO_CURSOR: XCursor = {
@@ -339,6 +337,7 @@ const NO_CURSOR: XCursor = {
   topId: null,
   topAt: null,
   scanCount: 0,
+  olderPromised: false,
 };
 
 function readCursor(metadata: Record<string, unknown>): XCursor {
@@ -351,10 +350,18 @@ function readCursor(metadata: Record<string, unknown>): XCursor {
     topId: textValue(metadata.topId),
     topAt: textValue(metadata.topAt),
     scanCount: typeof metadata.scanCount === "number" ? metadata.scanCount : 0,
+    olderPromised: metadata.olderPromised === true,
   };
 }
 
-function accountItem(user: XUser, cursor: XCursor): ContentItemInput {
+type KnownAccount = {
+  user: XUser;
+  cursor: XCursor;
+  coveredRunId: string | null;
+};
+
+function accountItem(account: KnownAccount): ContentItemInput {
+  const { user, cursor, coveredRunId } = account;
   return {
     source: "x",
     externalId: `account:${user.id}`,
@@ -364,8 +371,21 @@ function accountItem(user: XUser, cursor: XCursor): ContentItemInput {
     authors: [`@${user.username}`],
     publishedAt: null,
     relevance: X_ACCOUNT_RELEVANCE,
-    metadata: { authorId: user.id, username: user.username, ...cursor },
+    metadata: {
+      authorId: user.id,
+      username: user.username,
+      ...cursor,
+      coveredRunId,
+    },
   };
+}
+
+function movesBack(oldestId: string | null, cursor: XCursor): boolean {
+  return (
+    oldestId !== null &&
+    (!cursor.untilId || compareXIds(oldestId, cursor.untilId) < 0) &&
+    (!cursor.sinceId || compareXIds(oldestId, cursor.sinceId) > 0)
+  );
 }
 
 class XSpend {
@@ -445,6 +465,7 @@ export const xStep: ContentStep = {
     const token = await xBearerToken();
     const fingerprint = xConfigFingerprint(config);
     const month = monthBounds(now);
+    const sendBefore = month.end.getTime() - X_MONTH_END_MARGIN_MS;
     const monthName = now.toLocaleString("en-US", {
       month: "long",
       year: "numeric",
@@ -494,6 +515,16 @@ export const xStep: ContentStep = {
       rowCount += snapshots.length;
     };
 
+    const saveAccount = async (
+      entry: KnownAccount,
+      cursor: XCursor,
+      items: ContentItemInput[],
+      snapshots: ContentSnapshotInput[],
+    ) => {
+      entry.cursor = cursor;
+      await save([...items, accountItem(entry)], snapshots);
+    };
+
     const charge = (
       kind: "post" | "user",
       billed: number | null,
@@ -512,9 +543,7 @@ export const xStep: ContentStep = {
       billedOf: (result: T) => number,
     ): Promise<T> => {
       const worstMicros = worst * (kind === "post" ? POST_MICROS : USER_MICROS);
-      if (clock().toISOString().slice(0, 7) !== readDate.slice(0, 7)) {
-        throw new XMonthEnded();
-      }
+      if (clock().getTime() >= sendBefore) throw new XMonthEnded();
       if (!spend.affords(worstMicros)) throw new XCapReached();
       const reserved = await reserveContentRunCost(collection, runId, "x", {
         costUsd: (spend.runMicros + worstMicros) / MICROS,
@@ -523,6 +552,7 @@ export const xStep: ContentStep = {
         configFingerprint: fingerprint,
       });
       if (!reserved) throw new XCapReached();
+      if (clock().getTime() >= sendBefore) throw new XMonthEnded();
       try {
         const result = await request();
         charge(kind, billedOf(result), worstMicros);
@@ -533,18 +563,20 @@ export const xStep: ContentStep = {
       }
     };
 
-    try {
-      const known = new Map<string, { user: XUser; cursor: XCursor }>();
-      for (const item of accountItems) {
-        const id = textValue(item.metadata.authorId);
-        const username = textValue(item.metadata.username);
-        if (id && username) {
-          known.set(username.toLowerCase(), {
-            user: { id, username },
-            cursor: readCursor(item.metadata),
-          });
-        }
+    const known = new Map<string, KnownAccount>();
+    for (const item of accountItems) {
+      const id = textValue(item.metadata.authorId);
+      const username = textValue(item.metadata.username);
+      if (id && username) {
+        known.set(username.toLowerCase(), {
+          user: { id, username },
+          cursor: readCursor(item.metadata),
+          coveredRunId: textValue(item.metadata.coveredRunId),
+        });
       }
+    }
+
+    try {
       const unknown = config.accounts
         .map((account) => account.handle.slice(1))
         .filter((name) => !known.has(name.toLowerCase()));
@@ -558,7 +590,11 @@ export const xStep: ContentStep = {
           (result) => result.returned,
         );
         for (const user of lookup.users) {
-          known.set(user.username.toLowerCase(), { user, cursor: NO_CURSOR });
+          known.set(user.username.toLowerCase(), {
+            user,
+            cursor: NO_CURSOR,
+            coveredRunId: null,
+          });
         }
         missing = lookup.missing;
         problem = lookup.problem;
@@ -570,11 +606,13 @@ export const xStep: ContentStep = {
       }
       const accounts = config.accounts.flatMap((account) => {
         const entry = known.get(account.handle.slice(1).toLowerCase());
-        return entry ? [{ account, ...entry }] : [];
+        return entry ? [{ account, entry }] : [];
       });
-      const usersById = new Map(accounts.map(({ user }) => [user.id, user]));
+      const usersById = new Map(
+        accounts.map(({ entry }) => [entry.user.id, entry.user]),
+      );
       await save(
-        accounts.map(({ user, cursor }) => accountItem(user, cursor)),
+        accounts.map(({ entry }) => accountItem(entry)),
         [],
       );
       if (missing.length > 0) {
@@ -587,8 +625,9 @@ export const xStep: ContentStep = {
       }
       if (problem) throw problem;
 
-      for (const { account, user, cursor: saved } of accounts) {
-        let cursor = saved;
+      for (const { account, entry } of accounts) {
+        const { user } = entry;
+        let cursor = entry.cursor;
         if (
           !cursor.untilId &&
           cursor.sinceAt &&
@@ -597,9 +636,11 @@ export const xStep: ContentStep = {
           cursor = NO_CURSOR;
         }
         let reopen = cursor.untilId !== null;
+        let promised = cursor.untilId !== null && cursor.olderPromised;
+        let pageToken: string | null = null;
         for (let pages = 0; ; pages += 1) {
           if (pages === X_MAX_TIMELINE_PAGES) {
-            if (cursor.untilId) {
+            if (cursor.untilId || pageToken) {
               notes.push(
                 `@${user.username} has older posts left to read; the next run reads on.`,
               );
@@ -610,13 +651,14 @@ export const xStep: ContentStep = {
           const range: XTimelineRange = {
             ...(cursor.sinceId ? { sinceId: cursor.sinceId } : { startTime }),
             ...(cursor.untilId ? { untilId: cursor.untilId } : {}),
+            ...(pageToken ? { paginationToken: pageToken } : {}),
           };
           const size = Math.min(
             X_PAGE_SIZE,
             Math.floor(spend.leftMicros / POST_MICROS),
           );
           if (size < X_MIN_PAGE_SIZE) throw new XCapReached();
-          const page = await dispatch(
+          const page: XTimelinePage = await dispatch(
             "post",
             size,
             () => listXUserPostsPage(token, user.id, range, size, signal),
@@ -638,37 +680,68 @@ export const xStep: ContentStep = {
               snapshots.push(...postSnapshots(post, readDate, now));
             }
           }
+          if (page.returned > 0) promised = false;
           const newest = page.posts.find((post) => post.id === page.newestId);
           const topId = cursor.topId ?? page.newestId;
           const topAt = cursor.topAt ?? newest?.createdAt ?? null;
-          const scanned = !page.more || !page.oldestId;
           const scanCount = cursor.scanCount + page.returned;
-          if (scanned && scanCount >= X_TIMELINE_POST_LIMIT) {
+          const reading = {
+            ...cursor,
+            startTime: cursor.sinceId ? null : startTime,
+            topId,
+            topAt,
+            scanCount,
+          };
+          if (page.problem) {
+            await saveAccount(entry, cursor, items, snapshots);
+            throw page.problem;
+          }
+          if (page.nextToken) {
+            const advanced =
+              page.returned === 0
+                ? page.nextToken !== pageToken
+                : movesBack(page.oldestId, cursor);
+            if (!advanced) {
+              notes.push(
+                `X's next page of @${user.username}'s posts didn't reach past the last one, so the run stopped reading them; the next run tries again.`,
+              );
+              await saveAccount(entry, cursor, items, snapshots);
+              break;
+            }
+            if (page.returned === 0) {
+              pageToken = page.nextToken;
+            } else {
+              pageToken = null;
+              cursor = {
+                ...reading,
+                untilId: page.oldestId,
+                untilAt: page.oldestAt,
+                olderPromised: true,
+              };
+            }
+            await saveAccount(entry, cursor, items, snapshots);
+            continue;
+          }
+          pageToken = null;
+          if (scanCount >= X_TIMELINE_POST_LIMIT) {
             const oldestAt = page.oldestAt ?? cursor.untilAt;
             notes.push(
               `X serves only an account's ${X_TIMELINE_POST_LIMIT} newest posts without replies, so @${user.username}'s posts ${oldestAt ? `older than ${day(oldestAt)} ` : ""}may not all have been read.`,
             );
+          } else if (promised) {
+            notes.push(
+              `X had said @${user.username} had posts ${cursor.untilAt ? `older than ${day(cursor.untilAt)} ` : ""}left to read but returned none, so some may have been missed.`,
+            );
           }
-          cursor = scanned
-            ? {
-                ...NO_CURSOR,
-                sinceId: topId ?? cursor.sinceId,
-                sinceAt: topId ? topAt : cursor.sinceAt,
-              }
-            : {
-                ...cursor,
-                startTime: cursor.sinceId ? null : startTime,
-                untilId: page.oldestId,
-                untilAt: page.oldestAt,
-                topId,
-                topAt,
-                scanCount,
-              };
-          await save([...items, accountItem(user, cursor)], snapshots);
-          if (page.problem) throw page.problem;
-          if (!scanned) continue;
+          cursor = {
+            ...NO_CURSOR,
+            sinceId: topId ?? cursor.sinceId,
+            sinceAt: topId ? topAt : cursor.sinceAt,
+          };
+          await saveAccount(entry, cursor, items, snapshots);
           if (!reopen) break;
           reopen = false;
+          promised = false;
         }
       }
 
@@ -812,7 +885,7 @@ export const xStep: ContentStep = {
         };
       } else if (error instanceof XMonthEnded) {
         notes.push(
-          `The UTC month ended during this run, so it stopped to keep its reads in ${monthName}; the next run reads on.`,
+          `The UTC month was ending, so the run stopped to keep its reads in ${monthName}; the next run reads on.`,
         );
       } else if (isXSpendingLimitError(error)) {
         stopped = {
@@ -836,7 +909,14 @@ export const xStep: ContentStep = {
         : []),
       ...notes,
     ].join(" ");
+    const covered = stopped
+      ? []
+      : config.accounts.flatMap((account) => {
+          const entry = known.get(account.handle.slice(1).toLowerCase());
+          return entry ? [accountItem({ ...entry, coveredRunId: runId })] : [];
+        });
     return {
+      items: covered,
       outcome: {
         rowCount,
         windowStart: readDate,

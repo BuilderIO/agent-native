@@ -641,9 +641,9 @@ describe("Content view dashboard", () => {
         ('rxa', 'org:org_a', 'alice@example.test', 'org_a', 'x', 'scheduled', 'succeeded', '${readAt}'),
         ('rxb', 'org:org_b', 'carol@example.test', 'org_b', 'x', 'scheduled', 'succeeded', '${readAt}');
       INSERT INTO analytics_content_items (id, tenant_key, owner_email, org_id, source, external_id, url, title, author, published_at, relevance, metadata, first_seen_at, updated_at) VALUES
-        ('xa1', 'org:org_a', 'alice@example.test', 'org_a', 'x', 'account:1', 'https://x.com/builderio', '@builderio', '@builderio', NULL, 'account', '{"authorId":"1"}', '2026-09-01', '${savedAt}'),
-        ('xa2', 'org:org_a', 'alice@example.test', 'org_a', 'x', 'account:2', 'https://x.com/Steve8708', '@Steve8708', '@Steve8708', NULL, 'account', '{"authorId":"2"}', '2026-09-01', '${savedAt}'),
-        ('xab', 'org:org_b', 'carol@example.test', 'org_b', 'x', 'account:1', 'https://x.com/builderio', '@builderio', '@builderio', NULL, 'account', '{"authorId":"1"}', '2026-09-01', '${savedAt}'),
+        ('xa1', 'org:org_a', 'alice@example.test', 'org_a', 'x', 'account:1', 'https://x.com/builderio', '@builderio', '@builderio', NULL, 'account', '{"authorId":"1","coveredRunId":"rxa"}', '2026-09-01', '${savedAt}'),
+        ('xa2', 'org:org_a', 'alice@example.test', 'org_a', 'x', 'account:2', 'https://x.com/Steve8708', '@Steve8708', '@Steve8708', NULL, 'account', '{"authorId":"2","coveredRunId":"rxa"}', '2026-09-01', '${savedAt}'),
+        ('xab', 'org:org_b', 'carol@example.test', 'org_b', 'x', 'account:1', 'https://x.com/builderio', '@builderio', '@builderio', NULL, 'account', '{"authorId":"1","coveredRunId":"rxb"}', '2026-09-01', '${savedAt}'),
         ('x1', 'org:org_a', 'alice@example.test', 'org_a', 'x', '1001', 'https://x.com/builderio/status/1001', 'Fusion is out builder.io/blog/fusion', '@builderio', '${daysAgo(10)}T03:00:00.000Z', 'counted', '{"authorId":"1"}', '2026-09-01', '2026-09-01'),
         ('x2', 'org:org_a', 'alice@example.test', 'org_a', 'x', '2001', 'https://x.com/Steve8708/status/2001', 'Built with Agent-Native', '@Steve8708', '${daysAgo(2)}T03:00:00.000Z', 'counted', '{"authorId":"2"}', '2026-09-01', '2026-09-01'),
         ('x3', 'org:org_a', 'alice@example.test', 'org_a', 'x', '2002', 'https://x.com/Steve8708/status/2002', 'Every builder should read this', '@Steve8708', '${daysAgo(2)}T03:00:00.000Z', 'not_counted', '{"authorId":"2"}', '2026-09-01', '2026-09-01'),
@@ -737,12 +737,15 @@ describe("Content view dashboard", () => {
     ]);
   });
 
-  it("shows only the accounts the newest successful read covered", async () => {
+  it("shows only the accounts the newest successful read covered, whatever a failed run saved after it", async () => {
     await insertXPosts();
     await client.exec(`
-      UPDATE analytics_content_items SET updated_at = '${daysAgo(0)}T07:00:05.000Z' WHERE id = 'xa2';
       INSERT INTO analytics_content_collection_runs (id, tenant_key, owner_email, org_id, step, trigger, status, started_at)
-      VALUES ('rxf', 'org:org_a', 'alice@example.test', 'org_a', 'x', 'scheduled', 'failed', '${daysAgo(0)}T08:00:00.000Z');
+      VALUES
+        ('rxn', 'org:org_a', 'alice@example.test', 'org_a', 'x', 'scheduled', 'succeeded', '${daysAgo(0)}T08:00:00.000Z'),
+        ('rxf', 'org:org_a', 'alice@example.test', 'org_a', 'x', 'scheduled', 'failed', '${daysAgo(0)}T09:00:00.000Z');
+      UPDATE analytics_content_items SET metadata = '{"authorId":"1","coveredRunId":"rxn"}', updated_at = '${daysAgo(0)}T08:00:09.000Z' WHERE id = 'xa1';
+      UPDATE analytics_content_items SET updated_at = '${daysAgo(0)}T09:00:05.000Z' WHERE id = 'xa2';
     `);
     expect((await runPanel("x-posts")).map((row) => row.account)).toEqual([
       "@builderio",

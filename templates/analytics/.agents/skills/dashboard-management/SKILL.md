@@ -226,26 +226,39 @@ counts when its account has `allPosts`, when a link's expanded or unwound
 address is under one of `xLinks` (a host, or a host and path such as
 `builder.io/blog`), or when its text names one of `xTerms` as a whole word (a
 term with anything besides letters and spaces in any case, others only in
-their own case, with U+2010 and U+2011 read as hyphens; an `@handle` term also
-matches a link to that account or one of its posts, so quotes of its posts
-count). Reposts and replies are never read. Every post read is stored as an
-`x` item with `relevance` `counted` or `not_counted` and `metadata.countedBy`;
-each account is an `x` item with `relevance` `account` whose metadata holds
-where its timeline reading stands and whose `updated_at` marks the runs that
-covered it. Only counted posts get `x_views`, `x_likes`, `x_reposts`,
-`x_replies`, `x_quotes`, `x_bookmarks` and `x_age_hours` snapshots, when first
-seen and once more in the 30 hours after each of 1, 3, 7 and 30 days old. Each
+their own case, with U+2010 and U+2011 read as hyphens; a term that is a valid
+X handle, such as `@builderio`, also matches a link to exactly that account's
+profile or one of its posts, so quotes of its posts count). Reposts and
+replies are never read. Every post read is stored as an `x` item with
+`relevance` `counted` or `not_counted` and `metadata.countedBy`; each account
+is an `x` item with `relevance` `account` whose metadata holds where its
+timeline reading stands and, in `coveredRunId`, the newest successful run that
+covered it, written only as that run succeeds. The X panels read only the
+accounts the newest successful `x` run covered, so a failed or stopped run
+never changes what they show. Only counted posts get `x_views`, `x_likes`,
+`x_reposts`, `x_replies`, `x_quotes`, `x_bookmarks` and `x_age_hours`
+snapshots, when first seen and once more in the 30 hours after each of 1, 3, 7
+and 30 days old. Each
 page is saved as it is read, so a run that stops keeps what it read and the
 next run reads on. X bills each post ($0.005) and account ($0.010) it returns,
 so before each request a run reserves the request's most in its `cost_usd`,
-then lowers it to what X returned; a request without a usable answer keeps its
-reservation. Runs stop as `cost_limited` (`x_monthly_cap`) before the `x` runs'
-spend this UTC calendar month would pass $25, skipping 30-day re-reads first
-when the month-end projection would pass it. That cap covers only this
-collection; the app's spending limit in the X console covers everything else
-using the token. The first run reads back 30 days. A run reads at most 8 pages
-of an account, and X serves only an account's 800 newest posts without
-replies; the run's detail says when either may have left posts unread. It
+then lowers it to the posts X returned, or to nothing when X refused the
+request (401, 402, 429 or a 403 X explains) without data; any other answer
+keeps its reservation, since it doesn't show what X billed. Runs stop as
+`cost_limited` (`x_monthly_cap`) before the `x` runs' spend this UTC calendar
+month would pass $25, skipping 30-day re-reads first when the month-end
+projection would pass it. That cap covers only this collection; the app's
+spending limit in the X console covers everything else using the token. A run
+sends nothing in the last 2 minutes of a UTC month, and each request gives up
+after 60 seconds, so its reads are billed in the month that reserved them;
+the Sources table counts the month in UTC whatever the database's time zone.
+A post without all six `public_metrics` counts fails the run as
+`x_fields_missing`. The first run reads back 30 days. A run reads at most 8
+pages of an account, and X serves only an account's 800 newest posts without
+replies; the run's detail says when either may have left posts unread, or
+when X said an account had older posts left and then returned none. A page
+that comes back with errors or posts withheld is kept but never moves the
+account's newest-read mark, so the next run reads it again. It
 stays off until turned on and reports `not_configured` without accounts, a
 counting rule or a token. A changed rule applies only to posts read after the
 change, and a run whose settings change midway keeps the pages it saved before

@@ -4002,6 +4002,7 @@ describe("content collection", () => {
       ]);
       expect(await postIds()).toEqual(["1000"]);
       expect((await xRun()).cost_usd).toBeCloseTo(0.525, 5);
+      expect((await cursorOf("1")).coveredRunId).toBeNull();
 
       failWith = () => null;
       requests = [];
@@ -4009,6 +4010,13 @@ describe("content collection", () => {
       expect(timelines("1")).toEqual([
         { max_results: "100", since_id: "1000" },
       ]);
+      expect((await cursorOf("1")).coveredRunId).toBe(
+        first(
+          await rows(
+            "SELECT id FROM analytics_content_collection_runs WHERE step = 'x' AND status = 'succeeded'",
+          ),
+        ).id,
+      );
     });
 
     it("holds a request's most in the run's cost before sending it, and keeps it when the request dies", async () => {
@@ -4077,26 +4085,28 @@ describe("content collection", () => {
       expect(run.cost_usd).toBeCloseTo(0.52, 5);
     });
 
-    it("stops when the UTC month ends mid-run and the next run reads on", async () => {
+    it("sends nothing in the UTC month's last 2 minutes and the next run reads on", async () => {
       await xOnly();
       posts = [builderPost("1000"), { ...builderPost("2000"), authorId: "2" }];
       const clock = () =>
         new Date(
           requests.some((url) => url.pathname === "/2/users/1/tweets")
-            ? "2026-12-01T00:00:05.000Z"
-            : "2026-11-30T23:59:30.000Z",
+            ? "2026-11-30T23:58:00.000Z"
+            : "2026-11-30T23:57:59.000Z",
         );
 
-      expect(await runX("2026-11-30T23:59:00.000Z", clock)).toEqual([
+      expect(await runX("2026-11-30T23:57:00.000Z", clock)).toEqual([
         expect.objectContaining({ status: "succeeded" }),
       ]);
       expect(requests.map((url) => url.pathname)).toEqual([
         "/2/users/by",
         "/2/users/1/tweets",
       ]);
-      expect((await xRun()).detail).toContain(
-        "The UTC month ended during this run, so it stopped to keep its reads in November 2026; the next run reads on.",
+      const run = await xRun();
+      expect(run.detail).toContain(
+        "The UTC month was ending, so the run stopped to keep its reads in November 2026; the next run reads on.",
       );
+      expect(run.cost_usd).toBeCloseTo(0.025, 5);
 
       requests = [];
       await runX("2026-12-01T08:00:00.000Z");
@@ -4104,6 +4114,28 @@ describe("content collection", () => {
         { max_results: "100", start_time: "2026-11-01T08:00:00Z" },
       ]);
       expect(await postIds()).toEqual(["1000", "2000"]);
+    });
+
+    it("releases a reservation the UTC month ended under and sends nothing more", async () => {
+      await xOnly();
+      posts = [builderPost("1000")];
+      let checks = 0;
+      const clock = () => {
+        checks += 1;
+        return new Date(
+          checks < 4 ? "2026-11-30T23:50:00.000Z" : "2026-12-01T00:00:01.000Z",
+        );
+      };
+
+      expect(await runX("2026-11-30T23:50:00.000Z", clock)).toEqual([
+        expect.objectContaining({ status: "succeeded" }),
+      ]);
+      expect(requests.map((url) => url.pathname)).toEqual(["/2/users/by"]);
+      const run = await xRun();
+      expect(run.detail).toContain(
+        "The UTC month was ending, so the run stopped to keep its reads in November 2026; the next run reads on.",
+      );
+      expect(run.cost_usd).toBeCloseTo(0.02, 5);
     });
 
     it("saves the pages read before the settings changed and none after", async () => {
@@ -4227,10 +4259,11 @@ describe("content collection", () => {
       expect(await postIds()).toEqual([]);
     });
 
-    it("tells a confirmed empty timeline from an answer with neither posts nor a count", async () => {
+    it("keeps the whole reservation of an answer with neither posts nor a count, or a count of posts it didn't send", async () => {
       await xOnly();
+      let body: unknown = {};
       failWith = (url) =>
-        url.pathname === "/2/users/2/tweets" ? { status: 200, body: {} } : null;
+        url.pathname === "/2/users/2/tweets" ? { status: 200, body } : null;
 
       expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
         expect.objectContaining({
@@ -4238,7 +4271,183 @@ describe("content collection", () => {
           reason: "x_unexpected_response",
         }),
       ]);
+      expect((await xRun()).cost_usd).toBeCloseTo(0.52, 5);
+
+      body = { meta: { result_count: 2 } };
+      expect(await runX("2026-11-27T08:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          status: "failed",
+          reason: "x_unexpected_response",
+        }),
+      ]);
+      expect((await xRun()).cost_usd).toBeCloseTo(0.5, 5);
+    });
+
+    it("follows X's next_token past an empty page", async () => {
+      await xOnly({ accounts: [{ handle: "@builderio", allPosts: true }] });
+      posts = [builderPost("1000")];
+      failWith = (url) =>
+        url.pathname === "/2/users/1/tweets" &&
+        !url.searchParams.has("pagination_token")
+          ? {
+              status: 200,
+              body: { meta: { result_count: 0, next_token: "after-empty" } },
+            }
+          : null;
+
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({ status: "succeeded" }),
+      ]);
+      expect(timelines("1")).toEqual([
+        { max_results: "100", start_time: "2026-10-27T08:00:00Z" },
+        {
+          max_results: "100",
+          start_time: "2026-10-27T08:00:00Z",
+          pagination_token: "after-empty",
+        },
+      ]);
+      expect(await postIds()).toEqual(["1000"]);
+      expect(await cursorOf("1")).toEqual(
+        expect.objectContaining({ sinceId: "1000", untilId: null }),
+      );
+    });
+
+    it("stops reading an account whose next page doesn't move past the last one, without asking for it again", async () => {
+      await xOnly({ accounts: [{ handle: "@builderio", allPosts: true }] });
+      failWith = (url) =>
+        url.pathname === "/2/users/1/tweets"
+          ? {
+              status: 200,
+              body: {
+                data: [raw(builderPost("1000"))],
+                meta: { result_count: 1, next_token: "same" },
+              },
+            }
+          : null;
+      const stalled =
+        "X's next page of @builderio's posts didn't reach past the last one, so the run stopped reading them; the next run tries again.";
+
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({ status: "succeeded" }),
+      ]);
+      expect(timelines("1")).toEqual([
+        { max_results: "100", start_time: "2026-10-27T08:00:00Z" },
+        {
+          max_results: "100",
+          start_time: "2026-10-27T08:00:00Z",
+          until_id: "1000",
+        },
+      ]);
+      expect((await xRun()).detail).toContain(stalled);
+
+      failWith = (url) =>
+        url.pathname === "/2/users/1/tweets"
+          ? {
+              status: 200,
+              body: { meta: { result_count: 0, next_token: "same" } },
+            }
+          : null;
+      requests = [];
+      await runX("2026-11-27T08:00:00.000Z");
+      expect(timelines("1")).toEqual([
+        {
+          max_results: "100",
+          start_time: "2026-10-27T08:00:00Z",
+          until_id: "1000",
+        },
+        {
+          max_results: "100",
+          start_time: "2026-10-27T08:00:00Z",
+          until_id: "1000",
+          pagination_token: "same",
+        },
+      ]);
+      expect((await xRun()).detail).toContain(stalled);
+    });
+
+    it("reads a capped page's range again next run, so posts X held back from it are read", async () => {
+      await xOnly({ accounts: [{ handle: "@builderio", allPosts: true }] });
+      posts = ["1000", "1001", "1002"].map((id) => builderPost(id));
+      failWith = (url) =>
+        url.pathname === "/2/users/1/tweets"
+          ? {
+              status: 200,
+              body: {
+                data: [raw(builderPost("1002")), raw(builderPost("1000"))],
+                errors: [
+                  {
+                    title: "Usage capped",
+                    detail: "Spend cap reached.",
+                    type: "https://api.x.com/2/problems/usage-capped",
+                  },
+                ],
+                meta: { result_count: 2 },
+              },
+            }
+          : null;
+
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          status: "cost_limited",
+          reason: "x_spending_limit_reached",
+        }),
+      ]);
+      expect(await postIds()).toEqual(["1000", "1002"]);
       expect((await xRun()).cost_usd).toBeCloseTo(0.02, 5);
+
+      failWith = () => null;
+      requests = [];
+      expect(await runX("2026-11-27T08:00:00.000Z")).toEqual([
+        expect.objectContaining({ status: "succeeded" }),
+      ]);
+      expect(timelines("1")).toEqual([
+        { max_results: "100", start_time: "2026-10-28T08:00:00Z" },
+      ]);
+      expect(await postIds()).toEqual(["1000", "1001", "1002"]);
+      expect(await cursorOf("1")).toEqual(
+        expect.objectContaining({ sinceId: "1002", untilId: null }),
+      );
+    });
+
+    it("says when X promised older posts that the next run then couldn't get", async () => {
+      await xOnly({ accounts: [{ handle: "@builderio", allPosts: true }] });
+      await spentBefore(24.97, "2026-11-03T08:00:00.000Z");
+      await storeAccount({ id: "1", username: "builderio" }, {});
+      posts = Array.from({ length: 10 }, (_, n) =>
+        builderPost(String(1000 + n), "2026-11-20T08:00:00.000Z"),
+      );
+
+      expect(await runX("2026-11-26T08:00:00.000Z")).toEqual([
+        expect.objectContaining({
+          status: "cost_limited",
+          reason: "x_monthly_cap",
+        }),
+      ]);
+      expect(timelines("1")).toEqual([
+        { max_results: "6", start_time: "2026-10-27T08:00:00Z" },
+      ]);
+      expect(await cursorOf("1")).toEqual(
+        expect.objectContaining({ untilId: "1004", olderPromised: true }),
+      );
+
+      posts.push(builderPost("1010"), builderPost("1011"), builderPost("1012"));
+      served = 9;
+      requests = [];
+      expect(await runX("2026-12-01T08:00:00.000Z")).toEqual([
+        expect.objectContaining({ status: "succeeded" }),
+      ]);
+      expect(timelines("1")).toEqual([
+        {
+          max_results: "100",
+          start_time: "2026-10-27T08:00:00Z",
+          until_id: "1004",
+        },
+        { max_results: "100", since_id: "1009" },
+      ]);
+      expect(await postIds()).toHaveLength(9);
+      expect((await xRun()).detail).toContain(
+        "X had said @builderio had posts older than 2026-11-20 left to read but returned none, so some may have been missed.",
+      );
     });
 
     it("fails a run whose account X no longer has", async () => {

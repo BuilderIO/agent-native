@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import type { XPost, XPostLink } from "../../x-api.js";
+import {
+  X_REQUEST_TIMEOUT_MS,
+  type XPost,
+  type XPostLink,
+} from "../../x-api.js";
 import {
   projectXMonthSpend,
+  X_MONTH_END_MARGIN_MS,
   xCheckpointDue,
   xCountedBy,
   xPostExcerpt,
@@ -281,6 +286,14 @@ describe("X re-read schedule", () => {
     expect(
       xCheckpointDue(published, at(173).toISOString(), at(725), [1, 3, 7]),
     ).toBeNull();
+  });
+});
+
+describe("X month end", () => {
+  it("stops sending well before a request still in flight could reach the next month", () => {
+    expect(X_MONTH_END_MARGIN_MS).toBeGreaterThanOrEqual(
+      2 * X_REQUEST_TIMEOUT_MS,
+    );
   });
 });
 
