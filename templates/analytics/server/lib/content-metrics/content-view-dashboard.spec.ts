@@ -828,6 +828,40 @@ describe("Content view dashboard", () => {
     );
   });
 
+  it("counts the X spend in Sources by the UTC month, whatever the database session's time zone", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-12-01T03:00:00.000Z"));
+    try {
+      await client.exec(`
+        SET TIME ZONE 'America/Los_Angeles';
+        INSERT INTO analytics_content_collection_runs (id, tenant_key, owner_email, org_id, step, trigger, status, started_at, window_end, cost_usd, detail)
+        VALUES
+          ('rxp', 'org:org_a', 'alice@example.test', 'org_a', 'x', 'scheduled', 'succeeded', '2026-11-30T20:00:07.000Z', '2026-11-30', 1, 'November''s run.'),
+          ('rxq', 'org:org_a', 'alice@example.test', 'org_a', 'x', 'scheduled', 'succeeded', '2026-12-01T02:00:07.000Z', '2026-12-01', 0.25, 'December''s run.');
+      `);
+      expect(
+        (
+          await client.query(
+            "SELECT to_char(CURRENT_DATE, 'YYYY-MM-DD') AS today",
+          )
+        ).rows,
+      ).toEqual([{ today: "2026-11-30" }]);
+      expect(
+        (await runPanel("collection-status")).find(
+          (row) => row.source === "X posts",
+        ),
+      ).toEqual(
+        expect.objectContaining({
+          detail:
+            "$0.25 of the $25 cap spent in December 2026 (UTC). December's run.",
+        }),
+      );
+    } finally {
+      await client.exec("RESET TIME ZONE");
+      vi.useRealTimers();
+    }
+  });
+
   it("counts an article's search clicks and impressions, not other pages in search", async () => {
     await client.exec(`
       INSERT INTO analytics_content_metric_snapshots (id, tenant_key, owner_email, org_id, item_id, metric_date, metric, value, source, run_id, collected_at) VALUES
