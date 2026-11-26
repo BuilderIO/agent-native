@@ -596,6 +596,46 @@ describe("comment review interactions", () => {
       );
     });
 
+    it("hands focus on to the card past a proposal decided from the keyboard", () => {
+      const onDecideSuggestionProposal = vi.fn();
+      const members = [
+        piece("one", "k:0", "Teh"),
+        piece("two", "k:1", "recieve"),
+      ];
+      const lone = {
+        ...piece("three", "k:2", "files"),
+        proposalId: null,
+      } as ResourceSuggestion;
+      const options = { onDecideSuggestionProposal };
+      render(null, [], "history", {
+        ...options,
+        suggestions: [...members, lone],
+      });
+      const acceptAll = container.querySelector<HTMLButtonElement>(
+        "[data-suggestion-proposal-decision='accepted']",
+      );
+      if (!acceptAll) throw new Error("The proposal has no Accept all");
+      acceptAll.focus();
+      act(() => {
+        acceptAll.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, cancelable: true }),
+        );
+      });
+      expect(onDecideSuggestionProposal).toHaveBeenCalledWith(
+        "proposal",
+        "accepted",
+        members,
+      );
+
+      render(null, [], "history", { ...options, suggestions: [lone] });
+      expect(container.querySelector("[data-suggestion-proposal]")).toBeNull();
+      const next = container.querySelector(
+        "[data-suggestion-id='three'] [data-thread-card]",
+      );
+      expect(next).not.toBeNull();
+      expect(document.activeElement).toBe(next);
+    });
+
     it("shows what a one-piece unit replaces, where cards would read alike", () => {
       render(null, [], "inline", {
         suggestions: [piece("one", "k:0", "Teh"), piece("two", "k:1", "files")],

@@ -11,7 +11,14 @@ import {
   IconClock,
   IconX,
 } from "@tabler/icons-react";
-import { useId, useLayoutEffect, useRef, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -23,6 +30,70 @@ import { cn } from "@/lib/utils";
 
 import { CommentIconButton } from "./CommentRow";
 import { reviewUnits } from "./thread-suggestions";
+
+function pageEditor() {
+  return (
+    document.querySelector<HTMLElement>(
+      "[data-primary-block-field-panel] .content-editor[contenteditable='true']",
+    ) ??
+    document.querySelector<HTMLElement>(
+      ".content-editor[contenteditable='true']",
+    )
+  );
+}
+
+function useFocusAfterDecision(unitSelector: string) {
+  const decided = useRef<{ unit: HTMLElement; around: HTMLElement[] } | null>(
+    null,
+  );
+  useEffect(
+    () => () => {
+      const focus = decided.current;
+      const active = document.activeElement;
+      if (!focus || (active && active !== document.body)) return;
+      const own = !focus.unit.isConnected
+        ? null
+        : focus.unit.matches("[data-thread-card]")
+          ? focus.unit
+          : focus.unit.querySelector<HTMLElement>(
+              "[data-thread-card], button:not(:disabled)",
+            );
+      for (const target of [own, ...focus.around]) {
+        if (!target?.isConnected) continue;
+        target.focus();
+        if (document.activeElement === target) return;
+      }
+      pageEditor()?.focus({ preventScroll: true });
+    },
+    [],
+  );
+  return (event: MouseEvent<HTMLElement>) => {
+    const unit = event.currentTarget.closest<HTMLElement>(unitSelector);
+    if (event.detail !== 0 || !unit) {
+      decided.current = null;
+      return;
+    }
+    const cards = [
+      ...(unit
+        .closest("[data-comments-sidebar]")
+        ?.querySelectorAll<HTMLElement>("[data-thread-card]") ?? []),
+    ].filter(
+      (card) =>
+        !unit.contains(card) &&
+        !card.contains(unit) &&
+        !card.closest("[inert], [hidden]"),
+    );
+    const follows = (card: HTMLElement) =>
+      !!(unit.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING);
+    decided.current = {
+      unit,
+      around: [
+        ...cards.filter(follows),
+        ...cards.filter((card) => !follows(card)).reverse(),
+      ],
+    };
+  };
+}
 
 /**
  * A suggestion's Accept and Reject as icon buttons. Suggestion cards in the
@@ -44,6 +115,7 @@ export function SuggestionDecisionButtons({
   onDecide: (decision: SuggestionDecision) => void;
 }) {
   const t = useT();
+  const rememberFocus = useFocusAfterDecision("[data-suggestion-id]");
   return (
     <>
       {(["accepted", "rejected"] as const).map((decision) => (
@@ -55,6 +127,7 @@ export function SuggestionDecisionButtons({
               disabled={disabled || (decision === "accepted" && acceptDisabled)}
               onClick={(event) => {
                 event.stopPropagation();
+                rememberFocus(event);
                 onDecide(decision);
               }}
               className="inline-flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
@@ -224,6 +297,7 @@ export function ProposalGroup({
   const t = useT();
   const groupRef = useRef<HTMLDivElement>(null);
   const detailsId = useId();
+  const rememberFocus = useFocusAfterDecision("[data-suggestion-proposal]");
   useLayoutEffect(() => {
     if (active) onExpandedChange(true);
   }, [active]);
@@ -289,7 +363,10 @@ export function ProposalGroup({
           <button
             type="button"
             disabled={deciding || acceptDisabled}
-            onClick={() => onDecide("accepted")}
+            onClick={(event) => {
+              rememberFocus(event);
+              onDecide("accepted");
+            }}
             className="rounded-md px-2 py-1 text-xs text-foreground hover:bg-accent disabled:opacity-40"
             data-suggestion-proposal-decision="accepted"
           >
@@ -298,7 +375,10 @@ export function ProposalGroup({
           <button
             type="button"
             disabled={deciding}
-            onClick={() => onDecide("rejected")}
+            onClick={(event) => {
+              rememberFocus(event);
+              onDecide("rejected");
+            }}
             className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
             data-suggestion-proposal-decision="rejected"
           >
