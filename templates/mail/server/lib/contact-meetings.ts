@@ -38,13 +38,11 @@ const calendarInventorySchema = z.object({
   sourceCoverage: z.array(
     z.object({
       source: z.string(),
-      status: z.string(),
       error: z.object({ code: z.string() }).optional(),
     }),
   ),
   items: z.array(
     z.object({
-      key: z.string(),
       id: z.string(),
       title: z.string(),
       start: z.string(),
@@ -73,21 +71,38 @@ type FoundMeetings = Pick<
   ContactMeetings,
   "upcoming" | "recent" | "failedAccounts"
 >;
-type Clock = { now: Date; today: string };
-type Deadline = { expired: boolean };
+type Clock = { now: Date; today: string; timeZone: string };
+type Deadline = { stopped: boolean };
 
-type GoogleCalendarEvent = {
-  id?: string;
-  summary?: string;
-  status?: string;
-  eventType?: string;
-  htmlLink?: string;
-  start?: { date?: string; dateTime?: string };
-  end?: { date?: string; dateTime?: string };
-  organizer?: { email?: string };
-  creator?: { email?: string };
-  attendees?: Array<{ email?: string }>;
-};
+const googleTimeSchema = z.object({
+  date: z.string().optional(),
+  dateTime: z.string().optional(),
+});
+const googleEventsPageSchema = z.object({
+  kind: z.literal("calendar#events"),
+  items: z
+    .array(
+      z.object({
+        id: z.string().optional(),
+        summary: z.string().optional(),
+        status: z.string().optional(),
+        eventType: z.string().optional(),
+        htmlLink: z.string().optional(),
+        start: googleTimeSchema.optional(),
+        end: googleTimeSchema.optional(),
+        organizer: z.object({ email: z.string().optional() }).optional(),
+        attendees: z
+          .array(z.object({ email: z.string().optional() }))
+          .optional(),
+      }),
+    )
+    .optional(),
+  nextPageToken: z.string().optional(),
+});
+
+type GoogleCalendarEvent = NonNullable<
+  z.infer<typeof googleEventsPageSchema>["items"]
+>[number];
 
 class CalendarSkipped extends Error {
   constructor(
@@ -122,15 +137,41 @@ function dateIn(now: Date, timeZone: string) {
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
+function utcOffsetMs(at: number, timeZone: string) {
+  const name = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    timeZoneName: "longOffset",
+  })
+    .formatToParts(at)
+    .find((part) => part.type === "timeZoneName")?.value;
+  const match = name?.match(/([+-])(\d{2}):(\d{2})/);
+  if (!match) return 0;
+  const minutes = Number(match[2]) * 60 + Number(match[3]);
+  return (match[1] === "-" ? -minutes : minutes) * 60_000;
+}
+
+function localMidnight(date: string, timeZone: string) {
+  const midnight = Date.parse(`${date}T00:00:00Z`);
+  return (
+    midnight - utcOffsetMs(midnight - utcOffsetMs(midnight, timeZone), timeZone)
+  );
+}
+
+function startOf(meeting: ContactMeeting, clock: Clock) {
+  return meeting.allDay
+    ? localMidnight(meeting.start.slice(0, 10), clock.timeZone)
+    : Date.parse(meeting.start);
+}
+
 async function readCalendarPage(
   auth: CalendarAuth,
   input: Record<string, unknown>,
   deadline: Deadline,
 ): Promise<CalendarInventory> {
-  if (deadline.expired) {
+  if (deadline.stopped) {
     throw new CalendarSkipped(
       "unavailable",
-      new Error("Calendar ran out of time"),
+      new Error("The Calendar lookup already stopped"),
     );
   }
   let response: Awaited<ReturnType<typeof invokeAgentAction>>;
@@ -278,7 +319,6 @@ function googleMeeting(
   if (event.eventType && NOT_MEETINGS.has(event.eventType)) return undefined;
   const withPerson =
     sameEmail(event.organizer?.email, email) ||
-    sameEmail(event.creator?.email, email) ||
     (event.attendees ?? []).some((attendee) =>
       sameEmail(attendee.email, email),
     );
@@ -307,14 +347,13 @@ function splitMeetings(meetings: ContactMeeting[], clock: Clock) {
     if (!unique.has(key)) unique.set(key, meeting);
   }
   const all = [...unique.values()];
-  const startOf = (meeting: ContactMeeting) => Date.parse(meeting.start);
   return {
     upcoming: all
       .filter((meeting) => !isOver(meeting, clock))
-      .sort((a, b) => startOf(a) - startOf(b)),
+      .sort((a, b) => startOf(a, clock) - startOf(b, clock)),
     recent: all
       .filter((meeting) => isOver(meeting, clock))
-      .sort((a, b) => startOf(b) - startOf(a)),
+      .sort((a, b) => startOf(b, clock) - startOf(a, clock)),
   };
 }
 
@@ -387,8 +426,7 @@ async function readFromCalendar(
       }
       const settled = splitMeetings(toMeetings(items), clock)[direction].filter(
         (meeting) =>
-          direction === "upcoming" ||
-          Date.parse(meeting.start) >= from.getTime(),
+          direction === "upcoming" || startOf(meeting, clock) >= from.getTime(),
       );
       if (settled.length >= limit) break;
       reached = days;
@@ -424,28 +462,26 @@ async function readGoogleEvents(
   const events: GoogleCalendarEvent[] = [];
   let pageToken: string | undefined;
   for (let page = 0; page < GOOGLE_MAX_PAGES; page += 1) {
-    const response = (await calendarListEvents(accessToken, "primary", {
-      q: email,
-      timeMin: addDays(clock.now, -PAST_DAYS).toISOString(),
-      timeMax: addDays(clock.now, UPCOMING_DAYS).toISOString(),
-      singleEvents: "true",
-      orderBy: "startTime",
-      maxResults: GOOGLE_PAGE_SIZE,
-      ...(pageToken ? { pageToken } : {}),
-    })) as {
-      kind?: string;
-      items?: GoogleCalendarEvent[];
-      nextPageToken?: string;
-    } | null;
-    if (response?.kind !== "calendar#events") {
+    const parsed = googleEventsPageSchema.safeParse(
+      await calendarListEvents(accessToken, "primary", {
+        q: email,
+        timeMin: addDays(clock.now, -PAST_DAYS).toISOString(),
+        timeMax: addDays(clock.now, UPCOMING_DAYS).toISOString(),
+        singleEvents: "true",
+        orderBy: "startTime",
+        maxResults: GOOGLE_PAGE_SIZE,
+        ...(pageToken ? { pageToken } : {}),
+      }),
+    );
+    if (!parsed.success) {
       throw new Error("Google Calendar didn't return a list of events.");
     }
-    events.push(...(response.items ?? []));
-    pageToken = response.nextPageToken;
+    events.push(...(parsed.data.items ?? []));
+    pageToken = parsed.data.nextPageToken;
     if (!pageToken) return events;
   }
   throw new Error(
-    `More than ${GOOGLE_MAX_PAGES * GOOGLE_PAGE_SIZE} events mention ${email}, so Mail couldn't read them all.`,
+    `Google Calendar has more than ${GOOGLE_MAX_PAGES} pages of events mentioning ${email}, so Mail couldn't read them all.`,
   );
 }
 
@@ -493,11 +529,11 @@ async function withDeadline<T>(
   work: (deadline: Deadline) => Promise<T>,
   ms: number,
 ): Promise<T> {
-  const deadline: Deadline = { expired: false };
+  const deadline: Deadline = { stopped: false };
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      deadline.expired = true;
+      deadline.stopped = true;
       reject(
         new CalendarSkipped(
           "unavailable",
@@ -509,6 +545,7 @@ async function withDeadline<T>(
   try {
     return await Promise.race([work(deadline), timeout]);
   } finally {
+    deadline.stopped = true;
     clearTimeout(timer);
   }
 }
@@ -526,7 +563,7 @@ export async function listContactMeetings(
     });
   }
   const now = new Date();
-  const clock = { now, today: dateIn(now, timeZone) };
+  const clock = { now, today: dateIn(now, timeZone), timeZone };
   const calendarUrl = peerAppUrl("calendar");
   const link = calendarUrl ? { calendarUrl } : {};
   let calendar: CalendarSkipped["state"];

@@ -121,7 +121,7 @@ function calendarNotConnected() {
 }
 
 function googlePage(
-  items: ReturnType<typeof googleEvent>[],
+  items: Array<Record<string, unknown>>,
   extra: Record<string, unknown> = {},
 ) {
   return { kind: "calendar#events", items, ...extra };
@@ -223,18 +223,20 @@ describe("listContactMeetings", () => {
   });
 
   it("reads the nearest two weeks first and goes further only when it needs to", async () => {
-    const pastCalls = () =>
-      calls().filter((input) => Date.parse(input.to) <= NOW.getTime());
-    const upcomingCalls = () =>
-      calls().filter((input) => Date.parse(input.from) >= NOW.getTime());
+    const windows = () =>
+      calls()
+        .map(({ from, to }) => `${from} to ${to}`)
+        .sort();
 
     serveCalendar([
       item("recent", "2026-11-24T15:00:00Z", [PRIYA]),
       item("soon", "2026-11-30T15:00:00Z", [PRIYA]),
     ]);
     await listContactMeetings(PRIYA, 1);
-    expect(pastCalls()).toHaveLength(1);
-    expect(upcomingCalls()).toHaveLength(1);
+    expect(windows()).toEqual([
+      "2026-11-12T15:00:00.000Z to 2026-11-26T15:00:00.000Z",
+      "2026-11-26T15:00:00.000Z to 2026-12-10T15:00:00.000Z",
+    ]);
 
     mocks.invokeAgentAction.mockClear();
     serveCalendar([
@@ -242,8 +244,12 @@ describe("listContactMeetings", () => {
       item("next-month", "2027-01-05T15:00:00Z", [PRIYA]),
     ]);
     const result = await listContactMeetings(PRIYA, 1);
-    expect(pastCalls()).toHaveLength(2);
-    expect(upcomingCalls()).toHaveLength(2);
+    expect(windows()).toEqual([
+      "2026-08-28T15:00:00.000Z to 2026-11-12T15:00:00.000Z",
+      "2026-11-12T15:00:00.000Z to 2026-11-26T15:00:00.000Z",
+      "2026-11-26T15:00:00.000Z to 2026-12-10T15:00:00.000Z",
+      "2026-12-10T15:00:00.000Z to 2027-01-25T15:00:00.000Z",
+    ]);
     expect(result.recent.map((meeting) => meeting.id)).toEqual(["long-ago"]);
     expect(result.upcoming.map((meeting) => meeting.id)).toEqual([
       "next-month",
@@ -291,6 +297,85 @@ describe("listContactMeetings", () => {
     expect(result.recent.map((meeting) => meeting.id)).toEqual(["second"]);
   });
 
+  it("reads up to four pages of a window and never asks for a fifth", async () => {
+    const servePages = (last: number) =>
+      mocks.invokeAgentAction.mockImplementation(
+        async ({ input }: { input: { from: string; cursor?: string } }) => {
+          const page = Number(input.cursor?.replace("page-", "") ?? 1);
+          const upcoming = Date.parse(input.from) >= NOW.getTime();
+          const found =
+            page === last
+              ? [
+                  upcoming
+                    ? item("next", "2026-11-27T15:00:00Z", [PRIYA])
+                    : item("last", "2026-11-25T15:00:00Z", [PRIYA]),
+                ]
+              : [];
+          return inventory(found, {
+            page:
+              page < last
+                ? {
+                    returned: found.length,
+                    hasMore: true,
+                    nextCursor: `page-${page + 1}`,
+                  }
+                : { returned: found.length, hasMore: false },
+          });
+        },
+      );
+
+    servePages(4);
+    await expect(listContactMeetings(PRIYA, 1)).resolves.toMatchObject({
+      source: "calendar",
+      upcoming: [{ id: "next" }],
+      recent: [{ id: "last" }],
+    });
+    expect(calls()).toHaveLength(8);
+
+    mocks.invokeAgentAction.mockClear();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    servePages(5);
+    await expect(listContactMeetings(PRIYA, 1)).resolves.toMatchObject({
+      source: "mail",
+      calendar: "unavailable",
+    });
+    expect(calls().map((input) => input.cursor)).not.toContain("page-5");
+  });
+
+  it("stops reading Calendar once the other direction has failed", async () => {
+    vi.useFakeTimers({
+      now: NOW,
+      toFake: ["Date", "setTimeout", "clearTimeout"],
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    mocks.invokeAgentAction.mockImplementation(
+      async ({ input }: { input: { from: string } }) => {
+        if (Date.parse(input.from) < NOW.getTime()) {
+          throw new Error("Calendar crashed");
+        }
+        return new Promise((resolve) =>
+          setTimeout(
+            () =>
+              resolve(
+                inventory([], {
+                  page: { returned: 0, hasMore: true, nextCursor: "more" },
+                }),
+              ),
+            100,
+          ),
+        );
+      },
+    );
+
+    await expect(listContactMeetings(PRIYA, 3)).resolves.toMatchObject({
+      source: "mail",
+      calendar: "unavailable",
+    });
+    const asked = mocks.invokeAgentAction.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(mocks.invokeAgentAction).toHaveBeenCalledTimes(asked);
+  });
+
   it("uses Mail's Google access rather than part of a window Calendar couldn't finish", async () => {
     mocks.invokeAgentAction.mockResolvedValue(
       inventory([item("busy", "2026-11-25T15:00:00Z", [PRIYA])], {
@@ -334,6 +419,21 @@ describe("listContactMeetings", () => {
     expect(utc.recent.map((meeting) => meeting.id)).toEqual(["offsite"]);
   });
 
+  it("puts a late meeting tonight ahead of tomorrow's all-day event", async () => {
+    vi.setSystemTime(new Date("2026-11-27T05:00:00Z"));
+    serveCalendar([
+      item("offsite", "2026-11-27", [PRIYA], {
+        end: "2026-11-28",
+        allDay: true,
+      }),
+      item("late-call", "2026-11-27T07:30:00Z", [PRIYA]),
+    ]);
+
+    const result = await listContactMeetings(PRIYA, 1, "America/Los_Angeles");
+
+    expect(result.upcoming.map((meeting) => meeting.id)).toEqual(["late-call"]);
+  });
+
   it("keeps an account Calendar couldn't read apart from an empty one", async () => {
     mocks.invokeAgentAction.mockResolvedValue(
       inventory([item("next", "2026-11-27T15:00:00Z", [PRIYA])], {
@@ -364,6 +464,10 @@ describe("listContactMeetings", () => {
         googleEvent("g-next", "2026-11-27T15:00:00Z", [PRIYA]),
         googleEvent("g-past", "2026-11-25T15:00:00Z", [PRIYA]),
         googleEvent("g-other", "2026-11-28T15:00:00Z", ["other@example.com"]),
+        {
+          ...googleEvent("g-created", "2026-11-29T15:00:00Z", []),
+          creator: { email: PRIYA },
+        },
       ]),
     );
 
@@ -502,6 +606,13 @@ describe("listContactMeetings", () => {
     });
 
     mocks.calendarListEvents.mockResolvedValue(undefined);
+    await expect(listContactMeetings(PRIYA, 3)).rejects.toMatchObject({
+      errorCode: "meetings_unavailable",
+    });
+
+    mocks.calendarListEvents.mockResolvedValue(
+      googlePage([], { items: "corrupted", nextPageToken: false }),
+    );
     await expect(listContactMeetings(PRIYA, 3)).rejects.toMatchObject({
       errorCode: "meetings_unavailable",
     });
