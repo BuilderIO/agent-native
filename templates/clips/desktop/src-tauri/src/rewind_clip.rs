@@ -267,6 +267,9 @@ pub(crate) fn rewind_clip_prepare(
                 include_mic,
                 include_system_audio,
                 has_camera,
+                24,
+                None,
+                None,
                 true,
                 crate::config::feature_config(&app).voice_cleanup_enabled && include_mic,
             ) {
@@ -1411,6 +1414,9 @@ fn materialize(
                 include_mic,
                 include_system_audio,
                 has_camera,
+                24,
+                None,
+                None,
                 true,
                 false,
             )?;

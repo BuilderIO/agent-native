@@ -845,6 +845,8 @@ pub(crate) struct CustomScreenCaptureWriter {
     mixer: Option<Arc<Mutex<LiveAudioMixer>>>,
     started: Arc<AtomicBool>,
     session_start_bits: Arc<AtomicU64>,
+    // Host time of the first video frame the writer accepted; NaN until then.
+    first_video_append_bits: Arc<AtomicU64>,
     appends_closed: Arc<AtomicBool>,
     dropped_samples: Arc<AtomicU64>,
     pause_offset_bits: Arc<AtomicU64>,
@@ -1136,6 +1138,7 @@ pub(crate) fn prepare_clip_sink(
         CustomWriterOutput::ClipHls,
         false,
         None,
+        NATIVE_CAPTURE_FPS,
     )?;
     let gate = Arc::new(ClipSinkGate::new());
     install_only_slot(
@@ -1156,6 +1159,7 @@ impl Clone for CustomScreenCaptureWriter {
             mixer: self.mixer.clone(),
             started: Arc::clone(&self.started),
             session_start_bits: Arc::clone(&self.session_start_bits),
+            first_video_append_bits: Arc::clone(&self.first_video_append_bits),
             appends_closed: Arc::clone(&self.appends_closed),
             dropped_samples: Arc::clone(&self.dropped_samples),
             pause_offset_bits: Arc::clone(&self.pause_offset_bits),
@@ -1347,6 +1351,7 @@ impl CustomScreenCaptureWriter {
         output: CustomWriterOutput,
         live_upload_enabled: bool,
         audio_producer: Option<crate::capture_audio_bus::AudioProducer>,
+        frame_rate: u32,
     ) -> Result<Self, String> {
         use objc2::msg_send;
         use objc2::runtime::AnyObject;
@@ -1433,7 +1438,7 @@ impl CustomScreenCaptureWriter {
             };
             let input_cls = av_class_named("AVAssetWriterInput")
                 .ok_or_else(|| "AVAssetWriterInput missing".to_string())?;
-            let video_settings = av_video_output_settings(width, height)?;
+            let video_settings = av_video_output_settings(width, height, frame_rate)?;
             let video_raw: *mut AnyObject = msg_send![
                 input_cls,
                 assetWriterInputWithMediaType: AVMediaTypeVideo,
@@ -1509,6 +1514,7 @@ impl CustomScreenCaptureWriter {
                 mixer: mixer.map(|m| Arc::new(Mutex::new(m))),
                 started: Arc::new(AtomicBool::new(false)),
                 session_start_bits: Arc::new(AtomicU64::new(f64::NAN.to_bits())),
+                first_video_append_bits: Arc::new(AtomicU64::new(f64::NAN.to_bits())),
                 appends_closed: Arc::new(AtomicBool::new(false)),
                 dropped_samples: Arc::new(AtomicU64::new(0)),
                 pause_offset_bits: Arc::new(AtomicU64::new(0.0_f64.to_bits())),
@@ -1605,6 +1611,25 @@ impl CustomScreenCaptureWriter {
         self.started.load(Ordering::SeqCst)
     }
 
+    /// The host time of the first video frame the writer accepted, once one
+    /// has been appended; a started session alone may still drop that frame.
+    pub(super) fn first_video_appended_host_secs(&self) -> Option<f64> {
+        let secs = f64::from_bits(self.first_video_append_bits.load(Ordering::SeqCst));
+        (!secs.is_nan()).then_some(secs)
+    }
+
+    fn note_video_appended(&self, host_secs: Option<f64>) {
+        let Some(secs) = host_secs.filter(|secs| secs.is_finite()) else {
+            return;
+        };
+        let _ = self.first_video_append_bits.compare_exchange(
+            f64::NAN.to_bits(),
+            secs.to_bits(),
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+        );
+    }
+
     fn segment_progress(&self) -> SegmentProgress {
         self.inner
             .lock()
@@ -1675,7 +1700,7 @@ impl CustomScreenCaptureWriter {
         ))
     }
 
-    fn failure(&self) -> Option<String> {
+    pub(super) fn failure(&self) -> Option<String> {
         self.inner
             .lock()
             .ok()
@@ -1799,6 +1824,9 @@ impl CustomScreenCaptureWriter {
                             track,
                             rebased_pts,
                         );
+                        if accepted && track == track_labels::VIDEO {
+                            self.note_video_appended(source_pts);
+                        }
                         if past_first_segment && accepted {
                             guard.video_frames_accepted_past_first_segment += 1;
                             if guard.video_frames_accepted_past_first_segment
@@ -1813,8 +1841,10 @@ impl CustomScreenCaptureWriter {
                         self.fail(format!("sample retime failed on {track}: {err}"));
                     }
                 }
-            } else {
-                self.append_sample_ptr(&mut guard, &input, sample.as_ptr(), track, source_pts);
+            } else if self.append_sample_ptr(&mut guard, &input, sample.as_ptr(), track, source_pts)
+                && track == track_labels::VIDEO
+            {
+                self.note_video_appended(source_pts);
             }
         }
     }
@@ -3029,6 +3059,7 @@ unsafe fn av_dict_set(
 unsafe fn av_video_output_settings(
     width: u32,
     height: u32,
+    frame_rate: u32,
 ) -> Result<objc2::rc::Retained<objc2::runtime::AnyObject>, String> {
     use objc2::runtime::AnyObject;
 
@@ -3060,19 +3091,18 @@ unsafe fn av_video_output_settings(
     av_dict_set(&compression, AVVideoAllowFrameReorderingKey, &no_reordering);
 
     let average_bit_rate =
-        (CAPTURE_VIDEO_BPP * f64::from(width) * f64::from(height) * f64::from(NATIVE_CAPTURE_FPS))
-            as i64;
+        (CAPTURE_VIDEO_BPP * f64::from(width) * f64::from(height) * f64::from(frame_rate)) as i64;
     let bit_rate =
         av_number_i64(average_bit_rate).ok_or_else(|| "NSNumber bit rate failed".to_string())?;
     av_dict_set(&compression, AVVideoAverageBitRateKey, &bit_rate);
-    let expected_fps = av_number_i64(i64::from(NATIVE_CAPTURE_FPS))
+    let expected_fps = av_number_i64(i64::from(frame_rate))
         .ok_or_else(|| "NSNumber expected fps failed".to_string())?;
     av_dict_set(
         &compression,
         AVVideoExpectedSourceFrameRateKey,
         &expected_fps,
     );
-    let keyframe_interval = av_number_i64((i64::from(NATIVE_CAPTURE_FPS) * 3 / 4).max(1))
+    let keyframe_interval = av_number_i64((i64::from(frame_rate) * 3 / 4).max(1))
         .ok_or_else(|| "NSNumber keyframe interval failed".to_string())?;
     av_dict_set(
         &compression,
@@ -3214,12 +3244,14 @@ struct RestartParams {
     mic_device_id: Option<String>,
     mic_device_label: Option<String>,
     target_display_id: Option<u32>,
+    require_target_display: bool,
     target_window_id: Option<u32>,
     target_window_dimensions: Option<(u32, u32)>,
     alignment_generation: u64,
     capture_region: Option<NativeCaptureRegion>,
     width: u32,
     height: u32,
+    frame_rate: u32,
 }
 
 #[cfg(target_os = "macos")]
@@ -3250,7 +3282,7 @@ fn watchdog_install_decision(
     }
 }
 
-fn emit_capture_recorder_stop(app: &AppHandle, recording_id: Option<&str>) {
+pub(super) fn emit_capture_recorder_stop(app: &AppHandle, recording_id: Option<&str>) {
     if let Some(recording_id) = recording_id {
         let _ = app.emit(
             "clips:recorder-stop",
@@ -3381,15 +3413,12 @@ fn build_custom_scstream(
     }
     let displays = content.displays();
     let display = if window.is_none() {
-        Some(
-            params
-                .target_display_id
-                .and_then(|id| displays.iter().find(|d| d.display_id() == id))
-                .or_else(|| displays.first())
-                .ok_or_else(|| {
-                    "No displays available for ScreenCaptureKit recording.".to_string()
-                })?,
-        )
+        Some(select_capture_display(
+            &displays,
+            |display| display.display_id(),
+            params.target_display_id,
+            params.require_target_display,
+        )?)
     } else {
         None
     };
@@ -3434,7 +3463,7 @@ fn build_custom_scstream(
     };
 
     let mut config = fixed_output_stream_configuration(params.width, params.height)
-        .with_fps(NATIVE_CAPTURE_FPS)
+        .with_fps(native_stream_frame_rate(params.frame_rate))
         .with_queue_depth(8)
         .with_shows_cursor(true)
         .with_captures_audio(params.capture_system_audio)
@@ -3911,6 +3940,8 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
     emit_recorder_stop: bool,
     live_upload_enabled: bool,
     prefetched_content: Option<SCShareableContent>,
+    frame_rate: u32,
+    require_target_display: bool,
 ) -> Result<(NativeFullscreenBackend, Option<u32>, Option<u32>), String> {
     eprintln!("[clips-tray] starting custom screen capture backend");
     let content = match prefetched_content {
@@ -3929,14 +3960,12 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
     }
     let displays = content.displays();
     let display = if window.is_none() {
-        Some(
-            target_display_id
-                .and_then(|id| displays.iter().find(|d| d.display_id() == id))
-                .or_else(|| displays.first())
-                .ok_or_else(|| {
-                    "No displays available for ScreenCaptureKit recording.".to_string()
-                })?,
-        )
+        Some(select_capture_display(
+            &displays,
+            |display| display.display_id(),
+            target_display_id,
+            require_target_display,
+        )?)
     } else {
         None
     };
@@ -3972,12 +4001,14 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
         mic_device_id: mic_device_id.map(str::to_string),
         mic_device_label: mic_device_label.map(str::to_string),
         target_display_id,
+        require_target_display,
         target_window_id,
         target_window_dimensions,
         alignment_generation,
         capture_region,
         width,
         height,
+        frame_rate,
     };
 
     let output = if force_segmented_output {
@@ -4005,6 +4036,7 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
         output,
         live_upload_enabled,
         audio_producer,
+        frame_rate,
     )?;
     let recording_enabled = Arc::new(AtomicBool::new(!defer_recording_output));
     let clip_sink = Arc::new(Mutex::new(None));
@@ -4049,7 +4081,7 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
         }
     }
     eprintln!(
-        "[clips-tray] custom ScreenCaptureKit recording started: {width}x{height} @ {NATIVE_CAPTURE_FPS}fps from {capture_width}x{capture_height} (display {source_width}x{source_height}), mic={include_audio} system_audio={capture_system_audio} deferred_output={defer_recording_output}"
+        "[clips-tray] custom ScreenCaptureKit recording started: {width}x{height} @ {frame_rate}fps from {capture_width}x{capture_height} (display {source_width}x{source_height}), mic={include_audio} system_audio={capture_system_audio} deferred_output={defer_recording_output}"
     );
 
     let stream = Arc::new(Mutex::new(stream));
@@ -4323,6 +4355,7 @@ mod fragment_fence_tests {
             CustomWriterOutput::RewindCmaf,
             false,
             None,
+            NATIVE_CAPTURE_FPS,
         )
         .unwrap();
         let sink = writer.inner.lock().unwrap().segment_sink.clone().unwrap();
@@ -4350,6 +4383,7 @@ mod fragment_fence_tests {
             CustomWriterOutput::RewindCmaf,
             false,
             None,
+            NATIVE_CAPTURE_FPS,
         )
         .unwrap();
         assert!(writer.output_failure_after_startup().is_none());
@@ -4377,6 +4411,7 @@ mod fragment_fence_tests {
             CustomWriterOutput::RewindCmaf,
             false,
             None,
+            NATIVE_CAPTURE_FPS,
         )
         .unwrap();
         let overdue_closing_frame = Instant::now()

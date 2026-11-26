@@ -985,3 +985,33 @@ export const hostedClipAllowances = table(
     ),
   }),
 );
+export const captureHosts = table("clips_capture_hosts", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull(),
+  secretHash: text("secret_hash").notNull(),
+  kind: text("kind").notNull(),
+  label: text("label").notNull(),
+  surface: text("surface").notNull(),
+  state: text("state").notNull(),
+  activeSessionId: text("active_session_id"),
+  expiresAt: text("expires_at").notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
+export const captureSessions = table("clips_capture_sessions", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull(),
+  hostId: text("host_id").notNull(),
+  requestId: text("request_id").notNull(),
+  captureMode: text("capture_mode").notNull(),
+  maxDurationMs: integer("max_duration_ms").notNull(),
+  state: text("state").notNull(),
+  recordingId: text("recording_id"),
+  startedAtMs: real("started_at_ms"),
+  startUncertaintyMs: real("start_uncertainty_ms"),
+  observedFrameRate: real("observed_frame_rate"),
+  error: text("error"),
+  pendingOutcome: text("pending_outcome"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});

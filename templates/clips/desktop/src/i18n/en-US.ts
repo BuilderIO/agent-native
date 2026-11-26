@@ -64,3 +64,10 @@ export const desktopAuthCopy = {
   backToSignIn: "Back to sign in",
   verificationFailed: "Couldn't complete verification. Try signing in again.",
 } as const;
+
+export const desktopCaptureQualityCopy = {
+  normal: "Normal · 24 fps target",
+  motion: "Motion · 60 fps target",
+  motionExcludesRichTracks:
+    "Motion takes skip Rich recordings tracks. Switch to Normal to record them.",
+} as const;

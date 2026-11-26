@@ -5,6 +5,13 @@ import {
   waitForAcceptedRecordingAfterFinalizeError,
   waitForReadyRecordingAfterFinalizeError,
 } from "../../../shared/finalize-recovery";
+import {
+  captureFrameRate,
+  trackReportedCaptureFrameRate,
+  type CaptureQuality,
+  type CaptureStartClockSource,
+  type RecordingCaptureMetadata,
+} from "../../../shared/recording-capture";
 import { classifyUploadResponseError } from "../../../shared/recording-core";
 import { desktopRecoveryCopy } from "../i18n/en-US";
 import type { LocalRecordingMode } from "../shared/config";
@@ -32,6 +39,7 @@ import {
   getCameraStreamWithFallback,
   shouldRequestSystemAudio,
 } from "./media-capture-constraints";
+import { nativeCaptureError } from "./native-capture-errors";
 import { planNativeFullscreenWarmOverlap } from "./native-recording-warm";
 import {
   createPauseTransitionQueue,
@@ -64,6 +72,7 @@ import {
   guardRecordingStart,
   RECORDING_START_TIMEOUT_MS,
   RecordingStartCancelledError,
+  RecordingTeardownUnconfirmedError,
 } from "./recording-start-guard";
 import { buildCaptureTitle, type CaptureTitleResult } from "./recording-title";
 import { prepareRewindRecordingStart } from "./rewind-recording-start";
@@ -248,6 +257,7 @@ function shouldUseDevSyntheticCapture(): boolean {
 export interface StartParams {
   serverUrl: string;
   mode: CaptureMode;
+  captureQuality?: CaptureQuality;
   source?: CaptureSource;
   cameraId?: string;
   cameraLabel?: string;
@@ -262,6 +272,9 @@ export interface StartParams {
   lookbackEnabled?: boolean;
   richTracks?: boolean;
   signal?: AbortSignal;
+  maxDurationMs?: number;
+  displayId?: number;
+  confirmBegin?: () => Promise<void>;
   localRecordingMode?: LocalRecordingMode;
   preAcquiredCameraStream?: MediaStream | null;
   preAcquiredDisplayStream?: MediaStream | null;
@@ -269,6 +282,7 @@ export interface StartParams {
   pendingTranscriptionTeardown?: Promise<void> | null;
   countdownAttemptId?: string;
   onCaptureIdentityAvailable?: (captureIdentity: string) => void;
+  onRecordingIdChosen?: (recordingId: string) => void;
   onCaptureStartAttempted?: (recordingId: string | null) => void;
   onCaptureStartRequested?: (
     recordingId: string | null,
@@ -441,9 +455,94 @@ export interface RestartHandoff {
 }
 
 export interface RecorderHandle {
+  getCaptureInfo(): RecorderCaptureInfo | null;
   stop(): Promise<RecorderStopResult>;
   cancel(): Promise<void>;
   discardForRestart(): Promise<RestartHandoff>;
+}
+
+export interface RecorderCaptureInfo {
+  recordingId: string;
+  captureMode: CaptureQuality;
+  requestedFrameRate: number;
+  trackReportedFrameRate: number | null;
+  observedFrameRate: number | null;
+  startedAtMs: number;
+  startUncertaintyMs: number;
+}
+
+function captureInfo({
+  recordingId,
+  captureMode,
+  startedAtMs,
+  source,
+  trackReportedFrameRate,
+  startUncertaintyMs = 0,
+}: {
+  recordingId: string;
+  captureMode: CaptureQuality;
+  startedAtMs: number;
+  source?: MediaStream | MediaStreamTrack | null;
+  trackReportedFrameRate?: number | null;
+  startUncertaintyMs?: number;
+}): RecorderCaptureInfo | null {
+  if (!recordingId || startedAtMs <= 0) return null;
+  return {
+    recordingId,
+    captureMode,
+    requestedFrameRate: captureFrameRate(captureMode),
+    trackReportedFrameRate:
+      trackReportedFrameRate === undefined
+        ? trackReportedCaptureFrameRate(source)
+        : trackReportedFrameRate,
+    observedFrameRate: null,
+    startedAtMs,
+    startUncertaintyMs,
+  };
+}
+
+function recordingCaptureMetadata({
+  captureMode,
+  source,
+  width,
+  height,
+  startedAtMs = null,
+  startUncertaintyMs = null,
+  startClockSource = null,
+}: {
+  captureMode: CaptureQuality;
+  source?: MediaStream | MediaStreamTrack | null;
+  width?: number | null;
+  height?: number | null;
+  startedAtMs?: number | null;
+  startUncertaintyMs?: number | null;
+  startClockSource?: CaptureStartClockSource | null;
+}): RecordingCaptureMetadata {
+  const track =
+    source && "getVideoTracks" in source
+      ? source.getVideoTracks()[0]
+      : (source as MediaStreamTrack | null | undefined);
+  const settings = track?.getSettings();
+  const positive = (value: unknown): number | null =>
+    typeof value === "number" && Number.isFinite(value) && value > 0
+      ? value
+      : null;
+  return {
+    captureMode,
+    requestedFrameRate: captureFrameRate(captureMode),
+    trackReportedFrameRate: trackReportedCaptureFrameRate(source),
+    observedFrameRate: null,
+    width: positive(width) ?? positive(settings?.width),
+    height: positive(height) ?? positive(settings?.height),
+    startedAtMs: positive(startedAtMs),
+    startUncertaintyMs:
+      typeof startUncertaintyMs === "number" &&
+      Number.isFinite(startUncertaintyMs) &&
+      startUncertaintyMs >= 0
+        ? startUncertaintyMs
+        : null,
+    startClockSource,
+  };
 }
 
 export interface RecorderStopResult {
@@ -452,6 +551,15 @@ export interface RecorderStopResult {
   localOnly?: boolean;
   localFolder?: string;
   localFiles?: LocalExportedFile[];
+}
+
+interface NativeFullscreenStartInfo {
+  recordingId: string;
+  width: number | null;
+  height: number | null;
+  frameRate: number;
+  startedAtMs: number;
+  startUncertaintyMs: number;
 }
 
 export interface PendingBrowserRecordingUpload {
@@ -519,6 +627,7 @@ interface UploadOptimizedVideoStream {
 
 function createUploadOptimizedVideoStream(
   source: MediaStream,
+  frameRate = CLOUD_CAPTURE_FRAME_RATE,
 ): UploadOptimizedVideoStream {
   const sourceTrack = source.getVideoTracks()[0];
   if (
@@ -588,11 +697,8 @@ function createUploadOptimizedVideoStream(
     }
   };
 
-  const stream = canvas.captureStream(CLOUD_CAPTURE_FRAME_RATE);
-  const interval = window.setInterval(
-    draw,
-    Math.round(1000 / CLOUD_CAPTURE_FRAME_RATE),
-  );
+  const stream = canvas.captureStream(frameRate);
+  const interval = window.setInterval(draw, Math.round(1000 / frameRate));
   draw();
 
   return {
@@ -1908,6 +2014,7 @@ async function createServerRecording(
     signal?: AbortSignal;
     /** Only a start the user is watching may pop the storage banner open. */
     announceStorageSetup?: boolean;
+    trashIfCancelled?: boolean;
   },
 ) {
   const url = `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/create-recording`;
@@ -1945,7 +2052,7 @@ async function createServerRecording(
           method: "POST",
           headers: buildCreateRecordingRequestHeaders(options?.authToken),
           credentials: "include",
-          signal: options?.signal,
+          signal: options?.trashIfCancelled ? undefined : options?.signal,
           body: JSON.stringify(
             buildCreateRecordingRequestBody(hasCamera, hasAudio, titleContext, {
               ...options,
@@ -2016,10 +2123,16 @@ async function createServerRecording(
     timeoutMs: null,
     onCancel: cancelCreatedRecording,
     onLateResolve: () => {
-      void abortCreatedRecording(
-        "Recording cancelled during startup",
-        "user_cancelled",
-      );
+      void (options?.trashIfCancelled
+        ? cleanupCancelledRemoteRecording(
+            serverUrl,
+            recordingId,
+            options.authToken,
+          )
+        : abortCreatedRecording(
+            "Recording cancelled during startup",
+            "user_cancelled",
+          ));
     },
   });
 }
@@ -2434,7 +2547,7 @@ async function trashRecording(
   serverUrl: string,
   recordingId: string,
   authToken?: string,
-): Promise<void> {
+): Promise<boolean> {
   try {
     const res = await fetch(
       `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/trash-recording`,
@@ -2452,8 +2565,10 @@ async function trashRecording(
         await res.text().catch(() => ""),
       );
     }
+    return res.ok;
   } catch (err) {
     console.warn("[clips-recorder] trash recording failed:", err);
+    return false;
   }
 }
 
@@ -2461,7 +2576,7 @@ async function cleanupCancelledRemoteRecording(
   serverUrl: string,
   recordingId: string,
   authToken?: string,
-): Promise<void> {
+): Promise<boolean> {
   await abortRecordingUpload(
     serverUrl,
     recordingId,
@@ -2471,7 +2586,7 @@ async function cleanupCancelledRemoteRecording(
     undefined,
     authToken,
   );
-  await trashRecording(serverUrl, recordingId, authToken);
+  return trashRecording(serverUrl, recordingId, authToken);
 }
 
 class CountdownCancelledError extends Error {
@@ -3132,7 +3247,11 @@ export function recorderWithCaptureSuspension(
   handle.cancel = async () => {
     if (cancelPromise) return cancelPromise;
     if (stopPromise) {
-      await stopPromise;
+      try {
+        await stopPromise;
+      } finally {
+        await cancel();
+      }
       return;
     }
     cancelPromise = (async () => {
@@ -3305,6 +3424,9 @@ async function tryStartRewindFullscreenRecording(
             mimeType: NATIVE_FULLSCREEN_MIME_TYPE,
             requestStreaming: true,
             streamingUploadClient: "desktop-native",
+            captureMetadata: recordingCaptureMetadata({
+              captureMode: params.captureQuality ?? "normal",
+            }),
             authToken: params.authToken,
             announceStorageSetup: true,
             signal: params.signal,
@@ -3501,6 +3623,13 @@ async function tryStartRewindFullscreenRecording(
   };
 
   const handle: RecorderHandle = {
+    getCaptureInfo: () =>
+      captureInfo({
+        recordingId: id,
+        captureMode: "normal",
+        startedAtMs: startedAt,
+        trackReportedFrameRate: null,
+      }),
     async stop() {
       if (stopPromise) return stopPromise;
       if (cancelPromise) {
@@ -3735,6 +3864,7 @@ async function startNativeFullscreenRecording(
   const localFolderName = localOnly ? createLocalRecordingFolderName() : "";
   const streamCleanups: Array<() => void> = [() => audioCue.cleanup()];
   let id = "";
+  let warmedRecordingId = "";
   let uploadMode: UploadMode = "buffered";
   let localCameraExport: LocalRecordingExportHandle | null = null;
   let localCameraStream: MediaStream | null = null;
@@ -3756,6 +3886,7 @@ async function startNativeFullscreenRecording(
     if (startupFailed) throw new RecordingStartCancelledError();
   };
   let startedAt = 0;
+  let nativeStartUncertaintyMs = 0;
   let nativeTranscriptFailureSaved = false;
   const wantsSystemAudio = shouldRequestSystemAudio(true, params.systemAudioOn);
   const wantsRecordedAudio = wantsAudio || wantsSystemAudio;
@@ -3864,9 +3995,11 @@ async function startNativeFullscreenRecording(
       micDeviceId: params.micId || null,
       micDeviceLabel,
       captureRegion,
+      captureFrameRate: captureFrameRate(params.captureQuality ?? "normal"),
     };
     const warmMic = async (recordingId: string) => {
       assertStartupActive();
+      warmedRecordingId = recordingId;
       params.onCaptureIdentityAvailable?.(recordingId);
       const activeCountdown = countdownPromise;
       if (!activeCountdown) {
@@ -3894,6 +4027,10 @@ async function startNativeFullscreenRecording(
       );
       captureSuspensionCleanup.release =
         captureSuspensionReleaser(captureSuspension);
+      if (params.maxDurationMs !== undefined) {
+        assertStartupActive();
+        return;
+      }
       // An IPC timeout does not stop native work. Fail the startup on timeout;
       // never let begin race a warm invoke that is still creating its stream.
       await guardRecordingStart(
@@ -3925,6 +4062,8 @@ async function startNativeFullscreenRecording(
         const captureTitle = await captureTitlePromise;
         assertStartupActive();
         const createStartedAt = Date.now();
+        const recordingId = crypto.randomUUID();
+        params.onRecordingIdChosen?.(recordingId);
         try {
           return await createServerRecording(
             params.serverUrl,
@@ -3932,11 +4071,16 @@ async function startNativeFullscreenRecording(
             wantsRecordedAudio,
             captureTitle,
             {
+              id: recordingId,
               mimeType: NATIVE_FULLSCREEN_MIME_TYPE,
               requestStreaming: true,
               streamingUploadClient: "desktop-native",
+              captureMetadata: recordingCaptureMetadata({
+                captureMode: params.captureQuality ?? "normal",
+              }),
               authToken: params.authToken,
               announceStorageSetup: true,
+              trashIfCancelled: params.maxDurationMs !== undefined,
               signal: params.signal,
             },
           );
@@ -3991,21 +4135,32 @@ async function startNativeFullscreenRecording(
 
     await countdownPromise;
     assertStartupActive();
+    await params.confirmBegin?.();
+    assertStartupActive();
     const beginStartedAt = Date.now();
     params.onCaptureStartAttempted?.(localOnly ? null : id || null);
-    const beginPromise = invoke("native_fullscreen_recording_begin", {
-      recordingId: id,
-      ...captureParams,
-      localOnly,
-      hasCamera: wantsCamera,
-      richTracks: params.richTracks === true,
-      cameraLabel:
-        params.richTracks === true && wantsCamera
-          ? params.preAcquiredCameraStream?.getVideoTracks()[0]?.label ||
-            params.cameraLabel
-          : undefined,
-    });
-    await guardRecordingStart(beginPromise, { signal: params.signal });
+    const beginPromise = invoke<NativeFullscreenStartInfo>(
+      "native_fullscreen_recording_begin",
+      {
+        recordingId: id,
+        ...captureParams,
+        localOnly,
+        hasCamera: wantsCamera,
+        maxDurationMs: params.maxDurationMs,
+        displayId: params.displayId,
+        uploadMode,
+        richTracks: params.richTracks === true,
+        cameraLabel:
+          params.richTracks === true && wantsCamera
+            ? params.preAcquiredCameraStream?.getVideoTracks()[0]?.label ||
+              params.cameraLabel
+            : undefined,
+      },
+    );
+    const beginInfo = await guardRecordingStart(
+      beginPromise,
+      params.signal ? { signal: params.signal } : {},
+    );
     assertStartupActive();
     params.onCaptureStartRequested?.(localOnly ? null : id || null, id || null);
     console.log(
@@ -4020,7 +4175,8 @@ async function startNativeFullscreenRecording(
         );
       });
     assertStartupActive();
-    startedAt = Date.now();
+    startedAt = beginInfo.startedAtMs;
+    nativeStartUncertaintyMs = beginInfo.startUncertaintyMs;
     emit("clips:toolbar-enabled", true).catch(() => {});
     emitRecorderSession(
       localOnly ? null : params.serverUrl,
@@ -4052,7 +4208,16 @@ async function startNativeFullscreenRecording(
           cancelErr,
         );
       });
-    await invoke("native_fullscreen_recording_cancel").catch(() => {});
+    let teardownError: unknown = null;
+    const nativeTakeId = id || warmedRecordingId;
+    if (nativeTakeId) {
+      await invoke("native_fullscreen_recording_cancel", {
+        expectedRecordingId: nativeTakeId,
+        confirmTeardown: params.maxDurationMs !== undefined,
+      }).catch((cancelErr) => {
+        teardownError = cancelErr;
+      });
+    }
     if (bubbleCaptureExcluded) {
       await invoke("set_bubble_capture_excluded", {
         excluded: false,
@@ -4073,6 +4238,9 @@ async function startNativeFullscreenRecording(
         diagnostics.httpStatus,
         params.authToken,
       );
+      if (params.maxDurationMs !== undefined) {
+        await trashRecording(params.serverUrl, id, params.authToken);
+      }
     }
     await captureSuspensionCleanup
       .release?.()
@@ -4082,7 +4250,10 @@ async function startNativeFullscreenRecording(
           releaseError,
         ),
       );
-    throw err;
+    if (teardownError !== null && params.maxDurationMs !== undefined) {
+      throw new RecordingTeardownUnconfirmedError(teardownError);
+    }
+    throw nativeCaptureError(err) ?? err;
   }
 
   let stopped = false;
@@ -4161,6 +4332,30 @@ async function startNativeFullscreenRecording(
     await invoke("hide_overlays").catch(() => {});
   };
 
+  const removeDiscardedClip = async (remove: () => Promise<boolean>) => {
+    const clipNotRemoved = (reason: string) =>
+      new Error(
+        `The discarded agent take stopped, but its Clip ${id} could not be removed: ${reason}`,
+      );
+    const removed = await remove().catch((cause: unknown) => {
+      throw clipNotRemoved(
+        cause instanceof Error ? cause.message : String(cause),
+      );
+    });
+    if (!removed) throw clipNotRemoved("Clips refused to trash it.");
+  };
+
+  const removeStoppedAgentTake = async (
+    stopping: Promise<RecorderStopResult>,
+  ) => {
+    await stopping.catch((cause: unknown) => {
+      if (cause instanceof RecordingTeardownUnconfirmedError) throw cause;
+    });
+    await removeDiscardedClip(() =>
+      trashRecording(params.serverUrl, id, params.authToken),
+    );
+  };
+
   const discardTake = async (forRestart: boolean): Promise<RestartHandoff> => {
     stopped = true;
     clearSegmentRotator();
@@ -4180,12 +4375,16 @@ async function startNativeFullscreenRecording(
         );
       });
     await localCameraExport?.cancel().catch(() => {});
+    let teardownError: unknown = null;
     await invoke("native_fullscreen_recording_cancel", {
       preserveDisplayOverride: forRestart,
       preserveWindowOverride: forRestart,
-    }).catch((err) =>
-      console.warn("[clips-recorder] native fullscreen cancel failed:", err),
-    );
+      expectedRecordingId: id,
+      confirmTeardown: params.maxDurationMs !== undefined,
+    }).catch((err) => {
+      teardownError = err;
+      console.warn("[clips-recorder] native fullscreen cancel failed:", err);
+    });
     if (bubbleCaptureExcluded) {
       await invoke("set_bubble_capture_excluded", { excluded: false }).catch(
         () => {},
@@ -4204,7 +4403,14 @@ async function startNativeFullscreenRecording(
     } else {
       await endSession();
     }
-    if (!localOnly && id) {
+    if (teardownError !== null && params.maxDurationMs !== undefined) {
+      throw new RecordingTeardownUnconfirmedError(teardownError);
+    }
+    if (!localOnly && id && params.maxDurationMs !== undefined) {
+      await removeDiscardedClip(() =>
+        cleanupCancelledRemoteRecording(params.serverUrl, id, params.authToken),
+      );
+    } else if (!localOnly && id) {
       void cleanupCancelledRemoteRecording(
         params.serverUrl,
         id,
@@ -4226,6 +4432,14 @@ async function startNativeFullscreenRecording(
   };
 
   const handle: RecorderHandle = {
+    getCaptureInfo: () =>
+      captureInfo({
+        recordingId: id,
+        captureMode: params.captureQuality ?? "normal",
+        startedAtMs: startedAt,
+        trackReportedFrameRate: null,
+        startUncertaintyMs: nativeStartUncertaintyMs,
+      }),
     async stop() {
       if (stopPromise) return stopPromise;
       if (stopped) return { recordingId: id, viewUrl: `/r/${id}` };
@@ -4270,6 +4484,7 @@ async function startNativeFullscreenRecording(
                   folderName: localFolderName,
                   fileRole:
                     localRecordingMode === "composed" ? "composed" : "desktop",
+                  expectedRecordingId: id,
                 },
               ),
               localCameraExport
@@ -4329,9 +4544,10 @@ async function startNativeFullscreenRecording(
             uploadMode,
             hasAudio: wantsRecordedAudio,
             hasCamera: wantsCamera,
+            expectedRecordingId: id,
           },
         );
-        uploadPromise.catch(() => {});
+        uploadPromise.then(signalRecorderFinalized, signalRecorderFinalized);
         try {
           await Promise.race([
             recorderFinalized,
@@ -4365,6 +4581,17 @@ async function startNativeFullscreenRecording(
           try {
             uploadResult = await uploadPromise;
           } catch (err) {
+            if (
+              (err instanceof Error ? err.message : String(err)).includes(
+                "Native recording teardown could not be confirmed",
+              )
+            ) {
+              throw new RecordingTeardownUnconfirmedError(err);
+            }
+            const savedLocally = nativeCaptureError(err);
+            if (savedLocally?.code === "native_take_saved_locally") {
+              throw savedLocally;
+            }
             if (
               await recoverAcceptedNativeRecordingAfterFinalizeError({
                 serverUrl: params.serverUrl,
@@ -4420,7 +4647,12 @@ async function startNativeFullscreenRecording(
         cancelPromise = discardPromise.then(endSession);
         return cancelPromise;
       }
-      if (stopped) return;
+      if (stopped) {
+        if (!stopPromise || localOnly || !id) return;
+        if (params.maxDurationMs === undefined) return;
+        cancelPromise = removeStoppedAgentTake(stopPromise);
+        return cancelPromise;
+      }
       cancelPromise = discardTake(false).then(() => {});
       return cancelPromise;
     },
@@ -4546,7 +4778,7 @@ async function startNativeFullscreenRecording(
     : handle;
 }
 
-function createSyntheticScreenStream(): {
+function createSyntheticScreenStream(frameRate = CLOUD_CAPTURE_FRAME_RATE): {
   stream: MediaStream;
   cleanup: () => void;
 } {
@@ -4582,7 +4814,7 @@ function createSyntheticScreenStream(): {
   };
   draw();
   const interval = window.setInterval(draw, 250);
-  const stream = canvas.captureStream(CLOUD_CAPTURE_FRAME_RATE);
+  const stream = canvas.captureStream(frameRate);
   return {
     stream,
     cleanup: () => {
@@ -4630,6 +4862,8 @@ function bubbleSizeRatioForName(size: string | null | undefined): number {
   return size === "medium" ? 0.24 : 0.18;
 }
 
+const BOUNDED_START_CLEANUP_MS = 20_000;
+
 export async function startRecording(
   params: StartParams,
   preparedAudioCue?: AudioCue,
@@ -4639,17 +4873,37 @@ export async function startRecording(
   const audioCue = preparedAudioCue ?? createAudioCue();
   const startController = new AbortController();
   let requestedRecordingId: string | null = null;
+  let nativeCaptureIdentity: string | null = null;
   let startupAbortStop: {
     recordingId: string;
     promise: Promise<RecorderStopResult>;
   } | null = null;
-  const cancelStartup = () => {
+  const boundedTake = params.maxDurationMs !== undefined;
+  const cancelStartup = async () => {
     startController.abort();
-    void emit("clips:countdown-cancel", {
-      attemptId: countdownAttemptId,
-    }).catch(() => {});
-    void invoke("native_fullscreen_recording_cancel").catch(() => {});
-    void invoke("hide_recording_chrome").catch(() => {});
+    const captureIdentity = nativeCaptureIdentity;
+    const nativeCancel = captureIdentity
+      ? invoke("native_fullscreen_recording_cancel", {
+          expectedRecordingId: captureIdentity,
+          confirmTeardown: boundedTake,
+        })
+      : Promise.resolve();
+    await Promise.all([
+      emit("clips:countdown-cancel", {
+        attemptId: countdownAttemptId,
+      }).catch(() => {}),
+      boundedTake ? nativeCancel : nativeCancel.catch(() => {}),
+      invoke("hide_recording_chrome").catch(() => {}),
+    ]);
+    if (boundedTake) {
+      await guardRecordingStart(
+        startPromise.then(
+          () => undefined,
+          () => undefined,
+        ),
+        { timeoutMs: BOUNDED_START_CLEANUP_MS },
+      );
+    }
   };
   const cleanupFailedCaptureStart = (recordingId: string) => {
     try {
@@ -4667,6 +4921,10 @@ export async function startRecording(
     {
       ...recordingParams,
       signal: startController.signal,
+      onCaptureIdentityAvailable: (captureIdentity) => {
+        nativeCaptureIdentity = captureIdentity;
+        params.onCaptureIdentityAvailable?.(captureIdentity);
+      },
       onCaptureStartAttempted: (recordingId) => {
         requestedRecordingId = recordingId;
       },
@@ -4694,7 +4952,8 @@ export async function startRecording(
       // Capture has already begun when a start resolves this late: keep what
       // it recorded. Only a confirmed discard deletes a recording.
       onLateResolve: (handle) => {
-        void handle.stop().catch((err) => {
+        const settled = boundedTake ? handle.cancel() : handle.stop();
+        void settled.catch((err) => {
           if (requestedRecordingId) {
             cleanupFailedCaptureStart(requestedRecordingId);
           }
@@ -4781,6 +5040,8 @@ async function startRecordingInner(
     shouldStartLocalRecordingTranscription(wantsAudio);
   const captureSource = params.source ?? "window";
   const localRecordingMode = params.localRecordingMode ?? "off";
+  const captureQuality = params.captureQuality ?? "normal";
+  const requestedFrameRate = captureFrameRate(captureQuality);
   console.log("[clips-recorder] startRecording", {
     serverUrl: params.serverUrl,
     mode: params.mode,
@@ -4796,14 +5057,17 @@ async function startRecordingInner(
     shouldUseNativeFullscreenRecording(captureSource);
   const nativeWindowCapture = shouldUseNativeWindowRecording(captureSource);
   if (wantsScreen && (nativeFullscreenCapture || nativeWindowCapture)) {
-    const rewindRecorder = nativeFullscreenCapture
-      ? await tryStartRewindFullscreenRecording(
-          params,
-          wantsCamera,
-          wantsAudio,
-          audioCue,
-        )
-      : null;
+    const rewindRecorder =
+      nativeFullscreenCapture &&
+      captureQuality === "normal" &&
+      params.maxDurationMs === undefined
+        ? await tryStartRewindFullscreenRecording(
+            params,
+            wantsCamera,
+            wantsAudio,
+            audioCue,
+          )
+        : null;
     if (rewindRecorder) return rewindRecorder;
     return startNativeFullscreenRecording(
       params,
@@ -4856,7 +5120,7 @@ async function startRecordingInner(
             return navigator.mediaDevices.getDisplayMedia(
               buildDesktopDisplayMediaOptions({
                 audio: wantsSystemAudio,
-                frameRate: CLOUD_CAPTURE_FRAME_RATE,
+                frameRate: requestedFrameRate,
                 maxWidth: CLOUD_CAPTURE_MAX_WIDTH,
                 maxHeight: CLOUD_CAPTURE_MAX_HEIGHT,
               }),
@@ -4865,7 +5129,8 @@ async function startRecordingInner(
           console.warn(
             "[clips-recorder] using opt-in dev synthetic screen capture; remove localStorage clips:dev-synthetic-capture to use the native picker",
           );
-          const syntheticDisplay = createSyntheticScreenStream();
+          const syntheticDisplay =
+            createSyntheticScreenStream(requestedFrameRate);
           streamCleanups.push(syntheticDisplay.cleanup);
           return Promise.resolve(syntheticDisplay.stream);
         })()
@@ -5046,7 +5311,7 @@ async function startRecordingInner(
       [displayStream, freshlyAcquiredCameraStream, audioStream].forEach((s) =>
         s?.getTracks().forEach((track) => track.stop()),
       );
-      const syntheticDisplay = createSyntheticScreenStream();
+      const syntheticDisplay = createSyntheticScreenStream(requestedFrameRate);
       displayStream = syntheticDisplay.stream;
       streamCleanups.push(syntheticDisplay.cleanup);
       if (wantsAudio && !audioStream) {
@@ -5109,6 +5374,7 @@ async function startRecordingInner(
             ),
             cutout: loadCameraCutoutPreference(),
             subscribeCutout: subscribeCameraCutoutPreference,
+            frameRate: requestedFrameRate,
           })
         : null;
     if (recordedScreenCameraStream) {
@@ -5287,6 +5553,13 @@ async function startRecordingInner(
       };
 
       const handle: RecorderHandle = {
+        getCaptureInfo: () =>
+          captureInfo({
+            recordingId: id,
+            captureMode: captureQuality,
+            startedAtMs: startedAt,
+            source: primaryVideo,
+          }),
         async stop() {
           if (stopped) {
             return {
@@ -5375,7 +5648,10 @@ async function startRecordingInner(
       return wrappedHandle;
     }
 
-    const uploadPrimaryVideo = createUploadOptimizedVideoStream(primaryVideo);
+    const uploadPrimaryVideo = createUploadOptimizedVideoStream(
+      primaryVideo,
+      requestedFrameRate,
+    );
     streamCleanups.push(() => uploadPrimaryVideo.cleanup());
 
     const uploadCombined = new MediaStream();
@@ -5402,6 +5678,10 @@ async function startRecordingInner(
       {
         mimeType: mimeType || "video/webm",
         requestStreaming: true,
+        captureMetadata: recordingCaptureMetadata({
+          captureMode: captureQuality,
+          source: uploadCombined,
+        }),
         authToken: params.authToken,
         announceStorageSetup: true,
         signal: params.signal,
@@ -5951,6 +6231,17 @@ async function startRecordingInner(
         ...(height ? { height: String(height) } : {}),
         hasAudio: backupMeta.hasAudio ? "1" : "0",
         hasCamera: wantsCamera ? "1" : "0",
+        captureMetadata: JSON.stringify(
+          recordingCaptureMetadata({
+            captureMode: captureQuality,
+            source: uploadCombined,
+            width,
+            height,
+            startedAtMs: startedAt,
+            startUncertaintyMs: 5,
+            startClockSource: "recorder-start-call",
+          }),
+        ),
       });
       console.log("[clips-recorder] finalize POST", finalizeUrl, {
         chunksSent: chunkIndex,
@@ -6150,6 +6441,13 @@ async function startRecordingInner(
     };
 
     handle = {
+      getCaptureInfo: () =>
+        captureInfo({
+          recordingId: id,
+          captureMode: captureQuality,
+          startedAtMs: startedAt,
+          source: combined,
+        }),
       stop: singleFlight(performStop),
 
       async cancel() {

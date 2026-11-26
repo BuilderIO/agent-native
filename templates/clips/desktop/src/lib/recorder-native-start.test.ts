@@ -227,8 +227,20 @@ const params: StartParams = {
 
 const handlers = new Map<string, Set<(event: { payload: unknown }) => void>>();
 const nativeCommands = new Map<string, (args?: unknown) => Promise<unknown>>();
+
+function nativeStartInfo(args: unknown) {
+  return {
+    recordingId: (args as { recordingId?: string } | undefined)?.recordingId,
+    width: 1920,
+    height: 1080,
+    frameRate: 24,
+    startedAtMs: Date.now(),
+    startUncertaintyMs: 1,
+  };
+}
 let getUserMedia: ReturnType<typeof vi.fn>;
 let fetchMock: ReturnType<typeof vi.fn>;
+let trashRecordingStatus = 200;
 const localStorageValues = new Map<string, string>();
 
 function calls(command: string) {
@@ -298,6 +310,9 @@ beforeEach(() => {
       return 1;
     }
     if (name === "active_window_context") return { appName: "Example" };
+    if (name === "native_fullscreen_recording_begin") {
+      return nativeStartInfo(args);
+    }
     return undefined;
   });
   let nextRecordingId = 0;
@@ -329,7 +344,9 @@ beforeEach(() => {
               }
             : {},
       ),
-      { status: 200 },
+      {
+        status: url.endsWith("/trash-recording") ? trashRecordingStatus : 200,
+      },
     );
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -349,6 +366,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   emitStopChunk = false;
   rejectMediaRecorderStop = false;
+  trashRecordingStatus = 200;
 });
 
 describe("recorder session event", () => {
@@ -507,8 +525,9 @@ describe("native recording startup", () => {
       warmStarted.resolve(undefined);
       await warm.promise;
     });
-    nativeCommands.set("native_fullscreen_recording_begin", async () => {
+    nativeCommands.set("native_fullscreen_recording_begin", async (args) => {
       captureStartOrder.push("begin");
+      return nativeStartInfo(args);
     });
     mocks.transcribe.mockImplementationOnce(async () => {
       captureStartOrder.push("microphone");
@@ -830,9 +849,7 @@ describe("native recording startup", () => {
     await failed;
 
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
-    expect(calls("native_fullscreen_recording_cancel").length).toBeGreaterThan(
-      0,
-    );
+    expect(calls("native_fullscreen_recording_cancel")).toHaveLength(0);
 
     createResponse.resolve(
       new Response(
@@ -1182,7 +1199,7 @@ describe("native recording startup", () => {
     await failed;
     expect(calls("native_fullscreen_recording_warm")).toHaveLength(0);
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
-    expect(calls("native_fullscreen_recording_cancel")).toHaveLength(1);
+    expect(calls("native_fullscreen_recording_cancel")).toHaveLength(0);
     expect(mocks.emit).not.toHaveBeenCalledWith("clips:toolbar-enabled", true);
 
     const retry = startRecording(params);
@@ -1191,10 +1208,7 @@ describe("native recording startup", () => {
     expect(getUserMedia).not.toHaveBeenCalled();
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
     expect(mocks.emit).toHaveBeenCalledWith("clips:toolbar-enabled", true);
-    const commands = mocks.invoke.mock.calls.map(([name]) => name);
-    expect(commands.indexOf("native_fullscreen_recording_cancel")).toBeLessThan(
-      commands.indexOf("native_fullscreen_recording_warm"),
-    );
+    expect(calls("native_fullscreen_recording_cancel")).toHaveLength(0);
     await handle.cancel();
   });
 
@@ -1245,7 +1259,7 @@ describe("native recording startup", () => {
   });
 
   it("marks native capture as requested after its begin IPC response arrives", async () => {
-    const begin = deferred<void>();
+    const begin = deferred<ReturnType<typeof nativeStartInfo>>();
     nativeCommands.set(
       "native_fullscreen_recording_begin",
       () => begin.promise,
@@ -1258,7 +1272,7 @@ describe("native recording startup", () => {
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
     expect(onCaptureStartRequested).not.toHaveBeenCalled();
 
-    begin.resolve();
+    begin.resolve(nativeStartInfo({ recordingId: createdRecordingId() }));
     const handle = await pending;
     expect(onCaptureStartRequested).toHaveBeenCalledWith(
       createdRecordingId(),
@@ -1449,9 +1463,243 @@ describe("native recording startup", () => {
         { leaseId: "warm-cancel-suspension" },
       ],
     ]);
-    expect(calls("native_fullscreen_recording_cancel").length).toBeGreaterThan(
-      0,
+    const cancels = calls("native_fullscreen_recording_cancel");
+    expect(cancels.length).toBeGreaterThan(0);
+    for (const [, args] of cancels) {
+      expect(args).toMatchObject({
+        expectedRecordingId: createdRecordingId(),
+        confirmTeardown: false,
+      });
+    }
+  });
+
+  it("starts a bounded take cold and ends its startup on abort without waiting for the recorder", async () => {
+    const begin = deferred<unknown>();
+    nativeCommands.set(
+      "native_fullscreen_recording_begin",
+      () => begin.promise,
     );
+    const controller = new AbortController();
+    const pending = startRecording({
+      ...params,
+      maxDurationMs: 30_000,
+      signal: controller.signal,
+    });
+    const settled = pending.catch((error: unknown) => error);
+    await flush();
+    await vi.advanceTimersByTimeAsync(3_600);
+    await flush();
+    expect(calls("native_fullscreen_recording_warm")).toHaveLength(0);
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
+    controller.abort();
+    expect(await settled).toMatchObject({ name: "AbortError" });
+
+    const cancels = calls("native_fullscreen_recording_cancel");
+    expect(cancels.length).toBeGreaterThan(0);
+    for (const [, args] of cancels) {
+      expect(args).toMatchObject({
+        expectedRecordingId: createdRecordingId(),
+        confirmTeardown: true,
+      });
+    }
+    begin.reject(new Error("Recording cancelled while starting."));
+  });
+
+  it("reports a bounded take whose native teardown is unconfirmed", async () => {
+    const begin = deferred<unknown>();
+    nativeCommands.set(
+      "native_fullscreen_recording_begin",
+      () => begin.promise,
+    );
+    nativeCommands.set("native_fullscreen_recording_cancel", async () => {
+      throw new Error("Native recording teardown could not be confirmed.");
+    });
+    const controller = new AbortController();
+    const pending = startRecording({
+      ...params,
+      maxDurationMs: 30_000,
+      signal: controller.signal,
+    });
+    const settled = pending.catch((error: unknown) => error);
+    await flush();
+    await vi.advanceTimersByTimeAsync(3_600);
+    await flush();
+    controller.abort();
+    expect(await settled).toMatchObject({
+      name: "RecordingTeardownUnconfirmedError",
+    });
+    begin.reject(new Error("Recording cancelled while starting."));
+  });
+
+  function trashRequests() {
+    return fetchMock.mock.calls.filter(([url]) =>
+      String(url).endsWith("/trash-recording"),
+    );
+  }
+
+  async function startBoundedTake(overrides: Partial<StartParams> = {}) {
+    const pending = startRecording({
+      ...params,
+      maxDurationMs: 30_000,
+      displayId: 7,
+      ...overrides,
+    });
+    const settled = pending.catch((error: unknown) => error);
+    await flush();
+    await vi.advanceTimersByTimeAsync(3_600);
+    await flush();
+    return { pending, settled };
+  }
+
+  it("never begins a bounded take its capture host refuses and removes its Clip", async () => {
+    const refusal = new Error("Capture was stopped before the recorder began.");
+    refusal.name = "CaptureStartAbortedError";
+    const confirmBegin = vi.fn(async () => {
+      throw refusal;
+    });
+
+    const { settled } = await startBoundedTake({ confirmBegin });
+
+    expect(await settled).toBe(refusal);
+    expect(confirmBegin).toHaveBeenCalledOnce();
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
+    expect(calls("native_fullscreen_recording_cancel")).toContainEqual([
+      "native_fullscreen_recording_cancel",
+      { expectedRecordingId: createdRecordingId(), confirmTeardown: true },
+    ]);
+    const trashed = trashRequests();
+    expect(trashed).toHaveLength(1);
+    expect(JSON.parse(String(trashed[0][1]?.body))).toEqual({
+      id: createdRecordingId(),
+    });
+  });
+
+  it("begins a bounded take on its armed screen only after its capture host confirms", async () => {
+    const confirmBegin = vi.fn(async () => {
+      expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
+    });
+
+    const { pending } = await startBoundedTake({ confirmBegin });
+    const handle = await pending;
+
+    expect(confirmBegin).toHaveBeenCalledOnce();
+    expect(calls("native_fullscreen_recording_begin")[0][1]).toMatchObject({
+      recordingId: createdRecordingId(),
+      maxDurationMs: 30_000,
+      displayId: 7,
+    });
+    await handle.cancel();
+  });
+
+  it("reports a bounded take whose armed screen is gone as display_unavailable", async () => {
+    nativeCommands.set("native_fullscreen_recording_begin", async () => {
+      throw new Error(
+        "display_unavailable: The screen armed for agent capture is no longer connected.",
+      );
+    });
+
+    const { settled } = await startBoundedTake();
+
+    expect(await settled).toMatchObject({
+      name: "NativeCaptureDisplayUnavailableError",
+      code: "display_unavailable",
+    });
+    expect(trashRequests()).toHaveLength(1);
+  });
+
+  it("discards a bounded take only after native teardown and Clip removal finish", async () => {
+    const { pending } = await startBoundedTake();
+    const handle = await pending;
+
+    await handle.cancel();
+
+    const cancels = calls("native_fullscreen_recording_cancel");
+    expect(cancels[cancels.length - 1]?.[1]).toMatchObject({
+      expectedRecordingId: createdRecordingId(),
+      confirmTeardown: true,
+    });
+    const trashed = trashRequests();
+    expect(trashed).toHaveLength(1);
+    expect(JSON.parse(String(trashed[0][1]?.body))).toEqual({
+      id: createdRecordingId(),
+    });
+  });
+
+  it("fails a bounded discard whose Clip could not be removed", async () => {
+    const { pending } = await startBoundedTake();
+    const handle = await pending;
+    trashRecordingStatus = 503;
+
+    await expect(handle.cancel()).rejects.toThrow(
+      `its Clip ${createdRecordingId()} could not be removed`,
+    );
+  });
+
+  it("removes the Clip of a bounded take that stopped before its discard", async () => {
+    const { pending } = await startBoundedTake();
+    const handle = await pending;
+    nativeCommands.set(
+      "native_fullscreen_recording_stop_and_upload",
+      async () => ({ recordingId: createdRecordingId() }),
+    );
+
+    const stopped = handle.stop();
+    const discarded = handle.cancel();
+    await vi.advanceTimersByTimeAsync(16_000);
+
+    await expect(stopped).resolves.toMatchObject({
+      recordingId: createdRecordingId(),
+    });
+    await expect(discarded).resolves.toBeUndefined();
+    const trashed = trashRequests();
+    expect(trashed).toHaveLength(1);
+    expect(JSON.parse(String(trashed[0][1]?.body))).toEqual({
+      id: createdRecordingId(),
+    });
+  });
+
+  it("reports a bounded discard whose native teardown is unconfirmed without removing the Clip", async () => {
+    const { pending } = await startBoundedTake();
+    const handle = await pending;
+    nativeCommands.set("native_fullscreen_recording_cancel", async () => {
+      throw new Error(
+        "Native recording teardown could not be confirmed: stream stop failed",
+      );
+    });
+
+    await expect(handle.cancel()).rejects.toMatchObject({
+      name: "RecordingTeardownUnconfirmedError",
+    });
+    expect(trashRequests()).toHaveLength(0);
+  });
+
+  it("treats a take its duration watchdog saved locally as final", async () => {
+    const { pending } = await startBoundedTake();
+    const handle = await pending;
+    nativeCommands.set(
+      "native_fullscreen_recording_stop_and_upload",
+      async () => {
+        throw new Error(
+          "native_take_saved_locally: The take reached its time limit and was saved on this device in /tmp/clips instead of uploading.",
+        );
+      },
+    );
+
+    const stopped = handle.stop().catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(16_000);
+
+    expect(await stopped).toMatchObject({
+      name: "NativeTakeSavedLocallyError",
+      code: "native_take_saved_locally",
+    });
+    expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
+      1,
+    );
+    expect(
+      fetchMock.mock.calls.filter(([url]) =>
+        String(url).endsWith("/interrupt"),
+      ),
+    ).toHaveLength(0);
   });
 
   it("cancels transcription that resolves after startup abort and permits a later retry", async () => {
@@ -1719,6 +1967,27 @@ describe("browser recording startup cancellation", () => {
     expect(audioCue.cleanup).toHaveBeenCalled();
   });
 
+  it("names its recording before the request that creates it", async () => {
+    const createResponse = deferred<Response>();
+    fetchMock.mockReturnValueOnce(createResponse.promise);
+    const controller = new AbortController();
+    const onRecordingIdChosen = vi.fn(() => {
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+    const pending = startRecording({
+      ...params,
+      onRecordingIdChosen,
+      signal: controller.signal,
+    });
+
+    await flush();
+    expect(onRecordingIdChosen).toHaveBeenCalledExactlyOnceWith(
+      createdRecordingId(),
+    );
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  });
+
   it("aborts a created row when cancelled before the create response arrives", async () => {
     useBrowserCameraCapture();
     const createResponse = deferred<Response>();
@@ -1768,6 +2037,36 @@ describe("browser recording startup cancellation", () => {
         String(url).includes(`/api/uploads/${id}/abort`),
       ),
     ).toHaveLength(2);
+  });
+
+  it("trashes a bounded take's recording created after its start was cancelled", async () => {
+    const createResponse = deferred<Response>();
+    fetchMock.mockReturnValueOnce(createResponse.promise);
+    const controller = new AbortController();
+    const pending = startRecording({
+      ...params,
+      maxDurationMs: 30_000,
+      signal: controller.signal,
+    });
+
+    await flush();
+    const id = createdRecordingId();
+    expect(fetchMock.mock.calls[0][1]?.signal).toBeUndefined();
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+
+    createResponse.resolve(
+      new Response(
+        JSON.stringify({ result: { id, uploadMode: "streaming" } }),
+        { status: 200 },
+      ),
+    );
+    await flush();
+    const trashed = fetchMock.mock.calls.filter(([url]) =>
+      String(url).endsWith("/trash-recording"),
+    );
+    expect(trashed).toHaveLength(1);
+    expect(JSON.parse(String(trashed[0][1]?.body))).toEqual({ id });
   });
 
   it("retries abort when create fails after cancellation", async () => {

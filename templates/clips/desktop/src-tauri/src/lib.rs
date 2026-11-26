@@ -309,6 +309,7 @@ pub fn run() {
             native_screen::native_fullscreen_recording_stop_and_upload,
             native_screen::native_fullscreen_recording_stop_and_save,
             native_screen::native_fullscreen_recording_cancel,
+            native_screen::native_recording_display_id,
             native_screen::native_fullscreen_recording_pause,
             native_screen::native_fullscreen_recording_resume,
             native_screen::native_fullscreen_recording_rotate_segment,

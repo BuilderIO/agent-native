@@ -11,6 +11,7 @@ pub(super) struct LiveUploadCtrl {
     pub(super) cancelled: AtomicBool,
     pub(super) duration_ms: AtomicU64,
     pub(super) uploaded_bytes: AtomicU64,
+    pub(super) capture_metadata: Mutex<Option<String>>,
 }
 
 pub(super) struct LiveUpload {
@@ -113,6 +114,7 @@ fn spawn_live_uploader(app: AppHandle, params: LiveUploadParams) -> LiveUpload {
         cancelled: AtomicBool::new(false),
         duration_ms: AtomicU64::new(0),
         uploaded_bytes: AtomicU64::new(0),
+        capture_metadata: Mutex::new(None),
     });
     let (tx, rx) = tokio::sync::oneshot::channel();
     let ctrl_task = ctrl.clone();
@@ -210,13 +212,21 @@ async fn send_live_upload_post_with_retry(
     bytes: &[u8],
 ) -> Result<bool, String> {
     let rec = &params.recording_id;
+    let capture_metadata = if is_final {
+        ctrl.capture_metadata
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    } else {
+        None
+    };
     let mut attempt: u32 = 0;
     loop {
         if ctrl.cancelled.load(Ordering::SeqCst) {
             return Err("live upload cancelled".into());
         }
         attempt += 1;
-        let result = send_upload_post(
+        let result = send_upload_post_with_attempt(
             client,
             &params.server_url,
             &params.recording_id,
@@ -234,6 +244,9 @@ async fn send_live_upload_post_with_retry(
             NativeUploadMode::Buffered,
             false,
             expected_source_bytes,
+            capture_metadata.as_deref(),
+            None,
+            None,
             bytes.to_vec(),
         )
         .await;

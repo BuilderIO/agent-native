@@ -17,6 +17,8 @@ let errorResponse: (error: unknown) => {
   errorDevice?: string;
 };
 let abortServerUpload: (...args: any[]) => Promise<void>;
+let cleanup: typeof import("./offscreen").cleanup;
+let startNow: typeof import("./offscreen").startNow;
 let correctMicStreamIfNeeded: (
   stream: MediaStream,
   requestedDeviceId: string,
@@ -69,6 +71,8 @@ beforeAll(async () => {
     errorResponse,
     abortServerUpload,
     correctMicStreamIfNeeded,
+    cleanup,
+    startNow,
   } = await import("./offscreen"));
 });
 
@@ -103,6 +107,14 @@ describe("offscreen phone-like microphone correction", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe("offscreen agent take start", () => {
+  it("reports that no take began for a session it does not hold", () => {
+    expect(
+      startNow({ type: "CLIPS_OFFSCREEN_START_NOW", sessionId: "take-a" }),
+    ).toEqual({ ok: true, started: false });
   });
 });
 
@@ -149,6 +161,30 @@ describe("offscreen upload cancellation", () => {
       }),
     );
     vi.unstubAllGlobals();
+  });
+});
+
+describe("offscreen recorder cleanup", () => {
+  it("releases a recording's resources once when cancel and a late stop both clean up", () => {
+    const stopTrack = vi.fn();
+    const stream = { getTracks: () => [{ stop: stopTrack }] } as never;
+    const recording = {
+      cleanedUp: false,
+      limitTimer: null,
+      maxDurationTimer: null,
+      stopCompositor: vi.fn(),
+      cleanupAudio: vi.fn(),
+      outputStream: stream,
+      sourceStreams: [stream],
+      audioContext: null,
+    };
+
+    cleanup(recording);
+    cleanup(recording);
+
+    expect(recording.stopCompositor).toHaveBeenCalledTimes(1);
+    expect(recording.cleanupAudio).toHaveBeenCalledTimes(1);
+    expect(stopTrack).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -18,12 +18,21 @@ export class RecordingStartCancelledError extends Error {
   }
 }
 
+export class RecordingTeardownUnconfirmedError extends Error {
+  constructor(cause: unknown) {
+    super(
+      `Recording setup was cancelled, but capture teardown could not be confirmed: ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+    this.name = "RecordingTeardownUnconfirmedError";
+  }
+}
+
 export function guardRecordingStart<T>(
   operation: Promise<T>,
   options: {
     signal?: AbortSignal;
     timeoutMs?: number | null;
-    onCancel?: () => void;
+    onCancel?: () => void | Promise<void>;
     onLateResolve?: (value: T) => void;
   } = {},
 ): Promise<T> {
@@ -37,10 +46,10 @@ export function guardRecordingStart<T>(
     let cancellationNotified = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
-    const notifyCancellation = () => {
+    const notifyCancellation = async () => {
       if (cancellationNotified) return;
       cancellationNotified = true;
-      options.onCancel?.();
+      await options.onCancel?.();
     };
 
     const cleanup = () => {
@@ -58,9 +67,20 @@ export function guardRecordingStart<T>(
       callback();
     };
 
+    const cancelAndReject = async (error: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      try {
+        await notifyCancellation();
+        reject(error);
+      } catch (cause) {
+        reject(new RecordingTeardownUnconfirmedError(cause));
+      }
+    };
+
     const onAbort = () => {
-      notifyCancellation();
-      finish(() => reject(new RecordingStartCancelledError()));
+      void cancelAndReject(new RecordingStartCancelledError());
     };
 
     operation.then(
@@ -82,10 +102,7 @@ export function guardRecordingStart<T>(
     options.signal?.addEventListener("abort", onAbort, { once: true });
     if (timeoutMs !== null) {
       timer = setTimeout(() => {
-        finish(() => {
-          notifyCancellation();
-          reject(new RecordingStartTimeoutError(timeoutMs));
-        });
+        void cancelAndReject(new RecordingStartTimeoutError(timeoutMs));
       }, timeoutMs);
     }
   });

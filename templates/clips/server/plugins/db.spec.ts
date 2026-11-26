@@ -10,6 +10,10 @@ const { PGlite } = createRequire(
 
 import * as mediaCleanupTables from "../db/media-cleanup-tables.js";
 import * as schema from "../db/schema";
+import {
+  captureSessionPendingOutcomeMigration,
+  captureTablesMigration,
+} from "../lib/capture-tables-schema.js";
 import { recordingMediaCleanupMigration } from "../lib/recording-media-cleanup-schema.js";
 import { getRecordingAccessTokenResourceId } from "../lib/share-password.js";
 
@@ -64,6 +68,8 @@ function columnsOf(table: DrizzleTable): DrizzleColumn[] {
 
 const KNOWN_COVERAGE_DRIFT = new Set<string>([]);
 
+const captureTables: unknown[] = [schema.captureHosts, schema.captureSessions];
+
 describe("clips db migrations cover every schema.ts column", () => {
   for (const [exportName, exported] of Object.entries(schema)) {
     if (!isDrizzleTable(exported)) continue;
@@ -86,6 +92,40 @@ describe("clips db migrations cover every schema.ts column", () => {
               recordingMediaCleanupMigration,
             ))
               await database.exec(statement);
+          const result = await database.query(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=$1",
+            [getTableName(exported)],
+          );
+          const actual = new Set(
+            result.rows.map((row: { column_name: string }) => row.column_name),
+          );
+          expect(
+            columns
+              .map((column) => column.name)
+              .filter((name) => !actual.has(name)),
+          ).toEqual([]);
+        } finally {
+          await database.close();
+        }
+      });
+      continue;
+    }
+
+    // oracle-change: imported capture DDL is checked by applying it, not by finding its column names in db.ts.
+    if (captureTables.includes(exported)) {
+      it(`migrates every schema.${exportName} column and can apply its DDL repeatedly`, async () => {
+        const { splitSqlStatements } = await vi.importActual<{
+          splitSqlStatements: (sql: string) => string[];
+        }>("../../../../packages/core/src/db/migrations.js");
+        const database = await PGlite.create("memory://");
+        try {
+          for (let pass = 0; pass < 2; pass++)
+            for (const migration of [
+              captureTablesMigration,
+              captureSessionPendingOutcomeMigration,
+            ])
+              for (const statement of splitSqlStatements(migration))
+                await database.exec(statement);
           const result = await database.query(
             "SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=$1",
             [getTableName(exported)],

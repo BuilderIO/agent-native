@@ -5,6 +5,7 @@ import {
   guardRecordingStart,
   RecordingStartCancelledError,
   RecordingStartTimeoutError,
+  RecordingTeardownUnconfirmedError,
 } from "./recording-start-guard";
 
 describe("guardRecordingStart", () => {
@@ -66,6 +67,41 @@ describe("guardRecordingStart", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("waits for teardown confirmation before rejecting as cancelled", async () => {
+    const controller = new AbortController();
+    let confirmTeardown!: () => void;
+    const teardown = new Promise<void>((resolve) => {
+      confirmTeardown = resolve;
+    });
+    const pending = guardRecordingStart(new Promise(() => {}), {
+      signal: controller.signal,
+      onCancel: () => teardown,
+    });
+    let settled = false;
+    void pending.catch(() => {
+      settled = true;
+    });
+
+    controller.abort();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    confirmTeardown();
+    await expect(pending).rejects.toBeInstanceOf(RecordingStartCancelledError);
+  });
+
+  it("reports unconfirmed teardown distinctly", async () => {
+    const controller = new AbortController();
+    const pending = guardRecordingStart(new Promise(() => {}), {
+      signal: controller.signal,
+      onCancel: () => Promise.reject(new Error("native stop timed out")),
+    });
+
+    controller.abort();
+    await expect(pending).rejects.toBeInstanceOf(
+      RecordingTeardownUnconfirmedError,
+    );
   });
 
   it("times out a pending start and disposes a late handle", async () => {

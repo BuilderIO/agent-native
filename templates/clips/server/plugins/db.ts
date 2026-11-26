@@ -12,6 +12,10 @@ import { z } from "zod";
 
 import "../db/index.js";
 import * as schema from "../db/schema.js";
+import {
+  captureSessionPendingOutcomeMigration,
+  captureTablesMigration,
+} from "../lib/capture-tables-schema.js";
 import { orderMigrationsByVersion } from "../lib/migration-order.js";
 import {
   addMissingRecordingCommentsToReviewKit,
@@ -216,6 +220,18 @@ const mediaCleanupMigration = {
   name: "recording-durable-media-cleanup",
   sql: recordingMediaCleanupMigration,
 }; // raw-sql-ok: fixed additive DDL with no runtime interpolation; the shared definition is exercised on PostgreSQL and PGlite.
+
+const captureTablesMigrationEntry = {
+  version: 111,
+  name: "clips-agent-motion-capture",
+  sql: captureTablesMigration,
+}; // raw-sql-ok: fixed additive DDL with no runtime interpolation; motion-capture.test.ts runs the same definition on PGlite.
+
+const captureSessionPendingOutcomeEntry = {
+  version: 112,
+  name: "clips-capture-session-pending-outcome",
+  sql: captureSessionPendingOutcomeMigration,
+}; // raw-sql-ok: fixed additive DDL with no runtime interpolation; db.spec.ts and motion-capture.test.ts apply it on PGlite.
 
 export const migrations = runMigrations(
   orderMigrationsByVersion([
@@ -1491,6 +1507,8 @@ export const migrations = runMigrations(
       name: "recording-capture-metadata",
       sql: `ALTER TABLE recordings ADD COLUMN IF NOT EXISTS capture_metadata_json TEXT`,
     },
+    captureTablesMigrationEntry,
+    captureSessionPendingOutcomeEntry,
   ]),
   { table: "clips_migrations" },
 );

@@ -6,8 +6,10 @@ import {
 } from "@shared/media-device-selection";
 import { scheduleReadyChime } from "@shared/recording-audio";
 import {
-  SCREEN_CAPTURE_FRAME_RATE,
+  captureFrameRate,
+  trackReportedCaptureFrameRate,
   screenCaptureDisplayOptions,
+  type CaptureQuality,
   type ScreenCaptureSurface,
 } from "@shared/recording-capture";
 import {
@@ -26,6 +28,7 @@ import {
   createNativeTranscriptionCapture,
   type NativeTranscriptionCapture,
 } from "./native-transcription";
+import { CANCEL_STOP_TIMEOUT_MS, stopRecorderWithin } from "./recorder-stop";
 import {
   createRecordingDurationState,
   parseClipDurationLimitMs,
@@ -46,6 +49,9 @@ const STORAGE_SETUP_FAILURE_RE =
 const CHUNK_UPLOAD_MAX_ATTEMPTS = 3;
 const CHUNK_UPLOAD_TIMEOUT_MS = 60_000;
 const FINAL_CHUNK_UPLOAD_TIMEOUT_MS = 180_000;
+const PREPARED_CAPTURE_TTL_MS = 120_000;
+const PREPARED_CAPTURE_RELEASED =
+  "The prepared capture was released before its recorder was set up.";
 const RETRYABLE_CHUNK_UPLOAD_STATUSES = new Set([
   408, 425, 429, 500, 502, 503, 504,
 ]);
@@ -116,6 +122,7 @@ type AcquireMessage = {
   surface: "browser" | "window" | "monitor";
   includeMicrophone: boolean;
   includeCamera: boolean;
+  captureQuality?: CaptureQuality;
   videoDeviceId?: string;
   audioDeviceId?: string;
 };
@@ -129,6 +136,8 @@ type BeginMessage = {
   maxClipDurationMs?: number | null;
   hasCamera?: boolean;
   startDelayMs?: number;
+  deferStart?: boolean;
+  maxDurationMs?: number;
   authToken?: string;
   transcriptUrl?: string;
 };
@@ -171,6 +180,7 @@ type UploadResult = {
 type PreparedStreams = {
   sessionId: string;
   mode: CaptureMode;
+  captureQuality: CaptureQuality;
   displayStream: MediaStream | null;
   micStream: MediaStream | null;
   cameraStream: MediaStream | null;
@@ -188,6 +198,9 @@ type ActiveRecording = {
   authToken: string | null;
   transcriptUrl: string | null;
   mode: CaptureMode;
+  captureQuality: CaptureQuality;
+  requestedFrameRate: number;
+  trackReportedFrameRate: number | null;
   startedAtMs: number;
   duration: RecordingDurationState;
   mimeType: string;
@@ -206,10 +219,14 @@ type ActiveRecording = {
   pendingStreamBlobs: Blob[];
   pendingStreamBytes: number;
   cancelled: boolean;
+  cleanedUp: boolean;
   restarting: boolean;
   startTimer: ReturnType<typeof setTimeout> | null;
+  awaitingStartNow: boolean;
   maxClipDurationMs: number | null;
   limitTimer: ReturnType<typeof setInterval> | null;
+  maxDurationTimer: ReturnType<typeof setTimeout> | null;
+  maxDurationMs: number | null;
   stopCompositor: (() => void) | null;
   displaySource: MediaStream | null;
   cameraSource: MediaStream | null;
@@ -234,6 +251,7 @@ const MAX_LOCAL_BUFFER_BYTES = MAX_UPLOAD_BYTES;
 const MIN_LOCAL_SAVE_BYTES = 2 * 1024 * 1024;
 
 let prepared: PreparedStreams | null = null;
+let preparedExpiryTimer: ReturnType<typeof setTimeout> | null = null;
 let activeRecording: ActiveRecording | null = null;
 const pendingSaveUrls = new Set<string>();
 
@@ -298,10 +316,13 @@ async function streamDimensions(
 export function displayConstraints(
   surface: ScreenCaptureSurface,
   wantsMic: boolean,
+  captureQuality: CaptureQuality = "normal",
 ): MediaStreamConstraints {
   return screenCaptureDisplayOptions(
     surface,
     wantsMic,
+    undefined,
+    captureQuality,
   ) as MediaStreamConstraints;
 }
 
@@ -348,13 +369,17 @@ async function lookupAudioDeviceLabel(deviceId: string): Promise<string> {
   }
 }
 
-function cameraConstraints(deviceId: string): MediaTrackConstraints {
+function cameraConstraints(
+  deviceId: string,
+  captureQuality: CaptureQuality = "normal",
+): MediaTrackConstraints {
+  const frameRate = captureFrameRate(captureQuality);
   const base: MediaTrackConstraints = {
     width: { ideal: 1280 },
     height: { ideal: 720 },
     frameRate: {
-      ideal: SCREEN_CAPTURE_FRAME_RATE,
-      max: SCREEN_CAPTURE_FRAME_RATE,
+      ideal: frameRate,
+      max: frameRate,
     },
   };
   if (deviceId) base.deviceId = { exact: deviceId };
@@ -362,10 +387,13 @@ function cameraConstraints(deviceId: string): MediaTrackConstraints {
   return base;
 }
 
-async function getCameraStream(deviceId: string): Promise<MediaStream> {
+async function getCameraStream(
+  deviceId: string,
+  captureQuality: CaptureQuality = "normal",
+): Promise<MediaStream> {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: cameraConstraints(deviceId),
+      video: cameraConstraints(deviceId, captureQuality),
       audio: false,
     });
     warnIfTrackDeviceMismatch("camera", deviceId, stream.getVideoTracks()[0]);
@@ -388,7 +416,7 @@ async function getCameraStream(deviceId: string): Promise<MediaStream> {
     );
 
     return navigator.mediaDevices.getUserMedia({
-      video: cameraConstraints(""),
+      video: cameraConstraints("", captureQuality),
       audio: false,
     });
   }
@@ -679,6 +707,19 @@ function drawCameraBubble(
   ctx.restore();
 }
 
+const AUDIO_RESUME_TIMEOUT_MS = 2_000;
+
+async function boundedAudioResume(audioContext: AudioContext): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    audioContext.resume().catch(() => undefined),
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, AUDIO_RESUME_TIMEOUT_MS);
+    }),
+  ]);
+  clearTimeout(timer);
+}
+
 type Compositor = {
   videoTrack: MediaStreamTrack;
   canvasStream: MediaStream;
@@ -689,6 +730,7 @@ async function buildCompositor(
   displayStream: MediaStream,
   cameraStream: MediaStream,
   dims: { width: number; height: number },
+  captureQuality: CaptureQuality,
 ): Promise<Compositor> {
   const displayVideo = await readyVideo(displayStream);
   const cameraVideo = await readyVideo(cameraStream);
@@ -708,7 +750,7 @@ async function buildCompositor(
   };
   raf = requestAnimationFrame(draw);
 
-  const canvasStream = canvas.captureStream(SCREEN_CAPTURE_FRAME_RATE);
+  const canvasStream = canvas.captureStream(captureFrameRate(captureQuality));
   return {
     videoTrack: canvasStream.getVideoTracks()[0],
     canvasStream,
@@ -743,7 +785,7 @@ async function createMixedAudio(
   }
 
   const audioContext = new AudioContext();
-  await audioContext.resume().catch(() => undefined);
+  await boundedAudioResume(audioContext);
   const destination = audioContext.createMediaStreamDestination();
   for (const input of audioInputs) {
     const source = audioContext.createMediaStreamSource(
@@ -781,6 +823,7 @@ async function uploadChunk(
     height?: number;
     hasAudio?: boolean;
     hasCamera?: boolean;
+    captureMetadata?: string;
   } = {},
 ): Promise<UploadResult> {
   const url = chunkUploadUrl(recording.uploadUrl, {
@@ -793,6 +836,7 @@ async function uploadChunk(
     height: extra.height,
     hasAudio: extra.hasAudio,
     hasCamera: extra.hasCamera,
+    captureMetadata: extra.captureMetadata,
   });
   const body = await blob.arrayBuffer();
   const headers: Record<string, string> = {
@@ -1052,6 +1096,10 @@ function stopStreams(streams: (MediaStream | null)[]): void {
 }
 
 function disposePrepared(): void {
+  if (preparedExpiryTimer !== null) {
+    clearTimeout(preparedExpiryTimer);
+    preparedExpiryTimer = null;
+  }
   if (!prepared) return;
   if (prepared.endedTrack && prepared.endedListener) {
     prepared.endedTrack.removeEventListener("ended", prepared.endedListener);
@@ -1059,10 +1107,41 @@ function disposePrepared(): void {
   prepared = null;
 }
 
-function cleanup(recording: ActiveRecording): void {
+function schedulePreparedExpiry(sessionId: string): void {
+  if (preparedExpiryTimer !== null) clearTimeout(preparedExpiryTimer);
+  preparedExpiryTimer = setTimeout(() => {
+    preparedExpiryTimer = null;
+    if (!prepared || prepared.sessionId !== sessionId) return;
+    stopPreparedStreams();
+    disposePrepared();
+    void chrome.runtime
+      .sendMessage({ type: "CLIPS_PREPARED_EXPIRED", sessionId })
+      .catch(() => undefined);
+  }, PREPARED_CAPTURE_TTL_MS);
+}
+
+export function cleanup(
+  recording: Pick<
+    ActiveRecording,
+    | "cleanedUp"
+    | "limitTimer"
+    | "maxDurationTimer"
+    | "stopCompositor"
+    | "cleanupAudio"
+    | "outputStream"
+    | "sourceStreams"
+    | "audioContext"
+  >,
+): void {
+  if (recording.cleanedUp) return;
+  recording.cleanedUp = true;
   if (recording.limitTimer !== null) {
     clearInterval(recording.limitTimer);
     recording.limitTimer = null;
+  }
+  if (recording.maxDurationTimer !== null) {
+    clearTimeout(recording.maxDurationTimer);
+    recording.maxDurationTimer = null;
   }
   recording.stopCompositor?.();
   recording.cleanupAudio();
@@ -1083,6 +1162,7 @@ async function acquire(message: AcquireMessage): Promise<{
   let displayStream: MediaStream | null = null;
   let micStream: MediaStream | null = null;
   let cameraStream: MediaStream | null = null;
+  const captureQuality = message.captureQuality ?? "normal";
   const devices = await readDeviceIds({
     video: message.videoDeviceId,
     audio: message.audioDeviceId,
@@ -1102,14 +1182,18 @@ async function acquire(message: AcquireMessage): Promise<{
   try {
     if (message.mode === "camera") {
       cameraStream = await requireMediaPermission("camera", () =>
-        getCameraStream(devices.video),
+        getCameraStream(devices.video, captureQuality),
       );
       if (message.includeMicrophone) {
         micStream = await acquireMicStream();
       }
     } else {
       displayStream = await navigator.mediaDevices.getDisplayMedia(
-        displayConstraints(message.surface, message.includeMicrophone),
+        displayConstraints(
+          message.surface,
+          message.includeMicrophone,
+          captureQuality,
+        ),
       );
       if (message.includeMicrophone) {
         micStream = await acquireMicStream();
@@ -1134,6 +1218,7 @@ async function acquire(message: AcquireMessage): Promise<{
     prepared = {
       sessionId: message.sessionId,
       mode: message.mode,
+      captureQuality,
       displayStream,
       micStream,
       cameraStream,
@@ -1142,6 +1227,7 @@ async function acquire(message: AcquireMessage): Promise<{
       endedListener,
       endedTrack,
     };
+    schedulePreparedExpiry(message.sessionId);
     return { ok: true, width, height };
   } catch (error) {
     stopStreams([displayStream, micStream, cameraStream]);
@@ -1173,7 +1259,9 @@ async function begin(message: BeginMessage): Promise<{
 
   const videoStream = ready.displayStream ?? ready.cameraStream;
   const directVideoTrack = videoStream?.getVideoTracks()[0];
-  if (!directVideoTrack) throw new Error("Capture video track was lost.");
+  if (directVideoTrack?.readyState !== "live") {
+    throw new Error("Capture video track was lost.");
+  }
 
   let compositor: Compositor | null = null;
   let videoTrack = directVideoTrack;
@@ -1185,8 +1273,14 @@ async function begin(message: BeginMessage): Promise<{
         width: ready.width,
         height: ready.height,
       },
+      ready.captureQuality,
     );
     videoTrack = compositor.videoTrack;
+    if (preparedCaptureReleased(ready)) {
+      compositor.stop();
+      stopStreams([compositor.canvasStream]);
+      throw new Error(PREPARED_CAPTURE_RELEASED);
+    }
   }
 
   const audioInputs = [
@@ -1197,6 +1291,18 @@ async function begin(message: BeginMessage): Promise<{
       : []),
   ];
   const mixedAudio = await createMixedAudio(audioInputs, ready.micStream);
+  const setupLost = preparedCaptureReleased(ready)
+    ? PREPARED_CAPTURE_RELEASED
+    : isLiveTrack(directVideoTrack)
+      ? null
+      : "Capture video track was lost.";
+  if (setupLost !== null) {
+    compositor?.stop();
+    stopStreams([compositor?.canvasStream ?? null]);
+    mixedAudio.cleanup();
+    void mixedAudio.audioContext?.close().catch(() => undefined);
+    throw new Error(setupLost);
+  }
 
   const outputStream = new MediaStream([videoTrack, ...mixedAudio.tracks]);
   const mimeType = pickMimeType() || "video/webm";
@@ -1221,6 +1327,9 @@ async function begin(message: BeginMessage): Promise<{
     authToken: message.authToken ?? null,
     transcriptUrl: message.transcriptUrl ?? null,
     mode: ready.mode,
+    captureQuality: ready.captureQuality,
+    requestedFrameRate: captureFrameRate(ready.captureQuality),
+    trackReportedFrameRate: trackReportedCaptureFrameRate(outputStream),
     startedAtMs: 0,
     duration: createRecordingDurationState(),
     mimeType,
@@ -1244,10 +1353,19 @@ async function begin(message: BeginMessage): Promise<{
     pendingStreamBlobs: [],
     pendingStreamBytes: 0,
     cancelled: false,
+    cleanedUp: false,
     restarting: false,
     startTimer: null,
+    awaitingStartNow: message.deferStart === true,
     maxClipDurationMs: parseClipDurationLimitMs(message.maxClipDurationMs),
     limitTimer: null,
+    maxDurationTimer: null,
+    maxDurationMs:
+      typeof message.maxDurationMs === "number" &&
+      Number.isFinite(message.maxDurationMs) &&
+      message.maxDurationMs > 0
+        ? Math.max(1_000, Math.min(120_000, message.maxDurationMs))
+        : null,
     stopCompositor: compositor?.stop ?? null,
     displaySource: ready.displayStream,
     cameraSource: ready.cameraStream,
@@ -1268,6 +1386,10 @@ async function begin(message: BeginMessage): Promise<{
     resolveStopped,
     rejectStopped,
   };
+  if (preparedExpiryTimer !== null) {
+    clearTimeout(preparedExpiryTimer);
+    preparedExpiryTimer = null;
+  }
   prepared = null;
   activeRecording = recording;
 
@@ -1314,7 +1436,9 @@ async function begin(message: BeginMessage): Promise<{
   });
 
   const delay = Math.max(0, message.startDelayMs ?? 0);
-  if (delay > 0) {
+  if (recording.awaitingStartNow) {
+    console.log("[clips-offscreen] recorder waiting for its capture host");
+  } else if (delay > 0) {
     recording.startTimer = setTimeout(() => {
       recording.startTimer = null;
       startRecorderNow(recording);
@@ -1381,20 +1505,46 @@ function startRecorderNow(recording: ActiveRecording): void {
   if (recording.cancelled) return;
   try {
     playStartChime();
+    recording.recorder.addEventListener(
+      "start",
+      (event) => {
+        const eventTimeMs = performance.timeOrigin + event.timeStamp;
+        recording.startedAtMs = Number.isFinite(eventTimeMs)
+          ? Math.round(eventTimeMs)
+          : Date.now();
+        recording.duration = startRecordingDuration(recording.startedAtMs);
+        armClipDurationLimit(recording);
+        if (recording.maxDurationMs !== null) {
+          recording.maxDurationTimer = setTimeout(() => {
+            recording.maxDurationTimer = null;
+            if (
+              activeRecording === recording &&
+              recording.recorder.state !== "inactive"
+            ) {
+              recording.recorder.stop();
+            }
+          }, recording.maxDurationMs);
+        }
+        console.log("[clips-offscreen] recorder start event received");
+        reportStatus(recording.sessionId, "recording", {
+          recordingId: recording.recordingId,
+          startedAtMs: recording.startedAtMs,
+          startUncertaintyMs: 1,
+          captureMode: recording.captureQuality,
+          requestedFrameRate: recording.requestedFrameRate,
+          trackReportedFrameRate: recording.trackReportedFrameRate,
+          observedFrameRate: null,
+          width: recording.dimensions.width,
+          height: recording.dimensions.height,
+          hasAudio: recording.hasAudio,
+          hasCamera: recording.hasCamera,
+          mimeType: recording.mimeType,
+        });
+      },
+      { once: true },
+    );
     recording.recorder.start(2000);
     recording.nativeTranscription.start();
-    recording.startedAtMs = Date.now();
-    recording.duration = startRecordingDuration(recording.startedAtMs);
-    armClipDurationLimit(recording);
-    console.log("[clips-offscreen] recorder.start ok");
-    reportStatus(recording.sessionId, "recording", {
-      recordingId: recording.recordingId,
-      width: recording.dimensions.width,
-      height: recording.dimensions.height,
-      hasAudio: recording.hasAudio,
-      hasCamera: recording.hasCamera,
-      mimeType: recording.mimeType,
-    });
   } catch (err) {
     captureExtensionError(err, {
       tags: {
@@ -1580,6 +1730,18 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
         height: recording.dimensions.height,
         hasAudio: recording.hasAudio,
         hasCamera: recording.hasCamera,
+        captureMetadata: JSON.stringify({
+          captureMode: recording.captureQuality,
+          requestedFrameRate: recording.requestedFrameRate,
+          trackReportedFrameRate: recording.trackReportedFrameRate,
+          observedFrameRate: null,
+          width: recording.dimensions.width,
+          height: recording.dimensions.height,
+          startedAtMs: recording.startedAtMs || null,
+          startUncertaintyMs: recording.startedAtMs > 0 ? 1 : null,
+          startClockSource:
+            recording.startedAtMs > 0 ? "media-recorder-start-event" : null,
+        }),
       });
       result = {
         ...result,
@@ -1714,9 +1876,7 @@ async function stop(
   if (!recording || recording.sessionId !== message.sessionId) {
     throw new Error("No active Clips recording was found.");
   }
-  if (recording.startTimer !== null) {
-    clearTimeout(recording.startTimer);
-    recording.startTimer = null;
+  if (clearPendingStart(recording)) {
     recording.cancelled = true;
     cleanup(recording);
     if (activeRecording === recording) activeRecording = null;
@@ -1726,24 +1886,52 @@ async function stop(
   return { ok: true, result: await recording.stopped };
 }
 
-async function cancel(message: SimpleMessage): Promise<{ ok: boolean }> {
+function preparedCaptureReleased(ready: PreparedStreams): boolean {
+  return prepared !== ready || activeRecording !== null;
+}
+
+function isLiveTrack(track: MediaStreamTrack): boolean {
+  return track.readyState === "live";
+}
+
+function clearPendingStart(recording: ActiveRecording): boolean {
+  const pending = recording.startTimer !== null || recording.awaitingStartNow;
+  if (recording.startTimer !== null) clearTimeout(recording.startTimer);
+  recording.startTimer = null;
+  recording.awaitingStartNow = false;
+  return pending;
+}
+
+async function cancel(
+  message: SimpleMessage,
+): Promise<{ ok: boolean; error?: string }> {
   const recording = activeRecording;
   if (recording && recording.sessionId === message.sessionId) {
     recording.cancelled = true;
     recording.nativeTranscription.cancel();
-    if (recording.startTimer !== null) {
-      clearTimeout(recording.startTimer);
-      recording.startTimer = null;
+    clearPendingStart(recording);
+    const outcome = await stopRecorderWithin(
+      recording.recorder,
+      recording.stopped,
+      CANCEL_STOP_TIMEOUT_MS,
+    );
+    if (outcome !== "stopped") {
+      cleanup(recording);
+      if (activeRecording === recording) activeRecording = null;
+      recording.resolveStopped({ ok: true, status: "cancelled" });
     }
-    if (recording.recorder.state !== "inactive") recording.recorder.stop();
-    cleanup(recording);
-    activeRecording = null;
     if (message.failureCode === "user_cancelled") {
       await abortServerUpload(
         recording,
         message.reason ?? "Recording cancelled by user",
         "user_cancelled",
       );
+    }
+    if (outcome === "timed-out") {
+      return {
+        ok: false,
+        error: `The recorder did not confirm it stopped within ${CANCEL_STOP_TIMEOUT_MS / 1000} seconds; its streams were released.`,
+      };
     }
   } else if (prepared && prepared.sessionId === message.sessionId) {
     stopPreparedStreams();
@@ -1752,18 +1940,38 @@ async function cancel(message: SimpleMessage): Promise<{ ok: boolean }> {
   return { ok: true };
 }
 
-function startNow(message: SimpleMessage): { ok: boolean } {
+export function startNow(message: SimpleMessage): {
+  ok: boolean;
+  started: boolean;
+  error?: string;
+} {
   const recording = activeRecording;
   if (
-    recording &&
-    recording.sessionId === message.sessionId &&
-    recording.startTimer !== null
+    !recording ||
+    recording.sessionId !== message.sessionId ||
+    recording.cancelled
   ) {
-    clearTimeout(recording.startTimer);
-    recording.startTimer = null;
-    startRecorderNow(recording);
+    return { ok: true, started: false };
   }
-  return { ok: true };
+  const deferred = recording.awaitingStartNow;
+  if (!clearPendingStart(recording)) {
+    return { ok: true, started: recording.recorder.state !== "inactive" };
+  }
+  const source = recording.displaySource ?? recording.cameraSource;
+  if (deferred && !source?.getVideoTracks().some(isLiveTrack)) {
+    recording.cancelled = true;
+    recording.nativeTranscription.cancel();
+    cleanup(recording);
+    if (activeRecording === recording) activeRecording = null;
+    recording.resolveStopped({ ok: true, status: "cancelled" });
+    return {
+      ok: false,
+      started: false,
+      error: "Capture video track was lost.",
+    };
+  }
+  startRecorderNow(recording);
+  return { ok: true, started: activeRecording === recording };
 }
 
 function getRecordingState(): {
@@ -1771,6 +1979,8 @@ function getRecordingState(): {
   activeSessionId?: string;
   activeRecordingId?: string;
   preparedSessionId?: string;
+  preparedCaptureMode?: CaptureQuality;
+  preparedVideoLive?: boolean;
 } {
   return {
     ok: true,
@@ -1779,6 +1989,15 @@ function getRecordingState(): {
       ? { activeRecordingId: activeRecording.recordingId }
       : {}),
     ...(prepared ? { preparedSessionId: prepared.sessionId } : {}),
+    ...(prepared ? { preparedCaptureMode: prepared.captureQuality } : {}),
+    ...(prepared
+      ? {
+          preparedVideoLive:
+            (prepared.displayStream ?? prepared.cameraStream)
+              ?.getVideoTracks()
+              .some((track) => track.readyState === "live") ?? false,
+        }
+      : {}),
   };
 }
 
@@ -1803,6 +2022,7 @@ async function restart(
   prepared = {
     sessionId: recording.sessionId,
     mode: recording.mode,
+    captureQuality: recording.captureQuality,
     displayStream: recording.displaySource,
     cameraStream: recording.cameraSource,
     micStream: recording.micSource,
@@ -1811,6 +2031,7 @@ async function restart(
     endedListener: null,
     endedTrack: null,
   };
+  schedulePreparedExpiry(recording.sessionId);
   return {
     ok: true,
     width: recording.dimensions.width,
@@ -1839,7 +2060,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       task = stop(message as SimpleMessage);
       break;
     case "CLIPS_OFFSCREEN_CANCEL":
-      task = Promise.resolve(cancel(message as SimpleMessage));
+      task = cancel(message as SimpleMessage);
       break;
     case "CLIPS_OFFSCREEN_RESTART":
       task = restart(message as SimpleMessage);
