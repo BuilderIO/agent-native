@@ -196,7 +196,7 @@ export function ContentTableSurface<Row>({
 }: DataGridProps<Row> & {
   columnOrder: readonly string[];
   frozenThroughColumnId?: string | null;
-  viewportWidth?: number;
+  viewportWidth?: number | undefined;
   gutterWidth?: number;
   onViewportWidthChange?: (width: number) => void;
 }) {

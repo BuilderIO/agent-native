@@ -383,6 +383,24 @@ Permanent deletion requires the exact `planId` and `scopeToken` returned by
 `plan-content-trash-purge`. Inspect the plan's affected and blocked items before
 executing it; if Trash changes after review, create and inspect a new plan.
 
+`list-content-trash` and a matching-mode plan (`filters.where`) take the Trash
+page's filter chips as `where`: people, workspace, location, type, and a deleted
+date range, combined with `and` or `or`. A scope-mode plan ignores filters,
+`where` included, and covers the workspace's whole Trash. One plan holds one
+workspace's pages, so emptying Trash or deleting a selection that spans
+workspaces plans once per workspace. A plan fails with `invalid_scope` in a
+workspace where you are only a viewer, even for pages you own there.
+
+The `content-trash` application state stores the chips as `where`. The
+`content-trash-purges` state holds one `purgeStarts` record per planned
+workspace: plan id, idempotency key, status (`started`, `failed`, or
+`unknown`), the plan's input, and operation id once known. `unknown` means the
+start request may have been accepted. Executing the same plan with the same key
+returns the original operation instead of starting another. Without the scope
+token, send `recover: true` with the plan id and key: it returns the operation
+that key started, fails with `start_pending` while the plan could still start
+(retry later), or with `start_expired` once it never can (plan again).
+
 ## Comments
 
 Comments are Notion/Google-Docs-style **inline comments**. Selecting text and commenting leaves the passage **highlighted inline** via a ProseMirror decoration overlay — nothing is written into the markdown body, so the document round-trips unchanged. Each thread stores the quoted text plus surrounding context (`anchorPrefix`/`anchorSuffix`) and an approximate `anchorStartOffset`, so the highlight follows the text as the document is edited, disambiguates repeated text, and degrades gracefully (the thread stays in the sidebar) when its text is deleted.

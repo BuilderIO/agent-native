@@ -28,7 +28,7 @@ import {
   useRemoveDatabaseItems,
   useUpdateDatabaseItem,
 } from "./use-content-database";
-import { useRestoreTrashItem } from "./use-content-trash";
+import { useRestoreTrashPage } from "./use-content-trash";
 import {
   removeCreatedDocumentNavigation,
   seedCreatedDocumentNavigation,
@@ -756,20 +756,36 @@ describe("Trash writes", () => {
   });
 
   it.each([
-    ["the sidebar", () => useRestoreDocument()],
-    ["the Trash page", () => useRestoreTrashItem()],
+    [
+      "the sidebar",
+      async () => {
+        const restore = await renderHook(() => useRestoreDocument());
+        await act(() => restore.current.mutateAsync({ id: "sibling" }));
+      },
+    ],
+    [
+      "the Trash page",
+      async () => {
+        const restore = await renderHook(() => useRestoreTrashPage());
+        await act(() =>
+          restore.current.mutateAsync({
+            id: "sibling",
+            expectedTrashedAt: "2026-09-14T00:00:00.000Z",
+            idempotencyKey: "restore-sibling",
+          }),
+        );
+      },
+    ],
   ])(
     "restore from %s refreshes every branch, sorted tables, collections, and Trash",
-    async (_surface, hook) => {
+    async (_surface, restore) => {
       await mountReads();
       actionResponses["restore-document"] = {
         success: true,
         restored: 1,
         documentId: "sibling",
       };
-      const restore = await renderHook(hook);
-
-      await act(() => restore.current.mutateAsync({ id: "sibling" }));
+      await restore();
 
       expect(await refetched()).toEqual(
         [
