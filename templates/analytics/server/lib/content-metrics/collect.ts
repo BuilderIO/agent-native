@@ -55,11 +55,15 @@ export async function collectContentForCollection(
   options: {
     trigger: ContentRunTrigger;
     now?: Date;
+    clock?: () => Date;
     signal?: AbortSignal;
     steps?: ContentCollectionStepId[];
   },
 ): Promise<ContentStepRunSummary[]> {
   const now = options.now ?? new Date();
+  const started = Date.now();
+  const clock =
+    options.clock ?? (() => new Date(now.getTime() + Date.now() - started));
   const summaries: ContentStepRunSummary[] = [];
   const steps = options.steps ?? [...CONTENT_COLLECTION_STEPS];
 
@@ -102,7 +106,9 @@ export async function collectContentForCollection(
         () =>
           STEPS[stepId].run({
             collection,
+            runId,
             now,
+            clock,
             ...(options.signal ? { signal: options.signal } : {}),
           }),
       );
@@ -125,7 +131,6 @@ export async function collectContentForCollection(
       const failure = {
         bytesProcessed: result?.outcome.bytesProcessed,
         bytesCap: result?.outcome.bytesCap,
-        costUsd: result?.outcome.costUsd,
         ...contentRunFailureFromError(error),
       };
       await failContentRun(runId, failure);

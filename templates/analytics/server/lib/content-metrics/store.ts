@@ -1,6 +1,17 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { and, desc, eq, gt, gte, inArray, lt, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  lt,
+  ne,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 
 import { getDb, schema } from "../../db/index.js";
 import {
@@ -68,6 +79,16 @@ export type ContentSearchQueryInput = {
   positionWeighted: number;
 };
 
+type ContentRunData = {
+  items?: ContentItemInput[];
+  snapshots?: ContentSnapshotInput[];
+  replaceSnapshots?: boolean;
+  searchQueries?: {
+    weekStarts: string[];
+    rows: ContentSearchQueryInput[];
+  };
+};
+
 export type ContentRunOutcome = {
   rowCount: number;
   detail?: string | null;
@@ -76,7 +97,6 @@ export type ContentRunOutcome = {
   configFingerprint?: string | null;
   bytesProcessed?: number | null;
   bytesCap?: number | null;
-  costUsd?: number | null;
   stopped?: { status: "cost_limited"; errorCode: string; errorMessage: string };
 };
 
@@ -86,7 +106,6 @@ export type ContentRunFailure = {
   errorMessage: string;
   bytesProcessed?: number | null;
   bytesCap?: number | null;
-  costUsd?: number | null;
 };
 
 function nowIso(): string {
@@ -358,6 +377,33 @@ export async function listRecentContentItems(
   source: ContentCollectionStepId,
   publishedSince: string,
 ): Promise<RecentContentItem[]> {
+  return selectContentItems(
+    collection,
+    source,
+    gte(schema.analyticsContentItems.publishedAt, publishedSince),
+    "recent",
+  );
+}
+
+export async function listContentItemsWithRelevance(
+  collection: ContentCollection,
+  source: ContentCollectionStepId,
+  relevance: string,
+): Promise<RecentContentItem[]> {
+  return selectContentItems(
+    collection,
+    source,
+    eq(schema.analyticsContentItems.relevance, relevance),
+    relevance,
+  );
+}
+
+async function selectContentItems(
+  collection: ContentCollection,
+  source: ContentCollectionStepId,
+  filter: SQL,
+  label: string,
+): Promise<RecentContentItem[]> {
   const db = getDb();
   const rows = await db
     .select({
@@ -374,13 +420,13 @@ export async function listRecentContentItems(
       and(
         eq(schema.analyticsContentItems.tenantKey, collection.tenantKey),
         eq(schema.analyticsContentItems.source, source),
-        gte(schema.analyticsContentItems.publishedAt, publishedSince),
+        filter,
       ),
     )
     .limit(CONTENT_ITEMS_PER_SOURCE_LIMIT + 1);
   if (rows.length > CONTENT_ITEMS_PER_SOURCE_LIMIT) {
     throw new Error(
-      `More than ${CONTENT_ITEMS_PER_SOURCE_LIMIT} recent ${source} content items; refusing a partial read.`,
+      `More than ${CONTENT_ITEMS_PER_SOURCE_LIMIT} ${label} ${source} content items; refusing a partial read.`,
     );
   }
   return rows.map(
@@ -521,7 +567,6 @@ export async function failContentRun(
       errorMessage: failure.errorMessage.slice(0, 2000),
       bytesProcessed: failure.bytesProcessed ?? null,
       bytesCap: failure.bytesCap ?? null,
-      costUsd: failure.costUsd ?? null,
     })
     .where(
       and(
@@ -547,22 +592,46 @@ export async function completeContentRun(
   collection: ContentCollection,
   runId: string,
   step: ContentCollectionStepId,
-  data: {
-    items?: ContentItemInput[];
-    snapshots?: ContentSnapshotInput[];
-    replaceSnapshots?: boolean;
-    searchQueries?: {
-      weekStarts: string[];
-      rows: ContentSearchQueryInput[];
-    };
-  },
+  data: ContentRunData,
   outcome: ContentRunOutcome,
 ): Promise<void> {
+  await writeContentRun(
+    collection,
+    runId,
+    step,
+    data,
+    outcome.configFingerprint,
+    {
+      status: outcome.stopped?.status ?? "succeeded",
+      finishedAt: nowIso(),
+      errorCode: outcome.stopped?.errorCode ?? null,
+      errorMessage: outcome.stopped?.errorMessage.slice(0, 2000) ?? null,
+      rowCount: outcome.rowCount,
+      windowStart: outcome.windowStart ?? null,
+      windowEnd: outcome.windowEnd ?? null,
+      configFingerprint: outcome.configFingerprint ?? null,
+      bytesProcessed: outcome.bytesProcessed ?? null,
+      bytesCap: outcome.bytesCap ?? null,
+      detail: outcome.detail ?? null,
+    },
+  );
+}
+
+async function writeContentRun(
+  collection: ContentCollection,
+  runId: string,
+  step: ContentCollectionStepId,
+  data: ContentRunData,
+  configFingerprint: string | null | undefined,
+  run: Partial<typeof schema.analyticsContentCollectionRuns.$inferInsert>,
+  cap?: { since: string; capUsd: number; costUsd: number },
+): Promise<boolean> {
   const db = getDb();
   const timestamp = nowIso();
   const items = data.items ?? [];
   const snapshots = data.snapshots ?? [];
   const searchQueries = data.searchQueries;
+  let written = false;
 
   await db.transaction(async (tx: any) => {
     // Lock in startContentRun's order, collection before run. The share lock
@@ -595,7 +664,7 @@ export async function completeContentRun(
     if (!active) {
       throw Object.assign(
         new Error(
-          "Content run is no longer active; its results were not saved.",
+          "Content run is no longer active, so it stopped; results it had not yet saved were dropped.",
         ),
         {
           errorCode: "content_run_not_active",
@@ -603,16 +672,16 @@ export async function completeContentRun(
       );
     }
     if (
-      outcome.configFingerprint &&
+      configFingerprint &&
       (!saved ||
         contentStepConfigFingerprint(step, toCollection(saved).config) !==
-          outcome.configFingerprint)
+          configFingerprint)
     ) {
       // Failed, unlike succeeded, lets the next scheduled pass collect for the
       // new settings the same day.
       throw Object.assign(
         new Error(
-          "The collection settings changed during this run; its results were not saved.",
+          "The collection settings changed during this run, so it stopped; results it had not yet saved were dropped.",
         ),
         { errorCode: "content_config_changed" },
       );
@@ -757,22 +826,99 @@ export async function completeContentRun(
       }
     }
 
+    if (cap) {
+      const [others] = await tx
+        .select({
+          total: sql<
+            string | number | null
+          >`sum(${schema.analyticsContentCollectionRuns.costUsd})`,
+        })
+        .from(schema.analyticsContentCollectionRuns)
+        .where(
+          and(
+            eq(
+              schema.analyticsContentCollectionRuns.tenantKey,
+              collection.tenantKey,
+            ),
+            eq(schema.analyticsContentCollectionRuns.step, step),
+            gte(schema.analyticsContentCollectionRuns.startedAt, cap.since),
+            ne(schema.analyticsContentCollectionRuns.id, runId),
+          ),
+        );
+      if (
+        micros(Number(others?.total ?? 0)) + micros(cap.costUsd) >
+        micros(cap.capUsd)
+      ) {
+        return;
+      }
+    }
     await tx
       .update(schema.analyticsContentCollectionRuns)
-      .set({
-        status: outcome.stopped?.status ?? "succeeded",
-        finishedAt: nowIso(),
-        errorCode: outcome.stopped?.errorCode ?? null,
-        errorMessage: outcome.stopped?.errorMessage.slice(0, 2000) ?? null,
-        rowCount: outcome.rowCount,
-        windowStart: outcome.windowStart ?? null,
-        windowEnd: outcome.windowEnd ?? null,
-        configFingerprint: outcome.configFingerprint ?? null,
-        bytesProcessed: outcome.bytesProcessed ?? null,
-        bytesCap: outcome.bytesCap ?? null,
-        costUsd: outcome.costUsd ?? null,
-        detail: outcome.detail ?? null,
-      })
+      .set(run)
       .where(eq(schema.analyticsContentCollectionRuns.id, runId));
+    written = true;
   });
+  return written;
+}
+
+function micros(usd: number): number {
+  return Math.round(usd * 1_000_000);
+}
+
+export async function reserveContentRunCost(
+  collection: ContentCollection,
+  runId: string,
+  step: ContentCollectionStepId,
+  reservation: {
+    costUsd: number;
+    since: string;
+    capUsd: number;
+    configFingerprint: string;
+  },
+): Promise<boolean> {
+  return writeContentRun(
+    collection,
+    runId,
+    step,
+    {},
+    reservation.configFingerprint,
+    { costUsd: reservation.costUsd },
+    reservation,
+  );
+}
+
+export async function saveContentRunProgress(
+  collection: ContentCollection,
+  runId: string,
+  step: ContentCollectionStepId,
+  progress: {
+    items: ContentItemInput[];
+    snapshots: ContentSnapshotInput[];
+    costUsd: number;
+    configFingerprint: string;
+  },
+): Promise<void> {
+  await writeContentRun(
+    collection,
+    runId,
+    step,
+    { items: progress.items, snapshots: progress.snapshots },
+    progress.configFingerprint,
+    { costUsd: progress.costUsd },
+  );
+}
+
+export async function settleContentRunCost(
+  runId: string,
+  costUsd: number,
+): Promise<void> {
+  await getDb()
+    .update(schema.analyticsContentCollectionRuns)
+    .set({ costUsd })
+    .where(
+      and(
+        eq(schema.analyticsContentCollectionRuns.id, runId),
+        eq(schema.analyticsContentCollectionRuns.status, "running"),
+      ),
+    );
 }

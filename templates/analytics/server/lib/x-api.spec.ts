@@ -20,6 +20,9 @@ const {
 
 type Handler = (url: URL) => { status?: number; body: unknown };
 
+const NOT_FOUND = "https://api.x.com/2/problems/resource-not-found";
+const USAGE_CAPPED = "https://api.x.com/2/problems/usage-capped";
+
 function first<T>(items: readonly T[]): T {
   const [item] = items;
   if (item === undefined) throw new Error("expected at least one item");
@@ -37,7 +40,10 @@ function serve(handler: Handler) {
         authorization: new Headers(init?.headers).get("authorization"),
       });
       const { status = 200, body } = handler(url);
-      return new Response(JSON.stringify(body), { status });
+      return new Response(
+        typeof body === "string" ? body : JSON.stringify(body),
+        { status },
+      );
     }),
   );
   return requests;
@@ -51,7 +57,7 @@ function rawPost(id: string, extra: Record<string, unknown> = {}) {
     public_metrics: {
       impression_count: 1000,
       like_count: 10,
-      retweet_count: 3,
+      repost_count: 3,
       reply_count: 2,
       quote_count: 1,
       bookmark_count: 4,
@@ -69,62 +75,69 @@ describe("X API client", () => {
     vi.unstubAllGlobals();
   });
 
-  it("looks up accounts by username with the app's Bearer token and names the ones X lacks", async () => {
+  it("looks up accounts by username with the app's Bearer token, telling accounts X lacks from ones it held back", async () => {
     const requests = serve(() => ({
       body: {
         data: [{ id: "111", username: "builderio", name: "Builder.io" }],
-        errors: [{ value: "nobody_here", title: "Not Found Error" }],
+        errors: [
+          { value: "nobody_here", title: "Not Found Error", type: NOT_FOUND },
+          {
+            value: "suspended_one",
+            title: "Forbidden",
+            type: "https://api.x.com/2/problems/resource-unavailable",
+          },
+        ],
       },
     }));
     expect(
-      await lookupXUsers("test-token", ["BuilderIO", "nobody_here"]),
+      await lookupXUsers("test-token", [
+        "BuilderIO",
+        "nobody_here",
+        "suspended_one",
+      ]),
     ).toEqual({
-      users: [{ id: "111", username: "builderio", name: "Builder.io" }],
+      users: [{ id: "111", username: "builderio" }],
+      returned: 1,
       missing: ["nobody_here"],
+      unavailable: ["suspended_one"],
+      problem: null,
     });
     expect(requests).toHaveLength(1);
     expect(first(requests).url.origin).toBe("https://api.x.com");
     expect(first(requests).url.pathname).toBe("/2/users/by");
     expect(first(requests).url.searchParams.get("usernames")).toBe(
-      "BuilderIO,nobody_here",
+      "BuilderIO,nobody_here,suspended_one",
     );
     expect(first(requests).authorization).toBe("Bearer test-token");
   });
 
-  it("asks a timeline for 100 posts a page without reposts or replies, from a since_id or a start time", async () => {
-    const requests = serve((url) => ({
-      body: url.searchParams.get("pagination_token")
-        ? { data: [rawPost("5")], meta: { result_count: 1 } }
-        : {
-            data: [rawPost("9"), rawPost("8")],
-            meta: { result_count: 2, next_token: "page-2" },
-          },
+  it("asks a timeline for a page without reposts or replies, from a since_id or a start time and up to an until_id", async () => {
+    const requests = serve(() => ({
+      body: {
+        data: [rawPost("9"), rawPost("8")],
+        meta: { result_count: 2, next_token: "page-2" },
+      },
     }));
-    const first = await listXUserPostsPage(
-      "test-token",
-      "111",
-      { sinceId: "4" },
-      undefined,
+    expect(
+      await listXUserPostsPage("test-token", "111", { sinceId: "4" }, 100),
+    ).toEqual(
+      expect.objectContaining({
+        returned: 2,
+        newestId: "9",
+        oldestId: "8",
+        oldestAt: "2026-11-20T12:00:00.000Z",
+        more: true,
+        problem: null,
+      }),
     );
-    expect(first.returned).toBe(2);
-    expect(first.nextToken).toBe("page-2");
-    expect(first.posts.map((post) => post.id)).toEqual(["9", "8"]);
-    const second = await listXUserPostsPage(
-      "test-token",
-      "111",
-      { sinceId: "4" },
-      "page-2",
-    );
-    expect(second.nextToken).toBeNull();
     await listXUserPostsPage(
       "test-token",
       "111",
-      { startTime: "2026-10-27T00:00:00Z" },
-      undefined,
+      { startTime: "2026-10-27T00:00:00Z", untilId: "10" },
+      33,
     );
 
     expect(requests.map(({ url }) => url.pathname)).toEqual([
-      "/2/users/111/tweets",
       "/2/users/111/tweets",
       "/2/users/111/tweets",
     ]);
@@ -134,41 +147,147 @@ describe("X API client", () => {
       {
         max_results: "100",
         exclude: "retweets,replies",
-        "tweet.fields": "created_at,public_metrics,entities,note_tweet",
+        "post.fields": "created_at,public_metrics,entities,note_post",
         since_id: "4",
       },
       {
-        max_results: "100",
+        max_results: "33",
         exclude: "retweets,replies",
-        "tweet.fields": "created_at,public_metrics,entities,note_tweet",
-        since_id: "4",
-        pagination_token: "page-2",
-      },
-      {
-        max_results: "100",
-        exclude: "retweets,replies",
-        "tweet.fields": "created_at,public_metrics,entities,note_tweet",
+        "post.fields": "created_at,public_metrics,entities,note_post",
         start_time: "2026-10-27T00:00:00Z",
+        until_id: "10",
       },
     ]);
   });
 
-  it("reads a long post's full text and links, and either name for reposts", () => {
+  it("drops posts outside the asked range but counts them as read", async () => {
+    serve(() => ({
+      body: {
+        data: [rawPost("12"), rawPost("10"), rawPost("9"), rawPost("4")],
+        meta: { result_count: 4 },
+      },
+    }));
+    const page = await listXUserPostsPage(
+      "test-token",
+      "111",
+      { sinceId: "4", untilId: "10" },
+      100,
+    );
+    expect(page.posts.map((post) => post.id)).toEqual(["9"]);
+    expect(page.returned).toBe(4);
+    expect(page.newestId).toBe("9");
+    expect(page.oldestId).toBe("4");
+    expect(page.more).toBe(false);
+  });
+
+  it("reads a page size of 5 to 100 posts only", async () => {
+    const requests = serve(() => ({ body: { meta: { result_count: 0 } } }));
+    for (const size of [4, 101, 7.5]) {
+      await expect(
+        listXUserPostsPage("test-token", "111", { sinceId: "4" }, size),
+      ).rejects.toMatchObject({ errorCode: "x_page_size_invalid", billed: 0 });
+    }
+    expect(requests).toEqual([]);
+  });
+
+  it("tells a confirmed empty timeline from an answer with neither posts nor a count, and names an account X lacks or holds back", async () => {
+    serve(() => ({ body: { meta: { result_count: 0 } } }));
+    expect(
+      await listXUserPostsPage("test-token", "111", { sinceId: "4" }, 100),
+    ).toEqual({
+      posts: [],
+      returned: 0,
+      newestId: null,
+      oldestId: null,
+      oldestAt: null,
+      more: false,
+      problem: null,
+    });
+    serve(() => ({ body: {} }));
+    await expect(
+      listXUserPostsPage("test-token", "111", { sinceId: "4" }, 100),
+    ).rejects.toMatchObject({ errorCode: "x_unexpected_response", billed: 0 });
+    serve(() => ({
+      body: {
+        errors: [
+          {
+            resource_id: "111",
+            title: "Not Found Error",
+            detail: "Could not find user with id: [111].",
+            type: NOT_FOUND,
+          },
+        ],
+      },
+    }));
+    await expect(
+      listXUserPostsPage("test-token", "111", { sinceId: "4" }, 100),
+    ).rejects.toMatchObject({ errorCode: "x_account_not_found", billed: 0 });
+    serve(() => ({
+      body: {
+        errors: [
+          {
+            resource_id: "111",
+            title: "Authorization Error",
+            type: "https://api.x.com/2/problems/not-authorized-for-resource",
+          },
+        ],
+      },
+    }));
+    await expect(
+      listXUserPostsPage("test-token", "111", { sinceId: "4" }, 100),
+    ).rejects.toMatchObject({ errorCode: "x_account_unavailable", billed: 0 });
+  });
+
+  it("keeps the posts of a page that came with X's spending limit and hands the limit back", async () => {
+    serve(() => ({
+      body: {
+        data: [rawPost("9")],
+        errors: [{ title: "Usage capped", type: USAGE_CAPPED }],
+        meta: { result_count: 1 },
+      },
+    }));
+    const page = await listXUserPostsPage(
+      "test-token",
+      "111",
+      { sinceId: "4" },
+      100,
+    );
+    expect(page.posts.map((post) => post.id)).toEqual(["9"]);
+    expect(page.problem).toMatchObject({
+      errorCode: "x_spending_limit_reached",
+      billed: 1,
+    });
+  });
+
+  it("fails visibly, naming post.fields, when posts lack the fields it asks for", async () => {
+    serve(() => ({
+      body: {
+        data: [rawPost("9"), { id: "8", text: "No metrics" }],
+        meta: { result_count: 2 },
+      },
+    }));
+    const failure = listXUserPostsPage(
+      "test-token",
+      "111",
+      { sinceId: "4" },
+      100,
+    );
+    await expect(failure).rejects.toMatchObject({
+      errorCode: "x_fields_missing",
+      billed: 2,
+    });
+    await expect(failure).rejects.toThrow(
+      "post.fields=created_at,public_metrics,entities,note_post",
+    );
+  });
+
+  it("reads a long post's note_post text and a link that only the note carries, and either name for reposts", () => {
     expect(
       parseXPost(
         rawPost("1", {
-          text: "Short version https://t.co/a",
-          entities: {
-            urls: [
-              {
-                url: "https://t.co/a",
-                expanded_url: "https://www.builder.io/blog/x",
-                display_url: "builder.io/blog/x",
-              },
-            ],
-          },
-          note_tweet: {
-            text: "The whole long post https://t.co/b",
+          text: "The first 280 characters of a long post…",
+          note_post: {
+            text: "The whole long post, with the write-up at https://t.co/b",
             entities: {
               urls: [
                 {
@@ -184,14 +303,8 @@ describe("X API client", () => {
     ).toEqual({
       id: "1",
       createdAt: "2026-11-20T12:00:00.000Z",
-      text: "The whole long post https://t.co/b",
+      text: "The whole long post, with the write-up at https://t.co/b",
       links: [
-        {
-          url: "https://t.co/a",
-          expandedUrl: "https://www.builder.io/blog/x",
-          unwoundUrl: null,
-          displayUrl: "builder.io/blog/x",
-        },
         {
           url: "https://t.co/b",
           expandedUrl: "https://agent-native.com/docs",
@@ -212,33 +325,63 @@ describe("X API client", () => {
       parseXPost({
         id: "2",
         created_at: "2026-11-20T12:00:00.000Z",
-        note_post: { text: "Renamed note" },
-        public_metrics: { repost_count: 7 },
+        note_tweet: { text: "Older note name" },
+        public_metrics: { retweet_count: 7 },
       }),
     ).toEqual(
       expect.objectContaining({
-        text: "Renamed note",
+        text: "Older note name",
         metrics: expect.objectContaining({ reposts: 7, views: null }),
       }),
     );
+    expect(parseXPost({ id: "3", text: "No created_at" })).toBeNull();
   });
 
-  it("looks posts up by id and names the ones X reports gone", async () => {
+  it("looks posts up by id, telling posts X reports gone from ones it held back", async () => {
     const requests = serve(() => ({
       body: {
         data: [rawPost("1")],
-        errors: [{ resource_id: "2", title: "Not Found Error" }],
+        errors: [
+          { resource_id: "2", title: "Not Found Error", type: NOT_FOUND },
+          {
+            resource_id: "3",
+            title: "Authorization Error",
+            type: "https://api.x.com/2/problems/not-authorized-for-resource",
+          },
+        ],
       },
     }));
-    const result = await lookupXPosts("test-token", ["1", "2", "3"]);
+    const result = await lookupXPosts("test-token", ["1", "2", "3", "4"]);
     expect(result.returned).toBe(1);
     expect(result.posts.map((post) => post.id)).toEqual(["1"]);
-    expect(result.missing).toEqual(["2"]);
+    expect(result.gone).toEqual(["2"]);
+    expect(result.unavailable).toEqual(["3", "4"]);
+    expect(result.problem).toBeNull();
     expect(first(requests).url.pathname).toBe("/2/tweets");
-    expect(first(requests).url.searchParams.get("ids")).toBe("1,2,3");
-    expect(first(requests).url.searchParams.get("tweet.fields")).toBe(
-      "created_at,public_metrics,entities,note_tweet",
+    expect(first(requests).url.searchParams.get("ids")).toBe("1,2,3,4");
+    expect(first(requests).url.searchParams.get("post.fields")).toBe(
+      "created_at,public_metrics,entities,note_post",
     );
+  });
+
+  it("keeps the posts of a lookup that came with X's spending limit, and fails one with nothing to show", async () => {
+    serve(() => ({
+      body: {
+        data: [rawPost("1")],
+        errors: [{ title: "Usage capped", type: USAGE_CAPPED }],
+      },
+    }));
+    const result = await lookupXPosts("test-token", ["1", "2"]);
+    expect(result.posts.map((post) => post.id)).toEqual(["1"]);
+    expect(result.problem).toMatchObject({
+      errorCode: "x_spending_limit_reached",
+      billed: 1,
+    });
+    serve(() => ({ body: {} }));
+    await expect(lookupXPosts("test-token", ["1"])).rejects.toMatchObject({
+      errorCode: "x_unexpected_response",
+      billed: 0,
+    });
   });
 
   it("stops a lookup of more posts than one request takes", async () => {
@@ -248,7 +391,7 @@ describe("X API client", () => {
         "test-token",
         Array.from({ length: 101 }, (_, index) => String(index)),
       ),
-    ).rejects.toMatchObject({ errorCode: "x_too_many_posts" });
+    ).rejects.toMatchObject({ errorCode: "x_too_many_posts", billed: 0 });
   });
 
   it("names a missing token as not set up", async () => {
@@ -266,6 +409,7 @@ describe("X API client", () => {
     }));
     await expect(lookupXPosts("test-token", ["1"])).rejects.toMatchObject({
       errorCode: "x_spending_limit_reached",
+      billed: 0,
     });
     serve(() => ({
       status: 429,
@@ -285,6 +429,24 @@ describe("X API client", () => {
     serve(() => ({ status: 401, body: { title: "Unauthorized" } }));
     await expect(lookupXPosts("test-token", ["1"])).rejects.toMatchObject({
       errorCode: "x_token_rejected",
+    });
+  });
+
+  it("leaves what a request cost unknown when X's answer can't be read or X failed", async () => {
+    serve(() => ({ status: 503, body: { title: "Service Unavailable" } }));
+    await expect(lookupXPosts("test-token", ["1"])).rejects.toMatchObject({
+      errorCode: "x_request_failed",
+      billed: null,
+    });
+    serve(() => ({ body: "<html>upstream reset</html>" }));
+    await expect(lookupXPosts("test-token", ["1"])).rejects.toMatchObject({
+      errorCode: "x_unexpected_response",
+      billed: null,
+    });
+    serve(() => ({ body: { data: { id: "1" } } }));
+    await expect(lookupXPosts("test-token", ["1"])).rejects.toMatchObject({
+      errorCode: "x_unexpected_response",
+      billed: null,
     });
   });
 

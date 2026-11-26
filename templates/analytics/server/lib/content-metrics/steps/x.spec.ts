@@ -269,15 +269,11 @@ describe("X month-end projection", () => {
       countedPosts: [],
       postsPerDay: 0,
       countedPerDay: 0,
-      lookupsPerDay: 0,
       includeDay30: true,
     };
     expect(projectXMonthSpend(base)).toBe(1_000_000);
     expect(projectXMonthSpend({ ...base, postsPerDay: 10 })).toBe(
       1_000_000 + 10 * 10 * 5_000,
-    );
-    expect(projectXMonthSpend({ ...base, lookupsPerDay: 1 })).toBe(
-      1_000_000 + 10 * 10_000,
     );
     expect(
       projectXMonthSpend({
@@ -303,7 +299,6 @@ describe("X month-end projection", () => {
       countedPosts: [old],
       postsPerDay: 0,
       countedPerDay: 0,
-      lookupsPerDay: 0,
     };
     expect(projectXMonthSpend({ ...base, includeDay30: true })).toBe(5_000);
     expect(projectXMonthSpend({ ...base, includeDay30: false })).toBe(0);

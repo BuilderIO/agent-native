@@ -3,12 +3,15 @@ import {
   listXUserPostsPage,
   lookupXPosts,
   lookupXUsers,
+  X_MIN_PAGE_SIZE,
   X_PAGE_SIZE,
   X_POST_READ_USD,
   X_USER_READ_USD,
   xBearerToken,
+  xErrorBilled,
   type XPost,
-  type XTimelineStart,
+  type XRequestError,
+  type XTimelineRange,
   type XUser,
 } from "../../x-api.js";
 import {
@@ -19,7 +22,11 @@ import {
 import { ContentStepStop, type ContentStep } from "../step.js";
 import {
   contentRunCostSince,
+  listContentItemsWithRelevance,
   listRecentContentItems,
+  reserveContentRunCost,
+  saveContentRunProgress,
+  settleContentRunCost,
   type ContentItemInput,
   type ContentRunOutcome,
   type ContentSnapshotInput,
@@ -41,6 +48,8 @@ export const X_CHECKPOINT_DAYS = [1, 3, 7, 30] as const;
 export const X_CHECKPOINT_WINDOW_HOURS = 30;
 export const X_BACKFILL_DAYS = 30;
 export const X_MAX_TIMELINE_PAGES = 8;
+export const X_TIMELINE_POST_LIMIT = 800;
+export const X_ACCOUNT_RELEVANCE = "account";
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -195,7 +204,6 @@ export type XProjectionInput = {
   countedPosts: Array<{ publishedAt: string; lastReadAt: string }>;
   postsPerDay: number;
   countedPerDay: number;
-  lookupsPerDay: number;
   includeDay30: boolean;
 };
 
@@ -230,17 +238,9 @@ export function projectXMonthSpend(input: XProjectionInput): number {
     const rereads = checkpoints.filter(
       (days) => day + 12 * HOUR_MS + days * DAY_MS < end.getTime(),
     ).length;
-    future +=
-      (input.postsPerDay + input.countedPerDay * rereads) * POST_MICROS +
-      input.lookupsPerDay * USER_MICROS;
+    future += (input.postsPerDay + input.countedPerDay * rereads) * POST_MICROS;
   }
   return Math.round(input.spentMicros + reads * POST_MICROS + future);
-}
-
-function newerId(a: string | null, b: string): string {
-  if (a === null) return b;
-  if (a.length !== b.length) return a.length > b.length ? a : b;
-  return a > b ? a : b;
 }
 
 function dollars(micros: number): string {
@@ -253,6 +253,10 @@ function plural(count: number, one: string, many: string): string {
 
 function textValue(value: unknown): string | null {
   return typeof value === "string" && value ? value : null;
+}
+
+function day(iso: string): string {
+  return iso.slice(0, 10);
 }
 
 type ReadPost = {
@@ -293,11 +297,7 @@ function postSnapshots(
   );
 }
 
-export function xPostItem(
-  read: ReadPost,
-  now: Date,
-  extra: Record<string, unknown> = {},
-): ContentItemInput {
+export function xPostItem(read: ReadPost, now: Date): ContentItemInput {
   const { post, user, countedBy } = read;
   return {
     source: "x",
@@ -313,22 +313,67 @@ export function xPostItem(
       username: user.username,
       countedBy,
       ...(countedBy ? { lastReadAt: now.toISOString() } : {}),
-      ...extra,
     },
+  };
+}
+
+type XCursor = {
+  sinceId: string | null;
+  sinceAt: string | null;
+  startTime: string | null;
+  untilId: string | null;
+  untilAt: string | null;
+  topId: string | null;
+  topAt: string | null;
+  scanCount: number;
+};
+
+const NO_CURSOR: XCursor = {
+  sinceId: null,
+  sinceAt: null,
+  startTime: null,
+  untilId: null,
+  untilAt: null,
+  topId: null,
+  topAt: null,
+  scanCount: 0,
+};
+
+function readCursor(metadata: Record<string, unknown>): XCursor {
+  return {
+    sinceId: textValue(metadata.sinceId),
+    sinceAt: textValue(metadata.sinceAt),
+    startTime: textValue(metadata.startTime),
+    untilId: textValue(metadata.untilId),
+    untilAt: textValue(metadata.untilAt),
+    topId: textValue(metadata.topId),
+    topAt: textValue(metadata.topAt),
+    scanCount: typeof metadata.scanCount === "number" ? metadata.scanCount : 0,
+  };
+}
+
+function accountItem(user: XUser, cursor: XCursor): ContentItemInput {
+  return {
+    source: "x",
+    externalId: `account:${user.id}`,
+    url: `https://x.com/${encodeURIComponent(user.username)}`,
+    title: `@${user.username}`,
+    author: `@${user.username}`,
+    authors: [`@${user.username}`],
+    publishedAt: null,
+    relevance: X_ACCOUNT_RELEVANCE,
+    metadata: { authorId: user.id, username: user.username, ...cursor },
   };
 }
 
 class XSpend {
   postReads = 0;
   userReads = 0;
+  runMicros = 0;
   readonly spentBeforeMicros: number;
 
   constructor(spentBeforeMicros: number) {
     this.spentBeforeMicros = spentBeforeMicros;
-  }
-
-  get runMicros(): number {
-    return this.postReads * POST_MICROS + this.userReads * USER_MICROS;
   }
 
   get monthMicros(): number {
@@ -346,13 +391,10 @@ class XSpend {
 
 class XCapReached extends Error {}
 
-function timelineStart(sinceId: string | null, now: Date): XTimelineStart {
-  if (sinceId) return { sinceId };
-  return {
-    startTime: new Date(now.getTime() - X_BACKFILL_DAYS * DAY_MS)
-      .toISOString()
-      .replace(/\.\d{3}Z$/, "Z"),
-  };
+class XMonthEnded extends Error {}
+
+function isoSeconds(date: Date): string {
+  return date.toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
 type StoredCountedPost = {
@@ -376,7 +418,7 @@ function storedCountedPost(item: RecentContentItem): StoredCountedPost | null {
 
 export const xStep: ContentStep = {
   id: "x",
-  async run({ collection, now, signal }) {
+  async run({ collection, runId, now, clock, signal }) {
     const config = collection.config.x;
     if (config.accounts.length === 0) {
       throw new ContentStepStop({
@@ -399,101 +441,232 @@ export const xStep: ContentStep = {
       });
     }
     const token = await xBearerToken();
+    const fingerprint = xConfigFingerprint(config);
     const month = monthBounds(now);
-    const spentBefore = await contentRunCostSince(
-      collection,
-      "x",
-      month.start.toISOString(),
+    const monthName = now.toLocaleString("en-US", {
+      month: "long",
+      year: "numeric",
+      timeZone: "UTC",
+    });
+    const spend = new XSpend(
+      Math.round(
+        (await contentRunCostSince(
+          collection,
+          "x",
+          month.start.toISOString(),
+        )) * MICROS,
+      ),
     );
-    const spend = new XSpend(Math.round(spentBefore * MICROS));
     const recent = await listRecentContentItems(
       collection,
       "x",
       new Date(now.getTime() - RECENT_DAYS * DAY_MS).toISOString(),
     );
+    const accountItems = await listContentItemsWithRelevance(
+      collection,
+      "x",
+      X_ACCOUNT_RELEVANCE,
+    );
     const readDate = utcDate(now);
+    const backfillStart = new Date(now.getTime() - X_BACKFILL_DAYS * DAY_MS);
     const rule = { links: config.links, terms: config.terms };
-    const items: ContentItemInput[] = [];
-    const snapshots: ContentSnapshotInput[] = [];
     const fresh: ReadPost[] = [];
+    const seen = new Set<string>();
+    const notes: string[] = [];
+    let rowCount = 0;
     let stopped: ContentRunOutcome["stopped"];
     let skippedDay30 = 0;
     let rereads = 0;
     let projection: number | null = null;
 
+    const save = async (
+      items: ContentItemInput[],
+      snapshots: ContentSnapshotInput[],
+    ) => {
+      await saveContentRunProgress(collection, runId, "x", {
+        items,
+        snapshots,
+        costUsd: spend.runMicros / MICROS,
+        configFingerprint: fingerprint,
+      });
+      rowCount += snapshots.length;
+    };
+
+    const charge = (
+      kind: "post" | "user",
+      billed: number | null,
+      worstMicros: number,
+    ) => {
+      const unit = kind === "post" ? POST_MICROS : USER_MICROS;
+      spend.runMicros += billed === null ? worstMicros : billed * unit;
+      if (kind === "post") spend.postReads += billed ?? 0;
+      else spend.userReads += billed ?? 0;
+    };
+
+    const dispatch = async <T>(
+      kind: "post" | "user",
+      worst: number,
+      request: () => Promise<T>,
+      billedOf: (result: T) => number,
+    ): Promise<T> => {
+      const worstMicros = worst * (kind === "post" ? POST_MICROS : USER_MICROS);
+      if (clock().toISOString().slice(0, 7) !== readDate.slice(0, 7)) {
+        throw new XMonthEnded();
+      }
+      if (!spend.affords(worstMicros)) throw new XCapReached();
+      const reserved = await reserveContentRunCost(collection, runId, "x", {
+        costUsd: (spend.runMicros + worstMicros) / MICROS,
+        since: month.start.toISOString(),
+        capUsd: X_MONTHLY_CAP_USD,
+        configFingerprint: fingerprint,
+      });
+      if (!reserved) throw new XCapReached();
+      try {
+        const result = await request();
+        charge(kind, billedOf(result), worstMicros);
+        return result;
+      } catch (error) {
+        charge(kind, xErrorBilled(error), worstMicros);
+        throw error;
+      }
+    };
+
     try {
-      const known = new Map<string, XUser>();
-      for (const item of recent) {
+      const known = new Map<string, { user: XUser; cursor: XCursor }>();
+      for (const item of accountItems) {
         const id = textValue(item.metadata.authorId);
         const username = textValue(item.metadata.username);
         if (id && username) {
-          known.set(username.toLowerCase(), { id, username, name: username });
+          known.set(username.toLowerCase(), {
+            user: { id, username },
+            cursor: readCursor(item.metadata),
+          });
         }
       }
       const unknown = config.accounts
         .map((account) => account.handle.slice(1))
         .filter((name) => !known.has(name.toLowerCase()));
+      let missing: string[] = [];
+      let problem: XRequestError | null = null;
       if (unknown.length > 0) {
-        if (!spend.affords(unknown.length * USER_MICROS)) {
-          throw new XCapReached();
-        }
-        const lookup = await lookupXUsers(token, unknown, signal);
-        spend.userReads += lookup.users.length;
+        const lookup = await dispatch(
+          "user",
+          unknown.length,
+          () => lookupXUsers(token, unknown, signal),
+          (result) => result.returned,
+        );
         for (const user of lookup.users) {
-          known.set(user.username.toLowerCase(), user);
+          known.set(user.username.toLowerCase(), { user, cursor: NO_CURSOR });
         }
-        if (lookup.missing.length > 0) {
-          throw Object.assign(
-            new Error(
-              `X has no account ${lookup.missing.map((name) => `@${name}`).join(", ")}. Check the collection's X accounts.`,
-            ),
-            { errorCode: "x_account_not_found" },
+        missing = lookup.missing;
+        problem = lookup.problem;
+        if (lookup.unavailable.length > 0) {
+          notes.push(
+            `X didn't return ${lookup.unavailable.map((name) => `@${name}`).join(", ")}, so they were skipped.`,
           );
         }
       }
       const accounts = config.accounts.flatMap((account) => {
-        const user = known.get(account.handle.slice(1).toLowerCase());
-        return user ? [{ account, user }] : [];
+        const entry = known.get(account.handle.slice(1).toLowerCase());
+        return entry ? [{ account, ...entry }] : [];
       });
       const usersById = new Map(accounts.map(({ user }) => [user.id, user]));
+      await save(
+        accounts.map(({ user, cursor }) => accountItem(user, cursor)),
+        [],
+      );
+      if (missing.length > 0) {
+        throw Object.assign(
+          new Error(
+            `X has no account ${missing.map((name) => `@${name}`).join(", ")}. Check the collection's X accounts.`,
+          ),
+          { errorCode: "x_account_not_found" },
+        );
+      }
+      if (problem) throw problem;
 
-      for (const { account, user } of accounts) {
-        let sinceId: string | null = null;
-        for (const item of recent) {
-          if (item.metadata.authorId === user.id) {
-            sinceId = newerId(sinceId, item.externalId);
-          }
+      for (const { account, user, cursor: saved } of accounts) {
+        let cursor = saved;
+        if (
+          !cursor.untilId &&
+          cursor.sinceAt &&
+          Date.parse(cursor.sinceAt) < backfillStart.getTime()
+        ) {
+          cursor = NO_CURSOR;
         }
-        const start = timelineStart(sinceId, now);
-        const posts: XPost[] = [];
-        let pageToken: string | undefined;
-        for (let page = 0; page < X_MAX_TIMELINE_PAGES; page += 1) {
-          if (!spend.affords(X_PAGE_SIZE * POST_MICROS)) {
-            throw new XCapReached();
+        let reopen = cursor.untilId !== null;
+        for (let pages = 0; ; pages += 1) {
+          if (pages === X_MAX_TIMELINE_PAGES) {
+            if (cursor.untilId) {
+              notes.push(
+                `@${user.username} has older posts left to read; the next run reads on.`,
+              );
+            }
+            break;
           }
-          const result = await listXUserPostsPage(
-            token,
-            user.id,
-            start,
-            pageToken,
-            signal,
-          );
-          spend.postReads += result.returned;
-          posts.push(...result.posts);
-          if (!result.nextToken) break;
-          pageToken = result.nextToken;
-        }
-        for (const post of posts) {
-          const read = {
-            post,
-            user,
-            countedBy: xCountedBy(post, account, rule),
+          const startTime = cursor.startTime ?? isoSeconds(backfillStart);
+          const range: XTimelineRange = {
+            ...(cursor.sinceId ? { sinceId: cursor.sinceId } : { startTime }),
+            ...(cursor.untilId ? { untilId: cursor.untilId } : {}),
           };
-          fresh.push(read);
-          items.push(xPostItem(read, now));
-          if (read.countedBy) {
-            snapshots.push(...postSnapshots(post, readDate, now));
+          const size = Math.min(
+            X_PAGE_SIZE,
+            Math.floor(spend.leftMicros / POST_MICROS),
+          );
+          if (size < X_MIN_PAGE_SIZE) throw new XCapReached();
+          const page = await dispatch(
+            "post",
+            size,
+            () => listXUserPostsPage(token, user.id, range, size, signal),
+            (result) => result.returned,
+          );
+          const items: ContentItemInput[] = [];
+          const snapshots: ContentSnapshotInput[] = [];
+          for (const post of page.posts) {
+            if (seen.has(post.id)) continue;
+            seen.add(post.id);
+            const read = {
+              post,
+              user,
+              countedBy: xCountedBy(post, account, rule),
+            };
+            fresh.push(read);
+            items.push(xPostItem(read, now));
+            if (read.countedBy) {
+              snapshots.push(...postSnapshots(post, readDate, now));
+            }
           }
+          const newest = page.posts.find((post) => post.id === page.newestId);
+          const topId = cursor.topId ?? page.newestId;
+          const topAt = cursor.topAt ?? newest?.createdAt ?? null;
+          const scanned = !page.more || !page.oldestId;
+          const scanCount = cursor.scanCount + page.returned;
+          if (scanned && scanCount >= X_TIMELINE_POST_LIMIT) {
+            const oldestAt = page.oldestAt ?? cursor.untilAt;
+            notes.push(
+              `X serves only an account's ${X_TIMELINE_POST_LIMIT} newest posts without replies, so @${user.username}'s posts ${oldestAt ? `older than ${day(oldestAt)} ` : ""}may not all have been read.`,
+            );
+          }
+          cursor = scanned
+            ? {
+                ...NO_CURSOR,
+                sinceId: topId ?? cursor.sinceId,
+                sinceAt: topId ? topAt : cursor.sinceAt,
+              }
+            : {
+                ...cursor,
+                startTime: cursor.sinceId ? null : startTime,
+                untilId: page.oldestId,
+                untilAt: page.oldestAt,
+                topId,
+                topAt,
+                scanCount,
+              };
+          await save([...items, accountItem(user, cursor)], snapshots);
+          if (page.problem) throw page.problem;
+          if (!scanned) continue;
+          if (!reopen) break;
+          reopen = false;
         }
       }
 
@@ -506,26 +679,21 @@ export const xStep: ContentStep = {
           ? [counted]
           : [];
       });
-      const windowStart = now.getTime() - X_BACKFILL_DAYS * DAY_MS;
       const lately = new Map<string, boolean>();
       for (const item of recent) {
         if (
           usersById.has(String(item.metadata.authorId)) &&
           item.publishedAt &&
-          Date.parse(item.publishedAt) >= windowStart
+          Date.parse(item.publishedAt) >= backfillStart.getTime()
         ) {
           lately.set(item.externalId, item.relevance === "counted");
         }
       }
       for (const { post, countedBy } of fresh) {
-        if (Date.parse(post.createdAt) >= windowStart) {
+        if (Date.parse(post.createdAt) >= backfillStart.getTime()) {
           lately.set(post.id, countedBy !== null);
         }
       }
-      const postedBy = new Set([
-        ...recent.map((item) => String(item.metadata.authorId)),
-        ...fresh.map(({ user }) => user.id),
-      ]);
       const projectionInput = {
         now,
         spentMicros: spend.monthMicros,
@@ -544,8 +712,6 @@ export const xStep: ContentStep = {
         postsPerDay: lately.size / X_BACKFILL_DAYS,
         countedPerDay:
           [...lately.values()].filter(Boolean).length / X_BACKFILL_DAYS,
-        lookupsPerDay: accounts.filter(({ user }) => !postedBy.has(user.id))
-          .length,
       };
       projection = projectXMonthSpend({
         ...projectionInput,
@@ -567,65 +733,85 @@ export const xStep: ContentStep = {
         .sort((a, b) => a.days - b.days);
       const reading = due.filter(({ days }) => includeDay30 || days !== 30);
       skippedDay30 = due.length - reading.length;
+      let held = 0;
       for (let start = 0; start < reading.length; start += X_PAGE_SIZE) {
         const batch = reading.slice(start, start + X_PAGE_SIZE);
         const take = batch.slice(
           0,
           Math.max(0, Math.floor(spend.leftMicros / POST_MICROS)),
         );
-        if (take.length > 0) {
-          const result = await lookupXPosts(
-            token,
-            take.map(({ item }) => item.externalId),
-            signal,
-          );
-          spend.postReads += result.returned;
-          const byId = new Map(take.map(({ item }) => [item.externalId, item]));
-          for (const post of result.posts) {
-            const item = byId.get(post.id);
-            const user = usersById.get(String(item?.metadata.authorId));
-            if (!item || !user) continue;
-            rereads += 1;
-            items.push(
-              xPostItem(
-                {
-                  post,
-                  user,
-                  countedBy: textValue(item.metadata.countedBy) ?? "counted",
-                },
-                now,
-              ),
-            );
-            snapshots.push(...postSnapshots(post, readDate, now));
-          }
-          for (const id of result.missing) {
-            const item = byId.get(id);
-            if (!item) continue;
-            items.push({
-              source: "x",
-              externalId: item.externalId,
-              url: item.url,
-              title: item.title,
-              author: item.author,
-              authors: item.author ? [item.author] : [],
-              publishedAt: item.publishedAt,
-              relevance: item.relevance,
-              metadata: {
-                ...item.metadata,
-                unavailableSince: now.toISOString(),
+        if (take.length === 0) throw new XCapReached();
+        const result = await dispatch(
+          "post",
+          take.length,
+          () =>
+            lookupXPosts(
+              token,
+              take.map(({ item }) => item.externalId),
+              signal,
+            ),
+          (lookup) => lookup.returned,
+        );
+        const byId = new Map(take.map(({ item }) => [item.externalId, item]));
+        const items: ContentItemInput[] = [];
+        const snapshots: ContentSnapshotInput[] = [];
+        for (const post of result.posts) {
+          const item = byId.get(post.id);
+          const user = usersById.get(String(item?.metadata.authorId));
+          if (!item || !user) continue;
+          rereads += 1;
+          items.push(
+            xPostItem(
+              {
+                post,
+                user,
+                countedBy: textValue(item.metadata.countedBy) ?? "counted",
               },
-            });
-          }
+              now,
+            ),
+          );
+          snapshots.push(...postSnapshots(post, readDate, now));
         }
+        for (const id of result.gone) {
+          const item = byId.get(id);
+          if (!item) continue;
+          items.push({
+            source: "x",
+            externalId: item.externalId,
+            url: item.url,
+            title: item.title,
+            author: item.author,
+            authors: item.author ? [item.author] : [],
+            publishedAt: item.publishedAt,
+            relevance: item.relevance,
+            metadata: {
+              ...item.metadata,
+              unavailableSince: now.toISOString(),
+            },
+          });
+        }
+        held += result.unavailable.length;
+        await save(items, snapshots);
+        if (result.problem) throw result.problem;
         if (take.length < batch.length) throw new XCapReached();
       }
+      if (held > 0) {
+        notes.push(
+          `X held back ${plural(held, "post", "posts")} due a re-read without saying ${held === 1 ? "it was" : "they were"} deleted; the next run tries again while the window is open.`,
+        );
+      }
     } catch (error) {
+      await settleContentRunCost(runId, spend.runMicros / MICROS);
       if (error instanceof XCapReached) {
         stopped = {
           status: "cost_limited",
           errorCode: "x_monthly_cap",
-          errorMessage: `Stopped before the ${dollars(CAP_MICROS)} monthly X cap: ${dollars(spend.monthMicros)} spent this month, ${dollars(spend.runMicros)} of it in this run.`,
+          errorMessage: `Stopped before the ${dollars(CAP_MICROS)} monthly X cap: ${dollars(spend.monthMicros)} spent in ${monthName} (UTC), ${dollars(spend.runMicros)} of it in this run.`,
         };
+      } else if (error instanceof XMonthEnded) {
+        notes.push(
+          `The UTC month ended during this run, so it stopped to keep its reads in ${monthName}; the next run reads on.`,
+        );
       } else if (isXSpendingLimitError(error)) {
         stopped = {
           status: "cost_limited",
@@ -633,9 +819,6 @@ export const xStep: ContentStep = {
           errorMessage: error instanceof Error ? error.message : String(error),
         };
       } else {
-        if (error instanceof Error) {
-          Object.assign(error, { costUsd: spend.runMicros / MICROS });
-        }
         throw error;
       }
     }
@@ -643,22 +826,20 @@ export const xStep: ContentStep = {
     const newCounted = fresh.filter(({ countedBy }) => countedBy !== null);
     const detail = [
       `Read ${plural(spend.postReads, "post", "posts")} and ${plural(spend.userReads, "account", "accounts")} (${dollars(spend.runMicros)}): ${newCounted.length} of ${plural(fresh.length, "new post", "new posts")} counted, ${plural(rereads, "re-read", "re-reads")}.`,
-      `This month: ${dollars(spend.monthMicros)} of the ${dollars(CAP_MICROS)} cap${projection === null ? "" : `; month-end projection ${dollars(projection)}`}.`,
+      `${monthName} (UTC): ${dollars(spend.monthMicros)} of the ${dollars(CAP_MICROS)} cap${projection === null ? "" : `; month-end projection ${dollars(projection)}`}.`,
       ...(skippedDay30 > 0
         ? [
             `Skipped ${plural(skippedDay30, "30-day re-read", "30-day re-reads")} to keep the projection under the cap.`,
           ]
         : []),
+      ...notes,
     ].join(" ");
     return {
-      items,
-      snapshots,
       outcome: {
-        rowCount: snapshots.length,
+        rowCount,
         windowStart: readDate,
         windowEnd: readDate,
-        configFingerprint: xConfigFingerprint(config),
-        costUsd: spend.runMicros / MICROS,
+        configFingerprint: fingerprint,
         detail,
         ...(stopped ? { stopped } : {}),
       },
