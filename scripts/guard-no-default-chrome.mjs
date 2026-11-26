@@ -16,7 +16,7 @@
  *
  * What it deliberately cannot see: whether a sentence you wrote earns its place.
  * These four detectors cover structure only. The judgment half lives in
- * `.agents/skills/frontend-design` → Keep the starting view focused, and pretending
+ * `.agents/skills/frontend-design` → Default Surface Density, and pretending
  * otherwise would make a green run read as "the surface is clean" when it only
  * means "no new instance of four known shapes".
  */
