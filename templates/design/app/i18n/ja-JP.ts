@@ -861,6 +861,10 @@ export default {
     exportPreview: {
       rendering: "プレビューを生成中…",
       failed: "プレビューを表示できません",
+      noPreview: "プレビューする画面がありません",
+      externalPreview: "プレビューにはライブアプリが必要です",
+      readOnlyPreview: "読み取り専用モードではプレビューできません",
+      selectionUnresolved: "選択範囲がこの画面に見つかりません",
     },
     framePresets: {
       title: "フレーム",
@@ -1943,6 +1947,7 @@ export default {
   layersPanel: {
     title: "レイヤー",
     screens: "ページ",
+    components: "コンポーネント",
     resizeScreens: "ページセクションのサイズを変更",
     thumbnail: "サムネイル",
     addScreen: "ページを追加",

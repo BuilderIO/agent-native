@@ -13,6 +13,7 @@ import {
 import { importMessagesByLocale } from "./import-messages";
 import { linkCardMessagesByLocale } from "./link-card-messages";
 import { trashMessagesByLocale } from "./trash-messages";
+import { trashRetentionMessagesByLocale } from "./trash-retention-messages";
 
 const databaseMessages = {
   githubLinkTitle: "Link a GitHub folder",
@@ -2521,6 +2522,7 @@ const enUS = {
     workspaces: "Workspaces",
   },
   trash: trashMessagesByLocale["en-US"],
+  trashRetention: trashRetentionMessagesByLocale["en-US"],
   contentImport: importMessagesByLocale["en-US"],
   clipEmbed: clipEmbedMessagesByLocale["en-US"],
   analyticsChart: analyticsChartMessagesByLocale["en-US"],
@@ -2589,6 +2591,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
     localFiles: { ...enUS.localFiles, ...overrides.localFiles },
     sidebar: { ...enUS.sidebar, ...overrides.sidebar },
     trash: enUS.trash,
+    trashRetention: enUS.trashRetention,
     contentImport: enUS.contentImport,
     clipEmbed: enUS.clipEmbed,
     analyticsChart: enUS.analyticsChart,
@@ -3115,6 +3118,7 @@ function mergeMessagesForLocale(
     },
     sidebar: { ...base.sidebar, ...rawLiteralOverrides.sidebar },
     trash: trashMessagesByLocale[locale],
+    trashRetention: trashRetentionMessagesByLocale[locale],
     contentImport: importMessagesByLocale[locale],
     clipEmbed: clipEmbedMessagesByLocale[locale],
     analyticsChart: analyticsChartMessagesByLocale[locale],

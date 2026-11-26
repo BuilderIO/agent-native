@@ -79,6 +79,7 @@ import {
 } from "./trash-filter-model";
 import { TrashFilters } from "./TrashFilters";
 import { TrashRecoveryActions } from "./TrashRecoveryActions";
+import { TrashRetentionNotice } from "./TrashRetentionNotice";
 import {
   TRASH_TABLE_COLUMNS,
   TRASH_TABLE_WIDTHS,
@@ -718,6 +719,7 @@ export function TrashBrowser({
             )}
           />
         </div>
+        <TrashRetentionNotice />
         <TrashOperationSurface
           starts={purgeStarts}
           stateError={trashOperationStateError}

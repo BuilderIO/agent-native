@@ -2991,12 +2991,17 @@ export function createAgentChatPlugin(
               }
             }
           }
+          const a2aCredentialOrgId = getRequestOrgId();
           const a2aEngine = await resolveEngine({
             engineOption: options?.engine,
             apiKey: ownerApiKey,
             apiKeyEnvVar: ownerApiKeyEnvVar,
             apiKeyProvenance: ownerApiKeyProvenance,
             appId: options?.appId,
+            credentialIdentity: {
+              userEmail,
+              ...(a2aCredentialOrgId ? { orgId: a2aCredentialOrgId } : {}),
+            },
           });
 
           const devActive = isDevMode();
