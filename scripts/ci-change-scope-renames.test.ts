@@ -546,6 +546,7 @@ test("Build requires Typecheck success for proven changelog-only scope", () => {
   const skipped = {
     CHANGE_SCOPE_RESULT: "success",
     DOCS_ONLY: "false",
+    DOCS_BUILD_RESULT: "skipped",
     BUILD_REQUIRED: "false",
     BUILD_RESULT: "skipped",
     TYPECHECK_REQUIRED: "false",
@@ -572,8 +573,8 @@ test("Build requires Typecheck success for proven changelog-only scope", () => {
   runGate({ TYPECHECK_RESULT: "success" }, 1);
   runGate({ TYPECHECK_REQUIRED: "true", TYPECHECK_RESULT: "success" }, 0);
   runGate({ TYPECHECK_REQUIRED: "true", TYPECHECK_RESULT: "skipped" }, 1);
-  runGate({ DOCS_ONLY: "true", BUILD_RESULT: "success" }, 0);
-  runGate({ DOCS_ONLY: "true", BUILD_RESULT: "failure" }, 1);
+  runGate({ DOCS_ONLY: "true", DOCS_BUILD_RESULT: "success" }, 0);
+  runGate({ DOCS_ONLY: "true", DOCS_BUILD_RESULT: "failure" }, 1);
   runGate(
     {
       CHANGELOG_ONLY: "true",

@@ -47,6 +47,7 @@ jobs:
       ssr_boot_apps: ${{ steps.scope.outputs.ssr_boot_apps }}
       guards: ${{ steps.scope.outputs.guards }}
       qa_static: ${{ steps.scope.outputs.qa_static }}
+      qa_static_apps: ${{ steps.scope.outputs.qa_static_apps }}
       neon_query_budget: ${{ steps.scope.outputs.neon_query_budget }}
       query_budget_matrix: ${{ steps.scope.outputs.query_budget_matrix }}
       neon_connection_budget: ${{ steps.scope.outputs.neon_connection_budget }}
@@ -1964,7 +1965,7 @@ jobs:
   build:
     name: Build artifacts
     needs: change-scope
-    if: needs.change-scope.result == 'success' && (needs.change-scope.outputs.docs_only == 'true' || needs.change-scope.outputs.build == 'true')
+    if: needs.change-scope.result == 'success' && needs.change-scope.outputs.build == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -2010,13 +2011,30 @@ jobs:
           CI_WORKSPACE_FILTERS: ${{ needs.change-scope.outputs.workspace_filters }}
         run: node --experimental-strip-types scripts/ci-build-workspaces.ts
 
+  docs-build:
+    name: Build docs site
+    needs: change-scope
+    if: needs.change-scope.result == 'success' && needs.change-scope.outputs.docs_only == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-pnpm
+        with:
+          restore-dist-cache: "true"
+
+      - name: Generate isolated build auth secret
+        run: echo "BETTER_AUTH_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+
       - name: Build docs site
-        if: needs.change-scope.outputs.docs_only == 'true'
         run: pnpm --filter @agent-native/docs build
 
   build-gate:
     name: Build
-    needs: [change-scope, build, typecheck, guards]
+    needs: [change-scope, build, docs-build, typecheck, guards]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -2025,6 +2043,7 @@ jobs:
         env:
           CHANGE_SCOPE_RESULT: ${{ needs.change-scope.result }}
           DOCS_ONLY: ${{ needs.change-scope.outputs.docs_only }}
+          DOCS_BUILD_RESULT: ${{ needs.docs-build.result }}
           BUILD_REQUIRED: ${{ needs.change-scope.outputs.build }}
           BUILD_RESULT: ${{ needs.build.result }}
           TYPECHECK_REQUIRED: ${{ needs.change-scope.outputs.typecheck }}
@@ -2071,11 +2090,8 @@ jobs:
           require_selector "Changelog-only" "$CHANGELOG_ONLY" || status=1
           require_selector "Security guards" "$GUARDS_REQUIRED" || status=1
 
-          build_selected=false
-          if [[ "$DOCS_ONLY" == "true" || "$BUILD_REQUIRED" == "true" ]]; then
-            build_selected=true
-          fi
-          require_result "Build artifacts" "$build_selected" "$BUILD_RESULT" || status=1
+          require_result "Docs build" "$DOCS_ONLY" "$DOCS_BUILD_RESULT" || status=1
+          require_result "Build artifacts" "$BUILD_REQUIRED" "$BUILD_RESULT" || status=1
           typecheck_selected=false
           if [[ "$TYPECHECK_REQUIRED" == "true" || ( "$TYPECHECK_REQUIRED" == "false" && "$CHANGELOG_ONLY" == "true" ) ]]; then
             typecheck_selected=true
@@ -2641,11 +2657,21 @@ jobs:
       # Source-only template checks: no DB, browser, network, or secrets.
       - name: Template route matrix (fails on drift)
         if: ${{ !cancelled() && needs.change-scope.outputs.qa_static == 'true' }}
-        run: pnpm qa:template-routes
+        env:
+          QA_STATIC_APPS: ${{ needs.change-scope.outputs.qa_static_apps }}
+        run: |
+          set -euo pipefail
+          mapfile -t apps < <(jq -r '.[]' <<< "${QA_STATIC_APPS:-[]}")
+          pnpm qa:template-routes "${apps[@]}"
 
       - name: Template action audit (advisory)
         if: ${{ !cancelled() && needs.change-scope.outputs.qa_static == 'true' }}
-        run: pnpm actions:audit
+        env:
+          QA_STATIC_APPS: ${{ needs.change-scope.outputs.qa_static_apps }}
+        run: |
+          set -euo pipefail
+          mapfile -t apps < <(jq -r '.[]' <<< "${QA_STATIC_APPS:-[]}")
+          pnpm actions:audit "${apps[@]}"
 
   standalone-chat:
     name: Generate + run standalone Chat
