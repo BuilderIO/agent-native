@@ -168,7 +168,12 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   still running keep running, so the next call collects them instead of
   starting over, even a query that needs longer than one call. Each call gets
   further; repeat until the note is gone. A job is collected only within an
-  hour of when it started; after that, a call runs the query again. When the
+  hour of when it started; after that, a call runs the query again. A job
+  that failed within that hour for a reason a new run would repeat
+  (BigQuery's `invalidQuery`, `resourcesExceeded` or `responseTooLarge`) is
+  not run again: the call reports that failure as a failed query, with a
+  `backendReason` such as `resources_exceeded`, and calling again won't
+  finish it. When the
   event read stopped while waiting on a BigQuery page, `stoppedPage` says
   which step that page had reached, how long it had taken, and why any earlier
   job under the same name could not be collected. Its `stage` is one of
