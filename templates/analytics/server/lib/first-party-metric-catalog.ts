@@ -2221,6 +2221,7 @@ export function buildOnboardingJourneyPersonFollowupSql(
     ? `\n    AND NOT ${nonProductionHostSql("e")}`
     : "";
 
+  // guard:allow-unbounded-read — its CTEs read the cohort's literal rows and the date-bounded events, not a table
   const query = `WITH match_kinds AS (
   SELECT 'auth' AS match_kind
   UNION ALL SELECT 'email'
