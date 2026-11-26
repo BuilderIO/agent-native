@@ -343,8 +343,8 @@ export function readPageCheckPart(
   const units = (Object.keys(UNIT_WORDS) as PageCheckUnit[]).filter((unit) =>
     UNIT_WORDS[unit].some((word) => contains(normalized, word)),
   );
-  if (units.length !== 1) return unread;
-  const [unit] = units;
+  const unit = units.pop();
+  if (!unit || units.length > 0) return unread;
   const numbers = numbersIn(normalized);
   if (numbers.length === 0 || numbers.length > 2) return unread;
   if (numbers.some((value) => value > PAGE_CHECK_COUNT_MAX)) return unread;
@@ -651,8 +651,8 @@ function findPageCheckPlaces(
       const level = heading ? headingOf(heading)?.level : undefined;
       if (!heading || level === undefined) return { status: "section_deleted" };
       let end = start + 1;
-      while (end < top.length) {
-        const next = headingOf(top[end]);
+      for (const block of top.slice(start + 1)) {
+        const next = headingOf(block);
         if (next && next.level <= level) break;
         end++;
       }

@@ -71,7 +71,10 @@ export async function pageCheckAccess(
 
 async function savedBody(
   documentId: string,
-  options: { editorSaved?: boolean; minRole: "commenter" | "editor" },
+  options: {
+    editorSaved?: boolean | undefined;
+    minRole: "commenter" | "editor";
+  },
 ) {
   if (!options.editorSaved) {
     const access = await pageCheckAccess(documentId, options.minRole);

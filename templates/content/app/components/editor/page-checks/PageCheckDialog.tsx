@@ -191,7 +191,8 @@ function PageCheckForm({
               const value = event.currentTarget.value;
               if (value.startsWith("section:")) {
                 const index = Number(value.slice(8));
-                if (index < sections.length) setScope(sections[index]);
+                const section = sections.find((_, at) => at === index);
+                if (section) setScope(section);
               } else {
                 setScope({ kind: value } as PageCheckScope);
               }
@@ -358,6 +359,6 @@ function tryPart(
           missing: misses.length,
           total: results.length,
         })
-      : pageCheckMissText(t, [part], [misses[0]]),
+      : pageCheckMissText(t, [part], misses.slice(0, 1)),
   };
 }

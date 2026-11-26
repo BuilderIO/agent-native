@@ -41,6 +41,7 @@ const MARK_AFTER_TEXT_PX = 4;
 
 interface MarkGroup {
   key: string;
+  first: PageCheckMark;
   marks: PageCheckMark[];
 }
 
@@ -181,13 +182,19 @@ export const PageCheckMarks = memo(function PageCheckMarks({
   }, [actions, editor]);
 
   const groups = useMemo<MarkGroup[]>(() => {
-    const byFrom = new Map<number, PageCheckMark[]>();
+    const byFrom = new Map<number, MarkGroup>();
     for (const mark of live?.marks ?? []) {
-      byFrom.set(mark.from, [...(byFrom.get(mark.from) ?? []), mark]);
+      const group = byFrom.get(mark.from);
+      if (group) group.marks.push(mark);
+      else {
+        byFrom.set(mark.from, {
+          key: markKey(mark),
+          first: mark,
+          marks: [mark],
+        });
+      }
     }
-    return [...byFrom]
-      .sort(([a], [b]) => a - b)
-      .map(([, marks]) => ({ key: markKey(marks[0]), marks }));
+    return [...byFrom].sort(([a], [b]) => a - b).map(([, group]) => group);
   }, [live]);
 
   measure.current = () => {
@@ -288,7 +295,6 @@ export const PageCheckMarks = memo(function PageCheckMarks({
       {groups.map((group) => {
         const top = layout.tops.get(group.key);
         if (top === undefined) return null;
-        const first = group.marks[0];
         const labels = group.marks.map((mark) =>
           t("pageChecks.markLabel", {
             answer: pageCheckAnswerText(t, mark.check.parts, mark.answer),
@@ -313,7 +319,7 @@ export const PageCheckMarks = memo(function PageCheckMarks({
                 <span
                   aria-hidden="true"
                   className="page-check-dot"
-                  data-shape={pageCheckMarkShape(first.answer.answer)}
+                  data-shape={pageCheckMarkShape(group.first.answer.answer)}
                 />
                 {group.marks.length > 1 ? (
                   <span aria-hidden="true" className="page-check-mark-count">
@@ -386,9 +392,9 @@ function PageCheckCard({
   onEdit,
 }: {
   mark: PageCheckMark;
-  onComment?: () => void;
-  onSkip?: () => void;
-  onEdit?: () => void;
+  onComment?: (() => void) | undefined;
+  onSkip?: (() => void) | undefined;
+  onEdit?: (() => void) | undefined;
 }) {
   const t = useT();
   return (

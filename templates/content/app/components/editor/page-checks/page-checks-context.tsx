@@ -31,7 +31,7 @@ export type PageCheckDialogState =
   | { mode: "edit"; checkId: string };
 
 export interface PageCheckSaveInput {
-  checkId?: string;
+  checkId?: string | undefined;
   sentence: string;
   scope: PageCheckScope;
 }

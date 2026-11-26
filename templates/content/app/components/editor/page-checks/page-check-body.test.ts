@@ -81,7 +81,7 @@ describe("checks in the editor's text", () => {
     const live = readLivePageChecks(doc, [check]);
 
     expect(live.marks).toHaveLength(1);
-    const [mark] = live.marks;
+    const mark = required(live.marks[0]);
     expect(mark.answer.answer).toBe("not_fine");
     expect(mark.from).toBe(0);
     const heading = doc.child(2);
@@ -99,7 +99,7 @@ describe("checks in the editor's text", () => {
       level: 2,
     };
     const check = listed("At least 50 words", scope, markdown);
-    const [mark] = readLivePageChecks(doc, [check]).marks;
+    const mark = required(readLivePageChecks(doc, [check]).marks[0]);
 
     let detailsAt = -1;
     let laterAt = -1;
@@ -121,8 +121,8 @@ describe("checks in the editor's text", () => {
     const marks = readLivePageChecks(doc, [check]).marks;
 
     expect(marks).toHaveLength(1);
-    expect(marks[0].from).toBe(0);
-    expect(marks[0].to).toBe(doc.child(0).nodeSize);
+    expect(required(marks[0]).from).toBe(0);
+    expect(required(marks[0]).to).toBe(doc.child(0).nodeSize);
   });
 
   it("leaves no dot where the check passes", () => {
@@ -140,7 +140,7 @@ describe("checks in the editor's text", () => {
     const live = readLivePageChecks(editorDoc(cut), [check]);
 
     expect(live.marks).toHaveLength(1);
-    expect(live.marks[0].answer).toMatchObject({
+    expect(required(live.marks[0]).answer).toMatchObject({
       answer: "not_fine",
       writing: true,
     });

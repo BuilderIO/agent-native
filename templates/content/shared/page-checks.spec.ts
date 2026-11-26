@@ -38,6 +38,10 @@ function placesOf(
   return result.places;
 }
 
+function placeOf(...args: Parameters<typeof placesOf>): PageCheckPlace {
+  return required(placesOf(...args)[0]);
+}
+
 describe("reading a check's sentence", () => {
   it.each([
     ["Under 120 words", "words", null, 120],
@@ -161,7 +165,7 @@ const PAGE = [
 
 describe("places on a page", () => {
   it("counts the whole page the way Info does", () => {
-    const [page] = placesOf(PAGE, { kind: "page" });
+    const page = placeOf(PAGE, { kind: "page" });
     expect(page.markdown).toBe(PAGE);
     expect(
       evaluatePageCheckPart(
@@ -172,7 +176,7 @@ describe("places on a page", () => {
   });
 
   it("takes the intro as the text before the first heading", () => {
-    const [intro] = placesOf(PAGE, { kind: "intro" });
+    const intro = placeOf(PAGE, { kind: "intro" });
     expect(intro.path).toBe("0");
     expect(countPageCheckUnit("words", intro.markdown)).toBe(9);
     expect(countPageCheckUnit("sentences", intro.markdown)).toBe(3);
@@ -180,7 +184,7 @@ describe("places on a page", () => {
   });
 
   it("takes a section as its heading and everything under it", () => {
-    const [section] = placesOf(PAGE, {
+    const section = placeOf(PAGE, {
       kind: "section",
       headingId: null,
       heading: "The review queue",
@@ -256,11 +260,11 @@ describe("places on a page", () => {
   });
 
   it("changes a place's text hash only when its text changes", () => {
-    const [intro] = placesOf(PAGE, { kind: "intro" });
-    const [same] = placesOf(PAGE.replace("Next para.", "Other."), {
+    const intro = placeOf(PAGE, { kind: "intro" });
+    const same = placeOf(PAGE.replace("Next para.", "Other."), {
       kind: "intro",
     });
-    const [edited] = placesOf(PAGE.replace("Intro one", "Intro uno"), {
+    const edited = placeOf(PAGE.replace("Intro one", "Intro uno"), {
       kind: "intro",
     });
     expect(same.textHash).toBe(intro.textHash);
@@ -276,7 +280,7 @@ describe("places on a page", () => {
   });
 
   it("gives an empty page one empty place", () => {
-    const [intro] = placesOf("", { kind: "intro" });
+    const intro = placeOf("", { kind: "intro" });
     expect(countPageCheckUnit("words", intro.markdown)).toBe(0);
     expect(placesOf("", { kind: "each_paragraph" })).toEqual([]);
   });
@@ -339,7 +343,7 @@ describe("answers while someone writes", () => {
   const wordingHash = pageCheckWordingHash({ parts, scope });
 
   function listed(markdown: string, checkedMarkdown: string): PageCheckView {
-    const [checked] = placesOf(checkedMarkdown, scope);
+    const checked = placeOf(checkedMarkdown, scope);
     const result: PageCheckResult = {
       placeKey: "intro",
       wordingHash,
@@ -383,7 +387,7 @@ describe("answers while someone writes", () => {
 
   it("still says changed where the text had changed before the list was read", () => {
     const check = listed(words(150), words(183));
-    expect(check.answers[0].answer).toBe("changed");
+    expect(required(check.answers[0]).answer).toBe("changed");
     const [answer] = livePageCheckAnswers(
       check,
       pageCheckPlaces(words(150), scope),
