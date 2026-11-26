@@ -1111,6 +1111,66 @@ describe("revisioned document edit mutation", () => {
     ).toBe(original);
   });
 
+  it("refuses an agent's interactive HTML that could not work, and says what to change", async () => {
+    const block = (src: string) =>
+      `\`\`\`html interactive\n<title>Chart</title>\n<script src="${src}"></script>\n\`\`\``;
+    const broken = block("https://unpkg.com/d3");
+    const working = block("https://cdn.jsdelivr.net/npm/d3@7");
+    const db = getDb();
+    const page = eq(schema.documents.id, DOCUMENT_ID);
+    const add = (key: string, source: string) =>
+      mutateDocumentBody({
+        documentId: DOCUMENT_ID,
+        baseRevision: documentRevisionToken(0, "alpha beta"),
+        idempotencyKey: key,
+        edits: [{ find: "alpha", replace: source }],
+        ctx,
+      });
+
+    const refused = await add("interactive-broken", `${broken}\nalpha`).catch(
+      (error: unknown) => error,
+    );
+    expect(refused).toMatchObject({
+      errorCode: "INTERACTIVE_HTML_BLOCK_REFUSED",
+      statusCode: 422,
+      details: {
+        title: "Chart",
+        problems: [expect.stringContaining("unpkg.com/d3")],
+      },
+    });
+    expect(
+      (await db.select().from(schema.documents).where(page))[0].content,
+    ).toBe("alpha beta");
+
+    const saved = await add("interactive-working", `${working}\nalpha`);
+    expect(saved.receipt.outcome).toBe("applied");
+    expect(
+      (await db.select().from(schema.documents).where(page))[0].content,
+    ).toContain(working);
+  });
+
+  it("checks interactive HTML an agent writes without a revision, not what a person writes", async () => {
+    const broken =
+      '```html interactive\n<script src="https://unpkg.com/d3"></script>\n```';
+    const add = (caller: "cli" | "frontend") =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        editDocument.run(
+          {
+            id: DOCUMENT_ID,
+            find: "alpha",
+            replace: `${broken}\nalpha`,
+            reuseLabels: [],
+          },
+          { caller, userEmail: OWNER },
+        ),
+      );
+
+    await expect(add("cli")).rejects.toMatchObject({
+      errorCode: "INTERACTIVE_HTML_BLOCK_REFUSED",
+    });
+    await expect(add("frontend")).resolves.toMatchObject({ applied: 1 });
+  });
+
   it("saves a video added without an id above one whose derived id the page saved", async () => {
     const src = "https://example.com/a.mp4";
     const original = `Intro\n<video src="${src}" id="${derivedVideoBlockId(src, 0)}">Demo</video>`;

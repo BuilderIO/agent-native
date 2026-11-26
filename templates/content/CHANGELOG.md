@@ -5,8 +5,14 @@ time from the command menu (Cmd+K → "What's new").
 
 ## 2026-11-24
 
+### Improved
+
+- Review diff now opens as soon as you click it, even on large collections.
+
 ### Fixed
 
+- A new Builder article now saves the body you write after its first automatic save. Before, an article first saved with only a title kept showing "Saved" while its body never reached Builder. If Content hasn't read the article's body from Builder yet, the row now shows "Waiting" and says why. If that read failed, it shows "Save failed" with a Retry.
+- Files navigation remains consistent while linked folders are syncing.
 - Find more available destinations when moving pages.
 - Linked files in subfolders stay in their source folders when browsing grouped views.
 - Linked folder files no longer offer invalid moves when revealed in grouped Files.
@@ -15,6 +21,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Suggestion cards in the margin now say each change as a sentence, such as Replace “five” with “seven”, and quote a rewritten passage whole: the old words struck through, then the new ones.
 - When you ask the agent to address a page's comments with suggested edits, each suggestion now links back to the comment it answers, like an Ask AI suggestion does.
 
 ## 2026-11-21

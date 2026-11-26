@@ -224,10 +224,10 @@ function save(documentId: string, content: string, userEmail = OWNER) {
   );
 }
 
-async function get(id: string, email = "") {
+async function get(id: string, email = "", search = "") {
   session.email = email;
   try {
-    return await readMedia(`http://content.test/media/${id}`);
+    return await readMedia(`http://content.test/media/${id}${search}`);
   } finally {
     session.email = "";
   }
@@ -504,6 +504,37 @@ describe("private media references", () => {
     expect(response.headers.get("content-security-policy")).toContain(
       "sandbox",
     );
+  });
+
+  it("reads an image's bytes out of storage, for the page's readers only", async () => {
+    const id = mediaId();
+    await uploaded(id, OWNER);
+    redirects.add(id);
+    const stored = vi
+      .spyOn(globalThis, "fetch")
+      .mockImplementation(async () => new Response(new Uint8Array([7, 8, 9])));
+    try {
+      expect((await get(id, OTHER, "?bytes=1")).status).toBe(404);
+      expect(stored).not.toHaveBeenCalled();
+
+      const response = await get(id, OWNER, "?bytes=1");
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toBe("image/png");
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+      expect([...new Uint8Array(await response.arrayBuffer())]).toEqual([
+        7, 8, 9,
+      ]);
+      expect(stored.mock.calls.map(([url]) => url)).toEqual([
+        "https://storage.test/signed",
+      ]);
+
+      stored.mockResolvedValueOnce(new Response(null, { status: 403 }));
+      expect((await get(id, OWNER, "?bytes=1")).status).toBe(502);
+      stored.mockResolvedValueOnce(new Response(new Uint8Array([7, 8])));
+      expect((await get(id, OWNER, "?bytes=1")).status).toBe(502);
+    } finally {
+      stored.mockRestore();
+    }
   });
 
   it("binds images when update-document saves a body", async () => {

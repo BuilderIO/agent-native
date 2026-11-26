@@ -30,6 +30,30 @@ describe("classifyLocalSourceRead", () => {
     ).toBe("pending-self-write");
   });
 
+  it("recognizes its own write in the file's spelling", () => {
+    expect(
+      classifyLocalSourceRead({
+        ...baseline,
+        diskContent: "* one\n* two\n\nThe lantern glows amber.\n",
+        localContent: "- one\n- two\nThe lantern glows amber.",
+        pendingWrite: {
+          title: baseline.diskTitle,
+          content: "- one\n- two\nThe lantern glows amber.",
+        },
+      }),
+    ).toBe("pending-self-write");
+  });
+
+  it("leaves the page alone when only the file's spelling changed", () => {
+    expect(
+      classifyLocalSourceRead({
+        ...baseline,
+        diskContent: "The lantern is blue.\n",
+        hasPendingSave: true,
+      }),
+    ).toBe("unchanged");
+  });
+
   it("does not suppress a different external write during an in-flight save", () => {
     expect(
       classifyLocalSourceRead({

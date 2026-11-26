@@ -3,6 +3,13 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-24
+
+### Added
+
+- Organization admins can enforce the organization default recording visibility so members can't set a personal default.
+- Turn off the 3-2-1 countdown before recording in the desktop app's Settings.
+
 ## 2026-11-20
 
 ### Added
@@ -1356,27 +1363,5 @@ from the command menu (Cmd+K → "What's new") or from Settings.
 
 - Fixed recordings failing to save with a "cancelled" or "cleanup window" error during upload
 - Meeting recording meters now use thin, responsive audio bars, and dismissed reminders stay dismissed.
-
-## 2026-07-22
-
-### Improved
-
-- Ready clip transcripts now keep an export receipt and retry Brain delivery after temporary failures.
-- Manage agent navigation now uses the connected-nodes icon.
-- Permissions and Rewind controls are now grouped with clearer aligned actions.
-- Permissions and Rewind now use quieter expandable rows with clearer setup guidance.
-
-### Fixed
-
-- Builder-connected recordings now start their resumable upload session reliably.
-- Clip thumbnails now come from the recording instead of the post-stop screen
-- Clips emails now render the Agent-Native logo in Gmail and other clients.
-- Dismissed Zoom and Teams meeting-note prompts now stay dismissed when you switch windows.
-- Fixed an intermittent hydration error on the download page
-- Fixed transcript generation when native speech capture returns empty text.
-- Fixed Windows recordings aborting during the countdown
-- German umlauts and other non-ASCII characters now paste correctly from macOS dictation
-- The desktop popover opens centered under the menu bar icon on first launch
-- Native browser/OS transcripts now remain primary, with Builder transcribing the original recording only when native speech capture is unavailable.
 
 For the full list of updates, see the [changelog folder](./changelog/).

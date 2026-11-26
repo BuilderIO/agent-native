@@ -684,6 +684,36 @@ export const parityMatrix: ParityRow[] = [
     ],
   },
   {
+    id: "editor.interactive-html-block",
+    surface: "editor",
+    label:
+      "Add, edit, run, open full screen, link to and read the source of an interactive HTML block",
+    uiEntrypoints: [
+      "app/components/editor/extensions/InteractiveHtmlBlockView.tsx",
+      "app/components/editor/SlashCommandMenu.tsx",
+      "app/components/editor/block-menu-registry.ts",
+    ],
+    durableEffect:
+      "The page body holds the block's HTML as an `html interactive` code block; running it, opening it full screen and showing its source save nothing.",
+    uiImplementation:
+      "The slash menu and the block's source change the editor transaction, which the document save row persists. Agents write and edit the same fence with edit-document, which refuses a block that could not work, and read each block's link from get-document and pull-document.",
+    status: "action-backed",
+    actions: ["edit-document", "get-document", "pull-document"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "app/components/editor/interactive-html-block.spec.ts",
+      "app/components/editor/interactive-html/sealed-frame.spec.ts",
+      "shared/interactive-html.spec.ts",
+      "shared/interactive-html-fallback.spec.ts",
+      "actions/_document-edit-mutation.db.test.ts",
+      "actions/get-document.agent-read.db.test.ts",
+    ],
+  },
+  {
     id: "editor.agent-assist-prompts",
     surface: "editor",
     label: "Ask AI from slash generation or comment context",

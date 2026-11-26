@@ -1,4 +1,5 @@
 import { fail } from "@agent-native/core/action";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { getDbExec, sql, type DbExec } from "@agent-native/core/db";
 import type {
   SuggestionAdapter,
@@ -38,6 +39,7 @@ import {
 import { contentSuggestionPath } from "../../shared/suggestion-link.js";
 import { schema } from "../db/index.js";
 import { firstRow } from "./first-row.js";
+import { assertInteractiveHtmlBlocks } from "./interactive-html-blocks.js";
 import {
   assertCommentAiSuggestionBinding,
   CONTENT_SUGGESTION_OPERATION_KINDS,
@@ -265,6 +267,7 @@ export const contentBlocksFieldSuggestionAdapter: SuggestionAdapter = {
       input.resourceId,
       fieldId,
     );
+    const ctx = input.ctx as ActionRunContext | undefined;
     // A tab whose text the Collection's source owns can't take one, since
     // accepting it would be refused.
     await writableField(db, databaseId, fieldId);
@@ -281,6 +284,7 @@ export const contentBlocksFieldSuggestionAdapter: SuggestionAdapter = {
       before === content
     ) {
       checkSupportedStructure(before, after);
+      assertInteractiveHtmlBlocks(ctx, before, after);
       return input.operations;
     }
     // Someone saved the tab since the suggester read it. Their edit is moved
@@ -297,6 +301,7 @@ export const contentBlocksFieldSuggestionAdapter: SuggestionAdapter = {
       });
     }
     checkSupportedStructure(content, moved.after.markdown);
+    assertInteractiveHtmlBlocks(ctx, content, moved.after.markdown);
     return [moved];
   },
   async apply(context) {
@@ -364,6 +369,7 @@ export const contentBlocksFieldSuggestionAdapter: SuggestionAdapter = {
       content: next,
       expectedRevision: await storedFieldRevision(tx, documentId, fieldId),
       now,
+      ctx: undefined,
     });
     await reanchorSourceComment(
       tx,

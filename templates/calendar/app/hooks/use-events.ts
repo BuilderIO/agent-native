@@ -3,6 +3,7 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client/hooks";
+import { isSaveConflict } from "@agent-native/core/save-conflict";
 import type { CalendarEvent, UpdateEventScope } from "@shared/api";
 import { addDaysToDateKey } from "@shared/timezone";
 import {
@@ -63,8 +64,9 @@ type CreateEventInput = Omit<
   workingLocationLabel?: string;
 };
 
-type UpdateEventInput = Partial<CalendarEvent> & {
+export type UpdateEventInput = Partial<CalendarEvent> & {
   id: string;
+  expectedRevision?: string;
   cacheEventIdentity?: CalendarEventSourceIdentity;
   targetAccountEmail?: string;
   addGoogleMeet?: boolean;
@@ -90,7 +92,7 @@ type DeleteEventMutationContext = {
   removedByQuery?: Array<[QueryKey, CalendarEvent[]]>;
 };
 
-type UpdateEventResult = Partial<CalendarEvent> & {
+export type UpdateEventResult = Partial<CalendarEvent> & {
   id?: string;
   replacedId?: string;
   success?: boolean;
@@ -623,7 +625,11 @@ export function useUpdateEvent() {
         const previous = queryClient.getQueriesData<CalendarEvent[]>({
           queryKey: ["action", "list-events"],
         });
-        const { cacheEventIdentity, ...eventInput } = newData;
+        const {
+          cacheEventIdentity,
+          expectedRevision: _expectedRevision,
+          ...eventInput
+        } = newData;
         const {
           addGoogleMeet,
           removeGoogleMeet,
@@ -714,13 +720,28 @@ export function useUpdateEvent() {
             ),
         );
       },
-      onError: (_err, _newData, context) => {
+      onError: (err, input, context) => {
         const previous = (context as EventListMutationContext | undefined)
           ?.previous;
         if (previous) {
           for (const [key, data] of previous) {
             queryClient.setQueryData(key, data);
           }
+        }
+        if (isSaveConflict(err)) {
+          const current = err.details.current as UpdateEventResult | null;
+          if (!current?.id) return;
+          queryClient.setQueriesData<CalendarEvent[]>(
+            { queryKey: ["action", "list-events"] },
+            (old) =>
+              reconcileUpdatedEventList(
+                old,
+                input.id,
+                current,
+                input.accountEmail,
+                input.cacheEventIdentity,
+              ),
+          );
         }
       },
       onSettled: () => {
