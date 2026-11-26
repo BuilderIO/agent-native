@@ -865,14 +865,14 @@ export const dataSources: DataSource[] = [
       {
         title: "Set a $25 spending limit",
         description:
-          "X bills every post and account a request returns: $0.005 a post and $0.010 an account. In the console, set the app's spending limit to $25, so X stops serving reads at $25 a billing cycle whatever happens here. The Content dashboard also stops its own reads before $25 in each calendar month.",
+          "X bills every post and account a request returns: $0.005 a post and $0.010 an account. The Content dashboard stops its own reads before $25 in each UTC calendar month, but that cap covers only this workspace's Content collection. In the console, set the app's spending limit too: it caps everything else that uses this app, such as other workspaces with the same token and the agent's own X API calls.",
         url: "https://docs.x.com/x-api/getting-started/pricing",
         linkText: "X API pricing",
       },
       {
         title: "Enter your Bearer Token",
         description:
-          "Paste the Bearer Token. Testing the connection asks X for the app's usage, which returns no posts. Then ask the agent to turn on X collection for the Content dashboard and name the accounts to follow, for example @builderio. It takes an organization owner or admin.",
+          "Paste the Bearer Token. Testing the connection asks X for the app's usage, which returns no posts. Then ask the agent to turn on X collection for the Content dashboard and name the accounts to follow. It takes an organization owner or admin.",
         inputKey: "TWITTER_BEARER_TOKEN",
         inputLabel: "Bearer Token",
         inputPlaceholder: "AAAA...",

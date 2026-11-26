@@ -221,23 +221,35 @@ have more than 10,000 videos in all fails rather than storing part of them.
 The `x` step reads posts through the official X API v2 with the app-only
 Bearer token saved as `TWITTER_BEARER_TOKEN` under Data Sources → X / Twitter.
 Set it with `configure-content-collection --x --xAccounts --xLinks --xTerms`:
-each account is `{ handle, allPosts }`, and a post counts when its account has
-`allPosts`, when a link's expanded or unwound address is under one of `xLinks`
-(a host, or a host and path such as `builder.io/blog`), or when its text names
-one of `xTerms` as a whole word (a term with a dot or `@` in any case, others
-only in their own case; an `@handle` term also matches a link to that account,
-so quotes of its posts count). Reposts and replies are never read. Every post
-read is stored as an `x` item with `relevance` `counted` or `not_counted` and
-`metadata.countedBy`; only counted posts get `x_views`, `x_likes`,
-`x_reposts`, `x_replies`, `x_quotes`, `x_bookmarks` and `x_age_hours`
-snapshots, when first seen and once more in the 30 hours after each of 1, 3, 7
-and 30 days old. X bills each post ($0.005) and account ($0.010) it returns,
-so each run records its cost in `cost_usd` and stops as `cost_limited`
-(`x_monthly_cap`) before the `x` runs' spend this UTC calendar month would pass
-$25, skipping 30-day re-reads first when the month-end projection would pass
-it. The first run reads back 30 days. It stays off until turned on and reports
-`not_configured` without accounts, a counting rule or a token. A changed rule
-applies only to posts read after the change.
+each account is `{ handle, allPosts }`, listed once in any case, and a post
+counts when its account has `allPosts`, when a link's expanded or unwound
+address is under one of `xLinks` (a host, or a host and path such as
+`builder.io/blog`), or when its text names one of `xTerms` as a whole word (a
+term with anything besides letters and spaces in any case, others only in
+their own case, with U+2010 and U+2011 read as hyphens; an `@handle` term also
+matches a link to that account or one of its posts, so quotes of its posts
+count). Reposts and replies are never read. Every post read is stored as an
+`x` item with `relevance` `counted` or `not_counted` and `metadata.countedBy`;
+each account is an `x` item with `relevance` `account` whose metadata holds
+where its timeline reading stands and whose `updated_at` marks the runs that
+covered it. Only counted posts get `x_views`, `x_likes`, `x_reposts`,
+`x_replies`, `x_quotes`, `x_bookmarks` and `x_age_hours` snapshots, when first
+seen and once more in the 30 hours after each of 1, 3, 7 and 30 days old. Each
+page is saved as it is read, so a run that stops keeps what it read and the
+next run reads on. X bills each post ($0.005) and account ($0.010) it returns,
+so before each request a run reserves the request's most in its `cost_usd`,
+then lowers it to what X returned; a request without a usable answer keeps its
+reservation. Runs stop as `cost_limited` (`x_monthly_cap`) before the `x` runs'
+spend this UTC calendar month would pass $25, skipping 30-day re-reads first
+when the month-end projection would pass it. That cap covers only this
+collection; the app's spending limit in the X console covers everything else
+using the token. The first run reads back 30 days. A run reads at most 8 pages
+of an account, and X serves only an account's 800 newest posts without
+replies; the run's detail says when either may have left posts unread. It
+stays off until turned on and reports `not_configured` without accounts, a
+counting rule or a token. A changed rule applies only to posts read after the
+change, and a run whose settings change midway keeps the pages it saved before
+and stops as `content_config_changed`.
 
 The catalog's "Content" dashboard (`content-view`) is the reference for these
 tables: start from its panels before writing new content SQL. Its Missing
@@ -246,7 +258,10 @@ sources to their latest run in the last 30 days, so it names each source whose
 run failed, hit the cost cap or isn't connected, and each one with no run in
 that window; keep that pattern rather than letting a missing row read as
 "nothing missing". YouTube and X, which are off by default, are named only
-once they have run. The
+once they have run; a run row can't show X was turned off since, so a failed
+X run stays named for 30 days. Its YouTube and X panels show only the
+channels and accounts whose items were updated since the newest succeeded run
+started. The
 first-party SQL policy rejects functions outside its allow-list (for example
 `concat_ws`) and reads `CASE (` as a function call, so join a status column
 instead of a scalar subquery inside `CASE`. Its parser also rejects `VALUES`
