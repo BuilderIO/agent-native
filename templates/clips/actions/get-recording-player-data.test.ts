@@ -37,6 +37,9 @@ const mockTagsQuery = vi.hoisted(() => {
 const mockPlayerQuery = vi.hoisted(() => ({
   build: null as null | (() => unknown),
 }));
+const mockComments = vi.hoisted(() =>
+  vi.fn(async (_recordingId: string) => [] as unknown[]),
+);
 const mockDb = vi.hoisted(() => ({
   select: vi.fn((selection?: unknown) => {
     if (!selection) {
@@ -129,11 +132,6 @@ vi.mock("../server/db/index.js", () => ({
       viewerEmail: "recordingViewers.viewerEmail",
     },
     recordingTranscripts: { recordingId: "recordingTranscripts.recordingId" },
-    recordingComments: {
-      recordingId: "recordingComments.recordingId",
-      videoTimestampMs: "recordingComments.videoTimestampMs",
-      createdAt: "recordingComments.createdAt",
-    },
     recordingReactions: {
       recordingId: "recordingReactions.recordingId",
       createdAt: "recordingReactions.createdAt",
@@ -191,6 +189,10 @@ vi.mock("../server/lib/recordings.js", () => ({
   parseSpaceIds: vi.fn(() => []),
   countRecordingViews: (recordingId: string) =>
     mockCountRecordingViews(recordingId),
+}));
+
+vi.mock("../server/lib/recording-comments.js", () => ({
+  listRecordingComments: (recordingId: string) => mockComments(recordingId),
 }));
 
 vi.mock("../server/lib/user-identities.js", () => ({
@@ -310,6 +312,7 @@ function emptyPlayerQuery() {
 describe("get-recording-player-data view count", () => {
   beforeEach(() => {
     mockPlayerQuery.build = emptyPlayerQuery;
+    mockComments.mockResolvedValue([]);
     mockCountRecordingViews.mockClear();
     mockCountRecordingViews.mockResolvedValue(0);
     mockIsSeekableRepairPending.mockClear();
@@ -628,30 +631,15 @@ describe("get-recording-player-data view count", () => {
           chaptersJson: "[]",
         },
       });
-      mockPlayerQuery.build = () => {
-        let isCommentsQuery = false;
-        const query: Record<string, unknown> = {};
-        query.from = (table: unknown) => {
-          isCommentsQuery =
-            (table as { videoTimestampMs?: string } | undefined)
-              ?.videoTimestampMs === "recordingComments.videoTimestampMs";
-          return query;
-        };
-        query.where = () => query;
-        query.limit = async () => [];
-        query.orderBy = async () =>
-          isCommentsQuery
-            ? [
-                {
-                  id: "comment-1",
-                  authorEmail: "author@example.com",
-                  authorName: "Author",
-                  content: "Saved comment",
-                },
-              ]
-            : [];
-        return query;
-      };
+      mockComments.mockResolvedValue([
+        {
+          id: "comment-1",
+          authorEmail: "author@example.com",
+          authorName: "Author",
+          content: "Saved comment",
+          mentions: [],
+        },
+      ]);
       const result = await action.run({ recordingId: "rec-1" });
       expect(result.comments.map((comment) => comment.content)).toEqual(
         role === "owner" ? ["Saved comment"] : [],
@@ -776,7 +764,7 @@ describe("get-recording-player-data for agents reading a YouTube clip", () => {
     authorEmail: "viewer@example.com",
     authorName: "Viewer",
     content: "This is where it breaks",
-    mentionsJson: "[]",
+    mentions: [],
     videoTimestampMs: 12_000,
     emojiReactionsJson: "{}",
     resolved: false,
@@ -790,22 +778,8 @@ describe("get-recording-player-data for agents reading a YouTube clip", () => {
     mockIsSeekableRepairPending.mockResolvedValue(false);
     mockCountRecordingViews.mockResolvedValue(0);
     mockShareLimit.mockResolvedValue([]);
-    mockPlayerQuery.build = () => {
-      let table: unknown;
-      const query: Record<string, unknown> = {};
-      query.from = (source: unknown) => {
-        table = source;
-        return query;
-      };
-      query.where = () => query;
-      query.orderBy = async () =>
-        (table as { videoTimestampMs?: string })?.videoTimestampMs ===
-        "recordingComments.videoTimestampMs"
-          ? [comment]
-          : [];
-      query.limit = async () => [];
-      return query;
-    };
+    mockPlayerQuery.build = emptyPlayerQuery;
+    mockComments.mockResolvedValue([comment]);
     mockResolveAccess.mockResolvedValue({
       role: "owner",
       resource: {

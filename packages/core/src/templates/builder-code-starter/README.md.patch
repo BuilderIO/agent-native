@@ -41,7 +41,7 @@
  
 -Full docs: [agent-native.com/docs/template-chat](https://agent-native.com/docs/template-chat?utm_source=github&utm_medium=referral&utm_content=chat-readme).
 +`.env.example` sets `AUTH_DISABLED=true` as a commented-out option; uncomment it
-+to skip sign-in while developing.
++to skip sign-in on your own machine, never on a hosted preview or deploy.
 +
 +## Project layout
 +

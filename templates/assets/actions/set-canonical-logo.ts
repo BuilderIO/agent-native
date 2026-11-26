@@ -15,6 +15,7 @@ export default defineAction({
     libraryId: z.string(),
     assetId: z.string(),
   }),
+  mcpTool: "search",
   run: async ({ libraryId, assetId }) => {
     await assertCanApprove(libraryId, "Setting the canonical logo");
     const asset = await getAssetOrThrow(assetId);

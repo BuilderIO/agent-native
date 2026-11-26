@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
+import { isAuthDisabled } from "../shared/auth-disabled.js";
 import {
   getDbExec,
   getRuntimeDatabaseUrl,
@@ -162,10 +162,6 @@ export const BETTER_AUTH_REQUIRED_SCHEMA: RequiredSchemaTable[] = [
     columns: ["id", "public_key", "private_key", "alg", "crv"],
   },
 ];
-
-function isAuthDisabled(): boolean {
-  return isTruthyRuntimeValue(envValue("AUTH_DISABLED"));
-}
 
 export function getRequiredSchema(
   authEnabled: boolean = !isAuthDisabled(),

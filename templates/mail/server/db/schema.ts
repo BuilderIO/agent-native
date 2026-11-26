@@ -15,9 +15,9 @@ export const mailInventoryCursors = table("mail_inventory_cursors", {
   state: text("state").notNull(),
   version: integer("version").notNull().default(1),
   claimId: text("claim_id"),
-  claimedAt: integer("claimed_at"),
-  expiresAt: integer("expires_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
+  claimedAt: bigint("claimed_at", { mode: "number" }),
+  expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
 export const scheduledJobs = table("scheduled_jobs", {
@@ -28,7 +28,7 @@ export const scheduledJobs = table("scheduled_jobs", {
   threadId: text("thread_id"),
   accountEmail: text("account_email"),
   payload: text("payload").notNull(),
-  runAt: integer("run_at").notNull(),
+  runAt: bigint("run_at", { mode: "number" }).notNull(),
   status: text("status", {
     enum: [
       "pending",
@@ -42,9 +42,9 @@ export const scheduledJobs = table("scheduled_jobs", {
     .notNull()
     .default("pending"),
   processingClaimId: text("processing_claim_id"),
-  processingLeaseUntil: integer("processing_lease_until"),
-  sendStartedAt: integer("send_started_at"),
-  createdAt: integer("created_at").notNull(),
+  processingLeaseUntil: bigint("processing_lease_until", { mode: "number" }),
+  sendStartedAt: bigint("send_started_at", { mode: "number" }),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
 
 export const contactFrequency = table("contact_frequency", {
@@ -54,7 +54,7 @@ export const contactFrequency = table("contact_frequency", {
   contactName: text("contact_name").notNull().default(""),
   sendCount: integer("send_count").notNull().default(0),
   receiveCount: integer("receive_count").notNull().default(0),
-  lastContactedAt: integer("last_contacted_at").notNull(),
+  lastContactedAt: bigint("last_contacted_at", { mode: "number" }).notNull(),
 });
 
 export const automationRules = table("automation_rules", {
@@ -68,8 +68,8 @@ export const automationRules = table("automation_rules", {
   condition: text("condition").notNull(), // natural language condition
   actions: text("actions").notNull(), // JSON array of AutomationAction
   enabled: integer("enabled").notNull().default(1),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
 export const aiFilterRuleUndo = table(
@@ -78,7 +78,7 @@ export const aiFilterRuleUndo = table(
     id: text("id").primaryKey(),
     ownerEmail: text("owner_email").notNull(),
     rulesJson: text("rules_json").notNull(),
-    expiresAt: integer("expires_at").notNull(),
+    expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
   },
   (t) => [
     index("mail_ai_filter_rule_undo_owner_expiry_idx").on(
@@ -129,10 +129,10 @@ export const emailTracking = table("email_tracking", {
   pixelToken: text("pixel_token").primaryKey(),
   messageId: text("message_id").notNull(),
   ownerEmail: text("owner_email").notNull(),
-  sentAt: integer("sent_at").notNull(),
+  sentAt: bigint("sent_at", { mode: "number" }).notNull(),
   opensCount: integer("opens_count").notNull().default(0),
-  firstOpenedAt: integer("first_opened_at"),
-  lastOpenedAt: integer("last_opened_at"),
+  firstOpenedAt: bigint("first_opened_at", { mode: "number" }),
+  lastOpenedAt: bigint("last_opened_at", { mode: "number" }),
   lastUserAgent: text("last_user_agent"),
 });
 
@@ -141,8 +141,8 @@ export const emailLinkTracking = table("email_link_tracking", {
   pixelToken: text("pixel_token").notNull(),
   url: text("url").notNull(),
   clicksCount: integer("clicks_count").notNull().default(0),
-  firstClickedAt: integer("first_clicked_at"),
-  lastClickedAt: integer("last_clicked_at"),
+  firstClickedAt: bigint("first_clicked_at", { mode: "number" }),
+  lastClickedAt: bigint("last_clicked_at", { mode: "number" }),
 });
 
 export const snippets = table("snippets", {
@@ -150,8 +150,8 @@ export const snippets = table("snippets", {
   ownerEmail: text("owner_email").notNull(),
   name: text("name").notNull(),
   body: text("body").notNull(),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
 export const mailSyncAccounts = table(
@@ -166,7 +166,7 @@ export const mailSyncAccounts = table(
     archiveHistoryId: text("archive_history_id"),
     fullSyncPageToken: text("full_sync_page_token"),
     fullSyncHistoryId: text("full_sync_history_id"),
-    fullSyncStartedAt: integer("full_sync_started_at"),
+    fullSyncStartedAt: bigint("full_sync_started_at", { mode: "number" }),
     fullSyncPhase: text("full_sync_phase", { enum: ["reconcile"] }),
     fullSyncReconcilePageToken: text("full_sync_reconcile_page_token"),
     fullSyncReconcilePendingIdsJson: text(
@@ -196,7 +196,7 @@ export const mailSyncAccounts = table(
       .notNull()
       .default("idle"),
     lastError: text("last_error"),
-    lastSyncedAt: integer("last_synced_at"),
+    lastSyncedAt: bigint("last_synced_at", { mode: "number" }),
     lastPushGeneration: bigint("last_push_generation", { mode: "number" })
       .notNull()
       .default(0),
@@ -204,7 +204,7 @@ export const mailSyncAccounts = table(
     // more to read. Such an account is not steady, so polls keep the fast cadence.
     historyPending: integer("history_pending"),
     syncClaimId: text("sync_claim_id"),
-    syncClaimedAt: integer("sync_claimed_at"),
+    syncClaimedAt: bigint("sync_claimed_at", { mode: "number" }),
     lastWatchRenewedAt: bigint("last_watch_renewed_at", { mode: "number" }),
     lastWatchAttemptedAt: bigint("last_watch_attempted_at", { mode: "number" }),
     lastAutomationAttemptedAt: bigint("last_automation_attempted_at", {
@@ -213,9 +213,9 @@ export const mailSyncAccounts = table(
     watchRenewClaimId: text("watch_renew_claim_id"),
     watchRenewClaimedAt: bigint("watch_renew_claimed_at", { mode: "number" }),
     labelsJson: text("labels_json"),
-    labelsUpdatedAt: integer("labels_updated_at"),
-    createdAt: integer("created_at").notNull(),
-    updatedAt: integer("updated_at").notNull(),
+    labelsUpdatedAt: bigint("labels_updated_at", { mode: "number" }),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   },
   (t) => [
     index("mail_sync_accounts_owner_idx").on(t.ownerEmail),
@@ -300,7 +300,7 @@ export const mailInboxThreads = table(
     isStarred: integer("is_starred"),
     isImportant: integer("is_important"),
     isAutomated: integer("is_automated"),
-    latestDate: integer("latest_date").notNull(),
+    latestDate: bigint("latest_date", { mode: "number" }).notNull(),
     latestMessageId: text("latest_message_id"),
     subject: text("subject"),
     snippet: text("snippet"),
@@ -312,9 +312,9 @@ export const mailInboxThreads = table(
     messageCount: integer("message_count"),
     unreadCount: integer("unread_count"),
     hasAttachments: integer("has_attachments"),
-    syncedAt: integer("synced_at").notNull(),
-    updatedAt: integer("updated_at").notNull(),
-    localMutationAt: integer("local_mutation_at"),
+    syncedAt: bigint("synced_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+    localMutationAt: bigint("local_mutation_at", { mode: "number" }),
     localMutationHistoryId: text("local_mutation_history_id"),
     localMutationFields: integer("local_mutation_fields"),
   },
@@ -349,13 +349,13 @@ export const queuedEmailDrafts = table("queued_email_drafts", {
   composeId: text("compose_id"),
   sentMessageId: text("sent_message_id"),
   sendClaimId: text("send_claim_id"),
-  sendClaimedAt: integer("send_claimed_at"),
+  sendClaimedAt: bigint("send_claimed_at", { mode: "number" }),
   status: text("status", {
     enum: ["queued", "in_review", "sent", "dismissed"],
   })
     .notNull()
     .default("queued"),
-  createdAt: integer("created_at").notNull(),
-  updatedAt: integer("updated_at").notNull(),
-  sentAt: integer("sent_at"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  sentAt: bigint("sent_at", { mode: "number" }),
 });

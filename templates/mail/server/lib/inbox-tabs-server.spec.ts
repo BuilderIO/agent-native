@@ -147,24 +147,24 @@ describe("partitionInboxItems", () => {
     expect(byTab.get("other")).toHaveLength(0);
   });
 
-  it("assigns an overlapping conversation to the first matching split", () => {
+  it("assigns an overlapping conversation to every matching split", () => {
     const overlapping = item({
       labelIds: ["automated notifications", "pitch"],
     });
     const byTab = partitionInboxItems([overlapping], tabs);
     expect(byTab.get("automated notifications")).toEqual([overlapping]);
-    expect(byTab.get("f1")).toEqual([]);
+    expect(byTab.get("f1")).toEqual([overlapping]);
     expect(byTab.get("important")).toEqual([]);
   });
 
-  it("puts a thread in the first matching custom tab", () => {
+  it("puts a thread in each matching custom tab", () => {
     const dual = item({
       id: "dual",
       labelIds: ["automated notifications", "pitch"],
     });
     const byTab = partitionInboxItems([dual], tabs);
     expect(byTab.get("automated notifications")).toContain(dual);
-    expect(byTab.get("f1")).not.toContain(dual);
+    expect(byTab.get("f1")).toContain(dual);
     expect(byTab.get("important")).not.toContain(dual);
     expect(byTab.get("other")).not.toContain(dual);
   });

@@ -29,6 +29,10 @@
       "types": "./dist/catalog/index.d.ts",
       "default": "./dist/catalog/index.js"
     },
+    "./model": {
+      "types": "./dist/model/index.d.ts",
+      "default": "./dist/model/index.js"
+    },
     "./tokens.css": "./css/tokens.css",
     "./main.css": "./css/main.css",
     "./styles.css": "./css/styles.css",

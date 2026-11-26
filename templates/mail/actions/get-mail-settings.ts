@@ -3,6 +3,7 @@ import { getRequestUserEmail } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 import { z } from "zod";
 
+import { normalizeContactPanelWidgets } from "../shared/contact-panel-widgets.js";
 import { normalizeSignature } from "../shared/signature.js";
 import type { UserSettings } from "../shared/types.js";
 
@@ -15,12 +16,15 @@ function normalize(settings: Partial<UserSettings> | undefined, email: string) {
     autocompleteEnabled: settings?.autocompleteEnabled === true,
     sendAndArchive: settings?.sendAndArchive === true,
     readingPane: settings?.previewPane !== "off",
+    contactPanelWidgets: normalizeContactPanelWidgets(
+      settings?.contactPanelWidgets,
+    ),
   };
 }
 
 export default defineAction({
   description:
-    "Read the user's mail settings: signature, writing style, autocomplete, Send + Mark Done, and whether the reading pane is on. Use this before changing a durable preference so unrelated settings can be preserved.",
+    "Read the user's mail settings: signature, writing style, autocomplete, Send + Mark Done, whether the reading pane is on, and which built-in widgets the person panel shows. Use this before changing a durable preference so unrelated settings can be preserved.",
   schema: z.object({}),
   http: { method: "GET" },
   readOnly: true,

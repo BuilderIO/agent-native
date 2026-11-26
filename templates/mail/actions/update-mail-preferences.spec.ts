@@ -125,4 +125,26 @@ describe("update-mail-preferences action", () => {
       expect.objectContaining({ showAllTab: false, theme: "dark" }),
     );
   });
+
+  it("switches a panel widget without resetting the other switches", async () => {
+    mocks.mutateUserSetting.mockImplementation(async (_email, _key, updater) =>
+      updater({
+        email: "owner@example.com",
+        theme: "dark",
+        contactPanelWidgets: { notes: false, attachments: true, recent: true },
+      }),
+    );
+
+    const result = await action.run({
+      contactPanelWidgets: { recent: false },
+      requestSource: "tab-widgets",
+    });
+
+    expect(result.contactPanelWidgets).toEqual({
+      notes: false,
+      attachments: true,
+      recent: false,
+    });
+    expect(result.theme).toBe("dark");
+  });
 });

@@ -93,12 +93,12 @@ Der Browser-Flow ist überall derselbe. Besserer Auth-Flow – es gibt **keine U
 Ein paar Flags optimieren dies; Ausführliche Informationen finden Sie in der Tabelle [Environment Variables](#environment-variables):
 
 - `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` – Verwenden Sie die normale Anmeldeseite im lokalen Entwickler anstelle des automatischen Entwicklerkontos.
-- `AUTH_DISABLED=true` – Überspringen Sie die Anmeldung/Registrierung vollständig und führen Sie jede Anfrage als ein gemeinsamer Benutzer aus (nur lokale Entwicklung/Vorschauen/Demos, niemals Produktion mit echten Benutzern).
+- `AUTH_DISABLED=true` – Überspringen Sie die Anmeldung/Registrierung vollständig und führen Sie jede Anfrage als ein gemeinsamer Benutzer aus. Nur für die lokale Entwicklung auf einem Loopback-Server (`localhost`); setzen Sie es nie in gehosteten Vorschauen, Demos oder Produktionsumgebungen.
 - `AUTH_MODE=local` – betrifft nur die CLI/Agent-Identität (als die der Entwicklerbenutzer `pnpm action` ausgeführt wird); Es ist **keine** Umgehung der Browser-Anmeldung.
 
 <Callout id="doc-block-18jli2j" tone="warning">
 
-`AUTH_DISABLED=true` runs **every request as one shared user**. Use it only for local dev, previews, or demos — never in production with real users, where it would expose all data to anyone.
+`AUTH_DISABLED=true` meldet **jede Anfrage als denselben gemeinsamen Benutzer** an, sodass jeder, der den Server erreicht, vollen Zugriff hat. Verwenden Sie es nur für die lokale Entwicklung auf einem Loopback-Server (`localhost`). Gehostete Vorschauen, Demos und Produktion brauchen eine echte Anmeldung; für QA-Vorschauen entfällt mit `AUTH_SKIP_EMAIL_VERIFICATION=1` das Warten auf E-Mails, ohne die Authentifizierung abzuschalten.
 
 </Callout>
 
@@ -466,7 +466,7 @@ Die Standardroute `/_agent-native/google/auth-url` führt dies automatisch aus �
 | `BETTER_AUTH_SECRET`                    | Signaturschlüssel für Better Auth (automatisch generiert, wenn nicht festgelegt)                                                                                                                                             |
 | `AUTH_SKIP_EMAIL_VERIFICATION`          | In QA-/Vorschauumgebungen auf `1` setzen, damit E-Mail-/Passwort-Anmeldungen ohne Überprüfung durchgeführt werden können. Lokale Entwicklung/Test überspringt standardmäßig                                                  |
 | `AUTH_REQUIRE_EMAIL_VERIFICATION`       | Auf `0` oder `1` setzen, um die Überprüfungsrichtlinie für die Passwortanmeldung in jeder Umgebung festzulegen, einschließlich der Produktion; übertrifft `AUTH_SKIP_EMAIL_VERIFICATION`                                     |
-| `AUTH_DISABLED`                         | Auf `true` oder `1` einstellen, um Anmeldung/Registrierung zu überspringen; Alle Anfragen werden von einem gemeinsamen Benutzer ausgeführt (nur lokale Entwicklung/Vorschau – nicht für die Produktion mit echten Benutzern) |
+| `AUTH_DISABLED`                         | Auf `true` oder `1` einstellen, um Anmeldung/Registrierung zu überspringen; Alle Anfragen werden von einem gemeinsamen Benutzer ausgeführt (nur lokale Entwicklung auf Loopback – nie gehostet, als Demo oder in Produktion) |
 | `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | Auf `1` einstellen, um die automatische Anmeldung von Localhost in einer neuen Entwicklungsdatenbank zu deaktivieren                                                                                                         |
 | `AUTH_MODE`                             | `local` löst nur die CLI/Agent-Identität auf (unter der der Entwicklerbenutzer `pnpm action` ausgeführt wird); niemals eine Browser-Anmeldeumgehung                                                                          |
 | `COOKIE_DOMAIN`                         | Aktivieren Sie gemeinsam genutzte Sitzungscookies für Subdomains derselben Datenbank (siehe [Cookie Realms](#cookie-realms))                                                                                                 |

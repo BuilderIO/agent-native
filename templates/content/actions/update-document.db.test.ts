@@ -728,6 +728,43 @@ describe("update-document compare-and-swap", () => {
     expect((await documentRow(id)).content).toBe("Body after");
   });
 
+  it("keeps a linked file's first heading when it repeats the title", async () => {
+    const id = await createDocument({
+      title: "Page",
+      content: "# Page\nBody before",
+    });
+    await getDb()
+      .update(schema.documents)
+      .set({
+        sourceMode: "local-files",
+        sourceKind: "file",
+        sourcePath: "page.md",
+      })
+      .where(eq(schema.documents.id, id));
+    const revision = documentRevisionToken(0, "# Page\nBody before");
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run(
+        {
+          id,
+          content: "# Page\nBody after",
+          baseRevision: revision,
+          authoredBaseRevision: revision,
+          authoredBaseContent: "# Page\nBody before",
+          authoredCandidateContent: "# Page\nBody after",
+          editorSessionId: nextId("linked-heading-session"),
+          editorEditGeneration: 1,
+          browserSaveAttemptId: nextId("linked-heading-attempt"),
+        },
+        {
+          caller: "frontend",
+          userEmail: OWNER,
+          actionName: "update-document",
+        },
+      ),
+    );
+    expect((await documentRow(id)).content).toBe("# Page\nBody after");
+  });
+
   it("uses the locked body revision for a verified authored merge with only baseUpdatedAt", async () => {
     const base = "First passage\nSecond passage";
     const id = await createDocument({ content: base });

@@ -73,9 +73,9 @@ Each row in `/local-files` gives you three actions:
 
 - **Pull** — import the folder's current files into Content as ordinary documents.
 - **Check** — run the same import as a dry run, so you can preview what would change before committing to it.
-- **Push** — export the current document tree back out to the folder as Markdown/MDX files.
+- **Push** — write the current document tree back out to the folder as Markdown/MDX files.
 
-Every exported file carries frontmatter (`id`, `title`, `parentId`, `position`, favorite/search/visibility flags, `updatedAt`) plus the page body as Markdown, so editing the file directly and pulling it back in updates the same document instead of creating a duplicate. If the same page changed on both sides since the last sync, or a file that used to exist is now missing, Content surfaces it as a conflict to review instead of silently deleting or overwriting either side. Disconnecting a folder always leaves both the Content pages and the files on disk in place.
+A file Content creates carries frontmatter (`id`, `title`, `parentId`, `position`, favorite/search/visibility flags, `updatedAt`) plus the page body as Markdown. A file that was already in the folder keeps its own frontmatter and Markdown: saving or pushing a page changes only the lines its edits touched. Editing a file directly and pulling it back in updates the same document instead of creating a duplicate. If the same page changed on both sides since the last sync, or a file that used to exist is now missing, Content surfaces it as a conflict to review instead of silently deleting or overwriting either side. Disconnecting a folder always leaves both the Content pages and the files on disk in place.
 
 To open Content for an existing repo directly against a folder:
 

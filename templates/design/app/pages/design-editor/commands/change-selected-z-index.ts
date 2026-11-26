@@ -62,7 +62,7 @@ export interface ChangeSelectedZIndexArgs {
   applyLinkedComponentEdit?: ApplyLinkedComponentEdit;
   activeBreakpointUpperBoundPx?: number | null;
   activeBreakpointWidthStateRef?: RefObject<number | undefined>;
-  activeFile: DesignFile;
+  activeFile: DesignFile | undefined;
   applyLocalContentUpdate: (
     nextContent: string,
     options?: {
@@ -92,7 +92,18 @@ export interface ChangeSelectedZIndexArgs {
   invalidateRenderedElementInfo?: () => void;
   renderedElementInfoByLayerKeyRef?: RefObject<Map<string, ElementInfo>>;
   reportRefusal?: (reason: ZOrderRefusal) => void;
+  resolveScreen?: (fileId: string) =>
+    | {
+        file: DesignFile;
+        getContent: () => string;
+        applyContent: (
+          nextContent: string,
+          options: { forcePreviewFullDocument: true },
+        ) => ApplyLocalContentUpdateResult | { status: "deferred" };
+      }
+    | undefined;
   responsiveEditScopeRef?: RefObject<ResponsiveEditScope>;
+  unfocusedScreen?: boolean;
   selectedElement: ElementInfo | null;
   selectedLayerIdsState: string[];
   setSelectedElement: Dispatch<SetStateAction<ElementInfo | null>>;
@@ -524,6 +535,36 @@ export function runChangeSelectedZIndex(
   args: ChangeSelectedZIndexArgs,
   mode: ChangeSelectedZIndexMode,
 ): ChangeSelectedZIndexResult {
+  const ownerFileId = args.codeLayerOwnerByNodeIdRef.current.get(
+    args.selectedLayerIdsState[0] ?? "",
+  )?.fileId;
+  if (
+    ownerFileId !== undefined &&
+    ownerFileId !== args.activeFile?.id &&
+    args.canEditDesign
+  ) {
+    const { resolveScreen, ...focusedArgs } = args;
+    const screen = resolveScreen?.(ownerFileId);
+    if (screen) {
+      return runChangeSelectedZIndex(
+        {
+          ...focusedArgs,
+          activeFile: screen.file,
+          getFreshActiveContent: screen.getContent,
+          applyLocalContentUpdate: (nextContent) => {
+            const result = screen.applyContent(nextContent, {
+              forcePreviewFullDocument: true,
+            });
+            return result.status === "accepted"
+              ? result
+              : { status: "refused" };
+          },
+          unfocusedScreen: true,
+        },
+        mode,
+      );
+    }
+  }
   const {
     activeBreakpointUpperBoundPx = null,
     activeBreakpointWidthStateRef,
@@ -696,6 +737,7 @@ export function runChangeSelectedZIndex(
       return refuse("linked-component");
     }
     if (
+      !args.unfocusedScreen &&
       selectedElement &&
       selectedElementMatchesNode(selectedElement, targets[0]!.node)
     ) {
@@ -726,6 +768,7 @@ export function runChangeSelectedZIndex(
     );
     if (
       !parentIsolation &&
+      !args.unfocusedScreen &&
       selectedElementMatchesNode(selectedElement, target.node)
     ) {
       commitVisualStyles(

@@ -600,6 +600,42 @@ export async function linkMirroredReviewReplies(
 }
 
 /**
+ * Moves comments' anchors when the app changes the resource under them, as
+ * footage added at the start of a video moves every comment on it later. The
+ * app makes the move, so no write hook runs and the anchor's kind is kept.
+ * Each moved comment's revision goes up; deleted comments, and comments on
+ * another resource, are left alone.
+ */
+export async function moveMirroredReviewAnchors(
+  resource: ReviewMirrorResource,
+  moves: ReadonlyArray<{ id: string; anchor: unknown }>,
+): Promise<{ moved: number }> {
+  if (moves.length === 0) return { moved: 0 };
+  await prepareTables();
+  const updatedAt = new Date().toISOString();
+  return inWrite(async (client) => {
+    let moved = 0;
+    for (const batch of chunks(moves)) {
+      const anchors = batch.map(
+        (move) =>
+          sql`WHEN ${sql.value(move.id)} THEN ${sql.value(jsonOrNull(move.anchor))}`,
+      );
+      const result = await client.execute(sql`UPDATE agent_review_comments
+            SET anchor_json = CASE id ${sql.join(anchors, sql` `)} ELSE anchor_json END,
+                updated_at = ${sql.value(updatedAt)},
+                revision = revision + 1
+          WHERE id IN ${sql.in(batch.map((move) => move.id))}
+            AND resource_type = ${sql.value(resource.resourceType)}
+            AND resource_id = ${sql.value(resource.resourceId)}
+            AND deleted_at IS NULL
+            AND status <> 'deleted'`);
+      moved += result.rowsAffected;
+    }
+    return { moved };
+  });
+}
+
+/**
  * The IDs of resources of this type that have comments in the kit it hasn't
  * deleted, a page at a time in ID order, starting after `after`. A startup
  * copy uses it to reach resources whose comments only the kit still has.

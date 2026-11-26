@@ -35,6 +35,16 @@ export interface RequireSessionProps {
    * see, so it must send anyone it can't show to sign-in itself.
    */
   signedOutHref?: (() => string | null) | undefined;
+  /**
+   * Show the already-mounted app while the session read is in flight, instead
+   * of the skeleton, when the app can paint something trustworthy without it
+   * (a cache keyed to the last signed-in user, say). Asked once per load and
+   * only with a session hint; the app still reads `useSessionPreloading()` and
+   * must keep identity-scoped network reads gated until the session resolves.
+   * A signed-out or unreadable answer takes the app down as it does without
+   * this.
+   */
+  revealWhileLoading?: (() => boolean) | undefined;
 }
 
 export function RequireSession({
@@ -44,6 +54,7 @@ export function RequireSession({
   signedOut,
   bypass = false,
   signedOutHref,
+  revealWhileLoading,
 }: RequireSessionProps) {
   if (bypass) return <>{children}</>;
   return (
@@ -52,6 +63,7 @@ export function RequireSession({
       redirect={redirect}
       signedOut={signedOut}
       signedOutHref={signedOutHref}
+      revealWhileLoading={revealWhileLoading}
     >
       {children}
     </ResolvedSessionGate>
@@ -64,6 +76,7 @@ function ResolvedSessionGate({
   redirect = true,
   signedOut,
   signedOutHref,
+  revealWhileLoading,
 }: Omit<RequireSessionProps, "bypass">) {
   const { session, status, retry } = useSession();
   // Only the session endpoint's definitive "signed out" sends a visitor to
@@ -85,6 +98,9 @@ function ResolvedSessionGate({
   const appShownRef = useRef(false);
   // The hint says a session is likely; the session read below still decides.
   const [sessionHinted] = useState(hasSessionHint);
+  const [revealApp] = useState(
+    () => sessionHinted && revealWhileLoading?.() === true,
+  );
 
   // A navigation this load started before the app rendered (sign-in here, or
   // the inline beta lane switch) keeps the shell down, so the app never
@@ -101,11 +117,12 @@ function ResolvedSessionGate({
     const preloadApp =
       status === "loading" && sessionHinted && !holdingForNavigation;
     if (!preloadApp) return <>{fallback ?? <AppShellSkeleton />}</>;
+    if (revealApp) appShownRef.current = true;
     return (
       <>
-        {fallback ?? <AppShellSkeleton />}
+        {revealApp ? null : (fallback ?? <AppShellSkeleton />)}
         <SessionPreloadContext.Provider value={true}>
-          <SessionShell hidden>{children}</SessionShell>
+          <SessionShell hidden={!revealApp}>{children}</SessionShell>
         </SessionPreloadContext.Provider>
       </>
     );
