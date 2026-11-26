@@ -18,6 +18,7 @@ export default defineAction({
     format: z.enum(["csv", "json"]).optional().describe("Export format"),
   }),
   http: false,
+  mcpTool: "search",
   run: async (args, ctx) => {
     const formId = args.form;
     const { resource: form } = await assertAccess("form", formId, "editor");

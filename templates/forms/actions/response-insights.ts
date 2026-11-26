@@ -313,6 +313,7 @@ export default defineAction({
       view: "response-insights",
     };
   },
+  mcpTool: "search",
   run: async (args, ctx) => {
     const formId = args.formId ?? args.form;
     const db = getDb();

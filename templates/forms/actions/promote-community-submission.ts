@@ -1,6 +1,7 @@
 import {
   defineAction,
   fail,
+  isOutsideAgentCall,
   type ActionRunContext,
 } from "@agent-native/core/action";
 import {
@@ -296,6 +297,8 @@ export default defineAction({
   schema: z.object({
     responseId: z.string().min(1).describe("Response ID to publish"),
   }),
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async ({ responseId }, context?: ActionRunContext) => {
     const db = getDb();
     const [responseRef] = await db
