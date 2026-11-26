@@ -438,42 +438,33 @@ ${TASKS}`,
     ]);
   });
 
-  const workerHeapTest =
-    "fails waiting tasks once, not by respawning, when the module outgrows its heap";
-
-  it(workerHeapTest, async () => {
-    const nodeOptions = [process.env.NODE_OPTIONS, ...process.execArgv].join(
-      " ",
+  async function runHeapTestInCleanProcess() {
+    const vitest = new URL(
+      "vitest.mjs",
+      import.meta.resolve("vitest/package.json"),
     );
-    if (/(?:^|\s)--max[-_]old[-_]space[-_]size(?:[=\s]|$)/.test(nodeOptions)) {
-      const vitest = new URL(
-        "vitest.mjs",
-        import.meta.resolve("vitest/package.json"),
-      );
-      const { stdout } = await promisify(execFile)(
-        process.execPath,
-        [
-          fileURLToPath(vitest),
-          "run",
-          fileURLToPath(import.meta.url),
-          "-t",
-          workerHeapTest,
-          "--reporter=json",
-          "--no-cache",
-        ],
-        {
-          cwd: fileURLToPath(new URL("../../", import.meta.url)),
-          env: { ...process.env, NODE_OPTIONS: "" },
-          timeout: 25_000,
-        },
-      );
-      expect(JSON.parse(stdout)).toMatchObject({
-        numPassedTests: 1,
-        numFailedTests: 0,
-      });
-      return;
-    }
+    const { stdout } = await promisify(execFile)(
+      process.execPath,
+      [
+        fileURLToPath(vitest),
+        "run",
+        fileURLToPath(import.meta.url),
+        "-t",
+        "when the module outgrows its heap",
+        "--reporter=json",
+        "--no-cache",
+      ],
+      {
+        cwd: fileURLToPath(new URL("../../", import.meta.url)),
+        env: { ...process.env, NODE_OPTIONS: "" },
+        timeout: 25_000,
+      },
+    );
+    const report: unknown = JSON.parse(stdout);
+    return report;
+  }
 
+  async function observeWorkerHeapFailure() {
     const real = await import("node:worker_threads");
     let started = 0;
     let workerError: unknown;
@@ -505,9 +496,26 @@ ${TASKS}`,
       () => "ok",
       (error: InstanceType<typeof isolated.BoundedTaskError>) => error.code,
     );
-    expect(code).toBe("startup_failed");
-    expect(started).toBe(1);
-    expect(workerError).toMatchObject({ code: "ERR_WORKER_OUT_OF_MEMORY" });
+    return { code, started, workerError };
+  }
+
+  it("fails waiting tasks once, not by respawning, when the module outgrows its heap", async () => {
+    const nodeOptions = [process.env.NODE_OPTIONS, ...process.execArgv].join(
+      " ",
+    );
+    const inheritedHeapLimit =
+      /(?:^|\s)--max[-_]old[-_]space[-_]size(?:[=\s]|$)/.test(nodeOptions);
+    const report = inheritedHeapLimit
+      ? await runHeapTestInCleanProcess()
+      : await observeWorkerHeapFailure();
+    const expected = inheritedHeapLimit
+      ? { numPassedTests: 1, numFailedTests: 0 }
+      : {
+          code: "startup_failed",
+          started: 1,
+          workerError: { code: "ERR_WORKER_OUT_OF_MEMORY" },
+        };
+    expect(report).toMatchObject(expected);
   });
 
   it("fails with unavailable, never inline, where worker threads do not exist", async () => {
