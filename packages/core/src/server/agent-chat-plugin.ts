@@ -568,7 +568,7 @@ import {
   filterDelegatedRegistry,
   filterMcpOnlyActions,
   filterPublicAgentActions,
-  filterDirectA2AActions,
+  resolveDirectA2AAction,
   filterReadOnlyActions,
   isSelectedA2AReceiver,
   shouldSelectedA2AReceiverOwnObjective,
@@ -2786,18 +2786,16 @@ export function createAgentChatPlugin(
         connect: options?.connectApps,
         durableBackgroundRuns: options?.durableBackgroundRuns,
         executeReadOnlyAction: async ({ action, input, invocationId }) => {
-          const actions = filterDirectA2AActions(
+          const resolved = resolveDirectA2AAction(
             externalFullActions ?? externalActions,
             mcpOptions,
+            action,
+            getRequestContext()?.a2aIdentityAssurance,
           );
-          const entry = actions[action];
-          if (!entry) {
-            return {
-              status: "failed" as const,
-              output:
-                "Unknown or unavailable read-only action. Direct cross-app action mode only accepts explicitly exposed read-only operations; retry creates, updates, deletes, sends, saves, publishes, and other side effects with a natural-language message.",
-            };
+          if ("refused" in resolved) {
+            return { status: "failed" as const, output: resolved.refused };
           }
+          const entry = resolved.entry;
 
           const result = await executeAgentToolCall({
             actions: { [action]: entry },
@@ -2814,7 +2812,7 @@ export function createAgentChatPlugin(
           if (result.status === "approval_required") {
             return {
               status: "failed" as const,
-              output: "Read-only action unexpectedly requires approval",
+              output: "Direct action unexpectedly requires approval",
             };
           }
           return a2aActionResult(result);
@@ -3808,6 +3806,7 @@ export function createAgentChatPlugin(
             : {}),
           ...(mcpOptions.readOnlyResources ? { readOnlyResources: true } : {}),
           ...(mcpOptions.servesAnSkill ? { servesAnSkill: true } : {}),
+          ...(mcpOptions.skills?.length ? { skills: mcpOptions.skills } : {}),
           ...(mcpOptions.connectorCatalog
             ? { connectorCatalog: mcpOptions.connectorCatalog }
             : {}),

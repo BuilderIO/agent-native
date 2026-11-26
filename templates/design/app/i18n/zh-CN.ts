@@ -354,6 +354,8 @@ export default {
       blur: "模糊",
       spread: "扩散",
       rotation3d: "3D 旋转",
+      constraints: "约束",
+      absolutePosition: "绝对定位",
       rotationX: "旋转 X",
       rotationY: "旋转 Y",
       perspective: "透视",
@@ -1125,6 +1127,12 @@ export default {
         opacity: "不透明度",
       },
       editColor: "编辑 {{name}} 的颜色",
+      field: {
+        open: "令牌",
+        detach: "分离令牌",
+        primitives: "{{group}}原始令牌",
+        loading: "正在加载令牌…",
+      },
     },
     import: {
       description: "将 Figma 剪贴板 HTML 或独立 HTML 导入为 Design 页面。",

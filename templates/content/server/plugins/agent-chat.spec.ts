@@ -105,6 +105,7 @@ describe("Content agent chat plugin", () => {
       expect.objectContaining({
         appId: "content",
         mcp: expect.objectContaining({
+          skills: ["content"],
           externalAgents: { writes: "allowlisted" },
           instructions: expect.stringContaining(
             "delete-document moves pages and sub-pages to recoverable Trash",

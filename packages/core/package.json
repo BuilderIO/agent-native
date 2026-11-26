@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.233.0",
+  "version": "0.234.0",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -784,10 +784,10 @@
     "@better-auth/core": "1.7.6",
     "@clack/prompts": "^1.7.0",
     "@mcp-b/webmcp-polyfill": "^5.1.0",
-    "@modelcontextprotocol/client": "2.0.0",
-    "@modelcontextprotocol/core": "^2.2.0",
+    "@modelcontextprotocol/client": "2.4.0",
+    "@modelcontextprotocol/core": "2.4.0",
     "@modelcontextprotocol/ext-apps": "catalog:",
-    "@modelcontextprotocol/server": "2.0.0",
+    "@modelcontextprotocol/server": "2.4.0",
     "@mozilla/readability": "^0.6.0",
     "@neondatabase/serverless": "^1.1.0",
     "@noble/hashes": "^2.4.0",

@@ -79,6 +79,7 @@ import {
 } from "./action-query-foreground.js";
 import {
   ACTION_RESOURCES_META_KEY,
+  ACTION_SELF_REFRESHING_META_KEY,
   actionQueryAffectedByResources,
   type ActionScopedQuery,
 } from "./action-query-scope.js";
@@ -2176,7 +2177,12 @@ export type ActionReadState<T> =
  * refreshes every action query.
  */
 function actionQueryInvalidation(resources: readonly string[] | undefined) {
-  if (!resources?.length) return { queryKey: ["action"] };
+  if (!resources?.length)
+    return {
+      queryKey: ["action"],
+      predicate: (query: ActionScopedQuery) =>
+        query.meta?.[ACTION_SELF_REFRESHING_META_KEY] !== true,
+    };
   const changed = new Set(resources);
   return {
     predicate: (query: ActionScopedQuery) =>

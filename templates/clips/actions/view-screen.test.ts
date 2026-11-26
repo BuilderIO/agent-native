@@ -96,15 +96,7 @@ const makeRealDb = vi.hoisted(() => () => ({
                   severity: "low",
                 },
               ]
-            : table === "recordingComments"
-              ? [
-                  {
-                    id: "comment-test",
-                    content: "Fake discussion",
-                    authorEmail: "author@example.com",
-                  },
-                ]
-              : [];
+            : [];
         return {
           where: () =>
             Object.assign(Promise.resolve(rows), {
@@ -244,10 +236,22 @@ vi.mock("../server/db/index.js", () => ({
       origin: "bindings.origin",
     },
     recordingViewers: "recordingViewers",
-    recordingComments: "recordingComments",
     recordingTranscripts: { recordingId: "transcripts.recordingId" },
     recordingBrowserDiagnostics: { recordingId: "diagnostics.recordingId" },
     recordingBugReports: TABLES.recordingBugReports,
+  },
+}));
+
+vi.mock("../server/lib/recording-comments.js", () => ({
+  listRecordingComments: async () => {
+    context.childReads("recordingComments");
+    return [
+      {
+        id: "comment-test",
+        content: "Fake discussion",
+        authorEmail: "author@example.com",
+      },
+    ];
   },
 }));
 

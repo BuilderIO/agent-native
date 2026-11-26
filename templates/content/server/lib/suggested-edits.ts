@@ -71,6 +71,7 @@ import { commentThreadDigest } from "./comment-ai.js";
 import { recordDocumentBodyIntent } from "./document-body-intents.js";
 import { lockLegacyBodyWrites } from "./document-body-revision.js";
 import { recordDocumentHistoryTransition } from "./document-history.js";
+import { assertInteractiveHtmlBlocks } from "./interactive-html-blocks.js";
 import { liveBodyWriterGate } from "./live-body-writer.js";
 import { syncPrivateBodyReferences } from "./private-icon-references.js";
 import {
@@ -1167,6 +1168,11 @@ export const contentDocumentSuggestionAdapter: SuggestionAdapter = {
       before.markdown,
       after.markdown,
       "Suggestions can change text inside tables, callouts, toggles, and columns, but not a table's rows or cells, a callout's icon, a toggle's title, the columns themselves, images, or other content or formatting they do not support yet. Suggest a change to the text instead.",
+    );
+    assertInteractiveHtmlBlocks(
+      input.ctx as ActionRunContext | undefined,
+      before.markdown,
+      after.markdown,
     );
     return operations;
   },

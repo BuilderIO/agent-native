@@ -800,6 +800,13 @@ export interface AgentConnectionRequiredOptions {
   reason?: "connect" | "grant" | "reauthorize" | "admin_required";
   appId?: string;
   source?: { id: string; kind?: string; label?: string };
+  /**
+   * Optional app-origin OAuth or connection-setup URL (relative path such as
+   * `/_agent-native/google/auth-url?...` or an absolute URL on a trusted app
+   * origin). MCP hosts that advertise `elicitation.url` can surface this as a
+   * native connect button after validating its origin.
+   */
+  connectUrl?: string | undefined;
   toolResult?: string;
 }
 
@@ -809,6 +816,7 @@ export class AgentConnectionRequiredError extends AgentActionStopError {
   readonly reason: NonNullable<AgentConnectionRequiredOptions["reason"]>;
   readonly appId?: string;
   readonly source?: AgentConnectionRequiredOptions["source"];
+  readonly connectUrl?: string | undefined;
 
   constructor(message: string, options: AgentConnectionRequiredOptions) {
     super(message, {
@@ -820,6 +828,7 @@ export class AgentConnectionRequiredError extends AgentActionStopError {
     this.reason = options.reason ?? "connect";
     this.appId = options.appId;
     this.source = options.source;
+    this.connectUrl = options.connectUrl;
   }
 }
 
@@ -934,6 +943,17 @@ export interface PublicAgentActionConfig {
   title?: string;
   description?: string;
   allowRawQueryInput?: boolean;
+  /**
+   * Lets another app call this write action directly over A2A, as the verified
+   * signed-in user, without running this app's agent. Direct A2A calls are
+   * otherwise read-only. Requires `readOnly: false` and `requiresAuth: true`,
+   * and is refused for consequential actions and actions that need approval.
+   * The call must carry the user's own identity: an organization credential,
+   * including one that asserts a member, is refused.
+   * Keep it to one narrow, owner-scoped, non-destructive write that a sibling
+   * app makes on the user's behalf; the action is left off the agent card.
+   */
+  directWrite?: boolean;
 }
 
 export type ActionPlanModeEffect = "read" | "write" | "unknown";

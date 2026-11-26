@@ -95,7 +95,7 @@ values from `.env` files, and use placeholders such as `<API_KEY>` in examples.
 | `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS`                                    | Previous workspace vault key during a rotation window.                                                                                                                                                                     |
 | `AUTH_MODE`                                                                    | Local authentication mode selection.                                                                                                                                                                                       |
 | `AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV`                                 | Explicitly enables the local-dev sign-in button on approved Builder preview hosts during development; keep unset on public or production deployments.                                                                      |
-| `AUTH_DISABLED`                                                                | Local/preview-only auth bypass; unset already means false, and it must never be used for a public production app.                                                                                                          |
+| `AUTH_DISABLED`                                                                | Auth bypass for local development on a loopback server only; unset already means false. The dev server binds to `127.0.0.1` while it is on. Never set it on a hosted preview or deployment.                                |
 | `AUTH_MAGIC_LINK`                                                              | Set to `0` to force the email/password fallback; otherwise a ready email transport enables magic links by default.                                                                                                         |
 | `ACCESS_TOKEN` / `ACCESS_TOKENS`                                               | Static bearer fallback for MCP/connect clients, not browser authentication.                                                                                                                                                |
 | `AGENT_PROD_CODE_EXECUTION`                                                    | Production code-execution mode: `off`, `sandboxed`, or `trusted`.                                                                                                                                                          |
@@ -308,6 +308,7 @@ production deployment:
 | `CI_FULL`                     | Change-scope classifier output selecting the full CI suite instead of targeted jobs.                                                                                                                                       |
 | `CI_PR_TITLE`                 | Pull request title passed to the change-scope classifier so a `test:` title cannot hide runtime source changes.                                                                                                            |
 | `CI_WORKSPACE_FILTERS`        | JSON-encoded pnpm workspace selectors emitted by the change-scope classifier.                                                                                                                                              |
+| `CI_MIN_PACKAGE_SHARDS`       | Optional JSON object mapping shardable non-Core test packages to a minimum number of distinct lanes, such as `{"@agent-native/toolkit":2}`. Unset or `{}` uses default planning.                                           |
 | `CORE_SHARD`                  | Vitest shard selector for the Core fast-test job.                                                                                                                                                                          |
 | `CORE_TEST_FILES`             | JSON list of changed Core test files selected for a targeted fast-test shard.                                                                                                                                              |
 | `CORE_TEST_MODE`              | Selects the full or changed-file mode for a Core fast-test shard.                                                                                                                                                          |
@@ -441,20 +442,21 @@ Read by `.github/workflows/labs-qa-probe.yml`, `.github/workflows/labs-qa-identi
 `.github/workflows/qa-live-verify.yml`, and `e2e/labs/`, never by application runtime code. The workflows reuse the
 `MAILOSAUR_*` secrets above and derive each `qa-fleet-N` password from them.
 
-| Variable       | Purpose                                                                                                        |
-| -------------- | -------------------------------------------------------------------------------------------------------------- |
-| `QA_HOST`      | Host the QA user script signs up and signs in against. Defaults to `labs.agent-native.com`.                    |
-| `QA_SLOTS`     | Comma-separated `qa-fleet-N` slots the QA user script creates or signs in. Defaults to `1,2,3,4,5`.            |
-| `QA_PROBE`     | Set to `1` to seed, read back, and delete a `qa-tmp-` record after each sign-in.                               |
-| `QA_PROBE_APP` | Labs app whose auth and actions the QA user script exercises. Defaults to `forms-2`.                           |
-| `QA_FRESH`     | Set to `1` to sign up one new `qa-tmp-` Mailosaur address end to end and write a receipt without any password. |
-| `LABS_APP`     | Labs app the signed-in smoke test opens. Workflow-internal.                                                    |
-| `LABS_HOST`    | Host the signed-in smoke test targets. Defaults to `labs.agent-native.com`.                                    |
-| `QA_SLOT`      | Slot of the `qa-fleet-N` identity a smoke or live-verify run uses.                                             |
-| `INPUT_APPS`   | Apps input passed to the smoke matrix builder. Workflow-internal.                                              |
-| `QA_TARGET`    | Live-verify target: a preset (`forms-seeded`), an app name, or JSON with app, path, steps.                     |
-| `QA_PROVIDER`  | Live-verify browser: `browserbase` (remote session with a replay) or `local` (headless).                       |
-| `QA_OUT_DIR`   | Directory the live-verify receipt and before/after screenshots are written to.                                 |
+| Variable         | Purpose                                                                                                        |
+| ---------------- | -------------------------------------------------------------------------------------------------------------- |
+| `QA_HOST`        | Host the QA user script signs up and signs in against. Defaults to `labs.agent-native.com`.                    |
+| `QA_SLOTS`       | Comma-separated `qa-fleet-N` slots the QA user script creates or signs in. Defaults to `1,2,3,4,5`.            |
+| `QA_PROBE`       | Set to `1` to seed, read back, and delete a `qa-tmp-` record after each sign-in.                               |
+| `QA_PROBE_APP`   | Labs app whose auth and actions the QA user script exercises. Defaults to `forms-2`.                           |
+| `QA_FRESH`       | Set to `1` to sign up one new `qa-tmp-` Mailosaur address end to end and write a receipt without any password. |
+| `LABS_APP`       | Labs app the signed-in smoke test opens. Workflow-internal.                                                    |
+| `LABS_HOST`      | Host the signed-in smoke test targets. Defaults to `labs.agent-native.com`.                                    |
+| `QA_SLOT`        | Slot of the `qa-fleet-N` identity a smoke or live-verify run uses.                                             |
+| `INPUT_APPS`     | Apps input passed to the smoke matrix builder. Workflow-internal.                                              |
+| `QA_TARGET`      | Live-verify target: a preset (`forms-seeded`), an app name, or JSON with app, path, steps.                     |
+| `QA_VERIFY_AUTH` | Live-verify sign-in mode: `legacy-password` (default) or `qa-email-link` for a configured Labs QA slot.        |
+| `QA_PROVIDER`    | Live-verify browser: `browserbase` (remote session with a replay) or `local` (headless).                       |
+| `QA_OUT_DIR`     | Directory the live-verify receipt and before/after screenshots are written to.                                 |
 
 ### Deploy-path check
 

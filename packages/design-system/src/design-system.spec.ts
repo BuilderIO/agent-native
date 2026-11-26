@@ -346,6 +346,70 @@ describe("part catalog", () => {
     }
   });
 
+  const runtimeReads: Readonly<Record<string, readonly string[]>> = {
+    accordion: ["--accordion-panel-height"],
+    collapsible: ["--collapsible-panel-height"],
+    drawer: [
+      "--drawer-swipe-movement-x",
+      "--drawer-swipe-movement-y",
+      "--drawer-swipe-progress",
+      "--drawer-swipe-strength",
+    ],
+    "split-pane": ["--split-pane-preview", "--split-pane-size"],
+    toast: [
+      "--toast-height",
+      "--toast-index",
+      "--toast-frontmost-height",
+      "--toast-offset-y",
+      "--toast-swipe-movement-x",
+      "--toast-swipe-movement-y",
+      "--toast-clamped-height",
+      "--toast-expanded-y",
+      "--toast-gap",
+      "--toast-line-inset",
+      "--toast-peek",
+      "--toast-scale",
+      "--toast-shrink",
+    ],
+  };
+
+  const prefixes = PARTS.map((owner) => "--" + owner.name + "-");
+  const normalizeCss = (css: string) =>
+    css
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\s+/g, " ")
+      .replace(/\( | \)/g, (delimiter) => delimiter.trim())
+      .replace(/\s*,\s*/g, ",");
+
+  it.each(STYLED.map((part) => [part.name, part] as const))(
+    "%s documents its part-prefixed CSS reads and defaults",
+    (name, part) => {
+      const css = normalizeCss(
+        readFileSync(path.join(cssDir, "parts", name + ".css"), "utf8"),
+      );
+      const reads = new Set(
+        [...css.matchAll(/var\((--[\w-]+)/g)]
+          .map((match) => match[1])
+          .filter(
+            (property) =>
+              property &&
+              prefixes.some((prefix) => property.startsWith(prefix)),
+          ),
+      );
+      const runtime = runtimeReads[name] ?? [];
+      const inputs = Object.entries(part.cssInputs ?? {});
+      expect([...reads].sort()).toEqual(
+        [...inputs.map(([key]) => key), ...runtime].sort(),
+      );
+      for (const [property, input] of inputs) {
+        expect(input.description.trim()).not.toBe("");
+        expect(css).toContain(
+          normalizeCss(`var(${property}, ${input.fallback})`),
+        );
+      }
+    },
+  );
+
   it("sets text color from a text role, never a gray step", () => {
     const steps = STYLED.flatMap((part) => {
       const css = readFileSync(

@@ -910,6 +910,11 @@ export default defineAction({
       .optional(),
   }),
   http: { method: "GET" },
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async (args, ctx) => {

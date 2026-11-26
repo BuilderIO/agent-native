@@ -1578,9 +1578,7 @@ describe("runBackgroundAutomation — confirmed work", () => {
           ],
         }),
       };
-      getThreadMock
-        .mockResolvedValueOnce(interruptedThread)
-        .mockResolvedValueOnce(interruptedThread);
+      getThreadMock.mockResolvedValue(interruptedThread);
       runLoop.mockImplementationOnce(async (opts) => {
         await opts.send?.({
           type: "tool_done",
@@ -1629,6 +1627,7 @@ describe("runBackgroundAutomation — confirmed work", () => {
         .get(previous!.runId!)) as { thread_projection_pending: boolean };
       expect(previousProjection.thread_projection_pending).toBe(false);
     } finally {
+      getThreadMock.mockReset();
       finish.mockRestore();
       completeReceipt.mockRestore();
       adapter.mockRestore();

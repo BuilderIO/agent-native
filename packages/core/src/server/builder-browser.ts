@@ -3013,20 +3013,36 @@ export async function runBuilderAgent(
     userId: builderUserId,
   });
 
-  if (
+  const unknownEmail = () =>
     !response.ok &&
-    (response.status === 403 || response.status === 404) &&
-    builderUserEmail &&
-    fallbackUserId
-  ) {
+    Boolean(builderUserEmail) &&
+    (response.status === 403 ||
+      response.status === 404 ||
+      /user not found/i.test(builderApiErrorMessage(parsed, "")));
+
+  let attemptedFallback = false;
+  if (unknownEmail() && fallbackUserId) {
+    attemptedFallback = true;
     ({ response, parsed } = await postRun({ userId: fallbackUserId }));
   }
 
   if (!response.ok) {
-    const msg =
-      typeof parsed.error === "string"
-        ? parsed.error
-        : `Builder agent run failed (${response.status})`;
+    const msg = builderApiErrorMessage(
+      parsed,
+      `Builder agent run failed (${response.status})`,
+    );
+    if (!attemptedFallback && unknownEmail() && /user not found/i.test(msg)) {
+      throw Object.assign(
+        new ActionContractError(
+          `Builder could not find ${builderUserEmail} as a member of this Builder space (${msg}).`,
+          {
+            errorCode: "builder_space_membership_required",
+            statusCode: 400,
+          },
+        ),
+        { builderStatus: response.status },
+      );
+    }
     throw builderApiFailure(response.status, msg);
   }
 

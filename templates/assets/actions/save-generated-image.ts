@@ -1,8 +1,9 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { markAssetSaved } from "../server/handlers/assets.js";
+import { isSomeoneElsesDraft } from "../server/lib/library-access.js";
 import { getAssetOrThrow, serializeAsset } from "./_helpers.js";
 import {
   deleteVariantState,
@@ -19,6 +20,10 @@ export default defineAction({
     folderId: z.string().min(1).nullable().optional(),
     threadId: z.string().nullable().optional(),
   }),
+  needsApproval: async ({ assetId }, ctx) =>
+    isOutsideAgentCall(ctx) &&
+    (!assetId || (await isSomeoneElsesDraft(await getAssetOrThrow(assetId)))),
+  mcpTool: "search",
   run: async (
     { assetId, slotId, folderId, threadId },
     context?: ActionRunContext,

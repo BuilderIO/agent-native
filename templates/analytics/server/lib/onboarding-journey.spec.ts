@@ -868,7 +868,7 @@ describe("getOnboardingJourney", () => {
       ...counts,
     });
     mocks.queryFirstPartyAnalytics.mockImplementation(async (sql: string) => {
-      if (sql.includes("terminal_members AS (")) {
+      if (sql.includes("cohort_keys AS (")) {
         return {
           rows: [
             personRow("signup", {
@@ -918,21 +918,15 @@ describe("getOnboardingJourney", () => {
     });
     const personSql = mocks.queryFirstPartyAnalytics.mock.calls
       .map(([sql]) => sql as string)
-      .find((sql) => sql.includes("terminal_members AS ("))!;
+      .find((sql) => sql.includes("cohort_keys AS ("))!;
     // Grace's latest session has only her email; her sign-in ID comes from
     // the sessions that share it.
     expect(personSql).toContain(
-      `"sessionId":"s1","stepKey":"step:role","app":"clips","timestamp":"2026-10-01T12:00:05.000Z","authUserId":"person-g","emailHash":"${hash("grace@example.com")}"`,
+      `{"sessionId":"s1","stepKey":"step:role","app":"clips","timestamp":"2026-10-01T12:00:05.000Z","identityStatus":"identified","sessionKey":"s1","authUserId":"person-g","emailHash":"${hash("grace@example.com")}"}`,
     );
+    expect(personSql.match(/"sessionId":"s1"/g)).toHaveLength(1);
     expect(personSql).toContain(
       `"authUserId":null,"emailHash":"${hash("heidi@example.com")}"`,
-    );
-    // Later activity matches every email and sign-in ID Grace's sessions carried.
-    expect(personSql).toContain(
-      '{"sessionId":"s1","authUserId":"person-g","emailHash":null}',
-    );
-    expect(personSql).toContain(
-      `{"sessionId":"s1","authUserId":null,"emailHash":"${hash("grace@example.com")}"}`,
     );
     expect(personSql).not.toContain('"sessionId":"s2"');
     expect(personSql).not.toContain('"sessionId":"s3"');
@@ -2566,6 +2560,97 @@ describe("getOnboardingJourney", () => {
     }
   });
 
+  it("says why each timed-out follow-up's earlier BigQuery jobs weren't collected", async () => {
+    const sessionJobs = [{ job: "new" as const, slot: 1 }];
+    const personJobs = [
+      {
+        job: "existing" as const,
+        slot: 1,
+        collectable: false,
+        state: "DONE",
+        ageSeconds: 180,
+        sameQuery: true,
+        failureReason: "other" as const,
+        failureCode: "stopped",
+      },
+      { job: "new" as const, slot: 2 },
+    ];
+    mocks.queryFirstPartyAnalytics.mockImplementation(
+      async (
+        sql: string,
+        _scope: unknown,
+        options: { trace: BigQueryQueryTrace },
+      ) => {
+        if (sql.includes("journey_total_rows")) {
+          return { rows: journeyRows(), schema: [] };
+        }
+        const { trace } = options;
+        trace.jobs.push(
+          ...(sql.includes("authUserId") ? personJobs : sessionJobs),
+        );
+        trace.stage = "polling";
+        trace.polls = 3;
+        throw new FirstPartyAnalyticsQueryTimeoutError();
+      },
+    );
+
+    const summary = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      followUpMode: "person",
+      format: "summary",
+    })) as JourneySummary;
+
+    expect(summary.followUp).toMatchObject({
+      incompleteReason: "followup_aggregate_query_timeout",
+      coverage: {
+        followupAggregateRead: {
+          stoppedQuery: { stage: "polling", jobs: sessionJobs, polls: 3 },
+        },
+      },
+    });
+    expect(summary.personFollowUp).toMatchObject({
+      incompleteReason: "person_followup_query_timeout",
+      coverage: {
+        followupAggregateRead: {
+          stoppedQuery: { stage: "polling", jobs: personJobs, polls: 3 },
+        },
+      },
+    });
+  });
+
+  it("reports a person follow-up BigQuery refused for resources as failed, without a retry", async () => {
+    mocks.queryFirstPartyAnalytics.mockImplementation(async (sql: string) => {
+      if (sql.includes("journey_total_rows")) {
+        return { rows: journeyRows(), schema: [] };
+      }
+      if (sql.includes("cohort_keys AS (")) {
+        throw new BigQueryBackendError("job", null, "resources_exceeded");
+      }
+      return { rows: [], schema: [] };
+    });
+
+    const summary = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      followUpMode: "person",
+      format: "summary",
+    })) as JourneySummary;
+
+    expect(summary.personFollowUp).toMatchObject({
+      status: "incomplete",
+      incompleteReason: "person_followup_query_failed",
+      coverage: {
+        followupAggregateRead: {
+          status: "incomplete",
+          backendStatus: null,
+          backendReason: "resources_exceeded",
+          backendOperation: "job",
+        },
+      },
+    });
+    expect(summary.notes?.join(" ") ?? "").not.toMatch(/Call again/);
+    expect(summary.continueWith).toBeUndefined();
+  });
+
   it.each(["postgres", "dual"] as const)(
     "does not offer a retry when a %s-backed follow-up had a query's full time",
     async (sink) => {
@@ -2587,6 +2672,9 @@ describe("getOnboardingJourney", () => {
         status: "incomplete",
         incompleteReason: "followup_aggregate_query_timeout",
       });
+      expect(
+        summary.followUp.coverage.followupAggregateRead,
+      ).not.toHaveProperty("stoppedQuery");
       expect(summary.notes).toEqual([
         expect.stringMatching(
           /needed more than the 20 seconds one query may run, so calling again will not finish it/,

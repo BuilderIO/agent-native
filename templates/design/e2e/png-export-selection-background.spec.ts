@@ -164,7 +164,7 @@ test("selected Frame exports isolate ancestor backgrounds while Screen export pr
   const transparentFrame = layerRow(page, "Transparent frame");
   await transparentFrame.locator("[data-layer-row-button]").click();
   await expect(
-    page.getByRole("textbox", { name: "W size in pixels" }),
+    page.getByRole("combobox", { name: "W size in pixels" }),
   ).toHaveValue("100");
   const transparentFrameExport = await exportPngPixels(page);
   expect(transparentFrameExport).toMatchObject({
@@ -188,7 +188,7 @@ test("selected Frame exports isolate ancestor backgrounds while Screen export pr
 
   await page.keyboard.press("Escape");
   await expect(
-    page.getByRole("textbox", { name: "W size in pixels" }),
+    page.getByRole("combobox", { name: "W size in pixels" }),
   ).toHaveCount(0);
   const focusedMenuExport = await exportPngPixelsFromFileMenu(page);
   expect(focusedMenuExport.corner).toEqual([18, 52, 86, 255]);

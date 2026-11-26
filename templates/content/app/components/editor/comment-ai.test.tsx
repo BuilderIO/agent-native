@@ -382,6 +382,64 @@ describe("comment AI controls", () => {
     );
   });
 
+  it.each([
+    {
+      name: "the submitted model when no run recorded one",
+      fields: {
+        submittedModel: "claude-sonnet-5-5",
+        submittedEngine: "builder",
+      },
+      expected: { model: "claude-sonnet-5-5", engine: "builder" },
+    },
+    {
+      name: "the recorded model over the submitted one",
+      fields: {
+        model: "gpt-6-luna",
+        submittedModel: "claude-sonnet-5-5",
+        submittedEngine: "builder",
+      },
+      expected: { model: "gpt-6-luna", engine: "builder" },
+    },
+    {
+      name: "the recorded model alone when no engine was picked",
+      fields: { model: "gpt-6-luna", engine: "builder" },
+      expected: { model: "gpt-6-luna", engine: undefined },
+    },
+    {
+      name: "the default model when none was picked",
+      fields: {},
+      expected: { model: undefined, engine: undefined },
+    },
+  ])("retries a stopped request on $name", async ({ fields, expected }) => {
+    const base = request({
+      status: "needs-review",
+      agentThreadId: "agent-thread-1",
+      agentTurnId: "initial-turn-1",
+      ...fields,
+    });
+    api.requests = [base];
+    api.loadCommentAiConversation.mockResolvedValue([]);
+    api.startBackgroundAgentSession.mockReturnValue({
+      operationId: "resume-1",
+      threadId: "agent-thread-1",
+      turnId: "resume-turn-1",
+      accepted: Promise.resolve(),
+      status: vi.fn(),
+    });
+    let controller: CommentAiController;
+    function Probe() {
+      controller = useCommentAiRequests("document-1", { enabled: true });
+      return null;
+    }
+    await act(async () => root.render(createElement(Probe)));
+    await act(async () => controller.retry(base));
+    expect(api.startBackgroundAgentSession).toHaveBeenCalledOnce();
+    const started = api.startBackgroundAgentSession.mock.calls[0]?.[0];
+    expect({ model: started?.model, engine: started?.engine }).toEqual(
+      expected,
+    );
+  });
+
   it("names the model a comment was sent to while it works", async () => {
     const label = async (
       overrides: Partial<CommentAiRequest>,
@@ -419,8 +477,6 @@ describe("comment AI controls", () => {
         submittedModel: "claude-haiku-5-5",
       }),
     ).toBe("comments.aiWorkingNamed");
-    // A follow-up runs on request.model alone, so it doesn't name the
-    // submitted model.
     expect(
       await label(
         {
@@ -435,7 +491,7 @@ describe("comment AI controls", () => {
           status: "running",
         },
       ),
-    ).toBe("comments.aiWorking");
+    ).toBe("comments.aiWorkingNamed");
     expect(await label({ status: "running", model: null })).toBe(
       "comments.aiWorking",
     );

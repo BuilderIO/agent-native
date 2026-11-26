@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -42,6 +42,8 @@ export default defineAction({
     id: z.string(),
     moveToFolderId: z.string().nullable().optional(),
   }),
+  needsApproval: (_args, ctx) => isOutsideAgentCall(ctx),
+  mcpTool: "search",
   run: async ({ id, moveToFolderId }) => {
     const db = getDb();
     const [folder] = await db

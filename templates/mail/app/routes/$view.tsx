@@ -1,5 +1,5 @@
 import { isKnownMailView } from "@shared/mail-routes";
-import { data, useParams } from "react-router";
+import { data, Navigate, useLocation, useParams } from "react-router";
 
 import messages from "@/i18n/en-US";
 import { InboxPage } from "@/pages/InboxPage";
@@ -36,6 +36,10 @@ export function meta({ params }: { params: { view?: string } }) {
 
 export default function ViewRoute() {
   const { view } = useParams<{ view: string }>();
+  const location = useLocation();
+  if (view === "scheduled") {
+    return <Navigate to={`/drafts${location.search}`} replace />;
+  }
   if (!isKnownMailView(view)) {
     return <NotFound />;
   }

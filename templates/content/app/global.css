@@ -944,6 +944,99 @@
   height: auto;
 }
 
+/* An interactive HTML block: a dialog so it can cover the window without its
+   frame moving in the page, which would load it again. */
+.content-editor .content-interactive-html {
+  position: relative;
+  inset: auto;
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  margin: 0.6em 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  background: hsl(var(--background));
+  color: inherit;
+}
+.content-editor .content-interactive-html__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding-block: 4px;
+  padding-inline: 12px 6px;
+}
+.content-editor .content-interactive-html__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: hsl(var(--muted-foreground));
+}
+.content-editor .content-interactive-html pre {
+  max-height: 480px;
+  overflow: auto;
+  border-top: 1px solid hsl(var(--border) / 0.5);
+  background: hsl(var(--muted));
+}
+.content-editor .content-interactive-html__body {
+  border-top: 1px solid hsl(var(--border) / 0.5);
+}
+.content-editor .content-interactive-html__frame {
+  display: block;
+  width: 100%;
+  border: 0;
+}
+.content-editor .content-interactive-html__waiting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 160px;
+  padding: 16px;
+  font-size: 0.875rem;
+  text-align: center;
+  color: hsl(var(--muted-foreground));
+}
+.content-editor .content-interactive-html__waiting p {
+  margin: 0;
+}
+.content-editor .content-interactive-html--full {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100vw;
+  height: 100dvh;
+  margin: 0;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+  border: 0;
+  border-radius: 0;
+}
+.content-editor
+  .content-interactive-html--full
+  .content-interactive-html__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.content-editor
+  .content-interactive-html--full
+  .content-interactive-html__body
+  > * {
+  flex: 1;
+  min-height: 0;
+}
+
 .content-editor .hljs-comment,
 .content-editor .hljs-quote {
   color: hsl(var(--muted-foreground));

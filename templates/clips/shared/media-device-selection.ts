@@ -66,10 +66,24 @@ export function isSelectableAudioInputDevice(
   device: AudioInputCandidate,
 ): boolean {
   return (
-    device.kind === "audioinput" &&
-    !isPseudoMediaDeviceId(device.deviceId) &&
-    !isLikelyPhoneMicLabel(device.label)
+    device.kind === "audioinput" && !isPseudoMediaDeviceId(device.deviceId)
   );
+}
+
+function isAutomaticAudioInputCandidate(device: AudioInputCandidate): boolean {
+  return (
+    isSelectableAudioInputDevice(device) && !isLikelyPhoneMicLabel(device.label)
+  );
+}
+
+function matchesSavedLabel(
+  label: string | null | undefined,
+  savedLabel: string,
+): boolean {
+  if (isLikelyPhoneMicLabel(label) || isLikelyPhoneMicLabel(savedLabel)) {
+    return (label ?? "").trim() === savedLabel;
+  }
+  return labelsMatch(label, savedLabel);
 }
 
 function isBuiltInMicLabel(label: string | null | undefined): boolean {
@@ -99,10 +113,10 @@ export function findAudioInputBySavedLabel(
       isSelectableAudioInputDevice(device) && !avoid.has(device.deviceId),
   );
 
-  const savedLabel = normalizedLabel(options.savedLabel);
+  const savedLabel = options.savedLabel?.trim() ?? "";
   if (savedLabel) {
     const labelMatch = candidates.find((device) =>
-      labelsMatch(device.label, savedLabel),
+      matchesSavedLabel(device.label, savedLabel),
     );
     if (labelMatch) {
       return {
@@ -136,7 +150,7 @@ export function chooseFallbackAudioInput(
   );
   const candidates = Array.from(devices).filter(
     (device) =>
-      isSelectableAudioInputDevice(device) && !avoid.has(device.deviceId),
+      isAutomaticAudioInputCandidate(device) && !avoid.has(device.deviceId),
   );
 
   const best =

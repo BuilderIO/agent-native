@@ -17,6 +17,7 @@ import addComment from "./add-comment.js";
 import addContentDatabaseSourceFieldProperty from "./add-content-database-source-field-property.js";
 import addDatabaseItem from "./add-database-item.js";
 import addGitHubPullRequests from "./add-github-pull-requests.js";
+import addMailNote from "./add-mail-note.js";
 import configureDocumentProperty from "./configure-document-property.js";
 import connectNotionStatus from "./connect-notion-status.js";
 import createContentDatabase from "./create-content-database.js";
@@ -33,6 +34,7 @@ import getContentDatabaseSource from "./get-content-database-source.js";
 import getContentDatabase from "./get-content-database.js";
 import { resolveContentDatabaseReadLimit } from "./get-content-database.js";
 import getDocument from "./get-document.js";
+import getMailNote from "./get-mail-note.js";
 import linkGitHubFolder from "./link-github-folder.js";
 import listComments from "./list-comments.js";
 import listContentDatabaseBlocks from "./list-content-database-blocks.js";
@@ -110,6 +112,8 @@ describe("Content action-owned agent catalogs", () => {
     "add-github-pull-requests": addGitHubPullRequests,
     "read-composer-source": readComposerSource,
     "read-document-file": readDocumentFile,
+    "get-mail-note": getMailNote,
+    "add-mail-note": addMailNote,
   };
 
   const deferredDatabaseActions = {

@@ -371,6 +371,8 @@ export default {
       blur: "Unschärfe",
       spread: "Ausbreitung",
       rotation3d: "3D-Rotation",
+      constraints: "Constraints",
+      absolutePosition: "Absolute Position",
       rotationX: "X-Rotation",
       rotationY: "Y-Rotation",
       perspective: "Perspektive",
@@ -1167,6 +1169,12 @@ export default {
         opacity: "Deckkraft",
       },
       editColor: "Farbe von {{name}} bearbeiten",
+      field: {
+        open: "Tokens",
+        detach: "Token lösen",
+        primitives: "{{group}}-Primitive",
+        loading: "Tokens werden geladen…",
+      },
     },
     import: {
       description:

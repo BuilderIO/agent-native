@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Slides are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-11-24
+
+### Added
+
+- Image search can use a custom search address through the optional GOOGLE_SEARCH_URL setting.
+
 ## 2026-11-18
 
 ### Improved
@@ -23,6 +29,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Slides opens reliably without a first-run page error.
 - Exiting a live presentation no longer opens an invalid share link.
 - Slide edit errors show relevant context to help you retry safely
 - Selecting an object whose stylesheet locks its rotation no longer makes it briefly spin back to its inline rotation in current Chrome.
@@ -76,6 +83,8 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- A quick right-click on a slide object no longer cuts it by accident, and cutting or deleting a text box while editing it now saves cleanly.
+- Width and height fields in the slide toolbar now show the full value instead of cutting it off.
 - Agent comments and reactions are now marked as the agent's, not yours, and the agent must ask before deleting another person's comment.
 - PDF, PowerPoint, and Google Slides export from the editor now work for long decks instead of failing with a 'slide is not currently rendered' error.
 - Building slides from PDFs or notes no longer stops with a placeholder error on some models
@@ -1482,16 +1491,5 @@ time from the command menu (Cmd+K → "What's new").
 - Deck thumbnails collapse cleanly to one column when the chat pane narrows the deck list.
 - PowerPoint downloads now keep slide text editable while preserving the rendered layout for Google Slides imports.
 - Unavailable decks open in a cleaner full-height centered state.
-
-## 2026-06-29
-
-### Improved
-
-- Design system setup now indexes uploaded design files through Builder.
-- Slide layouts adapt when the agent sidebar is open.
-
-### Fixed
-
-- Hosted deck generation and editing chats have a longer background run window, reducing timeouts during complex creative turns.
 
 For the full list of updates, see the [changelog folder](./changelog/).

@@ -7,6 +7,7 @@ import {
   actionCallIntent,
   invocationEffect,
   isActionContractError,
+  isAgentConnectionRequiredError,
   isReversibleWriteInlineApprovalAction,
   recordInvalidActionCall,
   preparedCallArguments,
@@ -33,6 +34,12 @@ import {
   recordServicePrincipalDenial,
   ServicePrincipalRefusedError,
 } from "../org/service-principal-guard.js";
+import { toAbsoluteOpenUrl } from "../server/deep-link.js";
+import {
+  declaredLinkOrigin,
+  getConfiguredOriginAllowlist,
+  isLoopbackOrigin,
+} from "../server/origin-allowlist.js";
 import {
   getRequestContext,
   getRequestOrgId,
@@ -50,7 +57,7 @@ import {
   type McpApprovalCall,
   type McpApprovalRecord,
 } from "./approval-store.js";
-import type { MCPCallerIdentity } from "./build-server.js";
+import type { MCPCallerIdentity, MCPRequestMeta } from "./build-server.js";
 import {
   CIRCULAR_RESULT,
   EMBED_RESULT_SENSITIVE_KEYS,
@@ -59,6 +66,7 @@ import {
   IMAGE_BYTES,
   isDatabaseQueryFailure,
   isEmbedCredentialKey,
+  isEmbedStartUrl,
   readString,
   redactEmbedText,
   type StringReading,
@@ -79,6 +87,7 @@ import {
  */
 
 export const MCP_ACTION_APPROVAL_TTL_SECONDS = 10 * 60;
+export const MCP_CONNECTION_REQUIRED_TTL_SECONDS = 10 * 60;
 
 export interface McpActionApprovalState {
   version: 1;
@@ -88,6 +97,275 @@ export interface McpActionApprovalState {
   expiresAt: number;
   /** The prompt asked the person to open the review page; absent for a form. */
   mode?: "url";
+}
+
+export type McpConnectionRequiredReason =
+  | "connect"
+  | "grant"
+  | "reauthorize"
+  | "admin_required";
+
+export interface McpActionConnectionState {
+  kind: "connection_required";
+  version: 1;
+  nonce: string;
+  actionName: string;
+  argumentsHash: string;
+  provider: string;
+  expiresAt: number;
+}
+
+/** Signed multi-round request state carried by MCP direct action calls. */
+export type McpActionRequestState =
+  | McpActionApprovalState
+  | McpActionConnectionState;
+
+export function isMcpActionConnectionState(
+  state: unknown,
+): state is McpActionConnectionState {
+  return (
+    Boolean(state) &&
+    typeof state === "object" &&
+    (state as { kind?: unknown }).kind === "connection_required" &&
+    (state as { version?: unknown }).version === 1
+  );
+}
+
+/**
+ * Typed `connection_required` metadata extracted from either a thrown
+ * `AgentConnectionRequiredError` / `connection_required` contract error or a
+ * typed `connection_required` action result.
+ */
+export interface McpConnectionRequiredDetails {
+  provider: string;
+  connectUrl: string;
+  message: string;
+  reason: McpConnectionRequiredReason;
+  fromError: boolean;
+}
+
+const CONNECTION_REQUIRED_REASONS = new Set<McpConnectionRequiredReason>([
+  "connect",
+  "grant",
+  "reauthorize",
+  "admin_required",
+]);
+
+function normalizeConnectionReason(
+  value: unknown,
+): McpConnectionRequiredReason {
+  return typeof value === "string" &&
+    CONNECTION_REQUIRED_REASONS.has(value as McpConnectionRequiredReason)
+    ? (value as McpConnectionRequiredReason)
+    : "connect";
+}
+
+function readNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function defaultConnectionMessage(
+  provider: string,
+  reason: McpConnectionRequiredReason,
+): string {
+  switch (reason) {
+    case "reauthorize":
+      return `Reconnect ${provider} to continue.`;
+    case "grant":
+      return `Grant access to ${provider} to continue.`;
+    case "admin_required":
+      return `An administrator must connect ${provider} before this action can run.`;
+    case "connect":
+      return `Connect ${provider} to continue.`;
+  }
+}
+
+/**
+ * Extract typed `connection_required` URL elicitation details from a thrown
+ * error. Never throws on hostile getters, and ignores post-run signals that
+ * already reported a committed write effect so a write is never re-run.
+ */
+export function extractMcpConnectionRequiredFromError(
+  error: unknown,
+): McpConnectionRequiredDetails | undefined {
+  try {
+    if (isAgentConnectionRequiredError(error)) {
+      if (error.effect !== undefined && error.effect !== "none") {
+        return undefined;
+      }
+      const provider = readNonEmptyString(error.provider);
+      const rawDetails =
+        error.details &&
+        typeof error.details === "object" &&
+        !Array.isArray(error.details)
+          ? (error.details as Record<string, unknown>)
+          : undefined;
+      const connectUrl =
+        readNonEmptyString(error.connectUrl) ??
+        readNonEmptyString(rawDetails?.connectUrl) ??
+        readNonEmptyString(rawDetails?.url);
+      if (!provider || !connectUrl) return undefined;
+      const reason = normalizeConnectionReason(error.reason);
+      const message =
+        readNonEmptyString(error.message) ??
+        defaultConnectionMessage(provider, reason);
+      return {
+        provider,
+        connectUrl,
+        message: redactEmbedText(message),
+        reason,
+        fromError: true,
+      };
+    }
+
+    if (
+      isActionContractError(error) &&
+      error.errorCode === "connection_required"
+    ) {
+      const effect = (error as { effect?: unknown }).effect;
+      if (effect !== undefined && effect !== "none") {
+        return undefined;
+      }
+      const rawDetails =
+        error.details &&
+        typeof error.details === "object" &&
+        !Array.isArray(error.details)
+          ? (error.details as Record<string, unknown>)
+          : undefined;
+      if (!rawDetails) return undefined;
+      const provider = readNonEmptyString(rawDetails.provider);
+      const connectUrl =
+        readNonEmptyString(rawDetails.connectUrl) ??
+        readNonEmptyString(rawDetails.url);
+      if (!provider || !connectUrl) return undefined;
+      const reason = normalizeConnectionReason(rawDetails.reason);
+      const message =
+        readNonEmptyString(error.message) ??
+        defaultConnectionMessage(provider, reason);
+      return {
+        provider,
+        connectUrl,
+        message: redactEmbedText(message),
+        reason,
+        fromError: true,
+      };
+    }
+    return undefined;
+  } catch {
+    // coercion-ok: unreadable thrown errors fall back to normal error reporting without URL elicitation.
+    return undefined;
+  }
+}
+
+/**
+ * Extract typed `connection_required` URL elicitation details from a plain
+ * action return value. Requires an explicit `connection_required` discriminator
+ * (`type`, `status`, or `errorCode`) plus non-empty `provider` and
+ * `connectUrl`/`url` so ordinary action results are never mistaken for prompts.
+ */
+export function extractMcpConnectionRequiredFromResult(
+  result: unknown,
+): McpConnectionRequiredDetails | undefined {
+  try {
+    if (!result || typeof result !== "object" || Array.isArray(result)) {
+      return undefined;
+    }
+    const record = result as Record<string, unknown>;
+    const isTypedConnectionRequired =
+      record.type === "connection_required" ||
+      record.status === "connection_required" ||
+      record.errorCode === "connection_required";
+    if (!isTypedConnectionRequired) return undefined;
+    const provider = readNonEmptyString(record.provider);
+    const connectUrl =
+      readNonEmptyString(record.connectUrl) ?? readNonEmptyString(record.url);
+    if (!provider || !connectUrl) return undefined;
+    const reason = normalizeConnectionReason(record.reason);
+    const message =
+      readNonEmptyString(record.message) ??
+      defaultConnectionMessage(provider, reason);
+    return {
+      provider,
+      connectUrl,
+      message: redactEmbedText(message),
+      reason,
+      fromError: false,
+    };
+  } catch {
+    // coercion-ok: unreadable action return values fall back to normal result handling without URL elicitation.
+    return undefined;
+  }
+}
+
+function hasUnsafeConnectUrlChars(value: string): boolean {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    const ch = value.charAt(i);
+    if (code <= 0x1f || code === 0x7f || code === 0x5c || /\s/.test(ch)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Resolve and strictly validate an OAuth/connection URL for MCP URL
+ * elicitation. Only same-origin relative app paths (starting with a single `/`)
+ * or absolute URLs matching the server's trusted app origin allowlist are
+ * accepted. External origins, protocol-relative URLs, non-HTTP(S) schemes,
+ * embedded credentials, HTTP downgrades on non-loopback origins, and embed
+ * session start URLs are rejected (`undefined`).
+ */
+export function resolveTrustedMcpConnectUrl(
+  rawConnectUrl: string | undefined,
+  requestMeta: Pick<MCPRequestMeta, "origin"> | undefined,
+): string | undefined {
+  const candidate = readNonEmptyString(rawConnectUrl);
+  if (!candidate || hasUnsafeConnectUrlChars(candidate)) {
+    return undefined;
+  }
+  if (candidate.startsWith("//")) return undefined;
+
+  const primaryOrigin = declaredLinkOrigin(requestMeta?.origin);
+  if (!primaryOrigin || !URL.canParse(primaryOrigin)) return undefined;
+  const primaryParsed = new URL(primaryOrigin);
+  const primaryIsLoopback = isLoopbackOrigin(primaryParsed.origin);
+
+  const allowedOrigins = new Set<string>([primaryParsed.origin]);
+  if (!primaryIsLoopback) {
+    for (const origin of getConfiguredOriginAllowlist()) {
+      if (!isLoopbackOrigin(origin)) allowedOrigins.add(origin);
+    }
+  }
+
+  let parsed: URL;
+  if (candidate.startsWith("/")) {
+    const resolved = toAbsoluteOpenUrl(candidate, primaryParsed.origin);
+    if (!URL.canParse(resolved)) return undefined;
+    parsed = new URL(resolved);
+    if (parsed.origin !== primaryParsed.origin) return undefined;
+  } else if (/^[a-z][a-z0-9+.-]*:\/\//i.test(candidate)) {
+    if (!URL.canParse(candidate)) return undefined;
+    parsed = new URL(candidate);
+    if (!allowedOrigins.has(parsed.origin)) return undefined;
+  } else {
+    return undefined;
+  }
+
+  if (parsed.username || parsed.password) return undefined;
+  if (parsed.protocol === "http:") {
+    if (!primaryIsLoopback || !isLoopbackOrigin(parsed.origin)) {
+      return undefined;
+    }
+  } else if (parsed.protocol !== "https:") {
+    return undefined;
+  }
+
+  const finalUrl = parsed.toString();
+  if (isEmbedStartUrl(finalUrl)) return undefined;
+  return finalUrl;
 }
 
 /**

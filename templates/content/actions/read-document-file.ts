@@ -12,6 +12,7 @@ import { isSoftDeletedDatabaseDocument } from "./_database-utils.js";
 import { resolveDocumentAccess } from "./_document-access.js";
 import { documentDiscoveryWhere } from "./_document-discovery-query.js";
 import { refreshGitHubPageBeforeRead } from "./_github-source-freshness.js";
+import { withInteractiveHtmlLinks } from "./_interactive-html-blocks.js";
 import { listPropertiesForDatabase } from "./_property-utils.js";
 import searchDocuments from "./search-documents.js";
 
@@ -319,7 +320,10 @@ export default defineAction({
         } = await import("../server/lib/document-pdf.js");
         let pdf: Buffer;
         try {
-          pdf = renderDocumentPdf({ title, content: doc.content });
+          pdf = renderDocumentPdf({
+            title,
+            content: await withInteractiveHtmlLinks(doc.id, doc.content),
+          });
         } catch (error) {
           if (error instanceof PdfTooLongError) {
             const detail = {

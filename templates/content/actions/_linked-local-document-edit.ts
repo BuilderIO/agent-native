@@ -4,6 +4,7 @@ import {
 } from "@agent-native/core/server";
 
 import type { DocumentTextEdit } from "../shared/document-text-edits.js";
+import { sameSourceMarkdown } from "../shared/source-markdown.js";
 
 export const linkedLocalDocumentEditActionName = (documentId: string) =>
   `content-edit-linked-document:${documentId}`;
@@ -147,7 +148,7 @@ export async function editLinkedLocalDocumentThroughBrowser(args: {
     if (
       (result.status === "persisted" ||
         result.status === "source-persisted/readback-pending") &&
-      result.content !== args.expectedResultContent
+      !sameSourceMarkdown(result.content, args.expectedResultContent)
     ) {
       return {
         status: "conflict",

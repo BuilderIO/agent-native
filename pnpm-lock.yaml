@@ -16,8 +16,8 @@ catalogs:
       specifier: 0.5.16
       version: 0.5.16
     '@modelcontextprotocol/ext-apps':
-      specifier: 2.0.3
-      version: 2.0.3
+      specifier: 2.0.4
+      version: 2.0.4
     '@playwright/test':
       specifier: 1.63.0
       version: 1.63.0
@@ -2623,17 +2623,17 @@ importers:
         specifier: ^5.1.0
         version: 5.1.0
       '@modelcontextprotocol/client':
-        specifier: 2.0.0
-        version: 2.0.0
+        specifier: 2.4.0
+        version: 2.4.0
       '@modelcontextprotocol/core':
-        specifier: ^2.2.0
-        version: 2.2.0
+        specifier: 2.4.0
+        version: 2.4.0
       '@modelcontextprotocol/ext-apps':
         specifier: 'catalog:'
-        version: 2.0.3(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/core@2.2.0)(@modelcontextprotocol/server@2.0.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
+        version: 2.0.4(@modelcontextprotocol/client@2.4.0)(@modelcontextprotocol/core@2.4.0)(@modelcontextprotocol/server@2.4.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
       '@modelcontextprotocol/server':
-        specifier: 2.0.0
-        version: 2.0.0
+        specifier: 2.4.0
+        version: 2.4.0
       '@mozilla/readability':
         specifier: ^0.6.0
         version: 0.6.0
@@ -3082,17 +3082,17 @@ importers:
         specifier: workspace:*
         version: link:../toolkit
       '@modelcontextprotocol/client':
-        specifier: 2.0.0
-        version: 2.0.0
+        specifier: 2.4.0
+        version: 2.4.0
       '@modelcontextprotocol/core':
-        specifier: 2.0.0
-        version: 2.0.0
+        specifier: 2.4.0
+        version: 2.4.0
       '@modelcontextprotocol/node':
-        specifier: 2.0.0
-        version: 2.0.0(@modelcontextprotocol/server@2.0.0)(hono@4.12.27)
+        specifier: 2.1.2
+        version: 2.1.2(@modelcontextprotocol/server@2.4.0)
       '@modelcontextprotocol/server':
-        specifier: 2.0.0
-        version: 2.0.0
+        specifier: 2.4.0
+        version: 2.4.0
       '@sentry/electron':
         specifier: ^7.14.0
         version: 7.14.0
@@ -3121,8 +3121,8 @@ importers:
         specifier: 8.22.0
         version: 8.22.0
       zod:
-        specifier: ^4.4.3
-        version: 4.4.3
+        specifier: ^4.6.7
+        version: 4.6.7
     devDependencies:
       '@tailwindcss/vite':
         specifier: ^4.3.0
@@ -3984,7 +3984,7 @@ importers:
         version: 5.3.0
       '@modelcontextprotocol/ext-apps':
         specifier: 'catalog:'
-        version: 2.0.3(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/core@2.2.0)(@modelcontextprotocol/server@2.0.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
+        version: 2.0.4(@modelcontextprotocol/client@2.4.0)(@modelcontextprotocol/core@2.4.0)(@modelcontextprotocol/server@2.4.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)
       '@radix-ui/react-accordion':
         specifier: ^1.2.15
         version: 1.2.15(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -5823,7 +5823,7 @@ importers:
     dependencies:
       '@agent-native/core':
         specifier: ^0.219.0
-        version: 0.219.0(dac907b5d92a67b9789b37c93607a432)
+        version: 0.219.0(8f05dccb6f36fd67d2c536588b5c91da)
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
@@ -8321,8 +8321,8 @@ packages:
   '@agent-native/agentkit@0.219.0':
     resolution: {integrity: sha512-aMCbnImC617tDfQrEyUuSy5gbdaBILacVgnHBIVYF5jikIWqCIUyYHvQMvhNCsMYlrcjkWBL9Y7ETs3ub5Cm5w==}
 
-  '@agent-native/core-corpus@0.232.0':
-    resolution: {integrity: sha512-+fAf/O2HWdYTJgreFcOO64DpcFPGVahMz+H9XoutUfcsW3k+m7xxkRavjzxFesUSGNMugsvJmIbqQGqyWjckHQ==}
+  '@agent-native/core-corpus@0.234.0':
+    resolution: {integrity: sha512-MTr08KaGIAVAY+Tq/4cndx/C8AhvHqSc7cHgTGbUGcDKe48OTWl75fQ2rC7WedbnpeKTaLROwdY+KjSnM7K/aA==}
 
   '@agent-native/core@0.219.0':
     resolution: {integrity: sha512-twQ73+RmBujEvC4O1ezowkADUK83jfMO71E7KMqBbNENWbItZfBmS1czOEtT1MVEgyZOFRtrQ0lyCQBgpSFWTA==}
@@ -11606,12 +11606,16 @@ packages:
     resolution: {integrity: sha512-8f1OghQ2rjzIOfqgUCP+8GiUWqRs89njoWLNqAe8kWmDePv3s1fZXseej+QXemssEuuOvLLmLO/kqM3IQHtISw==}
     engines: {node: '>=20'}
 
+  '@modelcontextprotocol/client@2.4.0':
+    resolution: {integrity: sha512-LgrD2OphHuG12vfKFKz6SOnq7bKHQmhGJIAYdD+MZBn2npHEyry6uD8zvktodtl5CQM85MO0anUyD9JwmUmxww==}
+    engines: {node: '>=20'}
+
   '@modelcontextprotocol/core@2.0.0':
     resolution: {integrity: sha512-pJCEwGG7Lfr/+PQp9ZTwKXNeO5wzbfKL7H3MYpCorM4oFBoQrdjnBgEoqG+RjhsvS1FKrDbKux+M1HhlnGWqcA==}
     engines: {node: '>=20'}
 
-  '@modelcontextprotocol/core@2.2.0':
-    resolution: {integrity: sha512-iLhmprRmWI8EcosOA3wVvww22z02NkgqhV4fBH6f/odQBsi7xnJc0HGmi21yWO+/iKw2yzqVE127Zhna5/+JXw==}
+  '@modelcontextprotocol/core@2.4.0':
+    resolution: {integrity: sha512-z8QBKqdfXLPzkLQuG4xp8hrVEMm1PZ1IgxMN2sMbJiFiAKOWXnAzogXn2W4aqIBlP1ea6U5yiqVquvUNM1Cj6Q==}
     engines: {node: '>=20'}
 
   '@modelcontextprotocol/ext-apps@2.0.3':
@@ -11632,15 +11636,29 @@ packages:
       react-dom:
         optional: true
 
-  '@modelcontextprotocol/node@2.0.0':
-    resolution: {integrity: sha512-Y4hAC2XdGDUdDOCbLDOCA4+aL3NUldjsOWlDL/YwpAxrPhRm1xHd7lZ+mLacvZ9t3PaH28wgNoaLQGrIk1P2pg==}
+  '@modelcontextprotocol/ext-apps@2.0.4':
+    resolution: {integrity: sha512-B+PcbuGiaf0e5I3uy4iO5tS3Abo+5w8JvZFzHMzQdq9yVwP836zJkw2+KCGOQ0r4TM1fuQi4JdnbuWjkS4aBvg==}
     engines: {node: '>=20'}
     peerDependencies:
+      '@modelcontextprotocol/client': ^2.0.0
+      '@modelcontextprotocol/core': ^2.0.0
       '@modelcontextprotocol/server': ^2.0.0
-      hono: '>=4.12.4'
+      react: 19.2.7
+      react-dom: 19.2.7
+      zod: ^4.2.0
     peerDependenciesMeta:
-      hono:
+      '@modelcontextprotocol/server':
         optional: true
+      react:
+        optional: true
+      react-dom:
+        optional: true
+
+  '@modelcontextprotocol/node@2.1.2':
+    resolution: {integrity: sha512-IIcIqBpr6NCQQs5DgJTgvbSOAw+3iaR/uquqg+e0nXCdudfjPg/80x0TseUnQx14AUAtE4fsJCEpJKPyb6WPVA==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      '@modelcontextprotocol/server': ^2.4.0
 
   '@modelcontextprotocol/sdk@1.30.0':
     resolution: {integrity: sha512-xKd8OIzlqNzcqcNumGAa6g+PW2kjD5vrpcKOnfldAUPP3j7lnqMPwlTXQm8gF+UwH72z0lqaRbjr9hqGz0eITA==}
@@ -11654,6 +11672,10 @@ packages:
 
   '@modelcontextprotocol/server@2.0.0':
     resolution: {integrity: sha512-YhHWdHfpFMQfd0prsEnxKeS3Qz3ytIGmsS0sth4KDjnacIT7hxk6hXHkJ9KysxlkvTM+WZAtQbbcUhdoP4Hvtw==}
+    engines: {node: '>=20'}
+
+  '@modelcontextprotocol/server@2.4.0':
+    resolution: {integrity: sha512-rgR9yxSaAJ+bcsi/XroT/S2AfPiIWloXAnrdfYSCms9ivVju0ishu/wW0J21Ho6+ZOR1r7RyeRbjiRuF87ix5Q==}
     engines: {node: '>=20'}
 
   '@monogrid/gainmap-js@3.4.0':
@@ -25933,10 +25955,10 @@ snapshots:
       '@ag-ui/core': 0.0.59
       '@noble/hashes': 2.4.0
 
-  '@agent-native/core-corpus@0.232.0':
+  '@agent-native/core-corpus@0.234.0':
     optional: true
 
-  '@agent-native/core@0.219.0(dac907b5d92a67b9789b37c93607a432)':
+  '@agent-native/core@0.219.0(8f05dccb6f36fd67d2c536588b5c91da)':
     dependencies:
       '@agent-native/agentkit': 0.219.0
       '@agent-native/recap-cli': 0.5.88(playwright@1.63.0)
@@ -25946,8 +25968,8 @@ snapshots:
       '@clack/prompts': 1.7.0
       '@mcp-b/webmcp-polyfill': 5.1.0
       '@modelcontextprotocol/client': 2.0.0
-      '@modelcontextprotocol/core': 2.2.0
-      '@modelcontextprotocol/ext-apps': 2.0.3(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/core@2.2.0)(@modelcontextprotocol/server@2.0.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(zod@4.6.7)
+      '@modelcontextprotocol/core': 2.4.0
+      '@modelcontextprotocol/ext-apps': 2.0.3(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/core@2.4.0)(@modelcontextprotocol/server@2.0.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(zod@4.6.7)
       '@modelcontextprotocol/server': 2.0.0
       '@mozilla/readability': 0.6.0
       '@neondatabase/serverless': 1.1.0
@@ -25991,7 +26013,7 @@ snapshots:
       yjs: 13.6.33
       zod: 4.6.7
     optionalDependencies:
-      '@agent-native/core-corpus': 0.232.0
+      '@agent-native/core-corpus': 0.234.0
       '@ai-sdk/anthropic': 3.0.86(zod@4.6.7)
       '@ai-sdk/cohere': 3.0.39(zod@4.6.7)
       '@ai-sdk/google': 3.0.83(zod@4.6.7)
@@ -29676,31 +29698,30 @@ snapshots:
       eventsource-parser: 3.1.0
       jose: 6.2.3
       pkce-challenge: 5.0.1
-      zod: 4.4.3
+      zod: 4.6.7
+
+  '@modelcontextprotocol/client@2.4.0':
+    dependencies:
+      '@modelcontextprotocol/core': 2.4.0
+      cross-spawn: 7.0.6
+      eventsource: 3.0.7
+      eventsource-parser: 3.1.0
+      jose: 6.2.3
+      pkce-challenge: 5.0.1
+      zod: 4.6.7
 
   '@modelcontextprotocol/core@2.0.0':
     dependencies:
-      zod: 4.4.3
+      zod: 4.6.7
 
-  '@modelcontextprotocol/core@2.2.0':
+  '@modelcontextprotocol/core@2.4.0':
     dependencies:
-      zod: 4.4.3
+      zod: 4.6.7
 
-  '@modelcontextprotocol/ext-apps@2.0.3(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/core@2.2.0)(@modelcontextprotocol/server@2.0.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)':
-    dependencies:
-      '@modelcontextprotocol/client': 2.0.0
-      '@modelcontextprotocol/core': 2.2.0
-      '@standard-schema/spec': 1.1.0
-      zod: 4.4.3
-    optionalDependencies:
-      '@modelcontextprotocol/server': 2.0.0
-      react: 19.2.7
-      react-dom: 19.2.7(react@19.2.7)
-
-  '@modelcontextprotocol/ext-apps@2.0.3(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/core@2.2.0)(@modelcontextprotocol/server@2.0.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(zod@4.6.7)':
+  '@modelcontextprotocol/ext-apps@2.0.3(@modelcontextprotocol/client@2.0.0)(@modelcontextprotocol/core@2.4.0)(@modelcontextprotocol/server@2.0.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(zod@4.6.7)':
     dependencies:
       '@modelcontextprotocol/client': 2.0.0
-      '@modelcontextprotocol/core': 2.2.0
+      '@modelcontextprotocol/core': 2.4.0
       '@standard-schema/spec': 1.1.0
       zod: 4.6.7
     optionalDependencies:
@@ -29708,11 +29729,21 @@ snapshots:
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
 
-  '@modelcontextprotocol/node@2.0.0(@modelcontextprotocol/server@2.0.0)(hono@4.12.27)':
+  '@modelcontextprotocol/ext-apps@2.0.4(@modelcontextprotocol/client@2.4.0)(@modelcontextprotocol/core@2.4.0)(@modelcontextprotocol/server@2.4.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(zod@4.4.3)':
+    dependencies:
+      '@modelcontextprotocol/client': 2.4.0
+      '@modelcontextprotocol/core': 2.4.0
+      '@standard-schema/spec': 1.1.0
+      zod: 4.4.3
+    optionalDependencies:
+      '@modelcontextprotocol/server': 2.4.0
+      react: 19.2.7
+      react-dom: 19.2.7(react@19.2.7)
+
+  '@modelcontextprotocol/node@2.1.2(@modelcontextprotocol/server@2.4.0)':
     dependencies:
       '@hono/node-server': 1.19.14(hono@4.12.27)
-      '@modelcontextprotocol/server': 2.0.0
-    optionalDependencies:
+      '@modelcontextprotocol/server': 2.4.0
       hono: 4.12.27
 
   '@modelcontextprotocol/sdk@1.30.0(zod@4.4.3)':
@@ -29741,7 +29772,12 @@ snapshots:
   '@modelcontextprotocol/server@2.0.0':
     dependencies:
       '@modelcontextprotocol/core': 2.0.0
-      zod: 4.4.3
+      zod: 4.6.7
+
+  '@modelcontextprotocol/server@2.4.0':
+    dependencies:
+      '@modelcontextprotocol/core': 2.4.0
+      zod: 4.6.7
 
   '@monogrid/gainmap-js@3.4.0(three@0.176.0)':
     dependencies:
@@ -45929,7 +45965,7 @@ snapshots:
       pixelmatch: 7.2.0
       pngjs: 7.0.0
       wgpu-matrix: 3.4.2
-      zod: 4.4.3
+      zod: 4.6.7
     transitivePeerDependencies:
       - supports-color
 

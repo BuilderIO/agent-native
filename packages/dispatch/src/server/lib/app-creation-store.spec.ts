@@ -3767,6 +3767,34 @@ describe("startWorkspaceAppCreation", () => {
     expect(result.message).not.toContain(leakedProjectId);
   });
 
+  it("names the missing Builder membership instead of calling the failure temporary", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(credentials());
+    mocks.runBuilderAgent.mockRejectedValue(
+      new ActionContractError(
+        "Builder could not find qa@example.com as a member of this Builder space.",
+        {
+          errorCode: "builder_space_membership_required",
+          statusCode: 400,
+        },
+      ),
+    );
+
+    const result = (await create("onboarding", {
+      userEmail: "dev@example.test",
+      orgId: "org-123",
+    })) as { mode: string; reason: string; message: string };
+
+    expect(result.mode).toBe("builder-unavailable");
+    expect(result.reason).toBe("builder-error");
+    expect(result.message).toContain("member of the connected Builder space");
+    expect(result.message).not.toContain("temporary");
+    expect(
+      mocks.settings.get("dispatch-app-creation-settings:org:org-123"),
+    ).toMatchObject({ pendingApps: [] });
+  });
+
   it("classifies a disconnected Builder as builder-not-connected with a connect action", async () => {
     stubHostedRuntime();
     stubBuilderProjectConfigured();

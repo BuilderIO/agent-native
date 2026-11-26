@@ -716,16 +716,16 @@ describe("ask_app — honest routing metadata", () => {
       }),
     );
   });
-  it("describes direct tools as preferred and ask_app as the fallback", () => {
+  it("describes ask_app factually alongside direct single-action tools", () => {
     const tools = getBuiltinCrossAppTools(baseConfig({ appId: "mail" }));
     expect(tools.ask_app.tool.description).toMatch(
-      /Prefer host page WebMCP or cataloged direct action tools for known, bounded current-app work/i,
-    );
-    expect(tools.ask_app.tool.description).toMatch(
-      /when direct tools are unavailable or the task needs the app agent's interpretation/i,
+      /unlike direct single-action tools/i,
     );
     expect(tools.ask_app.tool.description).toMatch(
       /full skills, instructions, tools, and context/i,
+    );
+    expect(tools.ask_app.tool.description).not.toMatch(
+      /prefer host page|call list_apps first|never resubmit/i,
     );
   });
 

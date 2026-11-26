@@ -9,7 +9,7 @@ import { listPointers, matchPointer } from "../server/lib/pointers-store.js";
 
 export default defineAction({
   description:
-    'Look up whether the user\'s request names something they saved as a pointer (for example "my todo list" saved as a specific doc). Call it BEFORE opening or choosing an app for any request that refers to something by a personal name. When it returns a match, open that app and object instead of guessing from the request.',
+    'Look up whether a text query matches a user-saved pointer alias (for example, "my todo list" mapped to a specific document). Returns the matched alias, app id, and object id or URL when found.',
   schema: z.object({
     text: z.string().trim().min(1).max(4000).describe("The user's request."),
   }),

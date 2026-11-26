@@ -18,7 +18,7 @@ test("Screen opacity number keys use the inspector's persisted body styles", asy
   const opacity = page
     .getByRole("heading", { name: "Appearance", exact: true })
     .locator("xpath=ancestor::section")
-    .getByRole("textbox", { name: "Opacity", exact: true });
+    .getByRole("combobox", { name: "Opacity", exact: true });
 
   await screenTitle.click();
   await expect(opacity).toHaveValue("100%");

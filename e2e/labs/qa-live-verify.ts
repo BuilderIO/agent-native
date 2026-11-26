@@ -3,6 +3,13 @@ import path from "node:path";
 
 import { chromium, type Browser, type Page } from "@playwright/test";
 
+import { waitForVerificationEmail } from "../signup/lib/mailosaur.ts";
+import { LABS_QA_ORIGIN, labsQaEmailLink } from "./qa-email-link.ts";
+import {
+  assertReadOnlyQaTarget,
+  allowsReadOnlyQaRequest,
+} from "./qa-read-only.ts";
+
 type Step =
   | { goto: string }
   | { click: string }
@@ -16,14 +23,20 @@ type Step =
   | { expectVisible: string }
   | { expectAttr: string; attr: string; value: string }
   | { expectValue: string; value: string }
-  | { action: string; input?: Record<string, unknown>; as?: string }
+  | {
+      action: string;
+      input?: Record<string, unknown>;
+      as?: string;
+      method?: "GET" | "POST";
+      expect?: Record<string, string | number | boolean>;
+    }
   | { screenshot: string };
 
 interface Target {
   app: string;
   ref?: string;
   path?: string;
-  write?: "forms" | "app-state";
+  write?: "forms" | "app-state" | "none";
   steps?: Step[];
   verify?: Step[];
   cleanup?: { action: string; input?: Record<string, unknown> }[];
@@ -81,15 +94,30 @@ const host = (process.env.QA_HOST?.trim() || "labs.agent-native.com").replace(
   /^https?:\/\//,
   "",
 );
+const authMethod = process.env.QA_VERIFY_AUTH?.trim() || "legacy-password";
+if (!["legacy-password", "qa-email-link"].includes(authMethod)) {
+  throw new Error("Unsupported QA verify authentication mode");
+}
+const emailLinkMode = authMethod === "qa-email-link";
+const readOnlyMode = target.write === "none";
+if (readOnlyMode) assertReadOnlyQaTarget(target, emailLinkMode);
 const origin = `https://${host}`;
+if (
+  emailLinkMode &&
+  (origin !== LABS_QA_ORIGIN ||
+    !/^[1-5]$/.test(slot) ||
+    !/^[a-z0-9-]+$/.test(target.app))
+) {
+  throw new Error(
+    "QA email-link verification requires Labs and an approved QA user slot",
+  );
+}
 const appBase = `${origin}/${target.app}`;
 const ref = target.ref || process.env.QA_REF?.trim() || target.app;
 const outDir = path.resolve(
   process.env.QA_OUT_DIR?.trim() || "artifacts/qa-live-verify",
 );
 mkdirSync(outDir, { recursive: true });
-
-const { ensureUser, qaIdentity } = await import("./labs-qa-users.ts");
 
 const BB_API = "https://api.browserbase.com/v1";
 
@@ -172,19 +200,26 @@ async function callAction<T = Record<string, unknown>>(
   page: Page,
   name: string,
   input: Record<string, unknown> = {},
+  method: "GET" | "POST" = "POST",
 ): Promise<T> {
-  const r = await inPage<T>(
-    page,
-    "POST",
-    `${appBase}/_agent-native/actions/${name}`,
-    input,
-  );
+  const url = `${appBase}/_agent-native/actions/${name}`;
+  const r =
+    method === "GET"
+      ? await inPage<T>(
+          page,
+          "GET",
+          `${url}?${new URLSearchParams(
+            Object.entries(input).map(([k, v]) => [k, String(v)]),
+          )}`,
+        )
+      : await inPage<T>(page, "POST", url, input);
   if (r.status !== 200 || !r.json)
     throw new Error(`action ${name}: HTTP ${r.status} ${r.text}`);
   return r.json;
 }
 
 const vars: Record<string, unknown> = {};
+const actionReadbacks: { action: string; path: string; got: unknown }[] = [];
 function interpolate<T>(value: T): T {
   const text = JSON.stringify(value).replace(
     /\$\{([\w.]+)\}/g,
@@ -228,6 +263,10 @@ async function signInThroughUi(page: Page, email: string, password: string) {
   await page.waitForURL((url) => !url.pathname.includes("/sign-in"), {
     timeout: 45_000,
   });
+  await assertQaIdentity(page, email);
+}
+
+async function assertQaIdentity(page: Page, email: string) {
   const session = await inPage<{ email?: string }>(
     page,
     "GET",
@@ -240,7 +279,68 @@ async function signInThroughUi(page: Page, email: string, password: string) {
   }
 }
 
-let credentials: { email: string; password: string } | undefined;
+const usedMessages = new Set<string>();
+async function signInWithQaEmailLink(page: Page) {
+  const serverId = process.env.MAILOSAUR_SERVER_ID?.trim();
+  if (!serverId || !/^[a-z0-9][a-z0-9-]{1,62}$/i.test(serverId)) {
+    throw new Error("QA mailbox server is unavailable");
+  }
+  const email = `qa-fleet-${slot}@${serverId}.mailosaur.net`.toLowerCase();
+  let stage = "open the sign-in form";
+  try {
+    await page.goto(`${appBase}/sign-in`, {
+      waitUntil: "domcontentloaded",
+      timeout: 60_000,
+    });
+    if (new URL(page.url()).origin !== origin)
+      throw new Error("unexpected sign-in origin");
+    await page
+      .locator("#magic-link-form")
+      .waitFor({ state: "visible", timeout: 30_000 });
+    await page.locator("#m-email").fill(email);
+    const requestedAt = Date.now();
+    await page.locator("#magic-link-submit").click();
+    await page
+      .locator("#magic-link-success")
+      .waitFor({ state: "visible", timeout: 30_000 });
+    stage = "receive the QA email";
+    const message = await waitForVerificationEmail(
+      email,
+      requestedAt,
+      usedMessages,
+    );
+    usedMessages.add(message.id);
+    const link = labsQaEmailLink(message, target.app, email, requestedAt);
+    stage = "redeem the QA email link";
+    const response = await page.goto(link.href, {
+      waitUntil: "domcontentloaded",
+      timeout: 30_000,
+    });
+    if (!response?.ok() || new URL(page.url()).origin !== origin)
+      throw new Error("QA email-link landing refused");
+    await page.locator('form button[type="submit"]').click();
+    await page.waitForURL(
+      (url) =>
+        url.origin === origin &&
+        !url.pathname.includes("/_agent-native/auth/") &&
+        !url.pathname.includes("/sign-in"),
+      { timeout: 30_000 },
+    );
+    stage = "verify the QA browser identity";
+    await assertQaIdentity(page, email);
+  } catch {
+    throw new Error("QA email-link verification could not " + stage);
+  }
+}
+
+let repeatSignIn: ((page: Page) => Promise<void>) | undefined;
+
+async function legacySignIn(): Promise<(page: Page) => Promise<void>> {
+  const { ensureUser, qaIdentity } = await import("./labs-qa-users.ts");
+  await ensureUser(slot);
+  const { email, password } = qaIdentity(slot);
+  return (page) => signInThroughUi(page, email, password);
+}
 
 async function runStep(page: Page, step: Step): Promise<void> {
   if ("ifVisible" in step) {
@@ -268,9 +368,9 @@ async function runStep(page: Page, step: Step): Promise<void> {
     await page.locator(s.click).first().click({ timeout: 20_000 });
   else if ("press" in s) await page.keyboard.press(s.press);
   else if ("freshSignIn" in s) {
-    if (!credentials) throw new Error("no QA credentials for a fresh sign-in");
+    if (!repeatSignIn) throw new Error("QA sign-in is unavailable");
     await page.context().clearCookies();
-    await signInThroughUi(page, credentials.email, credentials.password);
+    await repeatSignIn(page);
   } else if ("reload" in s)
     await page.reload({ waitUntil: "domcontentloaded", timeout: 60_000 });
   else if ("expectUrl" in s)
@@ -307,8 +407,21 @@ async function runStep(page: Page, step: Step): Promise<void> {
         `${s.attr}=${JSON.stringify(actual)}, want ${JSON.stringify(s.value)}`,
       );
   } else if ("action" in s) {
-    const out = await callAction(page, s.action, s.input);
+    const out = await callAction(page, s.action, s.input, s.method);
     if (s.as) vars[s.as] = out;
+    for (const [dotted, want] of Object.entries(s.expect ?? {})) {
+      const got = dotted
+        .split(".")
+        .reduce<unknown>(
+          (acc, part) => (acc as Record<string, unknown> | undefined)?.[part],
+          out,
+        );
+      actionReadbacks.push({ action: s.action, path: dotted, got });
+      if (got !== want)
+        throw new Error(
+          `${s.action} ${dotted}=${JSON.stringify(got)}, want ${JSON.stringify(want)}`,
+        );
+    }
   } else if ("screenshot" in s) await shot(page, s.screenshot);
 }
 
@@ -423,6 +536,7 @@ async function main() {
     ref,
     target,
     provider,
+    authMethod,
     host,
     app: target.app,
     qaUser: `qa-fleet-${slot}`,
@@ -433,16 +547,23 @@ async function main() {
   };
 
   let browser: Browser | undefined;
+  let activePage: Page | undefined;
   let sessionId: string | undefined;
   let failure: string | undefined;
+  let identityVerified = false;
   const cleanups: (() => Promise<void>)[] = [];
   try {
-    await ensureUser(slot);
-    const { email, password } = qaIdentity(slot);
-    credentials = { email, password };
+    const signIn = emailLinkMode ? signInWithQaEmailLink : await legacySignIn();
+    repeatSignIn = signIn;
 
     if (provider === "browserbase") {
-      const session = await bb<BrowserbaseSession>("POST", "/sessions", {});
+      const session = await bb<BrowserbaseSession>(
+        "POST",
+        "/sessions",
+        emailLinkMode
+          ? { browserSettings: { recordSession: false, logSession: false } }
+          : {},
+      );
       sessionId = session.id;
       console.log(`BB-SESSION-START: ${session.id}`);
       if (!session.connectUrl)
@@ -451,9 +572,30 @@ async function main() {
     } else {
       browser = await chromium.launch({ headless: true });
     }
-    const context = browser.contexts()[0] ?? (await browser.newContext());
+    const context = readOnlyMode
+      ? await browser.newContext({ serviceWorkers: "block" })
+      : (browser.contexts()[0] ?? (await browser.newContext()));
     const page = context.pages()[0] ?? (await context.newPage());
+    activePage = page;
     await page.setViewportSize({ width: 1280, height: 800 });
+    let signingIn = true;
+    if (readOnlyMode) {
+      await context.route("**/*", (route) => {
+        const request = route.request();
+        return allowsReadOnlyQaRequest(
+          request.method(),
+          request.url(),
+          request.isNavigationRequest(),
+          origin,
+          target.app,
+          signingIn,
+        )
+          ? route.continue()
+          : route.abort("blockedbyclient");
+      });
+      await context.routeWebSocket("**/*", (socket) => socket.close());
+      receipt.readOnly = true;
+    }
 
     const timed = async (label: string, fn: () => Promise<void>) => {
       const t = Date.now();
@@ -468,9 +610,12 @@ async function main() {
       }
     };
 
-    await timed("sign-in (browser UI)", () =>
-      signInThroughUi(page, email, password),
+    await timed(
+      emailLinkMode ? "sign-in (QA email link)" : "sign-in (browser UI)",
+      () => signIn(page),
     );
+    identityVerified = true;
+    signingIn = false;
     await timed("open app", async () => {
       await page.goto(`${appBase}${target.path ?? "/"}`, {
         waitUntil: "domcontentloaded",
@@ -486,27 +631,35 @@ async function main() {
         runStep(page, step),
       );
     }
-    let readback: Readback | undefined;
-    await timed("qa-tmp write + reload + read back", async () => {
-      const result = await writeAndReadBack(page);
-      cleanups.push(result.cleanup);
-      readback = result.readback;
-      if (!readback.apiAfterReload || readback.uiAfterReload === false) {
-        throw new Error(`read back failed ${JSON.stringify(readback)}`);
-      }
-    });
-    receipt.readback = readback;
+    if (!readOnlyMode) {
+      let readback: Readback | undefined;
+      await timed("qa-tmp write + reload + read back", async () => {
+        const result = await writeAndReadBack(page);
+        cleanups.push(result.cleanup);
+        readback = result.readback;
+        if (!readback.apiAfterReload || readback.uiAfterReload === false) {
+          throw new Error(`read back failed ${JSON.stringify(readback)}`);
+        }
+      });
+      receipt.readback = readback;
+      vars.write = readback;
+    }
     await shot(page, "after");
-    vars.write = readback;
     for (const [i, step] of (target.verify ?? []).entries()) {
       await timed(`verify ${i + 1} ${JSON.stringify(step).slice(0, 120)}`, () =>
         runStep(page, step),
       );
     }
   } catch (err) {
-    failure = err instanceof Error ? err.message : String(err);
-    const page = browser?.contexts()[0]?.pages()[0];
-    if (page)
+    const detail = err instanceof Error ? err.message : String(err);
+    failure =
+      emailLinkMode &&
+      !identityVerified &&
+      !detail.startsWith("sign-in (QA email link):")
+        ? "QA email-link browser setup could not finish"
+        : detail;
+    const page = activePage;
+    if (page && (!emailLinkMode || identityVerified))
       await shot(page, "failure").catch((shotErr: unknown) => {
         console.log(`failure screenshot not taken: ${String(shotErr)}`);
       });
@@ -515,7 +668,7 @@ async function main() {
     for (const fn of [
       ...cleanups,
       ...(target.cleanup ?? []).map((c) => () => {
-        const page = browser?.contexts()[0]?.pages()[0];
+        const page = activePage;
         if (!page) return Promise.reject(new Error("no page for cleanup"));
         return callAction(page, c.action, interpolate(c.input ?? {})).then(
           () => undefined,
@@ -547,15 +700,21 @@ async function main() {
       startedAt: s.startedAt,
       endedAt: s.endedAt,
       durationSec,
-      replayUrl: `https://www.browserbase.com/sessions/${sessionId}`,
+      replayUrl: emailLinkMode
+        ? null
+        : `https://www.browserbase.com/sessions/${sessionId}`,
     };
     console.log(
-      `BB-SESSION: ${sessionId} ${durationSec}s ${s.status} https://www.browserbase.com/sessions/${sessionId}`,
+      `BB-SESSION: ${sessionId} ${durationSec}s ${s.status}` +
+        (emailLinkMode
+          ? ""
+          : ` https://www.browserbase.com/sessions/${sessionId}`),
     );
   }
 
   const cleanFailed = (receipt.cleanup as string[]).some((c) => c !== "ok");
   receipt.steps = steps;
+  receipt.actionReadbacks = actionReadbacks;
   receipt.screenshots = shots;
   receipt.wallSec = Math.round((Date.now() - started) / 1000);
   receipt.result = failure || cleanFailed ? "FAIL" : "PASS";

@@ -21,6 +21,10 @@ import {
   isContentSourcePath,
   parseContentSourceFile,
 } from "../shared/content-source.js";
+import {
+  sameSourceMarkdown,
+  sourceMarkdownForm,
+} from "../shared/source-markdown.js";
 import { setFavoriteMembership } from "./_content-favorites.js";
 import { ensureDocumentsFilesMembership } from "./_content-files.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
@@ -92,7 +96,9 @@ function sourceValues(args: {
   path: string;
   title: string;
   hash: string;
+  pageHash: string;
   metadataHash: string;
+  explicitId: boolean;
   workingCopyId: string;
   bridgeFileIdentity?: string;
 }) {
@@ -105,7 +111,9 @@ function sourceValues(args: {
     extension: args.path.toLowerCase().endsWith(".mdx") ? ".mdx" : ".md",
     title: args.title,
     contentHash: args.hash,
+    pageHash: args.pageHash,
     metadataHash: args.metadataHash,
+    explicitId: args.explicitId,
     observedRevision,
     sourceFileIdentity: localFolderSourceFileIdentity({
       workingCopyId: args.workingCopyId,
@@ -350,6 +358,62 @@ export default defineAction({
     const conflicts: Array<{ id: string; path: string; title: string }> = [];
     const outbound: Array<{ id: string; path: string; title: string }> = [];
 
+    const rowsByMovedFile = (
+      snapshot: Awaited<ReturnType<typeof loadSnapshot>>,
+      unplaced: typeof valid,
+      placedDocumentIds: ReadonlySet<string | undefined>,
+    ) => {
+      type Move = { files: typeof valid; rows: SourceRow[] };
+      const moves = new Map<string, Move>();
+      const movesReading = (content: string) => {
+        const form = sourceMarkdownForm(content);
+        if (!form) return undefined;
+        const move = moves.get(form) ?? { files: [], rows: [] };
+        moves.set(form, move);
+        return move;
+      };
+      const presentPaths = new Set(entries.map(([path]) => path));
+      const gone = snapshot.storedRows.filter(
+        (row) =>
+          !placedDocumentIds.has(row.documentId) &&
+          !presentPaths.has(deletedFilePath(row)),
+      );
+      if (gone.length === 0)
+        return new Map<(typeof valid)[number], SourceRow>();
+      for (const file of unplaced) movesReading(file.content)?.files.push(file);
+      for (const row of gone) {
+        const page = snapshot.documentById.get(row.documentId);
+        if (page) movesReading(page.content)?.rows.push(row);
+      }
+      return new Map(
+        [...moves.values()].flatMap((move) =>
+          move.files.length === 1 && move.rows.length === 1
+            ? move.files.flatMap((file) =>
+                move.rows
+                  .filter((row) => mayHaveMoved(snapshot, row, file))
+                  .map((row) => [file, row] as const),
+              )
+            : [],
+        ),
+      );
+    };
+
+    const mayHaveMoved = (
+      snapshot: Awaited<ReturnType<typeof loadSnapshot>>,
+      row: SourceRow,
+      file: (typeof valid)[number],
+    ) => {
+      const values = parseJson(row.sourceValuesJson);
+      const page = snapshot.documentById.get(row.documentId);
+      return (
+        !!page &&
+        values.explicitId === false &&
+        (values.pageHash !== contentHash(page.content) ||
+          (values.metadataHash !== metadataHash(page) &&
+            metadataHash(page) === metadataHash(file)))
+      );
+    };
+
     const buildPlans = (snapshot: Awaited<ReturnType<typeof loadSnapshot>>) => {
       const rowByBridgeIdentity = new Map<
         string,
@@ -362,18 +426,30 @@ export default defineAction({
         }
       }
 
+      const explicitIdOf = (file: (typeof valid)[number]) =>
+        file.id && localIdentity.workingCopy.kind === "temporary"
+          ? opaqueId("content_local_file", `${sourceId}:${file.id}`)
+          : file.id;
+      const knownRow = (file: (typeof valid)[number]) => {
+        const identity = fileIdentities[file.path];
+        return (
+          snapshot.rowByPath.get(file.path) ??
+          (identity ? rowByBridgeIdentity.get(identity) : undefined)
+        );
+      };
+      const movedRows = rowsByMovedFile(
+        snapshot,
+        valid.filter((file) => !explicitIdOf(file) && !knownRow(file)),
+        new Set(
+          valid.map((file) => explicitIdOf(file) ?? knownRow(file)?.documentId),
+        ),
+      );
+
       return valid.map((file, index) => {
-        const directPathRow = snapshot.rowByPath.get(file.path);
         const incomingBridgeFileIdentity = fileIdentities[file.path];
-        const identityRow = incomingBridgeFileIdentity
-          ? rowByBridgeIdentity.get(incomingBridgeFileIdentity)
-          : undefined;
         const incomingHash = contentHash(file.content);
-        const pathRow = directPathRow ?? identityRow;
-        const explicitId =
-          file.id && localIdentity.workingCopy.kind === "temporary"
-            ? opaqueId("content_local_file", `${sourceId}:${file.id}`)
-            : file.id;
+        const pathRow = knownRow(file) ?? movedRows.get(file);
+        const explicitId = explicitIdOf(file);
         const id =
           explicitId ??
           pathRow?.documentId ??
@@ -394,15 +470,26 @@ export default defineAction({
           typeof previousValues.metadataHash === "string"
             ? previousValues.metadataHash
             : null;
+        const previousPageHash =
+          typeof previousValues.pageHash === "string"
+            ? previousValues.pageHash
+            : previousHash;
         const incomingMetadataHash = metadataHash(file);
         const localHash = existing ? contentHash(existing.content) : null;
+        const holdsFile =
+          !!existing &&
+          (localHash === incomingHash ||
+            (localHash === previousPageHash && incomingHash === previousHash) ||
+            sameSourceMarkdown(existing.content, file.content));
         const localMetadataHash = existing ? metadataHash(existing) : null;
         const incomingChanged =
           previousHash !== incomingHash ||
           previousMetadataHash !== incomingMetadataHash;
         const localChanged =
           !!existing &&
-          ((!!previousHash && localHash !== previousHash) ||
+          ((!!previousPageHash &&
+            !holdsFile &&
+            localHash !== previousPageHash) ||
             (!!previousMetadataHash &&
               localMetadataHash !== previousMetadataHash));
         const conflict =
@@ -410,8 +497,7 @@ export default defineAction({
           !!previousHash &&
           incomingChanged &&
           (localChanged || policy === "database_primary") &&
-          (localHash !== incomingHash ||
-            localMetadataHash !== incomingMetadataHash);
+          (!holdsFile || localMetadataHash !== incomingMetadataHash);
         const keepContent =
           !!existing &&
           !!previousHash &&
@@ -420,6 +506,10 @@ export default defineAction({
           policy !== "source_primary";
         const applyIncoming =
           incomingChanged || (localChanged && policy === "source_primary");
+        const pageContent =
+          existing && (holdsFile || !applyIncoming)
+            ? existing.content
+            : file.content;
         return {
           file,
           index,
@@ -431,6 +521,8 @@ export default defineAction({
           incomingMetadataHash,
           localHash,
           localMetadataHash,
+          holdsFile,
+          pageContent,
           incomingChanged,
           localChanged,
           conflict,
@@ -634,10 +726,7 @@ export default defineAction({
                 sourceId,
                 databaseItemId: plan.previousRow?.databaseItemId ?? null,
                 documentId: plan.id,
-                kind:
-                  plan.localHash === plan.incomingHash
-                    ? "metadata_update"
-                    : "body_update",
+                kind: plan.holdsFile ? "metadata_update" : "body_update",
                 direction: "incoming",
                 state: "proposed",
                 pushMode: "none",
@@ -705,7 +794,7 @@ export default defineAction({
               orgId: target.database.orgId,
               parentId: null,
               title: plan.file.title,
-              content: plan.file.content,
+              content: plan.pageContent,
               description: plan.file.description ?? "",
               icon: plan.file.icon ?? null,
               position: plan.file.position ?? plan.index,
@@ -731,7 +820,7 @@ export default defineAction({
             await syncPrivateBodyReferences(tx as ReturnType<typeof getDb>, {
               documentId: plan.id,
               before: "",
-              after: plan.file.content,
+              after: plan.pageContent,
               userEmail,
               ownerEmail: userEmail,
               orgId: target.database.orgId,
@@ -763,7 +852,7 @@ export default defineAction({
             const legacy = plan.applyIncoming
               ? await lockLegacyBodyWrites(tx, [plan.id], {
                   operation: "sync-local-folder-source",
-                  content: plan.file.content,
+                  content: plan.pageContent,
                 })
               : undefined;
             const reboundDocuments = await tx
@@ -772,8 +861,8 @@ export default defineAction({
                 ...(legacy
                   ? {
                       title: plan.file.title,
-                      content: plan.file.content,
-                      bodyRevision: legacy.bodyRevision(plan.file.content),
+                      content: plan.pageContent,
+                      bodyRevision: legacy.bodyRevision(plan.pageContent),
                       description:
                         plan.file.description ?? plan.existing.description,
                       icon: plan.file.icon ?? plan.existing.icon,
@@ -821,7 +910,7 @@ export default defineAction({
               await syncPrivateBodyReferences(tx as ReturnType<typeof getDb>, {
                 documentId: plan.id,
                 before: plan.existing.content,
-                after: plan.file.content,
+                after: plan.pageContent,
                 userEmail,
                 ownerEmail: plan.existing.ownerEmail,
                 orgId: target.database.orgId,
@@ -900,7 +989,9 @@ export default defineAction({
               path: plan.file.path,
               title: plan.file.title,
               hash: plan.incomingHash,
+              pageHash: contentHash(plan.pageContent),
               metadataHash: plan.incomingMetadataHash,
+              explicitId: Boolean(plan.file.id),
               workingCopyId: localIdentity.workingCopy.id,
               bridgeFileIdentity: plan.bridgeFileIdentity,
             }),

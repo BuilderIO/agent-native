@@ -14,6 +14,11 @@ on:
       slot:
         description: "QA user slot (1-5)"
         default: "1"
+      auth:
+        description: "Authentication mode for the QA account"
+        type: choice
+        options: [legacy-password, qa-email-link]
+        default: legacy-password
       ref:
         description: "Label for the receipt and run name, e.g. a PR or job ref"
         default: ""
@@ -32,6 +37,7 @@ jobs:
       BROWSERBASE_API_KEY: ${{ secrets.BROWSERBASE_API_KEY }}
       QA_TARGET: ${{ inputs.target || 'forms-seeded' }}
       QA_PROVIDER: ${{ inputs.provider || 'browserbase' }}
+      QA_VERIFY_AUTH: ${{ inputs.auth || 'legacy-password' }}
       QA_SLOT: ${{ inputs.slot || '1' }}
       QA_HOST: ${{ inputs.host || 'labs.agent-native.com' }}
       QA_REF: ${{ inputs.ref }}
