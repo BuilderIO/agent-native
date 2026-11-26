@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
+  CONTACT_NOTE_MAX_RESULT_CHARS,
   addContactNote,
   contactNoteSchema,
 } from "../server/lib/content-notes.js";
@@ -39,7 +40,12 @@ export default defineAction({
       .optional()
       .describe("The user's local date as YYYY-MM-DD (default: today in UTC)"),
   }),
-  outputSchema: z.object({ note: contactNoteSchema, created: z.boolean() }),
+  outputSchema: z.object({
+    note: contactNoteSchema,
+    created: z.boolean(),
+    appended: z.boolean(),
+  }),
+  maxResultChars: CONTACT_NOTE_MAX_RESULT_CHARS,
   audit: { recordInputs: false },
   mcpTool: "search",
   mcpAnnotations: {

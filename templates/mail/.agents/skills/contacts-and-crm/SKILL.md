@@ -108,9 +108,13 @@ notes" collection in the user's Personal space, keyed by email address.
 `get-contact-note --email=<address>` reads that page (`note: null` means no
 notes yet). `add-contact-note` with `email`, `text`, and the open email's
 `threadId` and `subject` adds a dated line that links back to the email; the
-first note creates the page, titled with `name` when you pass it. Both fail
-loudly when Content can't be reached (`content_unavailable`) or the page is in
-Trash (`mail_note_trashed`); say so rather than reporting no notes.
+first note creates the page, titled with `name` when you pass it. `truncated:
+true` means a long page came back as its newest lines only; open `url` for the
+rest. `appended: false` means the page already ended with that exact line, so
+nothing was added. Both fail loudly when Content can't be reached
+(`content_unavailable`), the page is in Trash (`mail_note_trashed`), or the
+collection left Personal or lost its Email key (`mail_notes_moved`,
+`mail_notes_key_changed`); say so rather than reporting no notes.
 
 ## Related Skills
 

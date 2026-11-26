@@ -28,6 +28,7 @@ import {
   filterDirectA2AActions,
   filterDirectA2AWriteActions,
   filterMcpOnlyActions,
+  resolveDirectA2AAction,
   resolveInitialToolNames,
   runA2AAgentLoop,
   runMCPAgentLoop,
@@ -783,6 +784,47 @@ describe("filterDirectA2AWriteActions", () => {
     expect(filterDirectA2AActions(actions, {})).toEqual({});
     expect(filterDelegatedA2ACapabilityActions(actions, {})).toEqual({});
     expect(buildAuthenticatedAgentA2ASkills(actions, {})).toEqual([]);
+  });
+});
+
+describe("resolveDirectA2AAction", () => {
+  const actions = {
+    "get-note": action({
+      readOnly: true,
+      mcpTool: true,
+      publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+    }),
+    "add-note": action({
+      http: { method: "POST" },
+      readOnly: false,
+      mcpTool: true,
+      publicAgent: {
+        expose: true,
+        readOnly: false,
+        requiresAuth: true,
+        directWrite: true,
+      },
+    }),
+  };
+
+  it("runs an opted-in write only for a caller verified as the user", () => {
+    expect(resolveDirectA2AAction(actions, {}, "add-note", "user")).toEqual({
+      entry: actions["add-note"],
+    });
+    for (const assurance of ["org-member", "organization", undefined]) {
+      expect(
+        resolveDirectA2AAction(actions, {}, "add-note", assurance),
+      ).toMatchObject({ refused: expect.stringContaining("organization") });
+    }
+  });
+
+  it("leaves reads to the existing read-only rules", () => {
+    expect(
+      resolveDirectA2AAction(actions, {}, "get-note", "org-member"),
+    ).toEqual({ entry: actions["get-note"] });
+    expect(
+      resolveDirectA2AAction(actions, {}, "missing", "user"),
+    ).toMatchObject({ refused: expect.stringContaining("Unknown") });
   });
 });
 

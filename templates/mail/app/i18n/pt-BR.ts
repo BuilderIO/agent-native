@@ -897,6 +897,7 @@ const messages = {
       addNote: "Adicionar uma nota",
       notesLoadError: "Não foi possível carregar as notas.",
       notesContentUnreachable: "Não foi possível acessar o Content.",
+      olderNotesInContent: "As notas mais antigas estão na página do Content.",
       noteSaveError: "Não foi possível salvar a nota.",
       savedToMailNotes: "Salvo em Notas do Mail",
       open: "Abrir",

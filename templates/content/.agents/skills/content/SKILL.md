@@ -44,7 +44,9 @@ actions, and local folders that sync into the same collection model.
 - "Mail notes" in the user's Personal space is the collection Mail's Notes
   widget writes: one private page per person, keyed by the Email property,
   each note a dated line linking back to the email. Read and edit it like any
-  collection; keep the Email key, since Mail finds a person's page by it.
+  collection; keep it in Personal with Email as its key, since Mail finds a
+  person's page by it and refuses (`mail_notes_moved`,
+  `mail_notes_key_changed`) when either changes.
 - Local folders are sources attached to a space's canonical Files collection.
   Imported pages are normal SQL-backed Content documents; the trusted local
   bridge handles pull, export, stable file identity, and conflict review.

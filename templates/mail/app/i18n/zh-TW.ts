@@ -831,6 +831,7 @@ const messages = {
       addNote: "新增備註",
       notesLoadError: "無法載入備註。",
       notesContentUnreachable: "無法連線到 Content。",
+      olderNotesInContent: "較早的備註在 Content 的頁面上。",
       noteSaveError: "無法儲存備註。",
       savedToMailNotes: "已儲存到 Mail 備註",
       open: "開啟",

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
+import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -128,6 +129,8 @@ describe("Mail notes collection", () => {
     );
 
     expect(first.created).toBe(true);
+    expect(first.appended).toBe(true);
+    expect(first.note.truncated).toBe(false);
     expect(second.created).toBe(false);
     expect(other.created).toBe(true);
     expect(second.note.url).toBe(first.note.url);
@@ -204,5 +207,98 @@ describe("Mail notes collection", () => {
     expect(fresh.note.markdown).toContain("Fresh start");
     expect(fresh.note.markdown).not.toContain("Met at the launch");
     expect(await mailNotesCollections(OWNER)).toHaveLength(2);
+  });
+
+  it("adds a retried line once", async () => {
+    const user = "notes-retry@example.com";
+    const args = {
+      email: "ada@example.com",
+      text: "Sent the contract",
+      date: "2026-11-25",
+      link: { label: "Contract", url: THREAD_URL },
+    };
+    const first = await as(user, () => notes.addMailNote(args, undefined));
+    const retry = await as(user, () => notes.addMailNote(args, undefined));
+
+    expect(first.appended).toBe(true);
+    expect(retry.appended).toBe(false);
+    expect(retry.note.markdown.split("Sent the contract")).toHaveLength(2);
+  });
+
+  it("returns only the newest whole lines of a very long page", async () => {
+    const user = "notes-long@example.com";
+    const added = await as(user, () =>
+      notes.addMailNote({ email: "ada@example.com", text: "First" }, undefined),
+    );
+    const lines = Array.from(
+      { length: 4000 },
+      (_, index) => `- **2026-11-25** Line ${index} of a long history`,
+    );
+    await getDb()
+      .update(schema.documents)
+      .set({ content: lines.join("\n") })
+      .where(eq(schema.documents.id, idFromUrl(added.note.url)));
+
+    const read = await as(user, () => notes.readMailNote("ada@example.com"));
+    expect(read?.truncated).toBe(true);
+    expect(read?.markdown.length).toBeLessThanOrEqual(100_000);
+    expect(read?.markdown.startsWith("- **2026-11-25** Line ")).toBe(true);
+    expect(read?.markdown.endsWith("Line 3999 of a long history")).toBe(true);
+  });
+
+  it("refuses when Email is no longer the collection's key", async () => {
+    const user = "notes-key@example.com";
+    await as(user, () =>
+      notes.addMailNote({ email: "ada@example.com", text: "Hi" }, undefined),
+    );
+    const collection = (await mailNotesCollections(user)).at(0);
+    if (!collection) throw new Error("Expected a collection.");
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({ naturalKeyPropertyId: null })
+      .where(eq(schema.contentDatabases.id, collection.id));
+
+    await expect(
+      as(user, () => notes.readMailNote("ada@example.com")),
+    ).rejects.toMatchObject({ errorCode: "mail_notes_key_changed" });
+    await expect(
+      as(user, () =>
+        notes.addMailNote(
+          { email: "ada@example.com", text: "Again" },
+          undefined,
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "mail_notes_key_changed" });
+    expect(await mailNotesCollections(user)).toHaveLength(1);
+  });
+
+  it("refuses a saved setting that names another person's collection", async () => {
+    const owner = "notes-victim@example.com";
+    const caller = "notes-caller@example.com";
+    await as(owner, () =>
+      notes.addMailNote({ email: "ada@example.com", text: "Mine" }, undefined),
+    );
+    await as(caller, () =>
+      notes.addMailNote(
+        { email: "ada@example.com", text: "Theirs" },
+        undefined,
+      ),
+    );
+    const ownerSetting = await getUserSetting(owner, "mail-notes-collection");
+    if (!ownerSetting) throw new Error("Expected the owner's setting.");
+    await putUserSetting(caller, "mail-notes-collection", ownerSetting);
+
+    await expect(
+      as(caller, () => notes.readMailNote("ada@example.com")),
+    ).rejects.toMatchObject({ errorCode: "mail_notes_setting_invalid" });
+    await expect(
+      as(caller, () =>
+        notes.addMailNote({ email: "ada@example.com", text: "Hi" }, undefined),
+      ),
+    ).rejects.toMatchObject({ errorCode: "mail_notes_setting_invalid" });
+    const ownerNote = await as(owner, () =>
+      notes.readMailNote("ada@example.com"),
+    );
+    expect(ownerNote?.markdown).not.toContain("Hi");
   });
 });

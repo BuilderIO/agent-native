@@ -867,6 +867,7 @@ const messages = {
       addNote: "Add a note",
       notesLoadError: "Couldn't load notes.",
       notesContentUnreachable: "Couldn't reach Content.",
+      olderNotesInContent: "Older notes are on the page in Content.",
       noteSaveError: "Couldn't save the note.",
       savedToMailNotes: "Saved to Mail notes",
       open: "Open",

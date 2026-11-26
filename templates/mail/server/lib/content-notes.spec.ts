@@ -19,6 +19,7 @@ vi.mock("@agent-native/core/a2a", () => ({
 
 const note = {
   markdown: "- **2026-11-25** Met at the launch",
+  truncated: false,
   url: "https://content.agent-native.com/_agent-native/open?app=content&view=editor&documentId=p1",
   updatedAt: "2026-11-25T15:00:00.000Z",
 };
@@ -106,6 +107,14 @@ describe("Content notes", () => {
       statusCode: 403,
     });
 
+    invokeAgentAction.mockResolvedValue(
+      reply("failed", "Error: rekeyed (errorCode: mail_notes_key_changed)"),
+    );
+    await expect(readContactNote("ada@example.com")).rejects.toMatchObject({
+      errorCode: "mail_notes_key_changed",
+      statusCode: 409,
+    });
+
     invokeAgentAction.mockResolvedValue(reply("failed", "Error: boom"));
     await expect(
       addContactNote({ email: "ada@example.com", text: "Hi" }),
@@ -116,7 +125,7 @@ describe("Content notes", () => {
     vi.stubEnv("APP_URL", "https://mail.agent-native.com");
     resetAppConfigForTests();
     invokeAgentAction.mockResolvedValue(
-      reply("completed", { note, created: true }),
+      reply("completed", { note, created: true, appended: true }),
     );
     const { addContactNote } = await import("./content-notes.js");
 
@@ -129,7 +138,7 @@ describe("Content notes", () => {
         threadId: "thread-1",
         subject: "Launch recap",
       }),
-    ).resolves.toEqual({ note, created: true });
+    ).resolves.toEqual({ note, created: true, appended: true });
 
     const call = invokeAgentAction.mock.calls[0]?.[0] as {
       action: string;

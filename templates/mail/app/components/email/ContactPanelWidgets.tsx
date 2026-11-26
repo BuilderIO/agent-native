@@ -279,6 +279,11 @@ export function NotesWidget({
         />
       ) : (
         <>
+          {note.data.note?.truncated && (
+            <p className="mb-1 text-[11px] text-muted-foreground/60">
+              {t("mail.contactPanel.olderNotesInContent")}
+            </p>
+          )}
           {lines.length > 0 && (
             <ul className="mb-2 max-h-60 space-y-1 overflow-y-auto">
               {lines.map((line) => (

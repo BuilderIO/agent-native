@@ -908,6 +908,7 @@ const messages = {
       addNote: "Notiz hinzufügen",
       notesLoadError: "Notizen konnten nicht geladen werden.",
       notesContentUnreachable: "Content ist nicht erreichbar.",
+      olderNotesInContent: "Ältere Notizen stehen auf der Seite in Content.",
       noteSaveError: "Die Notiz konnte nicht gespeichert werden.",
       savedToMailNotes: "In Mail-Notizen gespeichert",
       open: "Öffnen",

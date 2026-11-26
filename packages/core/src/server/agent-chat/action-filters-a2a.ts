@@ -175,6 +175,37 @@ export function filterDirectA2AWriteActions(
   );
 }
 
+/**
+ * The action a direct A2A call may run. An opted-in write runs only for a
+ * caller verified as the user: an organization credential that asserts one of
+ * its members is not that member signing in.
+ */
+export function resolveDirectA2AAction(
+  actions: Record<string, ActionEntry>,
+  options: A2AExternalAgentSurface,
+  action: string,
+  identityAssurance: string | undefined,
+): { entry: ActionEntry } | { refused: string } {
+  const readable = filterDirectA2AActions(actions, options);
+  const read = Object.hasOwn(readable, action) ? readable[action] : undefined;
+  if (read) return { entry: read };
+  const writable = filterDirectA2AWriteActions(actions, options);
+  const write = Object.hasOwn(writable, action) ? writable[action] : undefined;
+  if (!write) {
+    return {
+      refused:
+        "Unknown or unavailable direct action. Direct cross-app action mode only accepts explicitly exposed read-only operations and writes the receiving app opted in by name; retry creates, updates, deletes, sends, saves, publishes, and other side effects with a natural-language message.",
+    };
+  }
+  if (identityAssurance !== "user") {
+    return {
+      refused:
+        "This direct write needs the signed-in user's own verified identity; an organization credential can't make it.",
+    };
+  }
+  return { entry: write };
+}
+
 export function filterDelegatedA2ACapabilityActions(
   actions: Record<string, ActionEntry>,
   options: A2AExternalAgentSurface,

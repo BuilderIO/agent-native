@@ -568,8 +568,7 @@ import {
   filterDelegatedRegistry,
   filterMcpOnlyActions,
   filterPublicAgentActions,
-  filterDirectA2AActions,
-  filterDirectA2AWriteActions,
+  resolveDirectA2AAction,
   filterReadOnlyActions,
   isSelectedA2AReceiver,
   shouldSelectedA2AReceiverOwnObjective,
@@ -2787,17 +2786,16 @@ export function createAgentChatPlugin(
         connect: options?.connectApps,
         durableBackgroundRuns: options?.durableBackgroundRuns,
         executeReadOnlyAction: async ({ action, input, invocationId }) => {
-          const exposed = externalFullActions ?? externalActions;
-          const entry =
-            filterDirectA2AActions(exposed, mcpOptions)[action] ??
-            filterDirectA2AWriteActions(exposed, mcpOptions)[action];
-          if (!entry) {
-            return {
-              status: "failed" as const,
-              output:
-                "Unknown or unavailable direct action. Direct cross-app action mode only accepts explicitly exposed read-only operations and writes the receiving app opted in by name; retry creates, updates, deletes, sends, saves, publishes, and other side effects with a natural-language message.",
-            };
+          const resolved = resolveDirectA2AAction(
+            externalFullActions ?? externalActions,
+            mcpOptions,
+            action,
+            getRequestContext()?.a2aIdentityAssurance,
+          );
+          if ("refused" in resolved) {
+            return { status: "failed" as const, output: resolved.refused };
           }
+          const entry = resolved.entry;
 
           const result = await executeAgentToolCall({
             actions: { [action]: entry },

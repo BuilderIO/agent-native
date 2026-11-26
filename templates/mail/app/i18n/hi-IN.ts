@@ -861,6 +861,7 @@ const messages = {
       addNote: "नोट जोड़ें",
       notesLoadError: "नोट्स लोड नहीं हो सके।",
       notesContentUnreachable: "Content तक नहीं पहुँच सके।",
+      olderNotesInContent: "पुराने नोट Content के पेज पर हैं।",
       noteSaveError: "नोट सहेजा नहीं जा सका।",
       savedToMailNotes: "Mail नोट्स में सहेजा गया",
       open: "खोलें",

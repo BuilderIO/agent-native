@@ -834,6 +834,7 @@ const messages = {
       addNote: "添加备注",
       notesLoadError: "无法加载备注。",
       notesContentUnreachable: "无法连接到 Content。",
+      olderNotesInContent: "更早的备注在 Content 的页面上。",
       noteSaveError: "无法保存备注。",
       savedToMailNotes: "已保存到 Mail 备注",
       open: "打开",

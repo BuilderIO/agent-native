@@ -878,6 +878,7 @@ const messages = {
       addNote: "メモを追加",
       notesLoadError: "メモを読み込めませんでした。",
       notesContentUnreachable: "Content に接続できませんでした。",
+      olderNotesInContent: "以前のメモは Content のページにあります。",
       noteSaveError: "メモを保存できませんでした。",
       savedToMailNotes: "Mail のメモに保存しました",
       open: "開く",

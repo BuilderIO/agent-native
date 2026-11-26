@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
     "mail.contactPanel.addNote": "Add a note",
     "mail.contactPanel.notesLoadError": "Couldn't load notes.",
     "mail.contactPanel.noteSaveError": "Couldn't save the note.",
+    "mail.contactPanel.olderNotesInContent":
+      "Older notes are on the page in Content.",
     "mail.contactPanel.attachmentsLoadError": "Couldn't load files.",
     "mail.contactPanel.noAttachments": "No files yet",
     "mail.contactPanel.openInContent": "Open in Content",
@@ -152,6 +154,7 @@ describe("NotesWidget", () => {
         note: {
           markdown:
             "- **Nov 24** Prefers Tuesday calls [Pilot plan](/inbox/thread-9)\n- **Nov 25** Wants SSO before the pilot",
+          truncated: false,
           url: "https://content.example/page/note-1",
         },
       },
@@ -159,6 +162,9 @@ describe("NotesWidget", () => {
 
     render(<NotesWidget email="priya@northwind.example" name="Priya" />);
 
+    expect(
+      screen.queryByText("Older notes are on the page in Content."),
+    ).toBeNull();
     expect(screen.getByText("Prefers Tuesday calls")).not.toBeNull();
     expect(screen.getByText("Nov 24")).not.toBeNull();
     expect(
@@ -168,6 +174,26 @@ describe("NotesWidget", () => {
     expect(
       screen.getByRole("button", { name: "Open in Content" }),
     ).not.toBeNull();
+  });
+
+  it("says when only the newest lines of a long page are shown", () => {
+    mocks.note = {
+      ...mocks.note,
+      data: {
+        note: {
+          markdown: "- **Nov 25** Wants SSO before the pilot",
+          truncated: true,
+          url: "https://content.example/page/note-1",
+        },
+      },
+    };
+
+    render(<NotesWidget email="priya@northwind.example" name="Priya" />);
+
+    expect(
+      screen.getByText("Older notes are on the page in Content."),
+    ).not.toBeNull();
+    expect(screen.getByText("Wants SSO before the pilot")).not.toBeNull();
   });
 
   it("saves a note on Enter with the open email and clears the field", () => {

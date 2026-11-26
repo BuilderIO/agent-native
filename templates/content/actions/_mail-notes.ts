@@ -7,13 +7,17 @@ import {
   getRequestUserEmail,
   toAbsoluteOpenUrl,
 } from "@agent-native/core/server";
-import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import {
+  getUserSettingEntry,
+  putUserSetting,
+} from "@agent-native/core/settings";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { documentRevisionToken } from "../server/lib/document-revision.js";
+import { firstRow } from "../server/lib/first-row.js";
 import { appendContentLiveCopyBlocks } from "../server/live-copy/write.js";
 import {
   appendNfmBlocks,
@@ -21,7 +25,10 @@ import {
   parseNfmWithLosses,
 } from "../shared/nfm.js";
 import { serializePropertyValue } from "../shared/properties.js";
-import { provisionContentSpaces } from "./_content-spaces.js";
+import {
+  personalContentSpaceId,
+  provisionContentSpaces,
+} from "./_content-spaces.js";
 import {
   getDatabaseMutationContract,
   upsertDatabaseRow,
@@ -43,12 +50,25 @@ const storedCollectionSchema = z.object({
   spaceId: z.string().min(1),
   databaseId: z.string().min(1),
   databaseDocumentId: z.string().min(1),
+  emailPropertyId: z.string().min(1),
   generation: z.number().int().min(0),
 });
 type StoredCollection = z.infer<typeof storedCollectionSchema>;
+type CollectionTarget = Pick<
+  StoredCollection,
+  "spaceId" | "databaseId" | "databaseDocumentId"
+>;
+
+const MAIL_NOTE_MAX_CHARS = 100_000;
+export const MAIL_NOTE_MAX_RESULT_CHARS = 400_000;
 
 export const mailNoteSchema = z.object({
   markdown: z.string(),
+  truncated: z
+    .boolean()
+    .describe(
+      "True when the page is too long to return whole and markdown holds only its newest lines; url opens the whole page",
+    ),
   url: z.string(),
   updatedAt: z.string(),
 });
@@ -81,9 +101,9 @@ function noteUrl(documentId: string) {
 }
 
 async function readStored(userEmail: string) {
-  const stored = await getUserSetting(userEmail, SETTING_KEY);
-  if (stored === null) return null;
-  const parsed = storedCollectionSchema.safeParse(stored);
+  const entry = await getUserSettingEntry(userEmail, SETTING_KEY);
+  if (!entry.found) return null;
+  const parsed = storedCollectionSchema.safeParse(entry.value);
   if (!parsed.success) {
     fail("The saved Mail notes collection setting is unreadable.", {
       errorCode: "mail_notes_setting_invalid",
@@ -93,9 +113,12 @@ async function readStored(userEmail: string) {
   return parsed.data;
 }
 
-async function liveCollection(stored: StoredCollection) {
+async function collectionRow(databaseId: string) {
   const rows = await getDb()
     .select({
+      spaceId: schema.contentDatabases.spaceId,
+      ownerEmail: schema.contentDatabases.ownerEmail,
+      documentId: schema.contentDatabases.documentId,
       deletedAt: schema.contentDatabases.deletedAt,
       naturalKeyPropertyId: schema.contentDatabases.naturalKeyPropertyId,
       trashedAt: schema.documents.trashedAt,
@@ -105,13 +128,43 @@ async function liveCollection(stored: StoredCollection) {
       schema.documents,
       eq(schema.documents.id, schema.contentDatabases.documentId),
     )
-    .where(eq(schema.contentDatabases.id, stored.databaseId));
-  const row = rows.at(0);
-  if (!row || row.deletedAt || row.trashedAt) return null;
-  return { naturalKeyPropertyId: row.naturalKeyPropertyId };
+    .where(eq(schema.contentDatabases.id, databaseId));
+  return firstRow(rows) ?? null;
 }
 
-function targetOf(stored: StoredCollection): DatabaseMutationTarget {
+async function liveCollection(userEmail: string, stored: StoredCollection) {
+  const row = await collectionRow(stored.databaseId);
+  if (!row) return null;
+  if (
+    row.ownerEmail.toLowerCase() !== userEmail.toLowerCase() ||
+    row.documentId !== stored.databaseDocumentId
+  ) {
+    fail(
+      "The saved Mail notes collection setting doesn't name your own collection.",
+      {
+        errorCode: "mail_notes_setting_invalid",
+        statusCode: 500,
+      },
+    );
+  }
+  if (row.deletedAt || row.trashedAt) return null;
+  const personalSpaceId = personalContentSpaceId(userEmail);
+  if (row.spaceId !== personalSpaceId || stored.spaceId !== personalSpaceId) {
+    fail(
+      "Your Mail notes collection is no longer in your Personal space in Content. Move it back to see or add notes.",
+      { errorCode: "mail_notes_moved", statusCode: 409 },
+    );
+  }
+  if (row.naturalKeyPropertyId !== stored.emailPropertyId) {
+    fail(
+      "Email is no longer the key of your Mail notes collection in Content. Make Email its key again to see or add notes.",
+      { errorCode: "mail_notes_key_changed", statusCode: 409 },
+    );
+  }
+  return stored;
+}
+
+function targetOf(stored: CollectionTarget): DatabaseMutationTarget {
   return {
     spaceId: stored.spaceId,
     databaseId: stored.databaseId,
@@ -120,7 +173,7 @@ function targetOf(stored: StoredCollection): DatabaseMutationTarget {
 }
 
 async function addTextProperty(
-  stored: StoredCollection,
+  stored: CollectionTarget,
   name: string,
   naturalKey: boolean,
   ctx: ActionRunContext | undefined,
@@ -158,14 +211,22 @@ async function createCollection(
     },
     ctx,
   );
-  const stored: StoredCollection = {
+  const target: CollectionTarget = {
     spaceId: personalSpaceId,
     databaseId: created.database.id,
     databaseDocumentId: created.database.documentId,
-    generation,
   };
-  await addTextProperty(stored, "Email", true, ctx);
-  await addTextProperty(stored, "Company", false, ctx);
+  await addTextProperty(target, "Email", true, ctx);
+  await addTextProperty(target, "Company", false, ctx);
+  const emailPropertyId = (await collectionRow(target.databaseId))
+    ?.naturalKeyPropertyId;
+  if (!emailPropertyId) {
+    fail("Content created Mail notes but couldn't read it back. Try again.", {
+      errorCode: "mail_notes_readback_failed",
+      statusCode: 503,
+    });
+  }
+  const stored: StoredCollection = { ...target, emailPropertyId, generation };
   await putUserSetting(userEmail, SETTING_KEY, stored);
   return stored;
 }
@@ -175,25 +236,20 @@ async function ensureCollection(
   ctx: ActionRunContext | undefined,
 ) {
   const stored = await readStored(userEmail);
-  if (stored) {
-    const live = await liveCollection(stored);
-    if (live?.naturalKeyPropertyId) {
-      return { stored, keyPropertyId: live.naturalKeyPropertyId };
-    }
-  }
+  const live = stored ? await liveCollection(userEmail, stored) : null;
+  if (live) return live;
   const next = await createCollection(
     userEmail,
     stored ? stored.generation + 1 : 0,
     ctx,
   );
-  const live = await liveCollection(next);
-  if (!live?.naturalKeyPropertyId) {
+  if (!(await liveCollection(userEmail, next))) {
     fail("Content created Mail notes but couldn't read it back. Try again.", {
       errorCode: "mail_notes_readback_failed",
       statusCode: 503,
     });
   }
-  return { stored: next, keyPropertyId: live.naturalKeyPropertyId };
+  return next;
 }
 
 async function claimedPage(
@@ -214,7 +270,7 @@ async function claimedPage(
         ),
       ),
     );
-  return claims.at(0)?.documentId ?? null;
+  return firstRow(claims)?.documentId ?? null;
 }
 
 async function readPage(documentId: string, role: "viewer" | "editor") {
@@ -228,13 +284,22 @@ async function readPage(documentId: string, role: "viewer" | "editor") {
   return page;
 }
 
+function newestLines(markdown: string) {
+  const tail = markdown.slice(-MAIL_NOTE_MAX_CHARS);
+  const lineStart = tail.indexOf("\n");
+  return lineStart === -1 ? tail : tail.slice(lineStart + 1);
+}
+
 function noteOf(page: {
   id: string;
   content: unknown;
   updatedAt: unknown;
 }): MailNote {
+  const markdown = typeof page.content === "string" ? page.content : "";
+  const truncated = markdown.length > MAIL_NOTE_MAX_CHARS;
   return {
-    markdown: typeof page.content === "string" ? page.content : "",
+    markdown: truncated ? newestLines(markdown) : markdown,
+    truncated,
     url: noteUrl(page.id),
     updatedAt: String(page.updatedAt ?? ""),
   };
@@ -244,11 +309,11 @@ export async function readMailNote(email: string): Promise<MailNote | null> {
   const userEmail = requireUser();
   const stored = await readStored(userEmail);
   if (!stored) return null;
-  const live = await liveCollection(stored);
-  if (!live?.naturalKeyPropertyId) return null;
+  const live = await liveCollection(userEmail, stored);
+  if (!live) return null;
   const documentId = await claimedPage(
-    stored.databaseId,
-    live.naturalKeyPropertyId,
+    live.databaseId,
+    live.emailPropertyId,
     email,
   );
   if (!documentId) return null;
@@ -265,7 +330,8 @@ async function ensurePersonPage(
   ctx: ActionRunContext | undefined,
 ) {
   const userEmail = requireUser();
-  const { stored, keyPropertyId } = await ensureCollection(userEmail, ctx);
+  const stored = await ensureCollection(userEmail, ctx);
+  const keyPropertyId = stored.emailPropertyId;
   const existing = await claimedPage(stored.databaseId, keyPropertyId, email);
   if (existing) return { documentId: existing, created: false };
   const contract = await getDatabaseMutationContract(targetOf(stored));
@@ -310,6 +376,12 @@ export function mailNoteLine(args: {
   return `- **${args.date}** ${text}${link}`;
 }
 
+function endsWithLine(content: string, line: string) {
+  const body = content.trimEnd();
+  const last = line.trim();
+  return body === last || body.endsWith(`\n${last}`);
+}
+
 async function appendLine(
   documentId: string,
   line: string,
@@ -327,6 +399,7 @@ async function appendLine(
     const page = await readPage(documentId, "editor");
     assertAgentsMayEditPageText(page, ctx);
     const existing = (page.content as string | null) ?? "";
+    if (endsWithLine(existing, blocks)) return false;
     try {
       const wroteLiveCopy = await appendContentLiveCopyBlocks(documentId, {
         cause: { ctx, operation: "add-mail-note" },
@@ -349,7 +422,7 @@ async function appendLine(
           });
         }
       }
-      return;
+      return true;
     } catch (error) {
       if (attempt === 0 && isConflict(error, "DOCUMENT_REVISION_CONFLICT")) {
         continue;
@@ -374,7 +447,7 @@ export async function addMailNote(
     args.name,
     ctx,
   );
-  await appendLine(
+  const appended = await appendLine(
     documentId,
     mailNoteLine({
       date: args.date ?? new Date().toISOString().slice(0, 10),
@@ -391,5 +464,9 @@ export async function addMailNote(
       );
     },
   );
-  return { note: noteOf(await readPage(documentId, "viewer")), created };
+  return {
+    note: noteOf(await readPage(documentId, "viewer")),
+    created,
+    appended,
+  };
 }

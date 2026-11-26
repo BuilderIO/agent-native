@@ -54,13 +54,18 @@ export type ContactAttachmentList = { attachments: ContactAttachment[] };
 
 export type ContactNote = {
   markdown: string;
+  truncated: boolean;
   url?: string;
   updatedAt?: string;
 };
 
 export type ContactNoteResult = { note: ContactNote | null };
 
-export type AddContactNoteResult = { note: ContactNote; created: boolean };
+export type AddContactNoteResult = {
+  note: ContactNote;
+  created: boolean;
+  appended: boolean;
+};
 
 export type EmailThread = {
   id: string;

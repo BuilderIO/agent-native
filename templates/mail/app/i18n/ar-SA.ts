@@ -861,6 +861,7 @@ const messages = {
       addNote: "إضافة ملاحظة",
       notesLoadError: "تعذّر تحميل الملاحظات.",
       notesContentUnreachable: "تعذّر الوصول إلى Content.",
+      olderNotesInContent: "الملاحظات الأقدم موجودة في الصفحة على Content.",
       noteSaveError: "تعذّر حفظ الملاحظة.",
       savedToMailNotes: "حُفظت في ملاحظات Mail",
       open: "فتح",

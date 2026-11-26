@@ -14,8 +14,15 @@ import {
 
 const SIGN_IN_MESSAGE = "Sign in to read or add notes.";
 
+export const CONTACT_NOTE_MAX_RESULT_CHARS = 400_000;
+
 export const contactNoteSchema = z.object({
   markdown: z.string(),
+  truncated: z
+    .boolean()
+    .describe(
+      "True when the page is too long to return whole and markdown holds only its newest lines; url opens the whole page",
+    ),
   url: z.string(),
   updatedAt: z.string(),
 });
@@ -24,6 +31,7 @@ const noteResultSchema = z.object({ note: contactNoteSchema.nullable() });
 const addResultSchema = z.object({
   note: contactNoteSchema,
   created: z.boolean(),
+  appended: z.boolean(),
 });
 
 const NOTE_ERRORS: Record<string, { message: string; statusCode: number }> = {
@@ -41,6 +49,16 @@ const NOTE_ERRORS: Record<string, { message: string; statusCode: number }> = {
     message:
       "This person's note page in Content is set so apps and agents can only read it. Change that from the page's Share panel in Content.",
     statusCode: 403,
+  },
+  mail_notes_key_changed: {
+    message:
+      "Email is no longer the key of your Mail notes collection in Content. Make Email its key again to see or add notes.",
+    statusCode: 409,
+  },
+  mail_notes_moved: {
+    message:
+      "Your Mail notes collection is no longer in your Personal space in Content. Move it back to see or add notes.",
+    statusCode: 409,
   },
   DOCUMENT_REVISION_CONFLICT: {
     message: "The note page changed while your note was saved. Try again.",
