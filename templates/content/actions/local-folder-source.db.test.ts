@@ -1999,9 +1999,12 @@ describe("local-folder Content source", () => {
       ).default;
 
       localFiles.invalidateLocalFileDocumentsCache();
-      expect(
-        JSON.stringify(await localFiles.listLocalFileDocuments()),
-      ).toContain("on-disk.md");
+      const diskDocuments = await localFiles.listLocalFileDocuments();
+      expect(JSON.stringify(diskDocuments)).toContain("on-disk.md");
+      const diskIds = diskDocuments
+        .map((document) => document.id)
+        .filter((documentId) => localFiles.isLocalFileDocumentId(documentId));
+      expect(diskIds).toHaveLength(1);
 
       const { id } = (await asOwner(() =>
         createDocument.run({ title: "Mode probe", content: "SQL body." }),
@@ -2048,6 +2051,14 @@ describe("local-folder Content source", () => {
       await expect(asOwner(() => pullDocument.run({ id }))).resolves.toEqual(
         expect.objectContaining({ content: "SQL body, edited." }),
       );
+      for (const diskId of diskIds) {
+        await expect(
+          asOwner(() => getDocument.run({ id: diskId })),
+        ).rejects.toThrow(`Document "${diskId}" not found`);
+        await expect(
+          asOwner(() => pullDocument.run({ id: diskId })),
+        ).rejects.toThrow(`Document "${diskId}" not found`);
+      }
 
       await asOwner(() => moveDocument.run({ id, parentId: homeId }));
       expect((await pageRow(id)).parentId).toBe(homeId);
@@ -2065,6 +2076,9 @@ describe("local-folder Content source", () => {
       expect((await pageRow(id)).trashedAt).toEqual(expect.any(String));
 
       expect(readdirSync(join(workspace, "docs"))).toEqual(["on-disk.md"]);
+      expect(readFileSync(join(workspace, "docs", "on-disk.md"), "utf8")).toBe(
+        "# On disk\n\nFrom disk.",
+      );
       expect(readFileSync(manifestPath, "utf8")).toBe(manifest);
     } finally {
       modeEnv.forEach((key, index) => {

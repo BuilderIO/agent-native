@@ -3921,7 +3921,7 @@ describe("a Suggesting draft typed while another tab saves the Page", () => {
       });
       await advance(100);
       expect(fixture.save).toHaveBeenCalledOnce();
-      expect(fixture.save.mock.calls[0][0]).toMatchObject({ content: typed });
+      expect(fixture.save.mock.calls[0]?.[0]).toMatchObject({ content: typed });
       await release(
         reread === "other words"
           ? { ...mounted(fixture.page), content: elsewhere }

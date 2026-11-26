@@ -392,7 +392,7 @@ describe("/page", () => {
   it("saves the link to the new page through the page's editor", async () => {
     const { editor, onDraftPersisted, pageId } = await makePage(true);
     expect(onDraftPersisted).toHaveBeenCalledOnce();
-    expect(onDraftPersisted.mock.calls[0][0]).toContain(`id="${pageId}"`);
+    expect(onDraftPersisted.mock.calls[0]?.[0]).toContain(`id="${pageId}"`);
     expect(pageReferences(editor)).toEqual([pageId]);
     expect(pages.rollback).not.toHaveBeenCalled();
   });

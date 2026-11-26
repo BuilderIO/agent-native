@@ -403,7 +403,7 @@ describe("VisualEditor comment highlights", () => {
       );
       const pageId = found(pages.create.mock.calls[0]?.[1]);
       expect(pages.create).toHaveBeenCalledWith("parent", pageId);
-      expect(onSaveContent.mock.calls[0][0]).toContain(`id="${pageId}"`);
+      expect(onSaveContent.mock.calls[0]?.[0]).toContain(`id="${pageId}"`);
       return { linked: () => editor.getHTML().includes(pageId), pageId };
     }
 

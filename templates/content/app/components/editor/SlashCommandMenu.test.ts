@@ -39,11 +39,13 @@ vi.mock("@agent-native/toolkit/app/chat/composer/index", async () => {
 const collections = vi.hoisted(() => ({
   inline: { mutateAsync: vi.fn() },
   fullPage: { mutateAsync: vi.fn() },
+  remove: { mutate: vi.fn(), mutateAsync: vi.fn() },
 }));
 vi.mock("@/hooks/use-content-database", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/hooks/use-content-database")>()),
   useCreateInlineContentDatabase: () => collections.inline,
   useCreateContentDatabase: () => collections.fullPage,
+  useDeleteContentDatabase: () => collections.remove,
 }));
 const rollbackCreated = vi.hoisted(() =>
   vi.fn(async (_input: { id: string; parentId: string }) => ({})),
@@ -1273,6 +1275,10 @@ describe("inline database slash command", () => {
       .mockRejectedValueOnce(new Error("busy"))
       .mockResolvedValueOnce({ database: { documentId: "collection-page" } });
     rollbackCreated.mockClear();
+    collections.remove.mutate.mockClear();
+    collections.remove.mutateAsync.mockClear();
+    const toastError = vi.spyOn(toast, "error").mockReturnValue("");
+    onTestFinished(() => toastError.mockRestore());
     const onDraftPersisted = vi.fn(async (_body: string) => false);
     const { editor, location } = await mountSlashMenu({
       contentSpaceId: "space-1",
@@ -1281,7 +1287,7 @@ describe("inline database slash command", () => {
 
     await typeSlash(editor, "/database");
     await click(menuItem("Full-page collection"));
-    await waitFor(() => rollbackCreated.mock.calls.length > 0);
+    await waitFor(() => toastError.mock.calls.length > 0);
 
     expect(onDraftPersisted.mock.calls[0]?.[0]).toContain(
       'id="collection-page"',
@@ -1289,6 +1295,8 @@ describe("inline database slash command", () => {
     expect(rollbackCreated.mock.calls).toEqual([
       [{ id: "collection-page", parentId: "doc-1" }],
     ]);
+    expect(collections.remove.mutate).not.toHaveBeenCalled();
+    expect(collections.remove.mutateAsync).not.toHaveBeenCalled();
     expect(JSON.stringify(editor.getJSON())).not.toContain("collection-page");
     expect(location()).toBe("/page/doc-1");
   });
@@ -1297,6 +1305,10 @@ describe("inline database slash command", () => {
     collections.fullPage.mutateAsync.mockReset();
     collections.fullPage.mutateAsync.mockRejectedValue(new Error("timed out"));
     rollbackCreated.mockClear();
+    collections.remove.mutate.mockClear();
+    collections.remove.mutateAsync.mockClear();
+    const toastError = vi.spyOn(toast, "error").mockReturnValue("");
+    onTestFinished(() => toastError.mockRestore());
     const onDraftPersisted = vi.fn(async (_body: string) => true);
     const { editor, location } = await mountSlashMenu({
       contentSpaceId: "space-1",
@@ -1305,7 +1317,7 @@ describe("inline database slash command", () => {
 
     await typeSlash(editor, "/database");
     await click(menuItem("Full-page collection"));
-    await waitFor(() => rollbackCreated.mock.calls.length > 0);
+    await waitFor(() => toastError.mock.calls.length > 0);
 
     const [[requested], [retried]] = collections.fullPage.mutateAsync.mock
       .calls as [[{ newDocumentId: string }], [unknown]];
@@ -1313,6 +1325,8 @@ describe("inline database slash command", () => {
     expect(rollbackCreated.mock.calls).toEqual([
       [{ id: requested.newDocumentId, parentId: "doc-1" }],
     ]);
+    expect(collections.remove.mutate).not.toHaveBeenCalled();
+    expect(collections.remove.mutateAsync).not.toHaveBeenCalled();
     expect(onDraftPersisted).not.toHaveBeenCalled();
     expect(location()).toBe("/page/doc-1");
   });

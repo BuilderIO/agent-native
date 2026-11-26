@@ -301,9 +301,7 @@ async function render(...surfaces: ReturnType<typeof surface>[]) {
 }
 
 function last<T>(items: T[], match: (item: T) => unknown = () => true) {
-  for (let index = items.length - 1; index >= 0; index -= 1)
-    if (match(items[index])) return items[index];
-  return undefined;
+  return [...items].reverse().find((item) => match(item));
 }
 
 function toolbar(documentId = "page") {
@@ -459,11 +457,12 @@ describe("a page read from a local file", () => {
   });
 
   it("edits a file this client can read", async () => {
+    const onDisk = present(fixture.pages.page);
     fixture.readLocal = {
       ok: true,
-      document: fixture.pages.page,
+      document: onDisk,
       revision: "disk-1",
-      updatedAt: fixture.pages.page.updatedAt,
+      updatedAt: onDisk.updatedAt,
     } as LocalSourceDocumentReadResult;
     await render(surface("page", "page"));
 
@@ -705,11 +704,12 @@ describe("a local file whose page history can't be updated", () => {
     page("page", {
       source: { mode: "local-files", path: "notes/page.md" },
     } as Partial<Document>);
+    const onDisk = present(fixture.pages.page);
     fixture.readLocal = {
       ok: true,
-      document: fixture.pages.page,
+      document: onDisk,
       revision: "disk-1",
-      updatedAt: fixture.pages.page.updatedAt,
+      updatedAt: onDisk.updatedAt,
     } as LocalSourceDocumentReadResult;
     const cached = ["action", "get-document", { id: "page" }];
     queryClient.setQueryData(cached, {

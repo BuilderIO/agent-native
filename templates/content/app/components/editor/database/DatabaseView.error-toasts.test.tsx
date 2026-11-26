@@ -591,6 +591,7 @@ describe("DatabaseView UI regressions", () => {
     processBuilderBodiesMutation.mutate.mockReset();
     benignMutation.mutateAsync.mockReset().mockResolvedValue(undefined);
     for (const mutation of Object.values(rowMutations)) {
+      mutation.mutate.mockReset();
       mutation.mutateAsync
         .mockReset()
         .mockImplementation((input: unknown) =>
@@ -1751,6 +1752,10 @@ describe("DatabaseView UI regressions", () => {
     expect(rowMutations.deleteDocument.mutateAsync).not.toHaveBeenCalled();
     expect(rowMutations.duplicateItems.mutateAsync).not.toHaveBeenCalled();
     expect(rowMutations.duplicateItem.mutateAsync).not.toHaveBeenCalled();
+    expect(rowMutations.removeItems.mutate).not.toHaveBeenCalled();
+    expect(rowMutations.deleteDocument.mutate).not.toHaveBeenCalled();
+    expect(rowMutations.duplicateItems.mutate).not.toHaveBeenCalled();
+    expect(rowMutations.duplicateItem.mutate).not.toHaveBeenCalled();
     expect(container.textContent).toContain("1 selected");
     expect(
       container.querySelector<HTMLButtonElement>(
@@ -1788,6 +1793,10 @@ describe("DatabaseView UI regressions", () => {
     expect(rowMutations.duplicateItem.mutateAsync).not.toHaveBeenCalled();
     expect(rowMutations.removeItems.mutateAsync).not.toHaveBeenCalled();
     expect(rowMutations.deleteDocument.mutateAsync).not.toHaveBeenCalled();
+    expect(rowMutations.duplicateItems.mutate).not.toHaveBeenCalled();
+    expect(rowMutations.duplicateItem.mutate).not.toHaveBeenCalled();
+    expect(rowMutations.removeItems.mutate).not.toHaveBeenCalled();
+    expect(rowMutations.deleteDocument.mutate).not.toHaveBeenCalled();
   });
 
   // Three rows filtered on a Status property, with that filter's chip.
