@@ -55,8 +55,10 @@ vi.mock("../../db/client.js", () => ({
   getDbExec: () => ({ execute: dbExecuteMock }),
 }));
 
+let requestContext: Record<string, unknown> | undefined;
 vi.mock("../../server/request-context.js", () => ({
-  getRequestContext: () => ({ requestOrigin: "https://plan.example.com" }),
+  getRequestContext: () => requestContext,
+  getRequestRunContext: () => undefined,
 }));
 
 const createAction = (await import("./create-org-service-token.js")).default;
@@ -83,6 +85,7 @@ function setMemberOrgs(...orgIds: string[]) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  requestContext = { requestOrigin: "https://plan.example.com" };
   setRole("admin");
   setMemberOrgs();
   mintOrgServiceTokenMock.mockResolvedValue({
@@ -183,6 +186,35 @@ describe("create-org-service-token", () => {
       { statusCode: 403 },
     );
     expect(mintOrgServiceTokenMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses the local development identity off loopback, even as an org admin", async () => {
+    for (const ctx of [
+      { requestOrigin: "https://app.example.com", isLoopbackRequest: false },
+      undefined,
+    ]) {
+      requestContext = ctx;
+      await expect(
+        createAction.run({ name: "ci" }, CTX({ userEmail: "dev@local.test" })),
+      ).rejects.toMatchObject({
+        name: "LocalDevOrgCredentialRefusedError",
+        statusCode: 403,
+      });
+    }
+    expect(mintOrgServiceTokenMock).not.toHaveBeenCalled();
+    expect(upsertPolicyMock).not.toHaveBeenCalled();
+  });
+
+  it("mints for the local development identity on a loopback request", async () => {
+    requestContext = {
+      requestOrigin: "http://localhost:8080",
+      isLoopbackRequest: true,
+    };
+    const res = await createAction.run(
+      { name: "ci" },
+      CTX({ userEmail: "dev@local.test" }),
+    );
+    expect(res.token).toBe("svc-secret-value");
   });
 
   it("births the principal governed: owner defaults to the creating admin, medium risk, unrestricted", async () => {

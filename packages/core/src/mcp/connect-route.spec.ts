@@ -231,6 +231,7 @@ vi.mock("./connect-store.js", () => ({
 }));
 
 const { withMcpCredentialIssuance } = await import("./credential-issuance.js");
+const { runWithRequestContext } = await import("../server/request-context.js");
 const withMcpCredentialIssuanceMock = vi.mocked(withMcpCredentialIssuance);
 const { handleMcpConnect, mintOrgServiceToken } =
   await import("./connect-route.js");
@@ -939,6 +940,29 @@ describe("handleMcpConnect", () => {
         kind: "service",
         ownerEmail: "svc-pr-recap@service.org-1",
       });
+    });
+
+    it("refuses an org service token minted by the local development identity off loopback", async () => {
+      issuanceRole = "admin";
+      const mint = () =>
+        mintOrgServiceToken({
+          serviceName: "ci",
+          orgId: "org-1",
+          createdBy: "dev@local.test",
+          appUrl: "https://plan.example.com",
+        });
+      await expect(mint()).rejects.toMatchObject({ statusCode: 403 });
+      await expect(
+        runWithRequestContext(
+          {
+            userEmail: "dev@local.test",
+            requestOrigin: "https://plan.example.com",
+            isLoopbackRequest: false,
+          },
+          mint,
+        ),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      expect(tokenRows).toHaveLength(0);
     });
 
     it("mints a standard MCP OAuth token when no A2A_SECRET is configured", async () => {
