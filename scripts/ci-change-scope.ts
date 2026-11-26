@@ -2929,11 +2929,76 @@ export function readSameDirectoryPureDesignSpecRenames(
   return renamedSpecs.sort();
 }
 
-function writeOutputs(scope: ChangeScope): void {
+const CHANGELOG_ENTRY =
+  /^templates\/[a-z0-9][a-z0-9-]*\/changelog\/\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]*\.md$/u;
+const COMMIT_OID = /^[a-f0-9]{40}$/u;
+const MISSING_BLOB = "0".repeat(40);
+const CHANGELOG_DIFF_MODES = {
+  A: "000000 100644",
+  D: "100644 000000",
+  M: "100644 100644",
+} as const;
+
+function readChangelogOnly(baseSha: string, headSha: string): boolean {
+  if (!COMMIT_OID.test(baseSha) || !COMMIT_OID.test(headSha)) return false;
+  const mergeBase = execFileSync(
+    "git",
+    ["merge-base", "--all", baseSha, headSha],
+    {
+      encoding: "utf8",
+    },
+  ).trimEnd();
+  if (!COMMIT_OID.test(mergeBase)) return false;
+
+  const fields = execFileSync(
+    "git",
+    [
+      "diff",
+      "--raw",
+      "--no-abbrev",
+      "--no-renames",
+      "--no-ext-diff",
+      "--no-textconv",
+      "--no-relative",
+      "--ignore-submodules=none",
+      "-z",
+      mergeBase,
+      headSha,
+      "--",
+    ],
+    { encoding: "utf8", maxBuffer: GIT_DIFF_MAX_BUFFER },
+  ).split("\0");
+  if (fields.pop() !== "" || fields.length === 0 || fields.length % 2 !== 0)
+    return false;
+
+  const paths = new Set<string>();
+  for (let i = 0; i < fields.length; i += 2) {
+    const path = fields[i + 1];
+    const entry =
+      /^:([0-9]{6} [0-9]{6}) ([a-f0-9]{40}) ([a-f0-9]{40}) ([AMD])$/u.exec(
+        fields[i],
+      );
+    if (!entry || !CHANGELOG_ENTRY.test(path) || paths.has(path)) return false;
+    const [, modes, before, after, status] = entry;
+    if (
+      modes !==
+        CHANGELOG_DIFF_MODES[status as keyof typeof CHANGELOG_DIFF_MODES] ||
+      (before === MISSING_BLOB) !== (status === "A") ||
+      (after === MISSING_BLOB) !== (status === "D") ||
+      before === after
+    )
+      return false;
+    paths.add(path);
+  }
+  return true;
+}
+
+function writeOutputs(scope: ChangeScope, changelogOnly: boolean): void {
   const outputPath = process.env.GITHUB_OUTPUT;
   if (outputPath) {
     const lines = [
       `docs_only=${scope.docsOnly ? "true" : "false"}`,
+      `changelog_only=${changelogOnly ? "true" : "false"}`,
       `full=${scope.full ? "true" : "false"}`,
       `changed_count=${scope.changedPaths.length}`,
       `design_canvas_e2e_specs=${JSON.stringify(scope.designCanvasE2eSpecs)}`,
@@ -3023,7 +3088,12 @@ function main(): void {
     addedPaths,
   );
   console.log(JSON.stringify(scope, null, 2));
-  writeOutputs(scope);
+  const changelogOnly =
+    scope.checks.typecheck === false &&
+    changedPaths.length > 0 &&
+    changedPaths.every((path) => CHANGELOG_ENTRY.test(path)) &&
+    readChangelogOnly(baseSha, headSha);
+  writeOutputs(scope, changelogOnly);
 }
 
 if (

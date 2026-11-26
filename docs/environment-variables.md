@@ -501,6 +501,7 @@ runtime code:
 | `BUILD_REQUIRED`                      | Whether change-scope selected the artifact build; the required Build gate also requires the build job when `DOCS_ONLY` is true.                                                       |
 | `BUILD_RESULT`                        | Result of the artifact build job, checked by the required Build gate against the combined build selection.                                                                            |
 | `CHANGE_SCOPE_RESULT`                 | Result of the change-scope job; the required Build gate fails unless this is `success`.                                                                                               |
+| `CHANGELOG_ONLY`                      | Whether change-scope proved a complete template changelog-only diff. The required Build gate then requires a successful Typecheck receipt.                                            |
 | `CORE_SHARD`                          | One-based Vitest shard and total shard count (`index/count`) for Core fast tests in GitHub Actions.                                                                                   |
 | `CORE_TEST_FILES`                     | JSON array of Core test paths selected by the targeted-lane planner when `CORE_TEST_MODE` is `changed`; the list is shared across lanes, and `CORE_SHARD` selects each lane's subset. |
 | `CORE_TEST_MODE`                      | Selects the `full` Core fast-test suite or only `changed` Core tests in a targeted test lane.                                                                                         |
@@ -521,7 +522,7 @@ runtime code:
 | `PW_TEST_DEBUG_REPORTERS`             | Set to `1` for Playwright's built-in reporters to print progress on separate lines instead of rewriting terminal rows, keeping captured CI logs readable.                             |
 | `S2573_PGLITE_INSTALL_PREFIX`         | Override for the PGlite native binary install prefix used by the content-database lock CI test.                                                                                       |
 | `TEST_PLAN_RESULT`                    | Result of fast-test lane planning; the required Fast tests gate requires success for selected full and targeted runs.                                                                 |
-| `TYPECHECK_REQUIRED`                  | Whether change-scope selected Typecheck; the required Build gate checks the corresponding job result.                                                                                 |
+| `TYPECHECK_REQUIRED`                  | Whether change-scope selected the full Typecheck steps. The Build gate also requires Typecheck to succeed when `CHANGELOG_ONLY` is true.                                              |
 | `TYPECHECK_RESULT`                    | Result of the Typecheck job, checked by the required Build gate.                                                                                                                      |
 
 ## Dynamic environment keys
