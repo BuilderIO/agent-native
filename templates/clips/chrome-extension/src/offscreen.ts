@@ -27,6 +27,11 @@ import {
   type NativeTranscriptionCapture,
 } from "./native-transcription";
 import {
+  PAGE_TRACK_PORT_NAME,
+  PageTrack,
+  type PageTrackCapture,
+} from "./page-track";
+import {
   createRecordingDurationState,
   parseClipDurationLimitMs,
   pauseRecordingDuration,
@@ -131,6 +136,7 @@ type BeginMessage = {
   startDelayMs?: number;
   authToken?: string;
   transcriptUrl?: string;
+  pageTrack?: { tabId: number; tracksUrl: string };
 };
 
 type SimpleMessage = {
@@ -221,6 +227,8 @@ type ActiveRecording = {
   nativeTranscript: string;
   nativeTranscriptFailure: string | null;
   nativeTranscriptSaved: boolean;
+  pageTrack: PageTrack | null;
+  pageTrackTabId: number | null;
   stopped: Promise<UploadResult>;
   resolveStopped: (result: UploadResult) => void;
   rejectStopped: (error: Error) => void;
@@ -1264,6 +1272,8 @@ async function begin(message: BeginMessage): Promise<{
     nativeTranscript: "",
     nativeTranscriptFailure: null,
     nativeTranscriptSaved: false,
+    pageTrack: createPageTrack(message, ready, Boolean(compositor)),
+    pageTrackTabId: message.pageTrack?.tabId ?? null,
     stopped,
     resolveStopped,
     rejectStopped,
@@ -1385,6 +1395,7 @@ function startRecorderNow(recording: ActiveRecording): void {
     recording.nativeTranscription.start();
     recording.startedAtMs = Date.now();
     recording.duration = startRecordingDuration(recording.startedAtMs);
+    recording.pageTrack?.start(recording.startedAtMs);
     armClipDurationLimit(recording);
     console.log("[clips-offscreen] recorder.start ok");
     reportStatus(recording.sessionId, "recording", {
@@ -1412,6 +1423,7 @@ function startRecorderNow(recording: ActiveRecording): void {
     });
     recording.cancelled = true;
     recording.nativeTranscription.cancel();
+    recording.pageTrack?.discard();
     cleanup(recording);
     if (activeRecording === recording) activeRecording = null;
     reportStatus(recording.sessionId, "error", {
@@ -1512,6 +1524,7 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
     return;
   }
   if (recording.cancelled) {
+    recording.pageTrack?.discard();
     cleanup(recording);
     if (activeRecording === recording) activeRecording = null;
     recording.resolveStopped({ ok: true, status: "cancelled" });
@@ -1519,6 +1532,7 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
   }
   recording.duration = pauseRecordingDuration(recording.duration, Date.now());
   const durationMs = recording.duration.elapsedMs;
+  void recording.pageTrack?.stop();
   try {
     await saveNativeTranscript(recording);
   } catch (error) {
@@ -1602,6 +1616,9 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
       result,
     });
     recording.resolveStopped(result);
+    if (recording.pageTrack) {
+      void finishPageTrack(recording, recording.pageTrack);
+    }
   } catch (err) {
     cleanup(recording);
     if (activeRecording === recording) activeRecording = null;
@@ -1626,6 +1643,9 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
           result: recovered,
         });
         recording.resolveStopped(recovered);
+        if (recording.pageTrack) {
+          void finishPageTrack(recording, recording.pageTrack);
+        }
         return;
       }
     }
@@ -1667,6 +1687,7 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
       savedToDisk: saved.savedToDisk,
       savedFilename: saved.savedFilename,
     });
+    recording.pageTrack?.discard();
     recording.rejectStopped(error);
   }
 }
@@ -1677,6 +1698,7 @@ function pause(message: SimpleMessage): { ok: boolean } {
     if (recording.recorder.state === "recording") {
       recording.recorder.pause();
       recording.nativeTranscription.pause();
+      recording.pageTrack?.pause();
       recording.duration = pauseRecordingDuration(
         recording.duration,
         Date.now(),
@@ -1695,6 +1717,7 @@ function resume(message: SimpleMessage): { ok: boolean } {
     if (recording.recorder.state === "paused") {
       recording.recorder.resume();
       recording.nativeTranscription.resume();
+      recording.pageTrack?.resume();
       recording.duration = resumeRecordingDuration(
         recording.duration,
         Date.now(),
@@ -1718,6 +1741,7 @@ async function stop(
     clearTimeout(recording.startTimer);
     recording.startTimer = null;
     recording.cancelled = true;
+    recording.pageTrack?.discard();
     cleanup(recording);
     if (activeRecording === recording) activeRecording = null;
     return { ok: true, result: { ok: true, status: "cancelled" } };
@@ -1731,6 +1755,7 @@ async function cancel(message: SimpleMessage): Promise<{ ok: boolean }> {
   if (recording && recording.sessionId === message.sessionId) {
     recording.cancelled = true;
     recording.nativeTranscription.cancel();
+    recording.pageTrack?.discard();
     if (recording.startTimer !== null) {
       clearTimeout(recording.startTimer);
       recording.startTimer = null;
@@ -1794,6 +1819,7 @@ async function restart(
   if (recording.limitTimer !== null) clearInterval(recording.limitTimer);
   recording.limitTimer = null;
   recording.nativeTranscription.cancel();
+  recording.pageTrack?.discard();
   if (recording.recorder.state !== "inactive") recording.recorder.stop();
   recording.stopCompositor?.();
   recording.cleanupAudio();
@@ -1817,6 +1843,85 @@ async function restart(
     height: recording.dimensions.height,
   };
 }
+
+function pageTrackCapture(stream: MediaStream): PageTrackCapture {
+  const surfaces = stream
+    .getVideoTracks()
+    .map((track) => track.getSettings().displaySurface);
+  if (surfaces.includes("browser")) return "tab";
+  if (surfaces.includes("window")) return "window";
+  return "display";
+}
+
+function extensionPlatform(): string {
+  const agent = (
+    navigator as Navigator & { userAgentData?: { platform?: string } }
+  ).userAgentData;
+  return agent?.platform || navigator.platform || "unknown";
+}
+
+function createPageTrack(
+  message: BeginMessage,
+  ready: PreparedStreams,
+  hasCameraBubble: boolean,
+): PageTrack | null {
+  if (!message.pageTrack || ready.mode !== "screen" || !ready.displayStream) {
+    return null;
+  }
+  const recordingId = message.recordingId;
+  return new PageTrack({
+    tracksUrl: message.pageTrack.tracksUrl,
+    authToken: message.authToken ?? null,
+    capture: pageTrackCapture(ready.displayStream),
+    captureWidthPx: ready.width,
+    captureHeightPx: ready.height,
+    camera: hasCameraBubble ? "bubble" : "none",
+    writer: {
+      surface: "extension",
+      app: "Clips Chrome Extension",
+      version: chrome.runtime.getManifest().version,
+      os: extensionPlatform(),
+    },
+    report: (error, step) => {
+      captureExtensionError(error, {
+        tags: { surface: "offscreen", recordingStep: step },
+        extra: { recordingId },
+      });
+    },
+  });
+}
+
+async function finishPageTrack(
+  recording: ActiveRecording,
+  track: PageTrack,
+): Promise<void> {
+  const outcome = await track.finish();
+  if (outcome.status === "failed") {
+    captureExtensionError(new Error(outcome.reason), {
+      tags: { surface: "offscreen", recordingStep: "page-track-finish" },
+      extra: { recordingId: recording.recordingId },
+    });
+  } else if (outcome.status === "stopped") {
+    console.warn("[clips-offscreen] page track stopped:", outcome.reason);
+  }
+}
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== PAGE_TRACK_PORT_NAME) return;
+  const recording = activeRecording;
+  const sender = port.sender;
+  if (
+    !recording?.pageTrack ||
+    sender?.id !== chrome.runtime.id ||
+    sender.frameId !== 0 ||
+    sender.tab?.id === undefined ||
+    sender.tab.id !== recording.pageTrackTabId
+  ) {
+    port.disconnect();
+    return;
+  }
+  recording.pageTrack.connect(port);
+});
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (!message || typeof message !== "object") return false;

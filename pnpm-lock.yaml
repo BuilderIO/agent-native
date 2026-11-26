@@ -5678,6 +5678,9 @@ importers:
 
   templates/clips/chrome-extension:
     dependencies:
+      '@rrweb/record':
+        specifier: 2.1.0
+        version: 2.1.0
       '@sentry/browser':
         specifier: 10.62.0
         version: 10.62.0
