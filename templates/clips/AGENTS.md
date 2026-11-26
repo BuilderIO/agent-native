@@ -13,7 +13,7 @@ Use local docs only (no web research): `pnpm action docs-search --query "<topic>
 - UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Use actions for recording metadata, transcripts, cleanup, chapters, comments, meetings, folders, sharing, and collaboration. Respect access helpers. Keep large media/blob payloads out of SQL, state, settings, and resources; store bytes in configured storage and persist references.
 - For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver. Never hardcode credentials, webhook URLs, private/customer data, or credential-like literals.
-- Recording start/stop/pause are browser gestures requiring user activation; navigate to the recording view instead of using a server action. Prefer native transcripts; cloud transcription is fallback-only. Do not hide a usable transcript after failed metadata work.
+- Recording start/stop/pause need a user gesture: navigate to the recording view. Agent capture (`start-capture`) needs a host a person armed. Prefer native transcripts; cloud transcription is fallback-only. Do not hide a usable transcript after failed metadata work.
 - Use `import-loom-recording` for Loom, YouTube, or direct MP4/WebM URLs. Loom/public transcripts import in the background; request a transcript afterward for direct video. Transactional email claims two-Clip summary work and ends in one sentence.
 - `view-screen` may return a transcript preview truncated mid-sentence without an ending marker. When `previewTruncated`, read `get-recording-player-data` before judging completeness or quoting.
 - Clips are unlisted-by-link, not searchable. Only inspect recordings the user owns, viewed, or identified by URL/id. Never use `list-recordings` / `search-recordings` to find another person's clip, answer a date question, or recover a failed lookup; report the failure.
@@ -34,7 +34,7 @@ Use `tool-search` for the full surface, including screen-memory.
 | `view-screen` / `navigate` | Read context or open a surface |
 | `get-video-storage-status` | Check storage and any hosted clips available in the current rollout before asking to connect Builder |
 | `list-recordings` / `search-recordings` / `get-recording-player-data` | Find authorized clips; read transcript, chapters, diagnostics |
-| `create-recording-agent-link` / `get-recording-frames` | Private-clip agent link; clip frames as images |
+| `create-recording-agent-link` / `get-recording-frames` | Private-clip agent link; edited or source frames as images |
 | `create-recording-upload` / `import-loom-recording` | Upload a local video file, or import one from a URL |
 | `request-transcript` / `import-transcript` / `cleanup-transcript` / `regenerate-title` / `regenerate-summary` / `regenerate-chapters` | Transcription, imported VTT/SRT/timestamped transcripts, and metadata |
 | `trim-recording` / `split-recording` / `remove-silences` / `remove-filler-words` | Edit video |

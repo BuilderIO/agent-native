@@ -320,6 +320,28 @@ leaves — but the discard already closed the toolbar window. Restart therefore
 bumps `recordingChromeEpoch` to rebuild it. The countdown needs no such nudge;
 the recorder recreates it on every start.
 
+## Agent capture
+
+An agent can record only through a host a person armed in Clips Desktop or the
+Chrome extension: `get-capture-capabilities`, `start-capture`, `mark-capture`,
+`get-capture-session` and `stop-capture`. Arming does not start a recording,
+queued, starting or beginning is not READY, and an agent stops only its own
+session. The recorder begins only after the server's begin gate (`starting` to
+`beginning`, refused once a stop is asked for); a stop before READY discards
+the take as `cancelled` with no Clip, and a stop after READY keeps it.
+`docs/agent-motion-capture.md` is the full contract.
+
+- Desktop agent capture is full-screen only. Arming a window or region fails
+  with a typed refusal (`window_capture_unsupported`,
+  `region_capture_unsupported`), and the native recorder refuses a window or
+  region request that carries an agent duration bound.
+- Motion (60 fps) takes record without the Rich recordings tracks. The lab
+  setting stays on for the next Normal take, the desktop shows a note while
+  Motion is selected, and the native recorder refuses a request that asks for
+  both.
+- Inspect the result with `get-recording-frames` and `timeline: "source"`;
+  see the video-sharing skill.
+
 ## Error recovery
 
 | Failure                        | Handling                                                                              |

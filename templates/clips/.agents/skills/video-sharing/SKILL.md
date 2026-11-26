@@ -270,6 +270,20 @@ organization, public); an `agent_access` token does not grant it. A
 public password-protected clip fails with `password_required` for anyone but its
 owner.
 
+Pass `timeline: "source"` for frames from the original recorded media instead
+of the edited timeline, such as for agent capture QA. Give the interval as
+`startMs` and `endMs` (at most 30 seconds consecutive, 120 filmstrip), or as a capture `markerId`, which
+widens the window by the marker uncertainty plus `beforeMs` (default 500) and
+`afterMs` (default 1500). `sampling` is `consecutive` (every decoded frame in
+order, `maxFrames` up to four per page) or `filmstrip` (`sampleCount` evenly
+spaced samples; refused with any other sampling). Follow `sourceEvidence.pagination.nextCursor` with the same
+arguments until it is null; a cursor is bound to the recording, interval, crop
+and stored media. An optional source-pixel `crop` supplements a full-surface
+look. On a clip with cuts, only the owner can read the source timeline, and only
+the owner can resolve a `markerId`.
+`sourceEvidence` reports presentation timestamps, measured gaps and what the
+page could not observe; it never interpolates frames.
+
 Recordings can expose URLs meant for external agents without handing over raw
 video bytes:
 
