@@ -56,7 +56,7 @@ export function restoreCanvasImageSources(
   const elements = Array.from(
     root.querySelectorAll("img,source,style,[style]"),
   );
-  if (root instanceof Element) elements.unshift(root);
+  if (root.nodeType === Node.ELEMENT_NODE) elements.unshift(root as Element);
   for (const element of elements) {
     for (const name of ["src", "srcset", "style"]) {
       const value = element.getAttribute(name);

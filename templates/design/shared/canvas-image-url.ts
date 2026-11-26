@@ -210,10 +210,15 @@ const ATTR_URL_ESCAPES: Record<string, string> = {
   "'": "&#39;",
   "<": "&lt;",
   ">": "&gt;",
+  " ": "&#32;",
+  "\t": "&#9;",
+  "\n": "&#10;",
+  "\f": "&#12;",
+  "\r": "&#13;",
 };
 
 function escapeAttrUrl(value: string): string {
-  return value.replace(/[&"'<>]/g, (c) => ATTR_URL_ESCAPES[c] ?? c);
+  return value.replace(/[&"'<> \t\n\f\r]/g, (c) => ATTR_URL_ESCAPES[c] ?? c);
 }
 
 function rewriteAttrUrl(raw: string, proxy: CanvasImageProxy): string {

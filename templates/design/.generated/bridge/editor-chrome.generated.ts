@@ -950,10 +950,15 @@ export const editorChromeBridgeScript: string = `"use strict";
     '"': "&quot;",
     "'": "&#39;",
     "<": "&lt;",
-    ">": "&gt;"
+    ">": "&gt;",
+    " ": "&#32;",
+    "	": "&#9;",
+    "\\n": "&#10;",
+    "\\f": "&#12;",
+    "\\r": "&#13;"
   };
   function escapeAttrUrl(value) {
-    return value.replace(/[&"'<>]/g, (c) => ATTR_URL_ESCAPES[c] ?? c);
+    return value.replace(/[&"'<> \\t\\n\\f\\r]/g, (c) => ATTR_URL_ESCAPES[c] ?? c);
   }
   var SCRIPT_CLOSE = ["</", "script>"].join("");
 
@@ -1041,7 +1046,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     const elements = Array.from(
       root.querySelectorAll("img,source,style,[style]")
     );
-    if (root instanceof Element) elements.unshift(root);
+    if (root.nodeType === Node.ELEMENT_NODE) elements.unshift(root);
     for (const element of elements) {
       for (const name of ["src", "srcset", "style"]) {
         const value = element.getAttribute(name);

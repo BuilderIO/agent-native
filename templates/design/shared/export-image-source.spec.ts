@@ -98,6 +98,19 @@ it("uses the image itself when the frame has no resize bootstrap", async () => {
   expect(prepared).toBe(image);
 });
 
+it("restores the root image of a clone made in another frame", () => {
+  const frame = document.createElement("iframe");
+  document.body.append(frame);
+  const frameDocument = frame.contentDocument;
+  if (!frameDocument) throw new Error("frame has no document");
+  const image = frameDocument.createElement("img");
+  image.setAttribute("src", toCanvasImageUrl(PHOTO, PROXY) ?? "");
+  expect(image instanceof Element).toBe(false);
+  restoreCanvasImageSources(image, ORIGIN);
+  expect(image.getAttribute("src")).toBe(PHOTO);
+  frame.remove();
+});
+
 it("restores CSS background URLs in style attributes and style text of a cloned tree", () => {
   const resized = toCanvasImageUrl(PHOTO, PROXY) ?? "";
   const large = toCanvasImageUrl(LARGE, PROXY) ?? "";

@@ -496,6 +496,14 @@ describe("attribute-safe restore", () => {
     expect(restoreCanvasImageUrls(rewritten, ORIGIN)).toBe(html);
   });
 
+  it("keeps an encoded space inside an unquoted attribute from starting a new attribute", () => {
+    const html =
+      "<img src=https://images.example.com/photo.jpg&#32;onerror=alert(1)>";
+    const rewritten = withCanvasImageSizing(html, PROXY);
+    expect(rewritten).not.toBe(html);
+    expect(restoreCanvasImageUrls(rewritten, ORIGIN)).toBe(html);
+  });
+
   it("leaves raw URLs without entities unescaped", () => {
     expect(restoreCanvasImageUrls(proxied(PHOTO), ORIGIN)).toBe(PHOTO);
   });
