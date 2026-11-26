@@ -22,6 +22,7 @@ import { readDeployCredentialEnv } from "../server/credential-provider.js";
 import { publicFrameworkPath } from "../server/framework-route-prefix.js";
 import { readBody } from "../server/h3-helpers.js";
 import {
+  assertLocalDevCredentialIssuable,
   LOCAL_DEV_CREDENTIAL_REFUSED_MESSAGE,
   refusesLocalDevCredential,
 } from "../server/local-dev-identity.js";
@@ -66,7 +67,6 @@ import {
   McpCredentialIssuanceError,
   withMcpCredentialIssuance,
 } from "./credential-issuance.js";
-import { assertOrgCredentialIssuableTo } from "./local-dev-credential-gate.js";
 import { getMcpOAuthIssuer, resolveMcpOAuthIssuer } from "./oauth-route.js";
 import {
   MCP_OAUTH_DEFAULT_SCOPE,
@@ -350,7 +350,7 @@ export async function mintOrgServiceToken(params: {
   serviceEmail: string;
   ttlDays: number;
 }> {
-  assertOrgCredentialIssuableTo(params.createdBy);
+  assertLocalDevCredentialIssuable(params.createdBy, "request-context");
   const serviceName = normalizeServiceName(params.serviceName);
   const serviceEmail = serviceIdentityEmail(serviceName, params.orgId);
   const orgDomain = await resolveOrgDomain(params.orgId);

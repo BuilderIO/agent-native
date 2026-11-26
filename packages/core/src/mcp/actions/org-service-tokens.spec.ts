@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { isActionExposedToExternalAgents } from "../../action.js";
+import { LocalDevCredentialRefusedError } from "../../server/local-dev-identity.js";
 
 const mintOrgServiceTokenMock = vi.fn();
 const { OrgServiceTokenAppUrlError } = vi.hoisted(() => ({
@@ -189,20 +190,19 @@ describe("create-org-service-token", () => {
     expect(mintOrgServiceTokenMock).not.toHaveBeenCalled();
   });
 
-  it("refuses the local development identity off loopback, even as an org admin", async () => {
-    for (const ctx of [
-      { requestOrigin: "https://app.example.com", isLoopbackRequest: false },
-      undefined,
-    ]) {
-      requestContext = ctx;
-      await expect(
-        createAction.run({ name: "ci" }, CTX({ userEmail: "dev@local.test" })),
-      ).rejects.toMatchObject({
-        name: "LocalDevOrgCredentialRefusedError",
-        statusCode: 403,
-      });
-    }
-    expect(mintOrgServiceTokenMock).not.toHaveBeenCalled();
+  it("leaves the local development identity check to the mint and writes no governance when it refuses", async () => {
+    mintOrgServiceTokenMock.mockRejectedValue(
+      new LocalDevCredentialRefusedError(),
+    );
+    await expect(
+      createAction.run({ name: "ci" }, CTX({ userEmail: "dev@local.test" })),
+    ).rejects.toMatchObject({
+      name: "LocalDevCredentialRefusedError",
+      statusCode: 403,
+    });
+    expect(mintOrgServiceTokenMock).toHaveBeenCalledWith(
+      expect.objectContaining({ createdBy: "dev@local.test" }),
+    );
     expect(upsertPolicyMock).not.toHaveBeenCalled();
   });
 
