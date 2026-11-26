@@ -559,7 +559,11 @@ export function DraftQueuePage() {
               selectedId={selectedId}
               onSelect={(id) => {
                 setSelectedId(id);
-                void navigate(`/draft-queue/${encodeURIComponent(id)}`);
+                void navigate(
+                  `/draft-queue/${encodeURIComponent(id)}${
+                    scope === "requested" ? "?scope=requested" : ""
+                  }`,
+                );
               }}
               isLoading={queue.isLoading}
             />

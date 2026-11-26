@@ -1,11 +1,5 @@
-import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import { isKnownMailView } from "@shared/mail-routes";
-import {
-  data,
-  redirect,
-  useParams,
-  type LoaderFunctionArgs,
-} from "react-router";
+import { data, Navigate, useLocation, useParams } from "react-router";
 
 import messages from "@/i18n/en-US";
 import { InboxPage } from "@/pages/InboxPage";
@@ -18,12 +12,7 @@ const SEO_TITLE =
 const SEO_DESCRIPTION =
   "Open Source AI email client for Gmail triage, drafting, organization, follow-ups, and inbox workflows built around shared actions.";
 
-export function loader({ params, request }: LoaderFunctionArgs) {
-  if (params.view === "scheduled") {
-    return withSsrHtmlContentType(
-      redirect(`/drafts${new URL(request.url).search}`),
-    );
-  }
+export function loader({ params }: { params: { view?: string } }) {
   if (!isKnownMailView(params.view)) {
     return data(null, { status: 404 });
   }
@@ -47,6 +36,10 @@ export function meta({ params }: { params: { view?: string } }) {
 
 export default function ViewRoute() {
   const { view } = useParams<{ view: string }>();
+  const location = useLocation();
+  if (view === "scheduled") {
+    return <Navigate to={`/drafts${location.search}`} replace />;
+  }
   if (!isKnownMailView(view)) {
     return <NotFound />;
   }
