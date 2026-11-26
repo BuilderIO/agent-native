@@ -90,26 +90,27 @@ describe("list items as blocks", () => {
   }
 
   function itemAt(target: Editor, value: string) {
-    const found: { node: ProseMirrorNode; pos: number }[] = [];
+    const items: { node: ProseMirrorNode; pos: number }[] = [];
     target.state.doc.descendants((node, pos) => {
-      if (isListItem(node) && node.firstChild?.textContent === value) {
-        found.push({ node, pos });
-      }
+      if (isListItem(node)) items.push({ node, pos });
     });
-    if (!found.length) throw new Error(`No item "${value}"`);
-    return found[0];
+    const found = items.find(
+      ({ node }) => node.firstChild?.textContent === value,
+    );
+    if (!found) throw new Error(`No item "${value}"`);
+    return found;
   }
 
   function caretIn(target: Editor, value: string, offset = 0) {
-    const found: number[] = [];
+    const lines: { node: ProseMirrorNode; pos: number }[] = [];
     target.state.doc.descendants((node, pos) => {
-      if (node.isTextblock && node.textContent === value) found.push(pos);
+      if (node.isTextblock) lines.push({ node, pos });
     });
-    if (!found.length) throw new Error(`No line "${value}"`);
-    const pos = found[0];
+    const line = lines.find(({ node }) => node.textContent === value);
+    if (!line) throw new Error(`No line "${value}"`);
     target.view.dispatch(
       target.state.tr.setSelection(
-        TextSelection.create(target.state.doc, pos + 1 + offset),
+        TextSelection.create(target.state.doc, line.pos + 1 + offset),
       ),
     );
   }

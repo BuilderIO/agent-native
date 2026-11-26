@@ -1047,13 +1047,13 @@ describe("BlockActionsMenu", () => {
     };
 
     function itemBlock(target: Editor, text: string) {
-      const found: { node: ProseMirrorNode; pos: number }[] = [];
+      const items: { node: ProseMirrorNode; pos: number }[] = [];
       target.state.doc.descendants((node, pos) => {
-        if (isListItem(node) && node.firstChild?.textContent === text) {
-          found.push({ node, pos });
-        }
+        if (isListItem(node)) items.push({ node, pos });
       });
-      return found[0] ?? null;
+      return (
+        items.find(({ node }) => node.firstChild?.textContent === text) ?? null
+      );
     }
 
     function openItem(target: Editor, text: string) {
@@ -1115,7 +1115,7 @@ describe("BlockActionsMenu", () => {
       );
 
       const two = itemBlock(target, "Two");
-      expect(two.node.firstChild?.attrs.color).toBe("blue_bg");
+      expect(two?.node.firstChild?.attrs.color).toBe("blue_bg");
       expect(target.state.selection.$from.parent.textContent).toBe("Two");
     });
 
