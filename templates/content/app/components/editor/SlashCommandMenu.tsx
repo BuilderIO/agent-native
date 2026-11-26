@@ -17,31 +17,6 @@ import { collapseExactRepeatedNfm, docToNfm, type PMNode } from "@shared/nfm";
 import { serializeRegistryBlockToMdx } from "@shared/nfm-registry";
 import {
   IconCheck,
-  IconTypography,
-  IconH1,
-  IconH2,
-  IconH3,
-  IconH4,
-  IconH5,
-  IconH6,
-  IconList,
-  IconListNumbers,
-  IconSquareCheck,
-  IconChevronRight,
-  IconAppWindow,
-  IconCode,
-  IconMinus,
-  IconTable as TableIcon,
-  IconHierarchy2,
-  IconInfoCircle,
-  IconColumns,
-  IconColumns2,
-  IconColumns3,
-  IconMusic,
-  IconPhoto,
-  IconFileText,
-  IconDatabase,
-  IconVideo,
   IconMathFunction,
   IconSquareRoot2,
 } from "@tabler/icons-react";
@@ -87,6 +62,14 @@ import { TOGGLE_TITLE_NODE } from "./extensions/NotionExtensions";
 import { createImagePickerId } from "./image-upload";
 import { buildLocalComponentSlashItems } from "./localComponentSlashItems";
 import { MathRenderer } from "./MathRenderer";
+import {
+  menuLabelClass,
+  menuRowClass,
+  menuRowHighlightClass,
+  menuSeparatorClass,
+  menuShortcutClass,
+  menuSurfaceClass,
+} from "./menu-classes";
 import { buildRegistrySlashItems } from "./registrySlashItems";
 
 interface SlashCommandMenuProps {
@@ -181,7 +164,6 @@ export interface CommandItem {
   description: string;
   searchText?: string;
   shortcut?: string;
-  icon: React.ElementType;
   suggestionSafe?: boolean;
   directoryWidgetSafe?: boolean;
   preserveSlashRange?: boolean;
@@ -387,49 +369,42 @@ const headingCommandMetadata = [
     titleKey: "editor.heading1",
     descriptionKey: "editor.slash.heading1Description",
     shortcut: "#",
-    icon: IconH1,
   },
   {
     level: 2,
     titleKey: "editor.heading2",
     descriptionKey: "editor.slash.heading2Description",
     shortcut: "##",
-    icon: IconH2,
   },
   {
     level: 3,
     titleKey: "editor.heading3",
     descriptionKey: "editor.slash.heading3Description",
     shortcut: "###",
-    icon: IconH3,
   },
   {
     level: 4,
     titleKey: "editor.heading4",
     descriptionKey: "editor.slash.heading4Description",
     shortcut: "####",
-    icon: IconH4,
   },
   {
     level: 5,
     titleKey: "editor.heading5",
     descriptionKey: "editor.slash.heading5Description",
     shortcut: "#####",
-    icon: IconH5,
   },
   {
     level: 6,
     titleKey: "editor.heading6",
     descriptionKey: "editor.slash.heading6Description",
     shortcut: "######",
-    icon: IconH6,
   },
 ] as const satisfies ReadonlyArray<{
   level: (typeof CONTENT_HEADING_LEVELS)[number];
   titleKey: string;
   descriptionKey: string;
   shortcut: string;
-  icon: React.ElementType;
 }>;
 
 export function buildHeadingCommands(
@@ -453,19 +428,16 @@ const toggleHeadingCommandMetadata = [
   {
     titleKey: "editor.slash.toggleHeading1",
     descriptionKey: "editor.slash.toggleHeadingDescription",
-    icon: IconChevronRight,
     level: 1,
   },
   {
     titleKey: "editor.slash.toggleHeading2",
     descriptionKey: "editor.slash.toggleHeadingDescription",
-    icon: IconChevronRight,
     level: 2,
   },
   {
     titleKey: "editor.slash.toggleHeading3",
     descriptionKey: "editor.slash.toggleHeadingDescription",
-    icon: IconChevronRight,
     level: 3,
   },
 ] as const;
@@ -515,18 +487,6 @@ export function setPlainTextBlock(editor: Editor) {
     return (chain as any).setParagraph().run();
   }
   return chain.setNode("paragraph").run();
-}
-
-function QuoteCommandIcon({ size = 22 }: { size?: number; stroke?: number }) {
-  return (
-    <span
-      aria-hidden="true"
-      className="font-serif font-semibold leading-none"
-      style={{ fontSize: Math.round(size * 1.15) }}
-    >
-      &quot;
-    </span>
-  );
 }
 
 export function parseInlineGeneratePrompt(textBeforeCursor: string) {
@@ -705,7 +665,6 @@ const commands: CommandTemplate[] = [
   {
     titleKey: "editor.slash.text",
     descriptionKey: "editor.slash.textDescription",
-    icon: IconTypography,
     suggestionSafe: true,
     action: setPlainTextBlock,
   },
@@ -714,7 +673,6 @@ const commands: CommandTemplate[] = [
     titleKey: "editor.slash.bulletedList",
     descriptionKey: "editor.slash.bulletedListDescription",
     shortcut: "-",
-    icon: IconList,
     suggestionSafe: true,
     action: (editor) => editor.chain().focus().toggleBulletList().run(),
   },
@@ -722,7 +680,6 @@ const commands: CommandTemplate[] = [
     titleKey: "editor.slash.numberedList",
     descriptionKey: "editor.slash.numberedListDescription",
     shortcut: "1.",
-    icon: IconListNumbers,
     suggestionSafe: true,
     action: (editor) => editor.chain().focus().toggleOrderedList().run(),
   },
@@ -730,7 +687,6 @@ const commands: CommandTemplate[] = [
     titleKey: "editor.slash.todoList",
     descriptionKey: "editor.slash.todoListDescription",
     shortcut: "[]",
-    icon: IconSquareCheck,
     suggestionSafe: true,
     action: (editor) => editor.chain().focus().toggleTaskList().run(),
   },
@@ -738,7 +694,6 @@ const commands: CommandTemplate[] = [
     titleKey: "editor.slash.toggle",
     descriptionKey: "editor.slash.toggleDescription",
     shortcut: ">",
-    icon: IconChevronRight,
     preserveSlashRange: true,
     action: (editor, { slashRange }) =>
       insertEmptyToggle(editor, slashRange, null),
@@ -755,7 +710,6 @@ const commands: CommandTemplate[] = [
     titleKey: "editor.slash.codeBlock",
     descriptionKey: "editor.slash.codeBlockDescription",
     shortcut: "```",
-    icon: IconCode,
     suggestionSafe: true,
     preserveSlashRange: true,
     action: (editor, { slashRange }) =>
@@ -764,7 +718,6 @@ const commands: CommandTemplate[] = [
   {
     titleKey: "editor.slash.interactiveHtml",
     descriptionKey: "editor.slash.interactiveHtmlDescription",
-    icon: IconAppWindow,
     suggestionSafe: true,
     preserveSlashRange: true,
     action: (editor, { slashRange }) =>
@@ -778,14 +731,12 @@ const commands: CommandTemplate[] = [
     titleKey: "editor.slash.quote",
     descriptionKey: "editor.slash.quoteDescription",
     shortcut: '"',
-    icon: QuoteCommandIcon,
     suggestionSafe: true,
     action: (editor) => editor.chain().focus().toggleBlockquote().run(),
   },
   {
     titleKey: "editor.slash.callout",
     descriptionKey: "editor.slash.calloutDescription",
-    icon: IconInfoCircle,
     action: (editor) =>
       editor
         .chain()
@@ -799,15 +750,14 @@ const commands: CommandTemplate[] = [
   },
   ...(
     [
-      [2, "editor.slash.twoColumns", IconColumns2],
-      [3, "editor.slash.threeColumns", IconColumns3],
-      [4, "editor.slash.fourColumns", IconColumns],
+      [2, "editor.slash.twoColumns"],
+      [3, "editor.slash.threeColumns"],
+      [4, "editor.slash.fourColumns"],
     ] as const
   ).map(
-    ([count, titleKey, icon]): CommandTemplate => ({
+    ([count, titleKey]): CommandTemplate => ({
       titleKey,
       descriptionKey: "editor.slash.columnsDescription",
-      icon,
       action: (editor) => insertColumnSet(editor, count),
     }),
   ),
@@ -815,14 +765,12 @@ const commands: CommandTemplate[] = [
     titleKey: "editor.slash.divider",
     descriptionKey: "editor.slash.dividerDescription",
     shortcut: "---",
-    icon: IconMinus,
     suggestionSafe: true,
     action: (editor) => editor.chain().focus().setHorizontalRule().run(),
   },
   {
     titleKey: "editor.slash.table",
     descriptionKey: "editor.slash.tableDescription",
-    icon: TableIcon,
     action: (editor) =>
       editor
         .chain()
@@ -836,7 +784,6 @@ const turnIntoCommands: CommandTemplate[] = [
   {
     titleKey: "editor.slash.text",
     descriptionKey: "editor.slash.textDescription",
-    icon: IconTypography,
     suggestionSafe: true,
     action: setPlainTextBlock,
   },
@@ -845,7 +792,6 @@ const turnIntoCommands: CommandTemplate[] = [
     titleKey: "editor.slash.bulletedList",
     descriptionKey: "editor.slash.bulletedListDescription",
     shortcut: "-",
-    icon: IconList,
     suggestionSafe: true,
     action: (editor) => editor.chain().focus().toggleBulletList().run(),
   },
@@ -853,7 +799,6 @@ const turnIntoCommands: CommandTemplate[] = [
     titleKey: "editor.slash.numberedList",
     descriptionKey: "editor.slash.numberedListDescription",
     shortcut: "1.",
-    icon: IconListNumbers,
     suggestionSafe: true,
     action: (editor) => editor.chain().focus().toggleOrderedList().run(),
   },
@@ -861,7 +806,6 @@ const turnIntoCommands: CommandTemplate[] = [
     titleKey: "editor.slash.todoList",
     descriptionKey: "editor.slash.todoListDescription",
     shortcut: "[]",
-    icon: IconSquareCheck,
     suggestionSafe: true,
     action: (editor) => editor.chain().focus().toggleTaskList().run(),
   },
@@ -869,7 +813,6 @@ const turnIntoCommands: CommandTemplate[] = [
     titleKey: "editor.slash.toggle",
     descriptionKey: "editor.slash.collapsibleBlockDescription",
     shortcut: ">",
-    icon: IconChevronRight,
     action: (editor) => {
       turnBlockIntoToggle(editor, null);
     },
@@ -884,7 +827,6 @@ const turnIntoCommands: CommandTemplate[] = [
     titleKey: "editor.slash.codeBlock",
     descriptionKey: "editor.slash.codeBlockDescription",
     shortcut: "```",
-    icon: IconCode,
     suggestionSafe: true,
     preserveSlashRange: true,
     action: (editor, { slashRange }) =>
@@ -894,14 +836,12 @@ const turnIntoCommands: CommandTemplate[] = [
     titleKey: "editor.slash.quote",
     descriptionKey: "editor.slash.quoteDescription",
     shortcut: '"',
-    icon: QuoteCommandIcon,
     suggestionSafe: true,
     action: (editor) => editor.chain().focus().toggleBlockquote().run(),
   },
   {
     titleKey: "editor.slash.callout",
     descriptionKey: "editor.slash.calloutDescription",
-    icon: IconInfoCircle,
     action: (editor) => {
       const { state } = editor;
       const { $from } = state.selection;
@@ -1030,7 +970,6 @@ export function SlashCommandMenu({
   const generateCommand: CommandItem = {
     title: t("editor.slash.generate"),
     description: t("editor.slash.generateDescription"),
-    icon: IconHierarchy2,
     action: () => {
       openGeneratePopover(position);
     },
@@ -1039,7 +978,6 @@ export function SlashCommandMenu({
   const imageCommand: CommandItem = {
     title: t("editor.slash.image"),
     description: t("editor.slash.imageDescription"),
-    icon: IconPhoto,
     action: (editor) => {
       insertMediaPlaceholder(editor, "image");
     },
@@ -1048,7 +986,6 @@ export function SlashCommandMenu({
   const videoCommand: CommandItem = {
     title: t("editor.slash.video"),
     description: t("editor.slash.videoDescription"),
-    icon: IconVideo,
     action: (editor) => {
       insertMediaPlaceholder(editor, "video");
     },
@@ -1057,7 +994,6 @@ export function SlashCommandMenu({
   const audioCommand: CommandItem = {
     title: t("editor.slash.audio"),
     description: t("editor.slash.audioDescription"),
-    icon: IconMusic,
     action: (editor) => {
       insertMediaPlaceholder(editor, "audio");
     },
@@ -1066,7 +1002,6 @@ export function SlashCommandMenu({
   const pageCommand: CommandItem = {
     title: t("editor.slash.page"),
     description: t("editor.slash.pageDescription"),
-    icon: IconFileText,
     preserveSlashRange: true,
     action: async (_editor, { slashRange }) => {
       if (!documentId) {
@@ -1167,7 +1102,6 @@ export function SlashCommandMenu({
     title: t("editor.slash.collectionInline"),
     description: t("editor.slash.collectionInlineDescription"),
     searchText: "database collection inline",
-    icon: IconDatabase,
     preserveSlashRange: true,
     action: async (editor, { slashRange }) => {
       if (!documentId) {
@@ -1241,7 +1175,6 @@ export function SlashCommandMenu({
     title: t("editor.slash.collectionFullPage"),
     description: t("editor.slash.collectionFullPageDescription"),
     searchText: "database collection full page",
-    icon: IconDatabase,
     preserveSlashRange: true,
     action: async (editor, { slashRange }) => {
       if (!documentId) {
@@ -1395,7 +1328,6 @@ export function SlashCommandMenu({
           title: t("editor.slash.blockEquation"),
           description: t("editor.slash.blockEquationDescription"),
           searchText: "latex katex math formula",
-          icon: IconMathFunction,
           preserveSlashRange: true,
           action: (_editor, { slashRange }) =>
             openEquationComposer(true, slashRange),
@@ -1404,7 +1336,6 @@ export function SlashCommandMenu({
           title: t("editor.slash.inlineEquation"),
           description: t("editor.slash.inlineEquationDescription"),
           searchText: "latex katex math formula",
-          icon: IconSquareRoot2,
           preserveSlashRange: true,
           action: (_editor, { slashRange }) =>
             openEquationComposer(false, slashRange),
@@ -1776,72 +1707,49 @@ export function SlashCommandMenu({
       {isOpen && position && filteredCommands.length > 0 && (
         <div
           ref={menuRef}
-          className="slash-command-menu"
+          className={cn(
+            "slash-command-menu w-60 overflow-y-auto",
+            menuSurfaceClass,
+          )}
           style={{
             position: "absolute",
             top: position.top,
             bottom: position.bottom,
             left: 0,
-            right: 0,
             maxHeight: "min(360px, calc(100vh - 2rem))",
-            overflowY: "auto",
-            maxWidth: "min(330px, calc(100vw - 2rem))",
+            maxWidth: "calc(100vw - 2rem)",
             marginLeft: Math.min(position.left, 16),
             zIndex: 50,
           }}
         >
-          <div className="py-1.5">
-            {filteredAiCommands.length > 0 ? (
-              <div className="pb-1">
-                <div className="px-3 pt-1 pb-1 text-xs font-semibold text-muted-foreground">
-                  AI
-                </div>
-                {filteredAiCommands.map(renderCommand)}
-              </div>
-            ) : null}
-            {filteredBlockCommands.length > 0 ? (
-              <>
-                <div className="px-3 pt-1 pb-1 text-xs font-semibold text-muted-foreground">
-                  {isTurnInto
-                    ? t("editor.slash.turnInto")
-                    : t("editor.slash.basicBlocks")}
-                </div>
-                {filteredBlockCommands.map(renderCommand)}
-              </>
-            ) : null}
-            {filteredRegistryCommands.length > 0 ? (
-              <>
-                <div className="px-3 pt-2 pb-1 text-xs font-semibold text-muted-foreground">
-                  {t("editor.slash.blocks")}
-                </div>
-                {filteredRegistryCommands.map(renderCommand)}
-              </>
-            ) : null}
-            {filteredLocalComponentCommands.length > 0 ? (
-              <>
-                <div className="px-3 pt-2 pb-1 text-xs font-semibold text-muted-foreground">
-                  {t("editor.slash.localComponents")}
-                </div>
-                {filteredLocalComponentCommands.map(renderCommand)}
-              </>
-            ) : null}
-            {filteredMediaCommands.length > 0 ? (
-              <>
-                <div className="px-3 pt-2 pb-1 text-xs font-semibold text-muted-foreground">
-                  {t("editor.slash.media")}
-                </div>
-                {filteredMediaCommands.map(renderCommand)}
-              </>
-            ) : null}
-            {filteredPageCommands.length > 0 ? (
-              <>
-                <div className="px-3 pt-2 pb-1 text-xs font-semibold text-muted-foreground">
-                  {t("editor.slash.pages")}
-                </div>
-                {filteredPageCommands.map(renderCommand)}
-              </>
-            ) : null}
-          </div>
+          {(
+            [
+              ["ai", t("editor.slash.ai"), filteredAiCommands],
+              [
+                "basic",
+                isTurnInto
+                  ? t("editor.slash.turnInto")
+                  : t("editor.slash.basicBlocks"),
+                filteredBlockCommands,
+              ],
+              ["blocks", t("editor.slash.blocks"), filteredRegistryCommands],
+              [
+                "local",
+                t("editor.slash.localComponents"),
+                filteredLocalComponentCommands,
+              ],
+              ["media", t("editor.slash.media"), filteredMediaCommands],
+              ["pages", t("editor.slash.pages"), filteredPageCommands],
+            ] as const
+          )
+            .filter(([, , commands]) => commands.length > 0)
+            .map(([key, label, commands], index) => (
+              <React.Fragment key={key}>
+                {index > 0 ? <div className={menuSeparatorClass} /> : null}
+                <div className={menuLabelClass}>{label}</div>
+                {commands.map(renderCommand)}
+              </React.Fragment>
+            ))}
         </div>
       )}
 
@@ -2038,24 +1946,12 @@ export function CommandButton({
       }}
       onClick={executeOnce}
       onMouseEnter={onHover}
-      className={cn(
-        "flex min-h-9 w-full items-center gap-3 px-3 py-1 text-left transition-colors",
-        isSelected ? "bg-accent/70" : "hover:bg-accent/50",
-      )}
+      className={cn(menuRowClass, isSelected && menuRowHighlightClass)}
     >
-      <div className="flex size-7 shrink-0 items-center justify-center text-muted-foreground">
-        <cmd.icon size={22} stroke={1.75} />
-      </div>
-      <div className="flex min-w-0 flex-1 items-center gap-3">
-        <div className="truncate text-[15px] font-medium leading-5 text-foreground">
-          {cmd.title}
-        </div>
-        {cmd.shortcut ? (
-          <div className="ml-auto shrink-0 text-sm font-semibold leading-5 text-muted-foreground/60">
-            {cmd.shortcut}
-          </div>
-        ) : null}
-      </div>
+      <span className="min-w-0 truncate">{cmd.title}</span>
+      {cmd.shortcut ? (
+        <span className={menuShortcutClass}>{cmd.shortcut}</span>
+      ) : null}
     </button>
   );
 }

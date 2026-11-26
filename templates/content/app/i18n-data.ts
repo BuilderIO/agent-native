@@ -1335,6 +1335,7 @@ const editorToolbarMessages = {
 };
 
 const editorSlashMessages = {
+  ai: "AI",
   audio: "Audio",
   audioDescription: "Upload or embed audio",
   basicBlocks: "Basic blocks",

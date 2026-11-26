@@ -1222,6 +1222,7 @@ const editor = {
       "En todas las filas, para todos. Una vista aún puede ocultarla.",
   },
   slash: {
+    ai: "IA",
     audio: "Audio [es-ES]",
     audioDescription: "Cargar o incrustar audio",
     basicBlocks: "Bloques básicos",

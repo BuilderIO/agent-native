@@ -1130,6 +1130,7 @@ const editor = {
     visibilityScope: "适用于每一行和所有人。视图仍可隐藏它。",
   },
   slash: {
+    ai: "AI",
     audio: "音频",
     audioDescription: "上传或嵌入音频",
     basicBlocks: "基本块",

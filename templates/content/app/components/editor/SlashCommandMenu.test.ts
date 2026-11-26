@@ -57,10 +57,6 @@ describe("failed slash creation cleanup", () => {
   });
 });
 
-function TestIcon() {
-  return createElement("svg");
-}
-
 function readSlashCommandMenuSource() {
   return readFileSync(
     join(process.cwd(), "app/components/editor/SlashCommandMenu.tsx"),
@@ -166,7 +162,7 @@ describe("generate command affordances", () => {
     expect(source).toMatch(
       /<PromptComposer[\s\S]*onSubmit={submitGeneratePrompt}/,
     );
-    expect(source).toContain("icon: IconHierarchy2");
+    expect(source).toContain('title: t("editor.slash.generate")');
     expect(source).not.toContain("shouldOpenGenerateOnSpace");
     expect(source).not.toContain('e.code === "Space"');
   });
@@ -595,7 +591,6 @@ describe("slash command pointer activation", () => {
           cmd: {
             title: "Code Block",
             description: "Insert a code block",
-            icon: TestIcon,
             action: vi.fn(),
           },
           isSelected: true,
