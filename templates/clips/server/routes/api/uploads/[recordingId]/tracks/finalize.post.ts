@@ -14,6 +14,7 @@
  */
 import { randomUUID } from "node:crypto";
 
+import type { FileUploadResult } from "@agent-native/core/file-upload";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, isNull, notInArray } from "drizzle-orm";
 import {
@@ -34,10 +35,12 @@ import {
 } from "../../../../../lib/pending-redactions.js";
 import {
   claimLease,
-  holdsLease,
+  isLeaseLost,
   leaseHeld,
+  LeaseLostError,
   releaseLease,
   renewLease,
+  type RecordingLease,
 } from "../../../../../lib/recording-leases.js";
 import { deleteStoredMediaUrl } from "../../../../../lib/recording-media-cleanup.js";
 import {
@@ -67,6 +70,7 @@ import {
   finalizeRichRecordingSchema,
   sanitizeTrackMeta,
 } from "../../../../../lib/rich-recording-manifest.js";
+import { isUploadPrivateToCaller } from "../../../../../lib/s3-upload-provider-ids.js";
 import {
   deleteRejectedHostedUpload,
   uploadRecordingMedia,
@@ -84,6 +88,12 @@ type DroppedTrack = {
  * stops once it has lapsed, since another finalize may have taken over.
  */
 const FINALIZE_LEASE_MS = 2 * 60 * 1000;
+
+async function keepFinalizeLease(lease: RecordingLease): Promise<void> {
+  if (!(await renewLease(lease, FINALIZE_LEASE_MS))) {
+    throw new LeaseLostError(lease);
+  }
+}
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -107,6 +117,7 @@ export async function completeTrackUpload(input: {
   ownerEmail: string;
   track: RichTrackId;
   session: StoredResumableSession;
+  lease?: RecordingLease;
 }): Promise<
   | { ok: true; url: string; session: StoredResumableSession }
   | { ok: false; retryable: boolean }
@@ -118,8 +129,10 @@ export async function completeTrackUpload(input: {
   }
   const provider = await resolveResumableUploadProvider(session.providerId);
   if (!provider?.resumable) return { ok: false, retryable: true };
+  const { lease } = input;
 
   if (!session.providerClosed) {
+    if (lease) await keepFinalizeLease(lease);
     const closed = await provider.resumable.relayChunk(
       { sessionId: session.sessionId, meta: session.meta },
       `bytes */${session.bytesUploaded}`,
@@ -144,6 +157,7 @@ export async function completeTrackUpload(input: {
         input.track,
         session,
         next,
+        lease,
       ))
     ) {
       return { ok: false, retryable: true };
@@ -151,6 +165,7 @@ export async function completeTrackUpload(input: {
     session = next;
   }
 
+  if (lease) await keepFinalizeLease(lease);
   const url = await completeClosedTrackUpload({
     recordingId: input.recordingId,
     ownerEmail: input.ownerEmail,
@@ -166,6 +181,7 @@ export async function completeTrackUpload(input: {
     input.track,
     session,
     completed,
+    lease,
   );
   return { ok: true, url, session: completed };
 }
@@ -406,9 +422,12 @@ export async function handleFinalizeTracks(event: H3Event) {
           ) {
             continue;
           }
+          const keptByTrack =
+            typeof session.meta.completedUrl === "string" &&
+            session.meta.completedUrl === stored.get(track)?.url;
+          if (!keptByTrack) await keepFinalizeLease(lease);
           if (
-            (typeof session.meta.completedUrl === "string" &&
-              session.meta.completedUrl === stored.get(track)?.url) ||
+            keptByTrack ||
             (await discardTrackUpload({
               recordingId,
               ownerEmail,
@@ -417,7 +436,7 @@ export async function handleFinalizeTracks(event: H3Event) {
             }))
           ) {
             // Unless a chunk started a newer upload over it meanwhile.
-            await deleteTrackSessionIf(recordingId, track, session);
+            await deleteTrackSessionIf(recordingId, track, session, lease);
           }
         }
 
@@ -433,8 +452,6 @@ export async function handleFinalizeTracks(event: H3Event) {
             dropped.push({ id: track.id, reason: "not_uploaded" });
             continue;
           }
-          if (!(await renewLease(lease, FINALIZE_LEASE_MS))) return lapsed();
-
           let completed;
           try {
             completed = await completeTrackUpload({
@@ -442,8 +459,10 @@ export async function handleFinalizeTracks(event: H3Event) {
               ownerEmail,
               track: track.id,
               session: uploaded,
+              lease,
             });
           } catch (err) {
+            if (isLeaseLost(err)) throw err;
             console.warn(
               `[track-finalize] ${track.id} track of ${recordingId} did not complete:`,
               errorMessage(err),
@@ -460,7 +479,7 @@ export async function handleFinalizeTracks(event: H3Event) {
               };
             }
             dropped.push({ id: track.id, reason: "storage_refused" });
-            await deleteTrackSessionIf(recordingId, track.id, uploaded);
+            await deleteTrackSessionIf(recordingId, track.id, uploaded, lease);
             continue;
           }
 
@@ -469,6 +488,7 @@ export async function handleFinalizeTracks(event: H3Event) {
             existing.storageMode === "hosted" &&
             session.meta.hostedBytesCounted !== true
           ) {
+            await keepFinalizeLease(lease);
             let accounting;
             try {
               accounting = await addHostedClipRecordingBytes({
@@ -497,6 +517,7 @@ export async function handleFinalizeTracks(event: H3Event) {
               // The helper throws the failure it was given once the file is
               // gone, and counts the bytes when it couldn't delete them.
               const full = new Error("Hosted Clips storage is full.");
+              await keepFinalizeLease(lease);
               const deleted = await deleteRejectedHostedUpload({
                 recordingId,
                 ownerEmail,
@@ -515,7 +536,12 @@ export async function handleFinalizeTracks(event: H3Event) {
               // A file storage kept keeps its session, the only thing that
               // points to it, so a retry or permanent deletion still finds it.
               if (deleted) {
-                await deleteTrackSessionIf(recordingId, track.id, session);
+                await deleteTrackSessionIf(
+                  recordingId,
+                  track.id,
+                  session,
+                  lease,
+                );
               }
               continue;
             }
@@ -530,6 +556,7 @@ export async function handleFinalizeTracks(event: H3Event) {
               track.id,
               session,
               counted,
+              lease,
             );
             session = counted;
           }
@@ -549,7 +576,7 @@ export async function handleFinalizeTracks(event: H3Event) {
             metaJson: JSON.stringify(sanitizeTrackMeta(track.id, track.meta)),
             updatedAt: now,
           };
-          if (!(await renewLease(lease, FINALIZE_LEASE_MS))) return lapsed();
+          await keepFinalizeLease(lease);
           // The recording's row stays locked while the track's row is written:
           // a redaction marked since the read either lands first, and the track
           // isn't kept, or waits, and the burn that follows it deletes the track.
@@ -595,9 +622,7 @@ export async function handleFinalizeTracks(event: H3Event) {
               ? ("kept" as const)
               : ("changed" as const);
           });
-          if (kept === "changed" && !(await holdsLease(lease))) {
-            return lapsed();
-          }
+          if (kept !== "kept") await keepFinalizeLease(lease);
           if (kept === "stopped") {
             // No finalize keeps this track now, so its upload goes too, unless
             // a stored track already points to the same file.
@@ -613,7 +638,7 @@ export async function handleFinalizeTracks(event: H3Event) {
                 session,
               }))
             ) {
-              await deleteTrackSessionIf(recordingId, track.id, session);
+              await deleteTrackSessionIf(recordingId, track.id, session, lease);
             }
             return tracksOff();
           }
@@ -641,7 +666,7 @@ export async function handleFinalizeTracks(event: H3Event) {
               retryable: true,
             };
           }
-          await deleteTrackSessionIf(recordingId, track.id, session);
+          await deleteTrackSessionIf(recordingId, track.id, session, lease);
         }
 
         const rows = await listRecordingTracks(recordingId, ownerEmail);
@@ -657,9 +682,9 @@ export async function handleFinalizeTracks(event: H3Event) {
           };
         }
 
-        if (!(await renewLease(lease, FINALIZE_LEASE_MS))) return lapsed();
+        await keepFinalizeLease(lease);
         const manifest = buildRichRecordingManifest(recordingId, input, rows);
-        let manifestUrl: string;
+        let manifestUpload: FileUploadResult;
         try {
           const uploaded = await uploadRecordingMedia({
             recordingId,
@@ -671,7 +696,7 @@ export async function handleFinalizeTracks(event: H3Event) {
             recordAsset: false,
           });
           if (!uploaded) throw new Error("No file storage took the manifest.");
-          manifestUrl = uploaded.url;
+          manifestUpload = uploaded;
         } catch (err) {
           console.warn(
             `[track-finalize] manifest of ${recordingId} was not stored:`,
@@ -685,6 +710,7 @@ export async function handleFinalizeTracks(event: H3Event) {
           };
         }
 
+        const manifestUrl = manifestUpload.url;
         const richBytes = rows.reduce((sum, row) => sum + row.bytes, 0);
         // Under the row lock and the stop check, like each track's row.
         const flipped = await db.transaction(async (tx) => {
@@ -718,37 +744,42 @@ export async function handleFinalizeTracks(event: H3Event) {
             .where(recordingWhere);
           return "rich" as const;
         });
-        if (flipped === "changed" && !(await holdsLease(lease))) {
-          return lapsed();
-        }
         if (flipped !== "rich") {
           // Another finalize finished first, the recording's edits changed, or
           // a burn stopped its tracks; this manifest copy is surplus either way.
-          const surplusDeleted = await deleteStoredMediaUrl(manifestUrl, {
-            storageMode: existing.storageMode,
-            recordingId,
-          }).catch((err: unknown) => {
-            console.warn(
-              `[track-finalize] surplus manifest of ${recordingId} could not be deleted:`,
-              errorMessage(err),
-            );
-            return false;
-          });
-          if (!surplusDeleted) {
-            console.warn(
-              `[track-finalize] surplus manifest of ${recordingId} is left in storage: ${manifestUrl}`,
-            );
-          }
-          if (flipped === "stopped") return tracksOff();
+          const held = await renewLease(lease, FINALIZE_LEASE_MS);
           const currentRows = await db
             .select({
               mediaFormat: schema.recordings.mediaFormat,
               richBytes: schema.recordings.richBytes,
+              richManifestUrl: schema.recordings.richManifestUrl,
             })
             .from(schema.recordings)
             .where(recordingWhere)
             .limit(1);
           const current = currentRows.length ? currentRows[0] : null;
+          const ours =
+            isUploadPrivateToCaller(manifestUpload) ||
+            (held && current?.richManifestUrl !== manifestUrl);
+          const surplusDeleted =
+            ours &&
+            (await deleteStoredMediaUrl(manifestUrl, {
+              storageMode: existing.storageMode,
+              recordingId,
+            }).catch((err: unknown) => {
+              console.warn(
+                `[track-finalize] surplus manifest of ${recordingId} could not be deleted:`,
+                errorMessage(err),
+              );
+              return false;
+            }));
+          if (!surplusDeleted) {
+            console.warn(
+              `[track-finalize] surplus manifest of ${recordingId} is left in storage: ${manifestUrl}`,
+            );
+          }
+          if (!held) return lapsed();
+          if (flipped === "stopped") return tracksOff();
           if (!current) {
             throw createError({
               statusCode: 404,
@@ -784,6 +815,9 @@ export async function handleFinalizeTracks(event: H3Event) {
           tracks: trackSummary(rows),
           ...(dropped.length ? { droppedTracks: dropped } : {}),
         };
+      } catch (err) {
+        if (isLeaseLost(err)) return lapsed();
+        throw err;
       } finally {
         try {
           await releaseLease(lease);

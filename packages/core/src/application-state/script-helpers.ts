@@ -13,6 +13,7 @@ import {
   appStateList,
   appStateDeleteByPrefix,
   type AppStateCompareAndSetOperation,
+  type AppStateCompareAndSetOptions,
 } from "./store.js";
 
 export async function resolveSessionId(): Promise<string> {
@@ -69,11 +70,13 @@ export async function compareAndSetAppState(
   key: string,
   expectedValue: Record<string, unknown> | null,
   nextValue: Record<string, unknown> | null,
+  options?: Pick<AppStateCompareAndSetOptions, "lease">,
 ): Promise<boolean> {
   const sessionId = await resolveSessionId();
   const { key: scopedKey } = await requestScopedAppStateKey(key);
   return appStateCompareAndSet(sessionId, scopedKey, expectedValue, nextValue, {
     requestSource: "agent",
+    ...(options?.lease ? { lease: options.lease } : {}),
   });
 }
 

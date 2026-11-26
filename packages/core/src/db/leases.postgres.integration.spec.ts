@@ -1,0 +1,216 @@
+import { randomUUID } from "node:crypto";
+
+import { sql as drizzleSql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+  appStateCompareAndSet,
+  appStateGet,
+  ensureTable as ensureAppStateTable,
+} from "../application-state/store.js";
+import { toPostgresParams, withDbExec, type DbExec } from "./client.js";
+import { claimLease, leaseHeld, type Lease } from "./leases.js";
+import { withMigrationRuntime } from "./migration-runtime.js";
+
+const databaseUrl = process.env.AGENT_RUN_POSTGRES_TEST_URL;
+const coreIntegrationJob = process.env.GITHUB_JOB === "core-integration-tests";
+if (process.env.CI && coreIntegrationJob && !databaseUrl) {
+  throw new Error("AGENT_RUN_POSTGRES_TEST_URL is required in CI");
+}
+
+function connect(): postgres.Sql {
+  if (!databaseUrl) throw new Error("AGENT_RUN_POSTGRES_TEST_URL is not set");
+  return postgres(databaseUrl, { max: 1 });
+}
+
+const START = new Date("2026-01-01T00:00:00.000Z").getTime();
+
+function executor(sql: postgres.Sql): DbExec {
+  // raw-sql-ok: runs the parameterized statements core's own helpers build.
+  return {
+    async execute(statement) {
+      const query =
+        typeof statement === "string" ? { sql: statement } : statement;
+      const rows = await sql.unsafe(
+        toPostgresParams(query.sql),
+        query.args as never[],
+      );
+      return { rows, rowsAffected: rows.count };
+    },
+    async transaction<T>(run: (tx: DbExec) => Promise<T>): Promise<T> {
+      return (await sql.begin((tx) =>
+        run(executor(tx as unknown as postgres.Sql)),
+      )) as T;
+    },
+  };
+}
+
+async function backendPid(sql: postgres.Sql): Promise<number> {
+  const [{ pid }] = await sql`SELECT pg_backend_pid() AS pid`;
+  return Number(pid);
+}
+
+async function waitingOnLock(
+  observer: postgres.Sql,
+  pid: number,
+): Promise<boolean> {
+  const rows =
+    await observer`SELECT 1 FROM pg_stat_activity WHERE pid = ${pid} AND wait_event_type = 'Lock'`;
+  return rows.length > 0;
+}
+
+async function claimDuringHoldersWrite(
+  observer: postgres.Sql,
+  table: string,
+  key: string,
+) {
+  const claimerSql = connect();
+  const pid = await backendPid(claimerSql);
+  const claiming = { settled: false };
+  const claim = claimLease(table, key, 60_000, {
+    exec: executor(claimerSql),
+  }).finally(() => {
+    claiming.settled = true;
+  });
+  let waited = false;
+  while (!claiming.settled && !waited) {
+    waited = await waitingOnLock(observer, pid);
+  }
+  return {
+    waited,
+    claim,
+    close: () => claimerSql.end(),
+  };
+}
+
+// oracle-change: runs where a PostgreSQL URL is set, as in the core integration job
+describe.skipIf(!databaseUrl)("leases on PostgreSQL", () => {
+  let observer: postgres.Sql;
+  let holderSql: postgres.Sql;
+  let leases: string;
+  let work: string;
+
+  beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(START);
+    observer = connect();
+    holderSql = connect();
+    const suffix = randomUUID().replaceAll("-", "");
+    leases = `lease_fence_leases_${suffix}`;
+    work = `lease_fence_work_${suffix}`;
+    await observer.unsafe(
+      `CREATE TABLE ${leases} (lease_key TEXT PRIMARY KEY, holder TEXT NOT NULL, expires_at BIGINT NOT NULL)`,
+    );
+    await observer.unsafe(
+      `CREATE TABLE ${work} (id TEXT PRIMARY KEY, done_by TEXT)`,
+    );
+    await observer.unsafe(`INSERT INTO ${work} (id) VALUES ('job')`);
+  });
+
+  afterEach(async () => {
+    vi.useRealTimers();
+    await observer.unsafe(`DROP TABLE IF EXISTS ${leases}, ${work}`);
+    await holderSql.end();
+    await observer.end();
+  });
+
+  async function claimed(): Promise<Lease> {
+    const lease = await claimLease(leases, "job", 1_000, {
+      exec: executor(observer),
+    });
+    if (!lease) throw new Error("expected the lease to be free");
+    return lease;
+  }
+
+  it("makes a takeover wait for a write made under the lease, so it can't slip in under it (SC-05)", async () => {
+    const lease = await claimed();
+    let commit!: () => void;
+    const committed = new Promise<void>((resolve) => {
+      commit = resolve;
+    });
+    let written!: () => void;
+    const wrote = new Promise<void>((resolve) => {
+      written = resolve;
+    });
+
+    const holder = drizzle(holderSql).transaction(async (tx) => {
+      const rows = await tx.execute(
+        drizzleSql`UPDATE ${drizzleSql.identifier(work)} SET done_by = 'a'
+          WHERE id = 'job' AND ${leaseHeld(lease)} RETURNING id`,
+      );
+      written();
+      await committed;
+      return rows.length;
+    });
+    await wrote;
+    vi.setSystemTime(START + 2_000);
+
+    const takeover = await claimDuringHoldersWrite(observer, leases, "job");
+    try {
+      expect(takeover.waited).toBe(true);
+      commit();
+      expect(await holder).toBe(1);
+      expect(await takeover.claim).not.toBeNull();
+    } finally {
+      commit();
+      await takeover.claim.catch(() => null);
+      await takeover.close();
+    }
+    expect(
+      await observer.unsafe(`SELECT done_by FROM ${work} WHERE id = 'job'`),
+    ).toEqual([{ done_by: "a" }]);
+  });
+
+  it("makes a takeover wait for an application state write made under the lease", async () => {
+    await withDbExec(executor(observer), () =>
+      withMigrationRuntime(() => ensureAppStateTable()),
+    );
+    const session = `lease-fence-${randomUUID()}`;
+    const lease = await claimed();
+    let commit!: () => void;
+    const committed = new Promise<void>((resolve) => {
+      commit = resolve;
+    });
+    let written!: () => void;
+    const wrote = new Promise<void>((resolve) => {
+      written = resolve;
+    });
+
+    const holder = holderSql.begin((tx) =>
+      withDbExec(executor(tx as unknown as postgres.Sql), async () => {
+        const changed = await appStateCompareAndSet(
+          session,
+          "checkpoint",
+          null,
+          { by: "a" },
+          { lease },
+        );
+        written();
+        await committed;
+        return changed;
+      }),
+    );
+    await wrote;
+    vi.setSystemTime(START + 2_000);
+
+    const takeover = await claimDuringHoldersWrite(observer, leases, "job");
+    try {
+      expect(takeover.waited).toBe(true);
+      commit();
+      expect(await holder).toBe(true);
+      expect(await takeover.claim).not.toBeNull();
+      expect(
+        await withDbExec(executor(observer), () =>
+          appStateGet(session, "checkpoint"),
+        ),
+      ).toEqual({ by: "a" });
+    } finally {
+      commit();
+      await takeover.claim.catch(() => null);
+      await takeover.close();
+      await observer`DELETE FROM application_state WHERE session_id = ${session}`;
+    }
+  });
+});

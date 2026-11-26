@@ -9,6 +9,7 @@ export {
   holdsLease,
   isLeaseLost,
   leaseHeld,
+  LeaseLostError,
   releaseLease,
   renewLease,
   writeUnderLease,

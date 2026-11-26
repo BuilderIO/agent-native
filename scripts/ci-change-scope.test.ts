@@ -4132,6 +4132,8 @@ test("selects Core integration E2E for its runtime dependencies and specs", () =
     "packages/core/src/client/route-chunk-recovery.e2e.spec.ts",
     "packages/core/src/client/session-replay-iframe.e2e.spec.ts",
     "packages/core/src/mcp/script-receipt-fence.postgres.integration.spec.ts",
+    "packages/core/src/db/leases.postgres.integration.spec.ts",
+    "packages/core/src/application-state/store.ts",
     "packages/core/src/server/embedded.integration.spec.ts",
     "templates/analytics/scripts/journey-capture-iframe-audit.ts",
     "templates/design/app/components/templates/TemplatePreview.tsx",

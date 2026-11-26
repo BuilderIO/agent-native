@@ -18,6 +18,7 @@ import {
   resolveMaxRichBytes,
 } from "../../shared/upload-limits.js";
 import { getDb, schema } from "../db/index.js";
+import type { RecordingLease } from "./recording-leases.js";
 import { deleteStoredMediaUrl } from "./recording-media-cleanup.js";
 import { withRecordingMediaProduction } from "./recording-media-lifecycle.js";
 import { ownerEmailMatches } from "./recordings.js";
@@ -62,11 +63,13 @@ export async function compareAndSetTrackSession(
   track: RichTrackId,
   expected: StoredResumableSession | null,
   next: StoredResumableSession,
+  lease?: RecordingLease,
 ): Promise<boolean> {
   return compareAndSetAppState(
     trackSessionKey(recordingId, track),
     expected as unknown as Record<string, unknown> | null,
     next as unknown as Record<string, unknown>,
+    lease ? { lease } : undefined,
   );
 }
 
@@ -85,6 +88,7 @@ export async function deleteTrackSessionIf(
   recordingId: string,
   track: RichTrackId,
   expected: StoredResumableSession,
+  lease?: RecordingLease,
 ): Promise<boolean> {
   const current = await getTrackSession(recordingId, track);
   if (!current || current.sessionId !== expected.sessionId) return false;
@@ -92,6 +96,7 @@ export async function deleteTrackSessionIf(
     trackSessionKey(recordingId, track),
     current as unknown as Record<string, unknown>,
     null,
+    lease ? { lease } : undefined,
   );
 }
 

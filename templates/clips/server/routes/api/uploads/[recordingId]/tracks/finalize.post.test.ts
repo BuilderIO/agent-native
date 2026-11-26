@@ -47,26 +47,52 @@ const mocks = vi.hoisted(() => ({
   claimLease: vi.fn(),
   releaseLease: vi.fn(),
   renewLease: vi.fn(),
+  afterRead: null as null | (() => Promise<void>),
 }));
 
-vi.mock("@agent-native/core/application-state", () => ({
-  readAppState: async (key: string) =>
-    mocks.state.has(key) ? structuredClone(mocks.state.get(key)) : null,
-  compareAndSetAppState: async (
-    key: string,
-    expected: unknown,
-    next: unknown,
-  ) => {
-    const current = mocks.state.get(key) ?? null;
-    if (JSON.stringify(current) !== JSON.stringify(expected)) return false;
-    if (next === null) mocks.state.delete(key);
-    else mocks.state.set(key, structuredClone(next));
-    return true;
-  },
-  deleteAppState: async (key: string) => {
-    mocks.state.delete(key);
-  },
-}));
+async function holdsLease(lease: { key: string; token: string }) {
+  return (
+    (
+      await client.query(
+        "SELECT 1 FROM clips_backfill_leases WHERE lease_key=$1 AND holder=$2 AND expires_at > $3",
+        [lease.key, lease.token, Date.now()],
+      )
+    ).rows.length > 0
+  );
+}
+
+vi.mock("@agent-native/core/application-state", async () => {
+  const { LeaseLostError } = await import("@agent-native/core/db");
+  return {
+    readAppState: async (key: string) => {
+      const value = mocks.state.has(key)
+        ? structuredClone(mocks.state.get(key))
+        : null;
+      const hook = mocks.afterRead;
+      mocks.afterRead = null;
+      await hook?.();
+      return value;
+    },
+    compareAndSetAppState: async (
+      key: string,
+      expected: unknown,
+      next: unknown,
+      options?: { lease?: { key: string; token: string } },
+    ) => {
+      if (options?.lease && !(await holdsLease(options.lease))) {
+        throw new LeaseLostError(options.lease as never);
+      }
+      const current = mocks.state.get(key) ?? null;
+      if (JSON.stringify(current) !== JSON.stringify(expected)) return false;
+      if (next === null) mocks.state.delete(key);
+      else mocks.state.set(key, structuredClone(next));
+      return true;
+    },
+    deleteAppState: async (key: string) => {
+      mocks.state.delete(key);
+    },
+  };
+});
 
 vi.mock("@agent-native/core/server", () => ({
   runWithRequestContext: (_context: unknown, fn: () => unknown) => fn(),
@@ -93,19 +119,18 @@ vi.mock("../../../../../db/index.js", async () => ({
   schema: await import("../../../../../db/schema.js"),
 }));
 
-vi.mock("../../../../../lib/recording-leases.js", async () => ({
-  claimLease: (...args: unknown[]) => mocks.claimLease(...args),
-  releaseLease: (...args: unknown[]) => mocks.releaseLease(...args),
-  renewLease: (...args: unknown[]) => mocks.renewLease(...args),
-  leaseHeld: (await import("@agent-native/core/db")).leaseHeld,
-  holdsLease: async (lease: { key: string; token: string }) =>
-    (
-      await client.query(
-        "SELECT 1 FROM clips_backfill_leases WHERE lease_key=$1 AND holder=$2 AND expires_at > $3",
-        [lease.key, lease.token, Date.now()],
-      )
-    ).rows.length > 0,
-}));
+vi.mock("../../../../../lib/recording-leases.js", async () => {
+  const core = await import("@agent-native/core/db");
+  return {
+    claimLease: (...args: unknown[]) => mocks.claimLease(...args),
+    releaseLease: (...args: unknown[]) => mocks.releaseLease(...args),
+    renewLease: (...args: unknown[]) => mocks.renewLease(...args),
+    leaseHeld: core.leaseHeld,
+    holdsLease,
+    isLeaseLost: core.isLeaseLost,
+    LeaseLostError: core.LeaseLostError,
+  };
+});
 
 vi.mock("../../../../../lib/recording-media-cleanup.js", () => ({
   deleteStoredMediaUrl: (...args: unknown[]) => mocks.deleteUrl(...args),
@@ -315,7 +340,16 @@ beforeEach(async () => {
     return lease;
   });
   mocks.releaseLease.mockResolvedValue(undefined);
-  mocks.renewLease.mockResolvedValue(true);
+  mocks.renewLease.mockImplementation(
+    async (lease: { key: string; token: string }, ttlMs: number) =>
+      (
+        await client.query(
+          "UPDATE clips_backfill_leases SET expires_at=$3 WHERE lease_key=$1 AND holder=$2 AND expires_at > $4 RETURNING holder",
+          [lease.key, lease.token, Date.now() + ttlMs, Date.now()],
+        )
+      ).rows.length > 0,
+  );
+  mocks.afterRead = null;
 });
 
 async function setEdits(editsJson: string) {
@@ -548,7 +582,7 @@ describe("POST /api/uploads/:recordingId/tracks/finalize", () => {
     expect(mocks.deleteUrl).not.toHaveBeenCalled();
   });
 
-  it("leaves the recording and its manifest to the finalize that took its lapsed lease over", async () => {
+  it("deletes its own manifest, at a URL only its upload has, once another finalize took its lapsed lease over", async () => {
     session("screen", 10);
     mocks.upload.mockImplementationOnce(async () => {
       await takeLeaseOver();
@@ -564,7 +598,150 @@ describe("POST /api/uploads/:recordingId/tracks/finalize", () => {
       rich_manifest_url: null,
       rich_bytes: 0,
     });
+    expect(mocks.deleteUrl).toHaveBeenCalledWith(manifestUrl, {
+      storageMode: "own",
+      recordingId: "rec-1",
+    });
+  });
+
+  it("leaves a manifest at a URL another upload can share to the finalize that took its lapsed lease over", async () => {
+    session("screen", 10);
+    mocks.upload.mockImplementationOnce(async () => {
+      await takeLeaseOver();
+      return { url: manifestUrl, provider: "builder" };
+    });
+
+    const { status, body: result } = await finalize(body([listed("screen")]));
+
+    expect(status).toBe(409);
+    expect(result).toMatchObject({ retryable: true });
+    expect(await recordingRow()).toMatchObject({ media_format: "flat" });
     expect(mocks.deleteUrl).not.toHaveBeenCalled();
+  });
+
+  it("leaves a shared manifest URL the recording already points to", async () => {
+    session("screen", 10);
+    mocks.upload.mockImplementationOnce(async () => {
+      await client.query(
+        "UPDATE recordings SET media_format='rich', rich_manifest_url=$1, rich_bytes=10",
+        [manifestUrl],
+      );
+      return { url: manifestUrl, provider: "builder" };
+    });
+
+    const { body: result } = await finalize(body([listed("screen")]));
+
+    expect(result).toMatchObject({
+      mediaFormat: "rich",
+      alreadyFinalized: true,
+    });
+    expect(mocks.deleteUrl).not.toHaveBeenCalled();
+  });
+
+  it("doesn't delete the file of an unlisted track another finalize kept after taking its lease over", async () => {
+    session("screen", 10, {
+      completedUrl: trackUrl("screen"),
+    });
+    session("mic", 4);
+    mocks.afterRead = async () => {
+      await takeLeaseOver();
+      await client.query(
+        `INSERT INTO recording_tracks (id, recording_id, track, owner_email, url, content_type, bytes) VALUES ('t-screen', 'rec-1', 'screen', 'owner@example.com', '${trackUrl("screen")}', 'video/mp4', 10)`,
+      );
+      mocks.state.delete(key("screen"));
+    };
+
+    const { status, body: result } = await finalize(body([listed("mic")]));
+
+    expect(status).toBe(409);
+    expect(result).toMatchObject({ retryable: true });
+    expect(mocks.deleteUrl).not.toHaveBeenCalled();
+    expect(await trackRows()).toEqual([
+      expect.objectContaining({ track: "screen", url: trackUrl("screen") }),
+    ]);
+  });
+
+  it("doesn't count again, or delete, a hosted track another finalize counted and kept after taking its lease over", async () => {
+    await client.query("UPDATE recordings SET storage_mode='hosted'");
+    session("screen", 10);
+    mocks.addHosted.mockResolvedValue({ ok: false });
+    resumable.completeSession.mockImplementationOnce(async () => {
+      await takeLeaseOver();
+      await client.query(
+        `INSERT INTO recording_tracks (id, recording_id, track, owner_email, url, content_type, bytes) VALUES ('t-screen', 'rec-1', 'screen', 'owner@example.com', '${trackUrl("screen")}', 'video/mp4', 10)`,
+      );
+      mocks.state.delete(key("screen"));
+      return trackUrl("screen");
+    });
+
+    const { status } = await finalize(body([listed("screen")]));
+
+    expect(status).toBe(409);
+    expect(mocks.addHosted).not.toHaveBeenCalled();
+    expect(mocks.rejectHosted).not.toHaveBeenCalled();
+    expect(await trackRows()).toEqual([
+      expect.objectContaining({ track: "screen", url: trackUrl("screen") }),
+    ]);
+  });
+
+  it("doesn't complete an upload it closed after another finalize took its lease over", async () => {
+    session("screen", 10);
+    resumable.relayChunk.mockImplementationOnce(async () => {
+      await takeLeaseOver();
+      return { ok: true, status: 200 };
+    });
+
+    const { status } = await finalize(body([listed("screen")]));
+
+    expect(status).toBe(409);
+    expect(resumable.completeSession).not.toHaveBeenCalled();
+    expect(mocks.state.get(key("screen"))).toMatchObject({
+      sessionId: "upload-screen",
+    });
+    expect(mocks.state.get(key("screen"))).not.toHaveProperty("providerClosed");
+  });
+
+  it("doesn't delete what another finalize recorded on a session storage refused it", async () => {
+    session("screen", 10);
+    resumable.relayChunk.mockImplementationOnce(async () => {
+      await takeLeaseOver();
+      const current = mocks.state.get(key("screen")) as {
+        meta: Record<string, unknown>;
+      };
+      mocks.state.set(key("screen"), {
+        ...current,
+        providerClosed: true,
+        meta: { ...current.meta, completedUrl: trackUrl("screen") },
+      });
+      return { ok: false, status: 410 };
+    });
+
+    const { status } = await finalize(body([listed("screen")]));
+
+    expect(status).toBe(409);
+    expect(mocks.state.get(key("screen"))).toMatchObject({
+      meta: { completedUrl: trackUrl("screen") },
+    });
+  });
+
+  it("doesn't discard a stopped track's upload once its lease was taken over", async () => {
+    session("screen", 10);
+    mocks.stopped = true;
+    const stopped = await import("../../../../../lib/recording-policy.js");
+    vi.spyOn(stopped, "richRecordingStopped").mockImplementationOnce(
+      async () => {
+        void takeLeaseOver();
+        return true;
+      },
+    );
+
+    const { status } = await finalize(body([listed("screen")]));
+
+    expect(status).toBe(409);
+    expect(mocks.deleteUrl).not.toHaveBeenCalled();
+    expect(mocks.state.get(key("screen"))).toMatchObject({
+      meta: { completedUrl: trackUrl("screen") },
+    });
   });
 
   it("keeps a newer upload a chunk started while an earlier one was cancelled", async () => {

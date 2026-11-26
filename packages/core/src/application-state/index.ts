@@ -10,6 +10,7 @@ export {
   appStateListUpdatedAt,
   appStateDeleteByPrefix,
   type AppStateCompareAndSetOperation,
+  type AppStateCompareAndSetOptions,
 } from "./store.js";
 
 export {

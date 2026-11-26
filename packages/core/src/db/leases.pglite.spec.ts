@@ -11,6 +11,10 @@ import {
   vi,
 } from "vitest";
 
+import {
+  appStateCompareAndSet,
+  appStateGet,
+} from "../application-state/store.js";
 import { closeDbExec, getDbExec } from "./client.js";
 import { createGetDb } from "./create-get-db.js";
 import {
@@ -198,6 +202,56 @@ describe("writes under a lease", () => {
     );
 
     expect(rows).toEqual([{ id: "job" }]);
+  });
+});
+
+describe("application state under a lease", () => {
+  const SESSION = "owner@example.com";
+  const set = (lease: Lease, key: string, expected: unknown, next: unknown) =>
+    appStateCompareAndSet(
+      SESSION,
+      key,
+      expected as Record<string, unknown> | null,
+      next as Record<string, unknown> | null,
+      { lease },
+    );
+
+  it("applies the live holder's insert, update and delete", async () => {
+    const a = claimed(await claimLease(TABLE, "job", 60_000));
+
+    expect(await set(a, "live", null, { step: 1 })).toBe(true);
+    expect(await set(a, "live", { step: 1 }, { step: 2 })).toBe(true);
+    expect(await appStateGet(SESSION, "live")).toEqual({ step: 2 });
+    expect(await set(a, "live", { step: 2 }, null)).toBe(true);
+    expect(await appStateGet(SESSION, "live")).toBeNull();
+  });
+
+  it("refuses every write of a holder whose lease was taken over, even onto an unchanged value (SC-05)", async () => {
+    const a = claimed(await claimLease(TABLE, "job", 1_000));
+    expect(await set(a, "taken", null, { by: "a" })).toBe(true);
+    vi.setSystemTime(START + 2_000);
+    const b = claimed(await claimLease(TABLE, "job", 60_000));
+
+    await expect(
+      set(a, "taken", { by: "a" }, { by: "a", done: true }),
+    ).rejects.toBeInstanceOf(LeaseLostError);
+    await expect(set(a, "taken", { by: "a" }, null)).rejects.toBeInstanceOf(
+      LeaseLostError,
+    );
+    await expect(set(a, "fresh", null, { by: "a" })).rejects.toBeInstanceOf(
+      LeaseLostError,
+    );
+    expect(await appStateGet(SESSION, "taken")).toEqual({ by: "a" });
+    expect(await appStateGet(SESSION, "fresh")).toBeNull();
+    expect(await set(b, "taken", { by: "a" }, { by: "b" })).toBe(true);
+  });
+
+  it("tells a value that changed apart from a lost lease", async () => {
+    const a = claimed(await claimLease(TABLE, "job", 60_000));
+    expect(await set(a, "moved", null, { step: 1 })).toBe(true);
+
+    expect(await set(a, "moved", { step: 0 }, { step: 2 })).toBe(false);
+    expect(await appStateGet(SESSION, "moved")).toEqual({ step: 1 });
   });
 });
 

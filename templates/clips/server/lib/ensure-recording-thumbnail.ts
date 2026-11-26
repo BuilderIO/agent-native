@@ -1,4 +1,5 @@
 import {
+  compareAndSetAppState,
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
@@ -19,7 +20,9 @@ import {
 import {
   claimLease,
   isLeaseLost,
+  LeaseLostError,
   releaseLease,
+  renewLease,
   writeUnderLease,
   type RecordingLease,
 } from "./recording-leases.js";
@@ -220,12 +223,29 @@ async function loadGeneratedThumbnailAsset(
 async function rememberGeneratedThumbnailAsset(
   recordingId: string,
   asset: FileUploadResult,
+  lease: RecordingThumbnailLease,
 ): Promise<void> {
-  await writeAppState(recordingThumbnailAssetKey(recordingId), {
-    url: asset.url,
-    provider: asset.provider,
-    ...(asset.id ? { id: asset.id } : {}),
-  }).catch((error) => {
+  const key = recordingThumbnailAssetKey(recordingId);
+  try {
+    const previous = await readAppState(key);
+    const remembered = await compareAndSetAppState(
+      key,
+      previous,
+      {
+        url: asset.url,
+        provider: asset.provider,
+        ...(asset.id ? { id: asset.id } : {}),
+      },
+      { lease },
+    );
+    if (!remembered) {
+      console.warn(
+        "[clips] generated recording thumbnail asset changed while it was tracked",
+        { recordingId },
+      );
+    }
+  } catch (error) {
+    if (isLeaseLost(error)) throw error;
     console.warn(
       "[clips] generated recording thumbnail asset tracking failed",
       {
@@ -233,7 +253,7 @@ async function rememberGeneratedThumbnailAsset(
         error: error instanceof Error ? error.message : String(error),
       },
     );
-  });
+  }
 }
 
 async function hasAnotherRecordingReference(
@@ -363,19 +383,20 @@ async function setThumbnailStatus(
   recordingId: string,
   status: "none" | "failed",
   reason: string,
-  lease?: RecordingThumbnailLease,
+  lease: RecordingThumbnailLease,
+  condition?: SQL,
 ): Promise<void> {
-  const write = (held?: SQL) =>
-    getDb()
-      .update(schema.recordings)
-      .set({
-        thumbnailStatus: status,
-        thumbnailFailureReason: reason.slice(0, 300),
-      })
-      .where(and(eq(schema.recordings.id, recordingId), held))
-      .returning({ id: schema.recordings.id });
   try {
-    await (lease ? writeUnderLease(lease, write) : write());
+    await writeUnderLease(lease, (held) =>
+      getDb()
+        .update(schema.recordings)
+        .set({
+          thumbnailStatus: status,
+          thumbnailFailureReason: reason.slice(0, 300),
+        })
+        .where(and(held, eq(schema.recordings.id, recordingId), condition))
+        .returning({ id: schema.recordings.id }),
+    );
   } catch (error) {
     if (isLeaseLost(error)) throw error;
     console.warn("[clips] recording thumbnail status persist failed", {
@@ -386,11 +407,34 @@ async function setThumbnailStatus(
   }
 }
 
-export function markThumbnailFailed(
+export async function markThumbnailFailed(
   recordingId: string,
   reason: string,
 ): Promise<void> {
-  return setThumbnailStatus(recordingId, "failed", reason);
+  let lease: RecordingThumbnailLease | null;
+  try {
+    lease = await claimRecordingThumbnailLease(recordingId);
+  } catch (error) {
+    console.warn("[clips] recording thumbnail failure not recorded", {
+      recordingId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
+  if (!lease) return;
+  try {
+    await setThumbnailStatus(
+      recordingId,
+      "failed",
+      reason,
+      lease,
+      isNull(schema.recordings.thumbnailUrl),
+    );
+  } catch (error) {
+    if (!isLeaseLost(error)) throw error;
+  } finally {
+    await releaseRecordingThumbnailLease(lease);
+  }
 }
 
 async function ensureRecordingThumbnailOnce(
@@ -428,10 +472,6 @@ async function ensureRecordingThumbnailOnce(
   if (recording.status !== "ready" && !suppliedThumbnailBytes) {
     return { recordingId, status: "skipped-not-ready", changed: false };
   }
-  if (!recording.videoUrl && !suppliedBytes && !suppliedThumbnailBytes) {
-    await setThumbnailStatus(recordingId, "none", "skipped-no-media");
-    return { recordingId, status: "skipped-no-media", changed: false };
-  }
 
   const lease = await claimRecordingThumbnailLease(recordingId);
   if (!lease) {
@@ -467,6 +507,7 @@ async function ensureRecordingThumbnailOnce(
         bytes = media.bytes;
         mimeType = media.mimeType;
       } catch (error) {
+        if (isLeaseLost(error)) throw error;
         console.warn("[clips] recording thumbnail media fetch skipped", {
           recordingId,
           error: error instanceof Error ? error.message : String(error),
@@ -605,13 +646,24 @@ async function ensureRecordingThumbnailOnce(
     }
 
     if (uploaded) {
-      await cleanupReplacedGeneratedThumbnail(
-        recordingId,
-        ownerEmail,
-        existingThumbnailUrl,
-        url,
-      );
-      await rememberGeneratedThumbnailAsset(recordingId, uploaded);
+      try {
+        if (!(await renewLease(lease, RECORDING_THUMBNAIL_LEASE_MS))) {
+          throw new LeaseLostError(lease);
+        }
+        await cleanupReplacedGeneratedThumbnail(
+          recordingId,
+          ownerEmail,
+          existingThumbnailUrl,
+          url,
+        );
+        await rememberGeneratedThumbnailAsset(recordingId, uploaded, lease);
+      } catch (error) {
+        if (!isLeaseLost(error)) throw error;
+        console.warn(
+          "[clips] recording thumbnail lease ran out after the thumbnail was saved; its file is not tracked for replacement",
+          { recordingId },
+        );
+      }
     }
     await writeAppState("refresh-signal", { ts: Date.now() }).catch(() => {});
 
@@ -627,7 +679,8 @@ async function ensureRecordingThumbnailOnce(
       recordingId,
       status: "skipped-lease",
       changed: false,
-      detail: "Another thumbnail producer took this recording over.",
+      detail:
+        "This run's thumbnail lease ran out before it finished, so it stopped. Another producer may have taken the recording over.",
     };
   } finally {
     await releaseRecordingThumbnailLease(lease);

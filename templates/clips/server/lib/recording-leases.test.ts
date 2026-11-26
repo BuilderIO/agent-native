@@ -31,10 +31,27 @@ beforeAll(async () => {
   await getDbExec().execute(
     "CREATE TABLE application_state (key TEXT PRIMARY KEY, value TEXT)",
   );
+  await getDbExec().execute(
+    "CREATE TABLE application_state_writes (op TEXT NOT NULL)",
+  );
+  await getDbExec().execute(`
+    CREATE FUNCTION log_application_state_write() RETURNS trigger
+    LANGUAGE plpgsql AS $$
+    BEGIN
+      INSERT INTO application_state_writes (op) VALUES (TG_OP);
+      RETURN NULL;
+    END $$
+  `);
+  await getDbExec().execute(`
+    CREATE TRIGGER application_state_write_log
+    AFTER INSERT OR UPDATE OR DELETE ON application_state
+    FOR EACH ROW EXECUTE FUNCTION log_application_state_write()
+  `);
 }, 60_000);
 
 beforeEach(async () => {
   await getDbExec().execute(`DELETE FROM clips_backfill_leases`);
+  await getDbExec().execute(`DELETE FROM application_state_writes`);
 });
 
 afterAll(async () => {
@@ -98,11 +115,13 @@ describe("recording leases", () => {
     const lease = (await claimLease("recording-thumbnail:a", 60_000))!;
     expect(lease.table).toBe("clips_backfill_leases");
     expect(await rows()).toHaveLength(1);
+    expect(await renewLease(lease, 60_000)).toBe(true);
     await releaseLease(lease);
     await countAttempt("thumbnail-sweeper-attempts:a");
 
     expect(
-      (await getDbExec().execute("SELECT * FROM application_state")).rows,
+      (await getDbExec().execute("SELECT op FROM application_state_writes"))
+        .rows,
     ).toEqual([]);
     expect((await rows()).map((row) => row.lease_key)).toEqual([
       "thumbnail-sweeper-attempts:a",

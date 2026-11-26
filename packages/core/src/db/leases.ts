@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { sql as drizzleSql, type SQL } from "drizzle-orm";
 
 import { getDbExec, type DbExec } from "./client.js";
-import { sql } from "./sql.js";
+import { sql, type SqlFragment } from "./sql.js";
 
 /**
  * Leases for long jobs that must run alone: a render, a build, a worker. The
@@ -138,6 +138,15 @@ export function leaseHeld(lease: Lease): SQL {
     WHERE lease_key = ${lease.key}
       AND holder = ${lease.token}
       AND expires_at > ${Date.now()}
+    FOR SHARE)`;
+}
+
+/** {@link leaseHeld} for a statement built with core's `sql` tag. */
+export function leaseHeldSql(lease: Lease): SqlFragment {
+  return sql`EXISTS (SELECT 1 FROM ${sql.ident(lease.table)}
+    WHERE lease_key = ${sql.value(lease.key)}
+      AND holder = ${sql.value(lease.token)}
+      AND expires_at > ${sql.value(Date.now())}
     FOR SHARE)`;
 }
 

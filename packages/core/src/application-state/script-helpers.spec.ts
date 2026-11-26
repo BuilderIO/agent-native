@@ -219,6 +219,28 @@ describe("application-state script-helpers", () => {
         { requestSource: "agent" },
       );
     });
+
+    it("passes the caller's lease through", async () => {
+      process.env.AGENT_USER_EMAIL = "alice@test.com";
+      const { compareAndSetAppState } = await import("./script-helpers.js");
+      mockAppStateCompareAndSet.mockResolvedValue(true);
+      const lease = {
+        table: "leases",
+        key: "job",
+        token: "token-1",
+        expiresAt: 1,
+      };
+
+      await compareAndSetAppState("checkpoint", null, { step: 1 }, { lease });
+
+      expect(mockAppStateCompareAndSet).toHaveBeenCalledWith(
+        "alice@test.com",
+        "checkpoint",
+        null,
+        { step: 1 },
+        { requestSource: "agent", lease },
+      );
+    });
   });
 
   describe("compareAndSetManyAppState", () => {
