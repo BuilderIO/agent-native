@@ -532,7 +532,8 @@ export function partitionWeighted(
     coreFiles === null ? 0 : Math.min(laneCount - 1, sorted.length);
   let best: LaneBin[] | null = null;
   for (let solo = 0; solo <= maxSolo; solo++) {
-    const bins = planBins(sorted, laneCount, coreFiles, solo);
+    const bins = planBins(sorted, laneCount, coreFiles, solo, minimums);
+    if (!meetsPackageShardMinimums(bins, minimums)) continue;
     if (!best || largestBin(bins) < largestBin(best)) best = bins;
   }
   return toLanes(best!, "full");
@@ -566,13 +567,7 @@ export function partitionTargetedWeighted(
     coreShard: index < coreShardCount ? `${index + 1}/${coreShardCount}` : "",
   }));
 
-  for (const item of sorted) {
-    const lightest = bins.reduce((best, bin) =>
-      bin.files < best.files ? bin : best,
-    );
-    lightest.items.push(item);
-    lightest.files += item.files;
-  }
+  for (const item of sorted) assignLightest(bins, item, minimums);
 
   return toLanes(bins, coreMode);
 }
@@ -581,6 +576,37 @@ interface LaneBin {
   items: LaneItem[];
   files: number;
   coreShard: string;
+}
+
+function assignLightest(
+  bins: LaneBin[],
+  item: LaneItem,
+  minimums?: ReadonlyMap<string, number>,
+): void {
+  const distinct =
+    item.shard && minimums?.has(item.name)
+      ? bins.filter((bin) =>
+          bin.items.every((placed) => placed.name !== item.name),
+        )
+      : bins;
+  const lightest = (distinct.length ? distinct : bins).reduce((best, bin) =>
+    bin.files < best.files ? bin : best,
+  );
+  lightest.items.push(item);
+  lightest.files += item.files;
+}
+
+function meetsPackageShardMinimums(
+  bins: LaneBin[],
+  minimums?: ReadonlyMap<string, number>,
+): boolean {
+  for (const [name, minimum] of minimums ?? []) {
+    const lanes = bins.filter((bin) =>
+      bin.items.some((item) => item.name === name && item.shard),
+    ).length;
+    if (lanes > 0 && lanes < minimum) return false;
+  }
+  return true;
 }
 
 function largestBin(bins: LaneBin[]): number {
@@ -592,6 +618,7 @@ function planBins(
   laneCount: number,
   coreFiles: number | null,
   soloCount: number,
+  minimums?: ReadonlyMap<string, number>,
 ): LaneBin[] {
   const shared = sorted.slice(soloCount);
   const n =
@@ -605,8 +632,7 @@ function planBins(
   }));
   for (const item of shared) {
     sharedBins.sort((a, b) => a.files - b.files);
-    sharedBins[0].items.push(item);
-    sharedBins[0].files += item.files;
+    assignLightest(sharedBins, item, minimums);
   }
   return [
     ...sorted

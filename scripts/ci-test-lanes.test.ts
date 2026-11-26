@@ -366,6 +366,59 @@ test("a configured shard minimum splits Toolkit across separate lanes without ch
   }
 });
 
+void test("keeps required Toolkit shards on distinct lanes in each planning mode", () => {
+  const toolkit = {
+    name: "@agent-native/toolkit",
+    files: 200,
+    shardable: true,
+  };
+  const minimums = new Map([[toolkit.name, 2]]);
+  const weighted = [...pkgs(["big-a", 1000]), toolkit];
+  const solo = [...weighted, ...pkgs(["big-b", 1000])];
+  for (const { label, lanes, work, coreFiles } of [
+    {
+      label: "no Core",
+      lanes: partitionWeighted(weighted, 2, null, minimums),
+      work: weighted,
+      coreFiles: 0,
+    },
+    {
+      label: "solo search",
+      lanes: partitionWeighted(solo, 3, 10, minimums),
+      work: solo,
+      coreFiles: 10,
+    },
+    {
+      label: "targeted Core",
+      lanes: partitionTargetedWeighted(
+        weighted,
+        2,
+        1,
+        "changed",
+        ["a.spec.ts"],
+        minimums,
+      ),
+      work: weighted,
+      coreFiles: 1,
+    },
+  ]) {
+    assertFullCoverage(lanes, work, coreFiles, minimums);
+    const toolkitShards = lanes
+      .map((lane) =>
+        lane.packageShards
+          .filter(({ name }) => name === toolkit.name)
+          .map(({ shard }) => shard),
+      )
+      .filter((shards) => shards.length > 0);
+    assert.deepEqual(toolkitShards.sort(), [["1/2"], ["2/2"]], label);
+    assert.equal(
+      lanes.reduce((count, lane) => count + lane.files, 0),
+      work.reduce((count, pkg) => count + pkg.files, coreFiles),
+      label,
+    );
+  }
+});
+
 test("shards a Vitest script behind a pnpm prefix such as Design's bridge codegen", () => {
   assert.equal(isShardableTestScript("vitest --run"), true);
   assert.equal(
