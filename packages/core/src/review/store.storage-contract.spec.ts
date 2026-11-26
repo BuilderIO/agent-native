@@ -138,7 +138,7 @@ async function hookLog(): Promise<string[]> {
   return rows.map((row) => String((row as { event: unknown }).event));
 }
 
-describe.sequential("the review kit's storage contract", () => {
+describe("the review kit's storage contract", () => {
   it("checks anchors against the resource's anchor kinds", async () => {
     const latest = await insertReviewComment(
       comment(PINNED, "deck-1", {
