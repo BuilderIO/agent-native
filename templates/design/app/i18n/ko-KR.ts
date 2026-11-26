@@ -1952,6 +1952,7 @@ export default {
     bringToFront: "맨 앞으로 가져오기",
     sendBackward: "뒤로 보내기",
     sendToBack: "맨 뒤로 보내기",
+    arrangeUnavailable: "순서를 바꾸려면 편집 가능한 디자인에서 레이어를 선택하세요",
     pasteToReplace: "교체하여 붙여넣기",
     frameSelection: "선택 영역 프레임화",
     flipHorizontal: "수평 뒤집기",

@@ -1996,6 +1996,7 @@ export default {
     bringToFront: "Mettre au premier plan",
     sendBackward: "Reculer",
     sendToBack: "Mettre à l’arrière-plan",
+    arrangeUnavailable: "Sélectionnez un calque dans un design modifiable pour le réorganiser",
     pasteToReplace: "Coller pour remplacer",
     frameSelection: "Encadrer la sélection",
     flipHorizontal: "Retourner horizontalement",

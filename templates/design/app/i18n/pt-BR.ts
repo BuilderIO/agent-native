@@ -1981,6 +1981,7 @@ export default {
     bringToFront: "Trazer para o topo",
     sendBackward: "Enviar para trás",
     sendToBack: "Enviar para o fundo",
+    arrangeUnavailable: "Selecione uma camada em um design editável para reordená-la",
     pasteToReplace: "Colar para substituir",
     frameSelection: "Enquadrar seleção",
     flipHorizontal: "Inverter horizontalmente",

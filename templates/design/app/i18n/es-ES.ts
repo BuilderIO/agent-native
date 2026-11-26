@@ -1985,6 +1985,7 @@ export default {
     bringToFront: "Traer al frente",
     sendBackward: "Enviar atrás",
     sendToBack: "Enviar al fondo",
+    arrangeUnavailable: "Selecciona una capa en un diseño editable para reordenarla",
     pasteToReplace: "Pegar para reemplazar",
     frameSelection: "Enmarcar selección",
     flipHorizontal: "Voltear horizontalmente",
