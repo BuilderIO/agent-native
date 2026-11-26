@@ -713,12 +713,22 @@ async function main() {
     const cleaned: string[] = [];
     for (const fn of [
       ...cleanups,
-      ...(target.cleanup ?? []).map((c) => () => {
+      ...(target.cleanup ?? []).map((c) => async () => {
         const page = activePage;
-        if (!page) return Promise.reject(new Error("no page for cleanup"));
-        return callAction(page, c.action, interpolate(c.input ?? {})).then(
-          () => undefined,
+        if (!page) throw new Error("no page for cleanup");
+        const input = interpolate(c.input ?? {});
+        const r = await inPage<{ errorCode?: string }>(
+          page,
+          "POST",
+          `${appBase}/_agent-native/actions/${c.action}`,
+          input,
         );
+        if (r.status === 409 && r.json?.errorCode === "approval_required") {
+          await uiAction(page, c.action, input);
+          return;
+        }
+        if (r.status !== 200 || !r.json)
+          throw new Error(`action ${c.action}: HTTP ${r.status} ${r.text}`);
       }),
     ]) {
       try {
