@@ -2,6 +2,7 @@ import {
   defineAction,
   fail,
   isActionContractError,
+  isOutsideAgentCall,
 } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -13,6 +14,7 @@ import {
   getAccessibleSource,
   serializeSource,
 } from "../server/lib/brain.js";
+import { importReplacesCapture } from "../server/lib/capture-replacement.js";
 import { BrainClassifierUnavailableError } from "../server/lib/capture-sanitization.js";
 import { enqueueCaptureDistillation } from "../server/lib/distillation-queue.js";
 import {
@@ -165,6 +167,15 @@ export default defineAction({
       ),
     enqueueDistillation: z.coerce.boolean().default(true),
   }),
+  needsApproval: async (args, ctx) =>
+    isOutsideAgentCall(ctx) &&
+    (await importReplacesCapture(
+      args.files.flatMap((file) => {
+        const normalized = normalizeMarkdownPath(file.path);
+        return normalized.path ? [`markdown:${normalized.path}`] : [];
+      }),
+      { sourceId: args.sourceId, sourceTitle: args.sourceTitle },
+    )),
   mcpTool: "search",
   run: async (args) => {
     const prepared = args.files.map((file) => {

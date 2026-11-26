@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, isOutsideAgentCall } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
@@ -8,6 +8,7 @@ import {
   serializeCapture,
   serializeSource,
 } from "../server/lib/brain.js";
+import { importReplacesCapture } from "../server/lib/capture-replacement.js";
 import { enqueueCaptureDistillation } from "../server/lib/distillation-queue.js";
 import { rethrowManualImportError } from "./_manual-import-errors.js";
 import { captureKindSchema, optionalJsonRecordSchema } from "./_schemas.js";
@@ -29,6 +30,12 @@ export default defineAction({
     metadata: optionalJsonRecordSchema,
     enqueueDistillation: z.coerce.boolean().default(true),
   }),
+  needsApproval: async (args, ctx) =>
+    isOutsideAgentCall(ctx) &&
+    (await importReplacesCapture(
+      args.externalId ? [args.externalId] : [],
+      { sourceId: args.sourceId, sourceTitle: args.sourceTitle },
+    )),
   mcpTool: "search",
   run: async (args) => {
     const source = args.sourceId

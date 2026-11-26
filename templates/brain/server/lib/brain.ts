@@ -841,22 +841,24 @@ export async function createSource(
   return source;
 }
 
-export async function ensureManualSource(title = "Manual imports") {
-  const db = getDb();
-  const userEmail = requireUserEmail();
+export function manualSourceWhere(title: string) {
   const orgId = getRequestOrgId();
-  const where = and(
-    eq(schema.brainSources.ownerEmail, userEmail),
+  return and(
+    eq(schema.brainSources.ownerEmail, requireUserEmail()),
     eq(schema.brainSources.provider, "manual"),
     eq(schema.brainSources.title, title),
     orgId
       ? eq(schema.brainSources.orgId, orgId)
       : isNull(schema.brainSources.orgId),
   );
+}
+
+export async function ensureManualSource(title = "Manual imports") {
+  const db = getDb();
   const [existing] = await db
     .select()
     .from(schema.brainSources)
-    .where(where)
+    .where(manualSourceWhere(title))
     .limit(1);
   if (existing) return existing;
   return createSource({ title, provider: "manual" });
@@ -3498,21 +3500,32 @@ export async function writeKnowledgeRecordInTransaction(
   };
 }
 
-export async function writeKnowledgeRecord(
-  input: WriteKnowledgeInput,
-  options: WriteKnowledgeOptions = {},
+export async function knowledgeWriteMayTouchCanonical(
+  input: Pick<
+    WriteKnowledgeInput,
+    "knowledgeId" | "supersedesId" | "publishCanonical"
+  >,
 ) {
-  requireUserEmail();
   const peeked = input.knowledgeId
     ? await peekKnowledgeRow(input.knowledgeId)
     : null;
   const supersededPeek = input.supersedesId
     ? await peekKnowledgeRow(input.supersedesId)
     : null;
+  return (
+    mayTouchCanonicalResource(peeked, Boolean(input.publishCanonical)) ||
+    Boolean(supersededPeek?.publishedResourcePath)
+  );
+}
+
+export async function writeKnowledgeRecord(
+  input: WriteKnowledgeInput,
+  options: WriteKnowledgeOptions = {},
+) {
+  requireUserEmail();
   const { value: result, effects } = await transactWithResourceStore(
     getDb(),
-    mayTouchCanonicalResource(peeked, Boolean(input.publishCanonical)) ||
-      Boolean(supersededPeek?.publishedResourcePath),
+    await knowledgeWriteMayTouchCanonical(input),
     async (_scoped, effects) =>
       writeKnowledgeRecordInTransaction(input, effects, options),
   );

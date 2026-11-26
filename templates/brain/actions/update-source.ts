@@ -71,9 +71,6 @@ export default defineAction({
         "Merge trust, answer eligibility, authority, freshness, review, or conflict behavior into the source answer policy",
       ),
   }),
-  // An outside agent may rename, pause or resume a source. It asks first
-  // before archiving one or changing what it reads, its credentials, or how
-  // far Brain trusts its answers.
   needsApproval: (args, ctx) =>
     isOutsideAgentCall(ctx) &&
     (args.config !== undefined ||

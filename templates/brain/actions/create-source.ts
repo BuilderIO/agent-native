@@ -72,11 +72,14 @@ export default defineAction({
         "Optional answer policy controlling trust, eligibility, authority, freshness, review, and conflicts",
       ),
   }),
-  // An outside agent asks first before sharing a new source with the whole
-  // organization or minting a signed-ingest token, which this call returns.
-  needsApproval: (args, ctx) =>
-    isOutsideAgentCall(ctx) &&
-    (args.visibility === "org" || Boolean(args.sourceKey)),
+  needsApproval: (args, ctx) => {
+    if (!isOutsideAgentCall(ctx)) return false;
+    if (args.visibility === "org" || args.sourceKey) return true;
+    const config = mergeSourceConfigJson(args.config, args.configJson) ?? {};
+    return ["sourceKey", "ingestTokenHash"].some((key) =>
+      Object.prototype.hasOwnProperty.call(config, key),
+    );
+  },
   mcpTool: "search",
   run: async (args) => {
     let config = { ...mergeSourceConfigJson(args.config, args.configJson) };
