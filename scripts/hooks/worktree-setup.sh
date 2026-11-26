@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Makes a new git worktree ready to run: `pnpm install` plus the main checkout's ignored .env files.
 # Usage: worktree-setup.sh [--hook]. With --hook, failures are reported on stdout with exit 0.
-set -euo pipefail
+set -Eeuo pipefail
 
 hook=no
 if [ "${1:-}" = --hook ]; then hook=yes; shift; fi
@@ -28,7 +28,7 @@ if [ -L node_modules ]; then
 fi
 if [ -e node_modules ] && [ -z "$state" ]; then exit 0; fi # installed some other way
 for tool in node pnpm; do
-  command -v "$tool" >/dev/null || fail "$tool isn't on PATH; install dependencies yourself, or rerun bash scripts/worktree-setup.sh from a shell that has it"
+  command -v "$tool" >/dev/null || fail "$tool isn't on PATH; install dependencies yourself, or rerun bash $0 from a shell that has it"
 done
 
 lock="$git_dir/worktree-setup.lock" # a symlink to the owner's pid, created atomically
@@ -49,12 +49,13 @@ state=$(cat "$state_file" 2>/dev/null || true)
 src=${CODEX_SOURCE_TREE_PATH:-$(git worktree list --porcelain | sed -n '1s/^worktree //p')}
 start=$SECONDS
 exec >>"$log" 2>&1 # keep install output out of the agent's context; the summary goes to fd 3
+trap 'fail "setup stopped at line $LINENO; see $log"' ERR
 echo "=== $(date) setting up $wt from $src (previous state: ${state:-none})"
 
 workspace_dirs() {
   echo .
   sed -n '/^packages:/,/^[^ -]/p' pnpm-workspace.yaml | sed -n "s/^ *- *['\"]\{0,1\}\([^'\"!]*\)['\"]\{0,1\} *$/\1/p" |
-    while read -r pattern; do for d in $pattern; do [ -f "$d/package.json" ] && echo "$d"; done; done
+    while read -r pattern; do for d in $pattern; do if [ -f "$d/package.json" ]; then echo "$d"; fi; done; done
 }
 
 # Ignored env files the main checkout has and a fresh worktree lacks.
@@ -66,6 +67,6 @@ done < <(workspace_dirs)
 
 echo installing >"$state_file"
 pnpm install --frozen-lockfile --prefer-offline ||
-  fail "pnpm install failed after $((SECONDS - start))s; see $log, fix, then rerun bash scripts/worktree-setup.sh"
+  fail "pnpm install failed after $((SECONDS - start))s; see $log, fix, then rerun bash $0"
 echo "done" >"$state_file"
 echo "worktree-setup: dependencies ready in $((SECONDS - start))s (log: $log)" >&3

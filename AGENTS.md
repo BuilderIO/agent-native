@@ -52,8 +52,8 @@ Use `/sidecar <task>` for read-only investigations.
 - Branch without asking; in a shared checkout, use a new worktree. PRs are
   ready for review unless drafts are requested.
 - A new worktree gets `pnpm install` and the main checkout's ignored `.env`
-  files from `scripts/worktree-setup.sh` (Claude SessionStart hook, Codex
-  environment); run it in worktrees made otherwise. Never symlink `node_modules`.
+  files from `scripts/hooks/worktree-setup.sh` (Claude SessionStart hook, Codex
+  environment); run it in worktrees made otherwise.
 - Deployment split: `.github/workflows/deploy-beta-sites-prebuilt.yml` is the
   sole beta publisher; Actions uploads prebuilt artifacts to independent
   `beta.*.agent-native.com` sites. Netlify Git builds are disabled; do not wait
@@ -165,7 +165,7 @@ Shared edits are visible in Git; read `concurrent-agents`. Batch fixes to avoid
 CI churn. Update from `origin/main` only for GitHub `CONFLICTING` PRs; merge
 shared branches.
 
-**One hook** (`scripts/hooks/file-lease.mjs`, registered in the tracked
+**One check hook** (`scripts/hooks/file-lease.mjs`, registered in the tracked
 `.claude/settings.json`): denies a write when another live session holds the
 file, or when it changed on disk under you. It exists because this is the only
 rule you cannot follow by reading instructions — no amount of guidance tells you
@@ -173,6 +173,9 @@ that a peer session is mid-edit in the same file right now. Re-read and build on
 their change; never force past it. It is a Claude Code mechanism only: it gives
 Codex sessions and plain human edits nothing, so it is a backstop, not a
 guarantee. Read `concurrent-agents` before working in a shared checkout.
+The other registered hook, `scripts/hooks/worktree-setup.sh`, enforces
+nothing: on `SessionStart` in a fresh worktree it runs `pnpm install` and
+copies the main checkout's ignored `.env` files.
 `guard:hooks-registered` keeps this section and that file from drifting apart.
 `guard:i18n-catalogs` checks catalog shape, placeholders, raw UI literals,
 English-value debt, and localized docs coverage. `guard:i18n-changed-copy`

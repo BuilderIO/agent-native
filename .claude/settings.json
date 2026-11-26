@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/worktree-setup.sh\" --hook",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/hooks/worktree-setup.sh\" --hook",
             "timeout": 900
           }
         ]

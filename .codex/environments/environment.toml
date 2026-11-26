@@ -1,6 +1,5 @@
 version = 1
 name = "agent-native"
 
-# Runs pnpm install in the new worktree and copies ignored .env files. See scripts/worktree-setup.sh.
 [setup]
-script = 'bash "$CODEX_WORKTREE_PATH/scripts/worktree-setup.sh"'
+script = 'bash "$CODEX_WORKTREE_PATH/scripts/hooks/worktree-setup.sh"'
