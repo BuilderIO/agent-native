@@ -331,7 +331,7 @@ function listingFor(
     case "openai": {
       const firstUrl = openAiBaseUrl
         ? `${openAiBaseUrl.replace(/\/$/, "")}/models`
-        : "https://api.openai.com/v1/models";
+        : `${OPENAI_DEFAULT_BASE_URL}/models`;
       return openAiStyleListing(firstUrl, key, {
         filterNonChat: true,
         ...(openAiBaseUrl
@@ -414,6 +414,8 @@ function listingFor(
           (status === 400 && JSON.stringify(body ?? "").includes("API_KEY")),
       };
     }
+    default:
+      throw new Error(`Unsupported provider: ${provider}`);
   }
 }
 
