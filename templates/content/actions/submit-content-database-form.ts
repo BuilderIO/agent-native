@@ -71,6 +71,7 @@ import {
 import { assertCollectionAcceptsNewRows } from "./_document-source.js";
 import { nextAppendPosition } from "./_position-utils.js";
 import { nanoid, parseDatabaseViewConfig } from "./_property-utils.js";
+import { validateRelationWrite } from "./_relation-values.js";
 
 const submitContentDatabaseFormSchema = z.object({
   databaseId: z.string().min(1).describe("Content collection ID"),
@@ -225,6 +226,13 @@ function isValidSubmittedDatePart(value: unknown): boolean {
     calendarDate.getUTCDate() === day
   );
 }
+
+const ANSWER_ERROR_CODES = new Set([
+  "INVALID_PROPERTY_VALUE",
+  "RELATION_TARGET_MISSING",
+  "RELATION_LIMIT_EXCEEDED",
+  "INVALID_RELATION_TARGET",
+]);
 
 const CHECKBOX_WORDS = new Map([
   ["true", true],
@@ -439,6 +447,15 @@ async function normalizeSubmittedPropertyValue(
   if (isBlocksPropertyType(type)) {
     return typeof normalized === "string" ? normalized : null;
   }
+  if (type === "relation") {
+    return isEmptyPropertyValue(normalized as DocumentPropertyValue)
+      ? null
+      : validateRelationWrite(getDb(), {
+          definition,
+          nextValue: normalized,
+          previousValue: null,
+        });
+  }
   return strictValue(definition, normalized);
 }
 
@@ -550,7 +567,7 @@ async function resolveSubmittedProperties(
         !(error instanceof FormAnswerProblem) &&
         !(
           isActionContractError(error) &&
-          error.errorCode === "INVALID_PROPERTY_VALUE"
+          ANSWER_ERROR_CODES.has(error.errorCode)
         )
       ) {
         throw error;

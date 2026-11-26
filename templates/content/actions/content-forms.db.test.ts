@@ -1550,6 +1550,53 @@ describe("Content forms: the collection's own checks", () => {
     expect(urgent.valueJson).toBe("true");
   });
 
+  it("checks a relation answer in the collection's own form the way a page's relation is checked", async () => {
+    const ids = await seedCollection();
+    const linkedId = `linked_${ids.databaseId}`;
+    await addProperty(ids, {
+      id: linkedId,
+      name: "Linked request",
+      type: "relation",
+      optionsJson: serializePropertyOptions({
+        relation: { databaseId: ids.databaseId },
+      }),
+    });
+    const submitLinked = (value: unknown) =>
+      as(OWNER, () =>
+        submitCollectionForm.run({
+          databaseId: ids.databaseId,
+          viewId: ids.viewId,
+          title: "Follow-up",
+          propertyEntries: [
+            { property: ids.priorityId, value: "P1 — High" },
+            { property: linkedId, value },
+          ],
+        }),
+      );
+    const before = await rowsOf(ids);
+
+    await expect(submitLinked(["forms_missing_page"])).rejects.toMatchObject({
+      errorCode: "invalid_answers",
+      message: "Some linked pages are not rows of the related database",
+    });
+    await expect(rowsOf(ids)).resolves.toEqual(before);
+
+    const created = await submitLinked([ids.existingRowId]);
+    const [linked] = await getDb()
+      .select({ valueJson: schema.documentPropertyValues.valueJson })
+      .from(schema.documentPropertyValues)
+      .where(
+        and(
+          eq(
+            schema.documentPropertyValues.documentId,
+            created.createdDocumentId,
+          ),
+          eq(schema.documentPropertyValues.propertyId, linkedId),
+        ),
+      );
+    expect(JSON.parse(linked.valueJson)).toEqual([ids.existingRowId]);
+  });
+
   it("keeps the collection's natural key to one record, and saves nothing for a key already taken", async () => {
     const ids = await seedCollection();
     const ticketId = `ticket_${ids.databaseId}`;
