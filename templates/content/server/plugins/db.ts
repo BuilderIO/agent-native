@@ -1882,6 +1882,61 @@ export const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS content_column_fill_cells_status_idx
         ON content_column_fill_cells (fill_id, status, position)`,
     },
+    {
+      version: 146,
+      name: "content-forms",
+      sql: `CREATE TABLE IF NOT EXISTS content_forms (
+        database_id TEXT NOT NULL,
+        view_id TEXT NOT NULL,
+        link_token TEXT NOT NULL,
+        canvas_document_id TEXT,
+        audience TEXT NOT NULL DEFAULT 'signed_in',
+        one_answer_per_person INTEGER NOT NULL DEFAULT 0,
+        accepting_answers INTEGER NOT NULL DEFAULT 1,
+        thank_you_message TEXT NOT NULL DEFAULT '',
+        updated_by TEXT,
+        created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+        updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_forms_view_unique
+        ON content_forms (database_id, view_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS content_forms_link_token_unique
+        ON content_forms (link_token);
+      CREATE TABLE IF NOT EXISTS content_form_submissions (
+        id TEXT PRIMARY KEY,
+        database_id TEXT NOT NULL,
+        view_id TEXT NOT NULL,
+        document_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        channel TEXT NOT NULL,
+        sender_kind TEXT NOT NULL,
+        sender_email TEXT,
+        idempotency_key TEXT NOT NULL,
+        answers_digest TEXT NOT NULL,
+        receipt_json TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_form_submissions_key_unique
+        ON content_form_submissions (database_id, view_id, idempotency_key);
+      CREATE INDEX IF NOT EXISTS content_form_submissions_form_idx
+        ON content_form_submissions (database_id, view_id, created_at);
+      CREATE INDEX IF NOT EXISTS content_form_submissions_sender_idx
+        ON content_form_submissions (database_id, view_id, sender_email);
+      CREATE INDEX IF NOT EXISTS content_form_submissions_document_idx
+        ON content_form_submissions (document_id);
+      CREATE TABLE IF NOT EXISTS content_form_drafts (
+        database_id TEXT NOT NULL,
+        view_id TEXT NOT NULL,
+        sender_email TEXT NOT NULL,
+        answers_json TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+        updated_at TEXT NOT NULL DEFAULT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_form_drafts_sender_unique
+        ON content_form_drafts (database_id, view_id, sender_email);
+      CREATE INDEX IF NOT EXISTS content_form_drafts_updated_idx
+        ON content_form_drafts (updated_at)`,
+    },
   ],
   { table: "content_migrations" },
 );

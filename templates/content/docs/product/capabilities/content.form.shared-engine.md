@@ -27,7 +27,15 @@ proof_requirements:
     "Anonymous, signed-in, and agent submission without Collection read access",
     "Real-interface keyboard and assistive-technology workflow coverage",
   ]
-evidence: []
+evidence:
+  [
+    "templates/content/actions/_content-forms.ts",
+    "templates/content/actions/submit-content-database-form.ts",
+    "templates/content/actions/get-content-form.ts",
+    "templates/content/actions/submit-content-form.ts",
+    "templates/content/shared/form-question-block.ts",
+    "templates/content/actions/content-forms.db.test.ts",
+  ]
 superseded_by: null
 last_reviewed: "2026-11-23"
 ---
@@ -82,7 +90,9 @@ Given a person's agent connected over MCP and a Form link, when the agent submit
 
 ## Current evidence
 
-Only Collection editors can submit through today's Form View. No complete shared schema, idempotency, cross-surface permission, draft, and recovery proof is recorded. This Capability remains `approved_shape`.
+The engine exists without its screens. A Form is a Collection's Form View, optionally with a Page of `form-question` Blocks (`templates/content/shared/form-question-block.ts`); its settings, link, receipts, and server drafts live in their own tables. `templates/content/actions/submit-content-database-form.ts` holds the one submission core that the Collection's own Form View, Slack intake, and `submit-content-form` share: it validates every answer with the Collection's existing write rules, returns every problem at once, and writes the record and its receipt in one transaction under an idempotency key. `templates/content/actions/_content-forms.ts` resolves a Form from its link, applies who may answer (anonymous, signed in, or organization members), one answer per person, flood limits, and drafts, and writes link submissions as the Collection's owner so the sender gains no access. `get-content-form` and `submit-content-form` are the agent pair over MCP.
+
+`templates/content/actions/content-forms.db.test.ts` proves settings and access, the read's limits, all-at-once validation with the Collection's messages, idempotent retry and conflict, record-and-receipt atomicity, an anonymous answer leaving no sender identity in any table, audiences, receipts, one answer per person, flood refusals, drafts and their expiry, and an agent's correct-then-resend flow. Not yet proven: the Form page and Share panel, Forms shown inside other Pages, the committed Event and Rule handoff, browser drafts, and the real-interface and accessibility workflows in the proof plan.
 
 ## Proof plan
 
