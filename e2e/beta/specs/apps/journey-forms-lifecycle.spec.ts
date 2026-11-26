@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import {
   assertSignedInOnBeta,
@@ -7,6 +7,7 @@ import {
 } from "../../lib/authed";
 import { originFor, selectedSites, siteById } from "../../lib/fleet";
 import {
+  ACTION_HEADERS,
   callAction,
   describeCall,
   expectJsonOk,
@@ -38,6 +39,35 @@ skipUnlessAuthed();
 const site = siteById("forms");
 const origin = originFor(site);
 const FIELD_ID = "e2e_note";
+
+async function purgeFromApp(page: Page, id: string) {
+  await page.goto(`${origin}/_agent-native/auth/session`, {
+    waitUntil: "domcontentloaded",
+    timeout: 45_000,
+  });
+  return page.evaluate(
+    async ({ base, id, headers }) => {
+      const minted = await fetch(`${base}/_agent-native/ui-capability`, {
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+      if (!minted.ok) {
+        return {
+          status: minted.status,
+          text: `ui-capability: ${await minted.text()}`,
+        };
+      }
+      const response = await fetch(`${base}/_agent-native/actions/delete-form`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ id, purge: true }),
+      });
+      return { status: response.status, text: await response.text() };
+    },
+    { base: origin, id, headers: ACTION_HEADERS },
+  );
+}
 
 test("[journey] [forms] forms: create, publish, submit as an anonymous visitor, and see the response", async ({
   browser,
@@ -192,12 +222,11 @@ test("[journey] [forms] forms: create, publish, submit as an anonymous visitor, 
       async () => {
         if (!formId) return [];
         const failures: string[] = [];
-        const purge = await callAction(owner.request, origin, "delete-form", {
-          method: "POST",
-          data: { id: formId, purge: true },
-        });
-        if (!purge.ok) {
-          failures.push(`delete-form purge ${formId}: ${describeCall(purge)}`);
+        const purge = await purgeFromApp(owner, formId);
+        if (purge.status !== 200) {
+          failures.push(
+            `delete-form purge ${formId}: HTTP ${purge.status}: ${purge.text.slice(0, 400)}`,
+          );
           return failures;
         }
         const after = await callAction(owner.request, origin, "get-form", {

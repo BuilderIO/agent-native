@@ -199,8 +199,6 @@ async function inPage<T>(
   ) as Promise<{ status: number; json: T | null; text: string }>;
 }
 
-const ACTION_HEADERS = { "X-Agent-Native-Frontend": "1" };
-
 async function callAction<T = Record<string, unknown>>(
   page: Page,
   name: string,
@@ -216,13 +214,34 @@ async function callAction<T = Record<string, unknown>>(
           `${url}?${new URLSearchParams(
             Object.entries(input).map(([k, v]) => [k, String(v)]),
           )}`,
-          undefined,
-          ACTION_HEADERS,
         )
-      : await inPage<T>(page, "POST", url, input, ACTION_HEADERS);
+      : await inPage<T>(page, "POST", url, input);
   if (r.status !== 200 || !r.json)
     throw new Error(`action ${name}: HTTP ${r.status} ${r.text}`);
   return r.json;
+}
+
+async function uiAction(
+  page: Page,
+  name: string,
+  input: Record<string, unknown>,
+): Promise<void> {
+  const minted = await inPage(
+    page,
+    "GET",
+    `${appBase}/_agent-native/ui-capability`,
+  );
+  if (minted.status !== 200)
+    throw new Error(`ui-capability: HTTP ${minted.status} ${minted.text}`);
+  const r = await inPage(
+    page,
+    "POST",
+    `${appBase}/_agent-native/actions/${name}`,
+    input,
+    { "X-Agent-Native-Frontend": "1" },
+  );
+  if (r.status !== 200)
+    throw new Error(`action ${name}: HTTP ${r.status} ${r.text}`);
 }
 
 const vars: Record<string, unknown> = {};
@@ -478,7 +497,7 @@ async function writeAndReadBack(
     );
     if (!id) throw new Error(`no form id in ${page.url()}`);
     const cleanup = async () => {
-      await callAction(page, "delete-form", { id });
+      await uiAction(page, "delete-form", { id });
     };
     const title = page.locator('input[data-editable="form-title"]');
     await title.click();

@@ -75,6 +75,12 @@ async function preparedApprovalRule(name: string) {
 const IN_APP_AGENT = { caller: "tool" } as ActionRunContext;
 const APP_UI = { caller: "frontend" } as ActionRunContext;
 const OUTSIDE_AGENT = { caller: "mcp" } as ActionRunContext;
+const OTHER_OUTSIDE_CALLERS = [
+  { caller: "http" },
+  { caller: "a2a" },
+  { caller: "cli" },
+  { caller: "frontend", networkProtocol: "a2a" },
+] as ActionRunContext[];
 
 describe("Forms actions over MCP", () => {
   it.each(SERVED)(
@@ -98,6 +104,9 @@ describe("Forms actions over MCP", () => {
       expect(await approves({}, IN_APP_AGENT)).toBe(false);
       expect(await approves({}, APP_UI)).toBe(false);
       expect(await approves({}, OUTSIDE_AGENT)).toBe(true);
+      for (const ctx of OTHER_OUTSIDE_CALLERS) {
+        expect(await approves({}, ctx)).toBe(true);
+      }
     },
   );
 
@@ -106,6 +115,9 @@ describe("Forms actions over MCP", () => {
     async (name, args) => {
       const approves = await preparedApprovalRule(name);
       expect(await approves(args, OUTSIDE_AGENT)).toBe(true);
+      for (const ctx of OTHER_OUTSIDE_CALLERS) {
+        expect(await approves(args, ctx)).toBe(true);
+      }
       expect(await approves(args, IN_APP_AGENT)).toBe(false);
       expect(await approves(args, APP_UI)).toBe(false);
     },

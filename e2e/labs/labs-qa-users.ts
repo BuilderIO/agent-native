@@ -253,8 +253,6 @@ async function freshReceipt(): Promise<Receipt> {
   };
 }
 
-const ACTION_HEADERS = { "X-Agent-Native-Frontend": "1" };
-
 async function action(
   jar: Jar,
   name: string,
@@ -266,15 +264,22 @@ async function action(
     const qs = new URLSearchParams(
       Object.entries(body ?? {}).map(([k, v]) => [k, String(v)]),
     );
-    return call(
-      jar,
-      "GET",
-      qs.size ? `${base}?${qs}` : base,
-      undefined,
-      ACTION_HEADERS,
-    );
+    return call(jar, "GET", qs.size ? `${base}?${qs}` : base);
   }
-  return call(jar, "POST", base, body ?? {}, ACTION_HEADERS);
+  return call(jar, "POST", base, body ?? {});
+}
+
+async function uiAction(
+  jar: Jar,
+  name: string,
+  body: Record<string, unknown>,
+) {
+  const base = `${origin}/${probeApp}/_agent-native`;
+  const minted = await call(jar, "GET", `${base}/ui-capability`);
+  if (minted.status !== 200) return minted;
+  return call(jar, "POST", `${base}/actions/${name}`, body, {
+    "X-Agent-Native-Frontend": "1",
+  });
 }
 
 async function seedAndReadBack(jar: Jar, slot: string) {
@@ -285,7 +290,7 @@ async function seedAndReadBack(jar: Jar, slot: string) {
   if (!id) fail("seed create-form (no id)", created);
   const read = await action(jar, "get-form", "GET", { id });
   if (read.status !== 200) fail("read-back get-form", read);
-  const del = await action(jar, "delete-form", "POST", { id });
+  const del = await uiAction(jar, "delete-form", { id });
   if (del.status !== 200) fail("cleanup delete-form", del);
   return { id, name };
 }
