@@ -1607,7 +1607,10 @@ it("answers the page's immediate body save with whether the server kept it", asy
   });
   expect(kept).toBe("persisted");
 
-  fixture.save.mockRejectedValue(new Error("Save refused."));
+  fixture.save.mockImplementation(async () => ({
+    conflict: true,
+    document: fixture.page,
+  }));
   let refused: unknown;
   await act(async () => {
     refused = await mounted(mounted(fixture.editor).onSaveContent)(
