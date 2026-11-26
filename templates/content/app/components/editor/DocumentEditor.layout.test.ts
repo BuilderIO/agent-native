@@ -721,32 +721,8 @@ describe("document editor layout", () => {
     expect(documentCanonicalMutationsEnabled(true, true)).toBe(false);
   });
 
-  // editor-isolation.mounted.test.tsx mounts the editor with this wiring.
-  it("keeps the canonical reconcile path away from the Suggesting draft", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    expect(source).toMatch(
-      /contentRevision=\{\s*isLocalFileDocument \|\|\s*showLocalCreationDraft \|\|\s*!suggestionEditorIsolation\.reconcileCanonical\s*\?\s*null\s*:/,
-    );
-    expect(source).toMatch(
-      /isSuggesting\s*\?\s*suggestionDraft\s*:\s*showLocalCreationDraft\s*\?\s*localContent\s*:\s*document\.content/,
-    );
-    expect(source).toMatch(
-      /onBaseAwareReconcile=\{\s*suggestionEditorIsolation\.reconcileCanonical\s*\?\s*handleBaseAwareReconcile\s*:\s*undefined\s*\}/,
-    );
-    expect(source).toMatch(
-      /onRemoteSnapshotChange=\{\s*suggestionEditorIsolation\.reconcileCanonical\s*\?\s*handleRemoteSnapshotChange\s*:\s*undefined\s*\}/,
-    );
-    expect(source).toMatch(
-      /contentUpdatedAt=\{[^}]*:\s*suggestionEditorIsolation\.contentUpdatedAt\s*\}/,
-    );
-    expect(source).toMatch(
-      /visualEditorInstanceKey\(\{\s*documentId,\s*documentUpdatedAt:\s*suggestionEditorIsolation\.contentUpdatedAt,/,
-    );
-    expect(source).not.toMatch(/documentUpdatedAt:\s*document\.updatedAt/);
-  });
+  // oracle-change: replaced by "keeps the Suggesting draft out of the Page's own
+  // reconcile" in DocumentEditor.recovery-save-state.test.tsx.
 
   // oracle-change: replaced by "saves words typed during an autosave when
   //   Suggesting ends before it answers" in
@@ -777,28 +753,10 @@ describe("document editor layout", () => {
       ),
     ).toBe(true);
     expect(isSuggestionConflictActionError(new Error("network"))).toBe(false);
-
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    ).replace(/\r\n/g, "\n");
-    const persist = source.slice(
-      source.indexOf("const persistSuggestionDraft"),
-      source.indexOf("const flushSuggestionDraft = "),
-    );
-    const unchangedAmendment = persist.indexOf("draft === base.initialContent");
-    expect(unchangedAmendment).toBeGreaterThan(-1);
-    expect(unchangedAmendment).toBeLessThan(
-      persist.search(
-        /suggestionAmendmentConflict \|\|\s*amendmentTargetIsResolved/,
-      ),
-    );
-    expect(source).toMatch(
-      /suggestionDraftConflicted =\s*suggestionAmendmentConflict &&\s*\(amendmentDraftIsDirty \|\| !suggestionBaseRef\.current\?\.existingSuggestion\)/,
-    );
-    expect(source).toMatch(
-      /suggestionDraftSaveFailed \|\|\s*suggestionDraftConflicted\) \? \(/,
-    );
+    // oracle-change: the source checks became "leaves an unchanged reopened
+    // suggestion another tab accepted without amending it" and "drops the amendment
+    // alert once the reopened suggestion is typed back to what was saved" in
+    // DocumentEditor.recovery-save-state.test.tsx.
   });
 
   it.each(["accepted", "rejected"] as const)(
@@ -1213,20 +1171,9 @@ describe("document editor layout", () => {
       ),
     ).toBe(false);
     expect(isSuggestionStaleActionError(new Error("network"))).toBe(false);
-    const source = readFileSync(
-      "app/components/editor/DocumentEditor.tsx",
-      "utf8",
-    );
-    expect(source).not.toContain('result.suggestion.status === "stale"');
-    expect(source).toMatch(
-      /const showUnplaceableEdit =[\s\S]*?setUnplaceableSuggestionRevisions[\s\S]*?setCommentsBrowseOpen\(true\)/,
-    );
-    expect(source).toMatch(
-      /isSuggestionStaleActionError\(error\);\s+if \(unplaceable\) showUnplaceableEdit\(\[decided\]\);\s+toast\.error[\s\S]*?t\("editor\.suggestionUnplaceable"\)/,
-    );
-    expect(source).toMatch(
-      /decideSuggestionProposal\.mutateAsync[\s\S]*?catch \(error\)[\s\S]*?isSuggestionStaleActionError\(error\)[\s\S]*?showUnplaceableEdit\(currentMembers\)[\s\S]*?t\("editor\.proposalUnplaceable"\)[\s\S]*?void decideSingleSuggestion\(suggestion, decision\)/,
-    );
+    // oracle-change: the source checks became "opens Discussion on a saved
+    // edit/proposal whose accept can't be placed instead of treating it as
+    // accepted" in DocumentEditor.recovery-save-state.test.tsx.
   });
   it("dismisses mobile comment focus without closing Info", () => {
     expect(utilityPanelAfterCommentFocusDismissal("comments")).toBeNull();
@@ -1641,48 +1588,11 @@ describe("document editor layout", () => {
     );
   });
 
-  it("publishes unsaved local content to the synchronous conflict guard", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    const handler = source.slice(
-      source.indexOf("const queueEditorContentSave"),
-      source.indexOf("const handleImmediateContentChange"),
-    );
-    expect(handler).toContain("localContentRef.current = newContent");
-    expect(
-      handler.indexOf("localContentRef.current = newContent"),
-    ).toBeLessThan(handler.indexOf("debouncedSave("));
-  });
+  // oracle-change: replaced by "tells other tabs about typing in the keystroke
+  // that made it" in DocumentEditor.recovery-save-state.test.tsx.
 
-  it("freezes body autosave until an overlapping reconcile conflict is explicitly resolved", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    const handler = source.slice(
-      source.indexOf("const queueEditorContentSave"),
-      source.indexOf("const handleImmediateContentChange"),
-    );
-    expect(handler).toContain("if (updateReconcileDraft(newContent)) {");
-    expect(handler).toContain("retainActiveRecoveryDraft({");
-    expect(handler.indexOf("return;")).toBeLessThan(
-      handler.indexOf("debouncedSave("),
-    );
-    expect(handler.indexOf("updateReconcileDraft(newContent)")).toBeLessThan(
-      handler.indexOf("debouncedSave("),
-    );
-    expect(source).toContain("if (reconcileRecoveryStateRef.current) return;");
-    expect(handler).toContain("retainActiveRecoveryDraft({");
-    expect(source).toContain(
-      "void reconcileRetainRef.current(draft).catch(reportRetentionFailure)",
-    );
-    expect(source).toContain("<DocumentReconcileRecovery");
-    expect(source).toContain("onKeepMine={handleResolveReconcile}");
-    expect(source).toContain("const contentBase = reconcileBase");
-    expect(source).toContain("return result.contentPersisted;");
-  });
+  // oracle-change: replaced by "holds typing out of autosave while a recovery
+  // prompt is open" in DocumentEditor.recovery-save-state.test.tsx.
 
   it("keeps a seeded document behind the skeleton while its fetch is pending", () => {
     expect(
@@ -3243,77 +3153,13 @@ describe("document editor layout", () => {
     ).toBe(true);
   });
 
-  it("flushes pending document saves when leaving an editor", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
+  // oracle-change: replaced by "is saved when the editor closes" and "is saved
+  // when the page turns read-only before the autosave" in DocumentEditor.recovery-save-state.test.tsx.
 
-    expect(source).toContain("const saveDocumentImmediately");
-    expect(source).toContain("type PendingDocumentSave");
-    expect(source).toContain("pendingDocumentSaveRef.current = pending");
-    expect(source).toContain("clearTimeout(saveTimeoutRef.current)");
-    expect(source).toContain("const flushPendingDocumentSave = useCallback");
-    expect(source).toContain("canEditWhenQueued: canEditRef.current");
-    expect(source).toContain("flushPendingDocumentSave(pending)");
-    expect(source).toContain("allowQueuedSave: true");
-    expect(source).toContain("handleBackgroundSaveError");
-    expect(source).toContain("const canEditRef = useRef(canEdit)");
-    expect(source).toContain(
-      "if (!options.allowQueuedSave && !canEditRef.current)",
-    );
-    expect(source).toContain(
-      'throw new Error(t("editor.pageSaveBeforeNavigationFailed"))',
-    );
-    expect(source).toContain("if (!canEditRef.current) return");
-  });
-
-  it("exports a fail-closed route-neutral page session barrier", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("export function PageEditorSurface");
-    expect(source).toContain(
-      'import { directoryWidgetEditability } from "./directory-widget-editability";',
-    );
-    expect(source).toContain(
-      "const widgetEditability = directoryWidgetEditability(document);",
-    );
-    expect(source).toContain(
-      "const canEdit = widgetEditability.canEditDocument;",
-    );
-    expect(source).toContain("<PageDraftRecovery");
-    expect(source).toContain("flushAllBlockFieldSaveControllersForDocument");
-    expect(source).toContain("flushDocumentPropertyWrites(documentId)");
-    const navigationFlushStart = source.indexOf("const flushLatestPageEdits =");
-    expect(source).toContain(
-      "await editorPersistenceControllerRef.current?.flushLatest()",
-    );
-    expect(
-      source.indexOf(
-        "while (pendingPersistenceRef.current.size > 0)",
-        navigationFlushStart,
-      ),
-    ).toBeLessThan(
-      source.indexOf(
-        "await editorPersistenceControllerRef.current?.flushLatest()",
-        navigationFlushStart,
-      ),
-    );
-    expect(source).toContain(
-      "result.content === lastSavedContentRef.current.content",
-    );
-    expect(source).toContain("if (!primaryResult.value.contentPersisted)");
-    expect(source).toContain("pendingPersistenceRef.current.size > 0");
-    expect(source).toContain("onSessionChangeRef");
-    expect(source).toContain(
-      "visibleBlockFieldEditor(documentLayoutRef.current)",
-    );
-  });
+  // oracle-change: replaced by "asks the editor for its latest words before the
+  // page closes", "still drains a property write held when the page closes" and
+  // "requires fresh confirmation before flushing a reverted failed field under
+  // suggestion lock" in DocumentEditor.recovery-save-state.test.tsx.
 
   it("routes global Escape handling to the nearest nested page editor", () => {
     const source = readFileSync(
@@ -3520,101 +3366,19 @@ describe("document editor layout", () => {
     );
   });
 
-  it("uses the reviewed title base throughout recovery saves", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    const persistUpdates = source.slice(
-      source.indexOf("const persistDocumentUpdates"),
-      source.indexOf("const saveDocumentImmediately"),
-    );
-    const baseAwareReconcile = source.slice(
-      source.indexOf("const handleBaseAwareReconcile"),
-      source.indexOf("const handleResolveReconcile"),
-    );
+  // oracle-change: replaced by "settles a clean merge against the title another
+  // tab gave the Page" and "asks about a merged edit when the Page has moved past
+  // what it merged with" in DocumentEditor.recovery-save-state.test.tsx.
 
-    expect(persistUpdates).toContain(
-      "options.titleBase ?? lastSavedTitleRef.current.title",
-    );
-    expect(baseAwareReconcile).toContain("title: documentTitleRef.current");
-    expect(baseAwareReconcile).not.toContain("title: document.title");
-    expect(baseAwareReconcile).toContain("resolveReconcileAutomatically");
-    expect(
-      baseAwareReconcile.indexOf('result.status === "merged"'),
-    ).toBeLessThan(baseAwareReconcile.indexOf("reportReconcile(result.status"));
-    expect(baseAwareReconcile).toContain(
-      'reportReconcile("failed", result.content)',
-    );
-  });
+  // oracle-change: replaced by "sends the unload-safe copy the base its words were
+  // typed on" in DocumentEditor.recovery-save-state.test.tsx.
 
-  it("attests the authoritative content snapshot in keepalive body saves", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    const teardown = source.slice(
-      source.indexOf("const sendKeepaliveSave"),
-      source.indexOf("const onVisibilityChange"),
-    );
-
-    expect(teardown).toContain("const baseUpdatedAt");
-    expect(teardown).toContain("const loadedContentWasEmpty");
-    expect(teardown).toContain("const loadedUpdatedAt");
-    expect(teardown).toContain("pending.contentBase.content");
-    expect(teardown).toContain("pending.contentBase.revision");
-    expect(teardown).not.toContain("const optimisticAt");
-    expect(teardown).not.toContain("lastSavedContentRef.current =");
-    expect(teardown).not.toContain(
-      "serverUpdatedAt > lastSavedContentRef.current.updatedAt",
-    );
-    expect(teardown).toContain("{ loadedContentWasEmpty }");
-    expect(teardown).toContain("{ loadedUpdatedAt }");
-    expect(teardown).toContain("const attempt = tryCallActionKeepalive(");
-    expect(teardown).toContain('"update-document"');
-  });
-
-  it("starts an unload-safe copy before processing a hidden-tab save", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    const hidden = source.slice(
-      source.indexOf("const onVisibilityChange"),
-      source.indexOf(
-        'window.addEventListener("pagehide"',
-        source.indexOf("const onVisibilityChange"),
-      ),
-    );
-
-    expect(hidden.indexOf("sendKeepaliveSave(pending)")).toBeLessThan(
-      hidden.indexOf("flushPendingDocumentSave(pending)"),
-    );
-  });
+  // oracle-change: replaced by "goes out as an unload-safe copy and an ordinary
+  // save when the tab hides" in DocumentEditor.recovery-save-state.test.tsx.
 
   it("derives the hidden-tab keepalive copy's load watermark like the ordinary flush", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    ).replace(/\r\n/g, "\n");
-    const bounds = [
-      source.indexOf("const sendKeepaliveSave"),
-      source.indexOf("const onVisibilityChange"),
-      source.indexOf("answer = await updateDocument.mutateAsync("),
-      source.indexOf("editorSnapshotTitle: options.editorSnapshotTitle"),
-    ];
-    expect(bounds).not.toContain(-1);
-    const keepalive = source.slice(bounds[0], bounds[1]);
-    const flush = source.slice(bounds[2], bounds[3]);
-
-    // A title-only save sends no content, but both copies share one
-    // attempt ID, so both must still carry the same load watermark.
-    expect(keepalive).toContain(
-      "loadedUpdatedAtForSave(\n          pending.contentBase,\n          documentUpdatedAtRef.current,\n        )",
-    );
-    expect(flush).toMatch(
-      /loadedUpdatedAtForSave\(\s*options\.contentBase,\s*documentUpdatedAtRef\.current,\s*\)/,
-    );
+    // oracle-change: the source checks became "gives the unload-safe copy the load
+    // watermark of the ordinary save" in DocumentEditor.recovery-save-state.test.tsx.
     expect(
       loadedUpdatedAtForSave(
         { updatedAt: "2026-09-30T22:59:32.852Z" },
@@ -3627,39 +3391,8 @@ describe("document editor layout", () => {
     expect(loadedUpdatedAtForSave(undefined, null)).toBeUndefined();
   });
 
-  it("journals a replacement attempt ID before any save branch sends it", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    ).replace(/\r\n/g, "\n");
-    const start = source.indexOf(
-      "const saveDocumentImmediately = useCallback(",
-    );
-    const end = source.indexOf("const queueDocumentSave = useCallback(");
-    expect(start).toBeGreaterThan(-1);
-    expect(end).toBeGreaterThan(start);
-    const save = source.slice(start, end);
-    const journal = save.indexOf(
-      "journalCurrentDraft(title, content, editorEditGeneration, {\n          saveAttemptId: adopted.saveAttemptId,\n          equivalentSaveAttemptIds: adopted.equivalentSaveAttemptIds,",
-    );
-    // An edit made since this save was queued owns the journal entry.
-    const guard = save.indexOf(
-      "adopted.saveAttemptId !== options.saveAttemptId &&\n        contentEditVersionRef.current === contentEditVersion &&\n        contentObservationEpochRef.current === contentObservationEpoch &&\n        editorEditGenerationRef.current === editorEditGeneration",
-    );
-
-    expect(save.indexOf("adoptOwnConfirmedBases(options,")).toBeGreaterThan(-1);
-    expect(guard).toBeGreaterThan(
-      save.indexOf("adoptOwnConfirmedBases(options,"),
-    );
-    expect(journal).toBeGreaterThan(guard);
-    // Unchanged attestations and title-only saves send without journaling.
-    expect(journal).toBeLessThan(
-      save.indexOf("shouldAttestUnchangedEditorSave("),
-    );
-    expect(journal).toBeLessThan(
-      save.indexOf("saved = await persistDocumentUpdates(updates, options);"),
-    );
-  });
+  // oracle-change: replaced by "journals the attempt that confirms words typed
+  // back to this tab's own save" in DocumentEditor.recovery-save-state.test.tsx.
 
   it("preserves unobserved overlapping edits before adopting the winner", () => {
     const source = readFileSync(
@@ -3691,47 +3424,17 @@ describe("document editor layout", () => {
     );
   });
 
-  it("keeps the canonical body read-only after collaborative initialization fails", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("initialization: collabInitialization");
-    expect(source).toContain('collabInitialization.status === "error"');
-    expect(source).toContain('collabInitialization.status === "ready"');
-    expect(source).toContain("collabSynced &&");
-    expect(source).toContain("!collabInitializationFailed");
-    expect(source).toContain("data-collab-initialization-error");
-    expect(source).toContain("onRetry={() => globalThis.location.reload()}");
-    expect(source).toContain("suggestionEditorIsolation.bindCanonicalYDoc");
-  });
+  // oracle-change: replaced by "keeps the page body read-only when its live copy
+  // fails to start" in DocumentEditor.recovery-save-state.test.tsx.
 
   // oracle-change: covered by "moves the typing onto the newer Page and saves
   //   it there, with no alert" and four sibling tests in
   //   DocumentEditor.recovery-save-state.test.tsx, which fail when a proposal
   //   takes the live body or revision.
 
-  it("confirms pending canonical edits before starting either suggestion entry path", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    const preparation = source.slice(
-      source.indexOf("const prepareSuggestionDraftDocument"),
-      source.indexOf("const continueSuggestionModeFrom"),
-    );
-
-    expect(preparation).toContain("await queueDocumentSave(title, content");
-    expect(preparation).toContain('"get-document"');
-    expect(preparation).toContain("refreshedDocument.content !== content");
-    expect(preparation).toContain("title === lastSavedTitleRef.current.title");
-    expect(preparation).toContain("lastSavedTitleRef.current.title !== title");
-    expect(preparation).toContain("refreshedDocument.title !== title");
-    expect(source.match(/startSuggestionDraft\(readyDocument/g)).toHaveLength(
-      4,
-    );
-  });
+  // oracle-change: replaced by "starts Suggesting only from a Page that holds the
+  // words typed before it" and "stays out of Suggesting when the words typed
+  // before it can't be saved" in DocumentEditor.recovery-save-state.test.tsx.
 
   // oracle-change: suggestion activation scrolling without taking Reply focus is now checked by behavior in suggestion-page-view.test.ts
   // oracle-change: replaced by "holds the draft still while leaving Suggesting
@@ -3739,73 +3442,14 @@ describe("document editor layout", () => {
   //   second-exit guard has no way in while the editor is frozen; removing it
   //   broke no test.
 
-  it("keeps Suggesting enabled while accept and reject reconcile", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    const decision = source.slice(
-      source.indexOf("const decideSingleSuggestion = async"),
-      source.indexOf("const renderCommentsSidebar"),
-    );
+  // oracle-change: replaced by "sends one decision for a Reject pressed twice and
+  // stays in Suggesting" and "shows the server's answer while a Reject that
+  // another tab beat to Accept reloads the Page" in DocumentEditor.recovery-save-state.test.tsx.
 
-    expect(decision).toContain("flushSuggestionDraft({ keepMode: true })");
-    expect(decision).toMatch(
-      /if \(continueSuggesting\) \{\s+const persisted = await flushSuggestionDraft\(\{ keepMode: true \}\)/,
-    );
-    expect(decision).toContain("suggestionDecisionInFlightRef.current = true");
-    expect(decision).toContain("suggestionDecisionInFlightRef.current = false");
-    expect(decision).toContain("if (result.suggestion.status !== decision)");
-    expect(decision).toContain("optimistic: false");
-    expect(source).toContain("!!pendingSuggestionDecision");
-    expect(decision).toContain("setPendingSuggestionDecision({");
-    expect(decision).toContain("continueSuggesting,");
-    expect(decision).toContain("await refreshSuggestionDecisionDocument(");
-    expect(decision).toContain('result.suggestion.status === "accepted"');
-    expect(decision).toContain(
-      "suggestionBaseRef.current?.existingSuggestion ?? null",
-    );
-    expect(source).toContain("setDecisionRefreshFailed(true)");
-    expect(source).toMatch(
-      /if \(decisionRefreshInFlightRef\.current === decisionGeneration\)\s+return \{ status: "in-flight" \}/,
-    );
-    expect(source).toContain(
-      "decisionRefreshInFlightRef.current = decisionGeneration",
-    );
-    expect(source).toContain(
-      "decisionGeneration !== suggestionDecisionGenerationRef.current",
-    );
-    expect(source).toMatch(
-      /decisionRefreshFailed &&\s+\(pendingSuggestionDecision \|\|\s+pendingProposalDecision\)/,
-    );
-    expect(source).toMatch(
-      /if \(!pendingSuggestionDecision\?\.continueSuggesting && !proposalMembers\)\s+return queuedSuggestions/,
-    );
-    expect(decision).not.toContain("setIsSuggesting(false)");
-  });
-
-  it("resets the live editor to canonical content before painting a rejected draft", () => {
-    const sessionSource = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    const editorSource = readFileSync(
-      new URL("./VisualEditor.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(sessionSource).toContain("contentResetKey={");
-    expect(sessionSource).toContain(
-      'pendingSuggestionDecision.optimistic ? "optimistic" : "canonical"',
-    );
-    expect(editorSource).toContain("useLayoutEffect(() => {");
-    expect(editorSource).toContain(
-      "appliedContentResetKeyRef.current === contentResetKey",
-    );
-    expect(editorSource).toContain(
-      ".setContent(nfmToDoc(content), { emitUpdate: false })",
-    );
-  });
+  // oracle-change: replaced by "shows the server's answer while a Reject that
+  // another tab beat to Accept reloads the Page" in DocumentEditor.recovery-save-state.test.tsx and "keeps a thread's
+  // highlight on text replaced before its new quote arrives" in
+  // VisualEditor.comment-highlights.test.tsx.
 
   it("composes saved and draft suggestion anchors in the active editor", () => {
     const source = readFileSync(
@@ -3818,21 +3462,9 @@ describe("document editor layout", () => {
     expect(source).toContain("suggestions={visualSuggestions}");
   });
 
-  it("opens comments for deep links and conflicts without coupling mode exit to navigation", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(
-      source.match(
-        /setUtilityPanel\("comments"\);\s+setCommentsBrowseOpen\(true\)/g,
-      ),
-    ).toHaveLength(2);
-    expect(source).not.toMatch(
-      /setIsSuggesting\(false\);[\s\S]{0,240}setUtilityPanel\("comments"\)/,
-    );
-  });
+  // oracle-change: replaced by "opens Discussion on the suggestion a link names"
+  // and "opens Discussion on a saved edit/proposal whose accept can't be placed
+  // instead of treating it as accepted" in DocumentEditor.recovery-save-state.test.tsx.
 
   it("lets slash-created page references use the editor save pipeline", () => {
     const documentEditorSource = readFileSync(
@@ -4400,20 +4032,8 @@ describe("document editor layout", () => {
     expect(source).toContain('menuItem.iconKind === "folder"');
   });
 
-  it("keeps filesystem time separate from the SQL save watermark", () => {
-    const source = readFileSync(
-      new URL("./DocumentEditor.tsx", import.meta.url),
-      {
-        encoding: "utf8",
-      },
-    );
-
-    expect(source).toContain(
-      "const sqlUpdatedAt = documentUpdatedAtRef.current",
-    );
-    expect(source).toContain("updatedAt: sqlUpdatedAt ?? persisted.updatedAt");
-    expect(source).toContain("updatedAt: document.updatedAt");
-  });
+  // oracle-change: replaced by "keeps the Page's own save time when an agent
+  // writes its linked file" in DocumentEditor.recovery-save-state.test.tsx.
 
   it("saves a new page after its own title edit instead of parking it in a draft", () => {
     // A new page: the query already holds the typed title, the save base is "".
