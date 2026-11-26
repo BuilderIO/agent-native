@@ -1060,6 +1060,30 @@ describe("focus after a decision", () => {
     await show([second]);
     expect(document.activeElement).toBe(document.body);
   });
+
+  it("goes to the open tab's editor when the page body's tab is hidden", async () => {
+    const body = document.createElement("div");
+    body.setAttribute("data-primary-block-field-panel", "");
+    body.hidden = true;
+    body.append(editor);
+    const open = document.createElement("div");
+    open.setAttribute("data-block-field-panel", "");
+    const field = document.createElement("div");
+    field.className = "content-editor";
+    field.setAttribute("contenteditable", "true");
+    field.tabIndex = -1;
+    open.append(field);
+    document.body.prepend(body, open);
+    try {
+      await show([first]);
+      await decide(first.id, "editor.acceptSuggestion", 0);
+      await show([]);
+      expect(document.activeElement).toBe(field);
+    } finally {
+      body.remove();
+      open.remove();
+    }
+  });
 });
 
 it.each(["ordinary", "suggestion"] as const)(

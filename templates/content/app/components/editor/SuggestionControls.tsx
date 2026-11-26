@@ -32,14 +32,15 @@ import { CommentIconButton } from "./CommentRow";
 import { reviewUnits } from "./thread-suggestions";
 
 function pageEditor() {
-  return (
-    document.querySelector<HTMLElement>(
-      "[data-primary-block-field-panel] .content-editor[contenteditable='true']",
-    ) ??
-    document.querySelector<HTMLElement>(
-      ".content-editor[contenteditable='true']",
-    )
-  );
+  let shown: HTMLElement | undefined;
+  for (const editor of document.querySelectorAll<HTMLElement>(
+    ".content-editor[contenteditable='true']",
+  )) {
+    if (editor.closest("[hidden], [inert]")) continue;
+    if (editor.closest("[data-primary-block-field-panel]")) return editor;
+    shown ??= editor;
+  }
+  return shown;
 }
 
 function useFocusAfterDecision(unitAttribute: string) {
