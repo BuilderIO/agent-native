@@ -128,6 +128,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import {
   memo,
+  startTransition,
   useContext,
   useEffect,
   useCallback,
@@ -292,6 +293,10 @@ import {
   BuilderArticleCellStatus,
 } from "../database-sources/BuilderArticleAutosave";
 import {
+  BuilderReviewOpeningPanel,
+  type BuilderReviewOpeningPanelHandle,
+} from "../database-sources/BuilderReviewOpeningPanel";
+import {
   BuilderSourceReviewDialog,
   type BuilderReviewPublicationTransitions,
 } from "../database-sources/BuilderSourceReviewDialog";
@@ -333,6 +338,12 @@ import {
 } from "./builder-source-progress";
 import { BuilderSourcePanel } from "./BuilderSourcePanel";
 import { BuilderSourceStatusLine } from "./BuilderSourceStatusLine";
+import {
+  ColumnFillCellBadge,
+  ColumnFillHeaderStatus,
+  ColumnFillProvider,
+  useColumnFillMenu,
+} from "./column-fill";
 import {
   ContentTableConstraintChip,
   ContentTableConstraintBar,
@@ -1000,6 +1011,22 @@ export function DatabaseView({
   );
 }
 
+function DatabaseViewContexts({
+  openComments,
+  columnFill,
+  children,
+}: {
+  openComments: OpenDatabaseItemComments | null;
+  columnFill: Omit<ComponentProps<typeof ColumnFillProvider>, "children">;
+  children: ReactNode;
+}) {
+  return (
+    <DatabaseItemCommentsContext.Provider value={openComments}>
+      <ColumnFillProvider {...columnFill}>{children}</ColumnFillProvider>
+    </DatabaseItemCommentsContext.Provider>
+  );
+}
+
 function DatabaseTable({
   document,
   databaseId: expectedDatabaseId,
@@ -1268,6 +1295,7 @@ function DatabaseTable({
   const [addPropertyOpenRequestId, setAddPropertyOpenRequestId] = useState(0);
   const [constraintMenus] = useState(createConstraintMenus);
   const [builderReviewOpen, setBuilderReviewOpen] = useState(false);
+  const builderReviewOpeningRef = useRef<BuilderReviewOpeningPanelHandle>(null);
 
   const [builderReviewSourceId, setBuilderReviewSourceId] = useState<
     string | null
@@ -2827,13 +2855,16 @@ function DatabaseTable({
     };
     builderReviewGenerationRef.current = session.generation;
     builderReviewSessionRef.current = session;
-    setBuilderReviewSourceId(sourceId);
-    setBuilderReviewResult(null);
-    setBuilderReviewCheckedAt(null);
-    setBuilderReviewError(null);
-    setPreparedBuilderReviewConfirmation(null);
-    setBuilderReviewSelectionRemap(null);
-    setBuilderReviewOpen(true);
+    builderReviewOpeningRef.current?.show();
+    startTransition(() => {
+      setBuilderReviewSourceId(sourceId);
+      setBuilderReviewResult(null);
+      setBuilderReviewCheckedAt(null);
+      setBuilderReviewError(null);
+      setPreparedBuilderReviewConfirmation(null);
+      setBuilderReviewSelectionRemap(null);
+      setBuilderReviewOpen(true);
+    });
   }
 
   function closeBuilderReview(force = false) {
@@ -2848,6 +2879,7 @@ function DatabaseTable({
     }
     builderReviewGenerationRef.current += 1;
     builderReviewSessionRef.current = null;
+    builderReviewOpeningRef.current?.hide();
     setBuilderReviewOpen(false);
     setBuilderReviewSourceId(null);
     setBuilderReviewResult(null);
@@ -3877,8 +3909,22 @@ function DatabaseTable({
       {/* Board and calendar cards share the table's row menu, so every view
           gets the handler. The read-only ChatGPT widget can't read or write
           Comments. */}
-      <DatabaseItemCommentsContext.Provider
-        value={document.mcpDirectoryWidgetReadOnly ? null : previewItemComments}
+      <DatabaseViewContexts
+        openComments={
+          document.mcpDirectoryWidgetReadOnly ? null : previewItemComments
+        }
+        columnFill={{
+          databaseId,
+          databaseDocumentId: document.id,
+          items: visibleItems,
+          moreRows: data?.pagination?.hasMore === true,
+          properties: orderedProperties,
+          enabled:
+            activeView.type === "table" &&
+            effectiveCanEdit &&
+            !document.mcpDirectoryWidgetReadOnly &&
+            !database.itemsFailed,
+        }}
       >
         {database.itemsFailed ? (
           <QueryErrorState
@@ -4175,7 +4221,7 @@ function DatabaseTable({
             onOpenPage={openItemPage}
           />
         )}
-      </DatabaseItemCommentsContext.Provider>
+      </DatabaseViewContexts>
 
       {hasMoreItems &&
       !isClientQueryExpansionPending &&
@@ -4398,6 +4444,10 @@ function DatabaseTable({
         onGroupsCollapsedChange={setGroupsCollapsed}
       />
 
+      <BuilderReviewOpeningPanel
+        ref={builderReviewOpeningRef}
+        dialogOpen={builderReviewOpen}
+      />
       <BuilderSourceReviewDialog
         open={builderReviewOpen}
         review={activeBuilderReview}
@@ -15941,6 +15991,7 @@ function DatabasePropertyHeader({
   const Icon = TYPE_ICONS[property.definition.type];
   const canReorder = canEdit;
   const narrow = width < NARROW_PROPERTY_HEADER_WIDTH;
+  const openFillWithAi = useColumnFillMenu(property);
   const nameTooltip = useTruncatedHeaderTooltip();
   const columnState = databaseColumnHeaderState(
     sorts,
@@ -16013,6 +16064,7 @@ function DatabasePropertyHeader({
               onHide={() =>
                 onPropertyHiddenChange(property.definition.id, true)
               }
+              onFillWithAi={openFillWithAi}
             />
           ) : (
             <DropdownMenu>
@@ -16052,6 +16104,13 @@ function DatabasePropertyHeader({
               />
             </DropdownMenu>
           )}
+          {!readOnlyPresentation ? (
+            <ColumnFillHeaderStatus
+              property={property}
+              width={width}
+              narrow={narrow}
+            />
+          ) : null}
           {!readOnlyPresentation ? (
             <ColumnResizeHandle
               label={`Resize ${property.definition.name} column`}
@@ -17348,6 +17407,10 @@ const DatabaseTableRow = memo(function DatabaseTableRow({
                 itemProperty.editable &&
                 propertyValueHasLinks(itemProperty)
               }
+            />
+            <ColumnFillCellBadge
+              propertyId={property.definition.id}
+              documentId={item.document.id}
             />
           </div>
         );

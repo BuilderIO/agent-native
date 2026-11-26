@@ -1,9 +1,14 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { getDbExec } from "@agent-native/core/db";
+import { withFederatedMembershipSnapshot } from "@agent-native/core/org";
+import { ensureSettingsStore } from "@agent-native/core/settings";
 import { z } from "zod";
 
+import { getDb } from "../server/db/index.js";
 import type {
   ContentDatabaseItemsPagePayload,
   ContentDatabaseNavigationPageResponse,
+  ContentDatabasePersonalViewOverrides,
   ContentDatabaseUnavailableResponse,
 } from "../shared/api.js";
 import { compactContentDatabaseResponse } from "../shared/database-row-properties.js";
@@ -69,6 +74,12 @@ export default defineAction({
           .describe(
             "Expanded document IDs, most important first; each one this read returns comes back with its first child page in branches, and branchesTruncated is true when the cap left any out",
           ),
+        pagesOnly: z
+          .boolean()
+          .optional()
+          .describe(
+            "true leaves out a linked local folder's subfolder rows, for a picker that only takes pages",
+          ),
         group: z
           .string()
           .min(1)
@@ -127,49 +138,71 @@ export default defineAction({
       });
     }
     const userEmail = ctx?.userEmail;
+    const databaseRef = {
+      ...(databaseId !== undefined ? { databaseId } : {}),
+      ...(documentId !== undefined ? { documentId } : {}),
+    };
     if (navigation && limit !== undefined && limit > 20) {
       fail("Files navigation supports at most 20 items per page.", {
         errorCode: "navigation_limit_exceeded",
         statusCode: 400,
       });
     }
-    // A person's saved order is theirs alone, so it is read while the
-    // database's access check runs; it is used only if that check passes.
-    // The check answers first: an unavailable database returns its typed
-    // response even when the saved order cannot be read.
-    const [resolved, [earlyOverrides]] = await Promise.all([
-      resolveContentDatabaseRead({ databaseId, documentId }),
-      Promise.allSettled(
-        navigation && userEmail && databaseId
-          ? [readPersonalDatabaseViewOverrides(userEmail, databaseId)]
-          : [],
-      ),
-    ]);
-    if (!resolved.available) return resolved;
-
     if (navigation) {
-      if (!userEmail) throw new Error("Not authenticated.");
-      if (earlyOverrides?.status === "rejected") throw earlyOverrides.reason;
-      return getContentDatabaseNavigationPage({
-        database: resolved.database,
-        userEmail,
-        overrides: earlyOverrides
-          ? earlyOverrides.value
-          : await readPersonalDatabaseViewOverrides(
-              userEmail,
-              resolved.database.id,
-            ),
-        parentId: navigation.parentId,
-        sort: navigation.sort,
-        viewId: navigation.viewId,
-        limit: limit ?? 20,
-        cursor: navigation.cursor,
-        expand: navigation.expand,
-        group: navigation.group,
-        locate: navigation.locate,
-      });
+      const [settingsReady] = await Promise.allSettled([ensureSettingsStore()]);
+      return withFederatedMembershipSnapshot(
+        () => resolveContentDatabaseRead(databaseRef),
+        async (preflight) => {
+          if (!preflight.available) return preflight;
+          if (!userEmail)
+            fail("Not authenticated.", {
+              errorCode: "unauthenticated",
+              statusCode: 401,
+            });
+          if (settingsReady.status === "rejected") throw settingsReady.reason;
+          return getDb().transaction(
+            async () => {
+              const resolved = await resolveContentDatabaseRead(databaseRef);
+              if (!resolved.available) return resolved;
+              const overrides = await readPersonalDatabaseViewOverrides(
+                userEmail,
+                resolved.database.id,
+                { transaction: getDbExec(), bypassCache: true },
+              );
+              return getContentDatabaseNavigationPage({
+                database: resolved.database,
+                userEmail,
+                overrides:
+                  overrides as ContentDatabasePersonalViewOverrides | null,
+                parentId: navigation.parentId,
+                sort: navigation.sort,
+                ...(navigation.viewId !== undefined
+                  ? { viewId: navigation.viewId }
+                  : {}),
+                limit: limit ?? 20,
+                ...(navigation.cursor !== undefined
+                  ? { cursor: navigation.cursor }
+                  : {}),
+                ...(navigation.expand !== undefined
+                  ? { expand: navigation.expand }
+                  : {}),
+                pagesOnly: navigation.pagesOnly ?? false,
+                ...(navigation.group !== undefined
+                  ? { group: navigation.group }
+                  : {}),
+                ...(navigation.locate !== undefined
+                  ? { locate: navigation.locate }
+                  : {}),
+              });
+            },
+            { isolationLevel: "repeatable read", accessMode: "read only" },
+          );
+        },
+      );
     }
 
+    const resolved = await resolveContentDatabaseRead(databaseRef);
+    if (!resolved.available) return resolved;
     let database = resolved.database;
     if (await refreshGitHubSourceBeforeRead(database.id)) {
       const reread = await resolveContentDatabaseRead({

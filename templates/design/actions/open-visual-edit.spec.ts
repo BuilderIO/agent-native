@@ -234,6 +234,10 @@ describe("open-visual-edit", () => {
     expect(action.mcpApp.resource.description).toContain("host coding agent");
   });
 
+  it("declares that opening the canvas is its job so an agent call is not refused for moving the view", () => {
+    expect(action.allowsAgentNavigation).toBe(true);
+  });
+
   it("uses the connection id returned by connect-localhost when no id is supplied", async () => {
     const result = await action.run({
       designId: "design_1",

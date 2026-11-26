@@ -65,7 +65,6 @@ vi.mock("@agent-native/toolkit/app/db-admin", () => ({
 vi.mock("@agent-native/toolkit/app/feedback", () => ({
   FeedbackButton: () => null,
 }));
-vi.mock("@/components/ThemeToggle", () => ({ ThemeToggle: () => null }));
 
 function setWindowWidth(width: number) {
   Object.defineProperty(window, "innerWidth", {

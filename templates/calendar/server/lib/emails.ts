@@ -5,6 +5,7 @@ import {
   renderBookingCancelledHostEmail,
   renderBookingConfirmedEmail,
   renderBookingReceivedEmail,
+  renderBookingReminderEmail,
 } from "./booking-emails.js";
 import { renderEventGuestNote } from "./event-guest-notifications.js";
 import { renderOverlayRequestEmail } from "./overlay-request-emails.js";
@@ -23,6 +24,7 @@ const SAMPLE_APP_LINK =
 
 export const CALENDAR_BOOKING_CONFIRMED_EMAIL_ID = "calendar.booking-confirmed";
 export const CALENDAR_BOOKING_RECEIVED_EMAIL_ID = "calendar.booking-received";
+export const CALENDAR_BOOKING_REMINDER_EMAIL_ID = "calendar.booking-reminder";
 export const CALENDAR_BOOKING_CANCELLED_EMAIL_ID = "calendar.booking-cancelled";
 export const CALENDAR_BOOKING_CANCELLED_HOST_EMAIL_ID =
   "calendar.booking-cancelled-host";
@@ -69,6 +71,27 @@ export function registerCalendarEmails(): void {
       "The configured EMAIL_FROM, with reply-to set to the booking link owner's address.",
     preview: () =>
       renderBookingConfirmedEmail({
+        title: SAMPLE_TITLE,
+        when: SAMPLE_WHEN,
+        host: SAMPLE_HOST,
+        manageUrl: SAMPLE_MANAGE_URL,
+        meetingLink: SAMPLE_MEETING_LINK,
+      }),
+  });
+
+  defineTransactionalEmail({
+    id: CALENDAR_BOOKING_REMINDER_EMAIL_ID,
+    name: "Booking reminder (guest)",
+    trigger:
+      "The booking link's reminder time before a confirmed booking arrives (1 hour or 1 day before, set per link; on at 1 day by default). Calendar's recurring sweep sends it once per booking, and skips bookings made after their reminder time.",
+    recipientLabel: "Booking guest",
+    recipient:
+      "The guest who booked (`booking.email`) and any additional guests they added.",
+    senderLabel: "Default, reply-to host",
+    sender:
+      "The configured EMAIL_FROM, with reply-to set to the booking link owner's address.",
+    preview: () =>
+      renderBookingReminderEmail({
         title: SAMPLE_TITLE,
         when: SAMPLE_WHEN,
         host: SAMPLE_HOST,

@@ -11,7 +11,7 @@ import {
   type EditorState,
   type Transaction,
 } from "@tiptap/pm/state";
-import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 
 import {
   isOpenSuggestionFrame,
@@ -176,16 +176,63 @@ export function isSuggestingEdits(state: EditorState): boolean {
   return readOnlyBlocksKey.get(state)?.spec.isSuggesting?.() === true;
 }
 
-export function suggestingReadOnlyBlocksPlugin(isSuggesting: () => boolean) {
+export const SUGGESTING_REFUSAL_PROBE = "suggestingRefusalProbe";
+
+const INPUT_EVENTS = [
+  "keydown",
+  "beforeinput",
+  "input",
+  "compositionend",
+  "paste",
+  "drop",
+  "cut",
+];
+
+const INPUT_WINDOW_MS = 250;
+
+export function suggestingReadOnlyBlocksPlugin(
+  isSuggesting: () => boolean,
+  onRefused?: () => void,
+) {
   let cached: { doc: ProseMirrorNode; decorations: DecorationSet } | null =
     null;
+  let input: { view: EditorView; at: number } | null = null;
   return new Plugin({
     key: readOnlyBlocksKey,
     isSuggesting,
-    filterTransaction: (transaction) =>
-      !isSuggesting() ||
-      !transaction.docChanged ||
-      !editsUnsupportedSuggestionNode(transaction),
+    view(editorView) {
+      const page = editorView.dom.ownerDocument;
+      const noteInput = (event: Event) => {
+        if (
+          event.target instanceof Node &&
+          editorView.dom.contains(event.target)
+        )
+          input = { view: editorView, at: performance.now() };
+      };
+      for (const type of INPUT_EVENTS)
+        page.addEventListener(type, noteInput, true);
+      return {
+        destroy() {
+          for (const type of INPUT_EVENTS)
+            page.removeEventListener(type, noteInput, true);
+        },
+      };
+    },
+    filterTransaction: (transaction, state) => {
+      if (
+        !isSuggesting() ||
+        !transaction.docChanged ||
+        !editsUnsupportedSuggestionNode(transaction)
+      )
+        return true;
+      if (
+        !transaction.getMeta(SUGGESTING_REFUSAL_PROBE) &&
+        input?.view.state === state &&
+        performance.now() - input.at < INPUT_WINDOW_MS
+      )
+        onRefused?.();
+      return false;
+    },
     props: {
       decorations(state) {
         if (!isSuggesting()) return null;
@@ -208,6 +255,7 @@ export function suggestingReadOnlyBlocksPlugin(isSuggesting: () => boolean) {
 
 export const SuggestingReadOnlyBlocks = Extension.create<{
   isSuggesting: () => boolean;
+  onRefused?: () => void;
 }>({
   name: "suggestingReadOnlyBlocks",
 
@@ -216,6 +264,11 @@ export const SuggestingReadOnlyBlocks = Extension.create<{
   },
 
   addProseMirrorPlugins() {
-    return [suggestingReadOnlyBlocksPlugin(this.options.isSuggesting)];
+    return [
+      suggestingReadOnlyBlocksPlugin(
+        this.options.isSuggesting,
+        this.options.onRefused,
+      ),
+    ];
   },
 });

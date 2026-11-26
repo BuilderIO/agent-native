@@ -1778,13 +1778,6 @@ function SourceFact({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
-function ingestSourceKey(source: BrainSource) {
-  const sourceKey = source.config?.sourceKey;
-  return typeof sourceKey === "string" && sourceKey.trim()
-    ? sourceKey.trim()
-    : null;
-}
-
 type MarkdownFileSelection = {
   path: string;
   file: File;
@@ -2306,7 +2299,10 @@ function SourceListItem({
                   </DropdownMenuItem>
                 ) : null}
                 {onRotateIngestToken ? (
-                  <DropdownMenuItem onSelect={onRotateIngestToken}>
+                  <DropdownMenuItem
+                    disabled={syncPending || updating}
+                    onSelect={onRotateIngestToken}
+                  >
                     <IconRefresh className="size-4" />
                     {t("sources.rotateIngestToken")}
                   </DropdownMenuItem>
@@ -2443,6 +2439,7 @@ export default function SourcesRoute() {
   const [setupOpen, setSetupOpen] = useState(false);
   const [ingestHandoff, setIngestHandoff] =
     useState<OneTimeIngestHandoff | null>(null);
+  const rotatingIngestToken = useRef(false);
   const [copiedHandoffField, setCopiedHandoffField] = useState<string | null>(
     null,
   );
@@ -2516,7 +2513,7 @@ export default function SourcesRoute() {
     Record<string, never>
   >("ensure-company-context-source", { errorNotification: "caller" });
   const rotateSourceIngestToken = useActionMutation<
-    CreateSourceResponse,
+    CreateSourceResponse & { sourceKey: string; ingestToken: string },
     { sourceId: string }
   >("rotate-source-ingest-token", { errorNotification: "caller" });
   const syncSource = useActionMutation<unknown, { sourceId: string }>(
@@ -2768,19 +2765,26 @@ export default function SourcesRoute() {
     setArchiveSource(null);
   }
 
-  async function rotateIngestToken(source: BrainSource) {
-    const sourceKey = ingestSourceKey(source);
-    if (!sourceKey) return;
-    const result = await rotateSourceIngestToken.mutateAsync({
-      sourceId: source.id,
-    });
-    const handoff = createOneTimeIngestHandoff({
-      origin: window.location.origin,
-      provider: source.provider ?? "",
-      result,
-      sourceKey,
-    });
-    if (handoff) setIngestHandoff(handoff);
+  function rotateIngestToken(source: BrainSource) {
+    if (rotatingIngestToken.current) return;
+    rotatingIngestToken.current = true;
+    rotateSourceIngestToken.mutate(
+      { sourceId: source.id },
+      {
+        onSuccess: (result) => {
+          const handoff = createOneTimeIngestHandoff({
+            origin: window.location.origin,
+            provider: source.provider ?? "",
+            result,
+            sourceKey: result.sourceKey,
+          });
+          if (handoff) setIngestHandoff(handoff);
+        },
+        onSettled: () => {
+          rotatingIngestToken.current = false;
+        },
+      },
+    );
   }
 
   function toggleCaptureSelection(captureId: string, checked: boolean) {
@@ -2874,8 +2878,8 @@ export default function SourcesRoute() {
                 onRotateIngestToken={
                   (source.provider === "clips" ||
                     source.provider === "generic") &&
-                  ingestSourceKey(source)
-                    ? () => void rotateIngestToken(source)
+                  source.hasIngestSourceKey
+                    ? () => rotateIngestToken(source)
                     : undefined
                 }
                 // Manual sources have no remote, so sync only reports an error.
@@ -2916,7 +2920,6 @@ export default function SourcesRoute() {
         connectionProvidersQuery.isError ||
         updateSource.isError ||
         createSource.isError ||
-        rotateSourceIngestToken.isError ||
         syncSource.isError ||
         syncDueSources.isError ||
         enqueueCapturesDistillation.isError ||
@@ -2925,6 +2928,25 @@ export default function SourcesRoute() {
             <EmptyActionState
               title={t("sources.actionFailedTitle")}
               detail={t("sources.actionFailedDetail")}
+            />
+          </div>
+        ) : null}
+
+        {rotateSourceIngestToken.isError ? (
+          <div>
+            <EmptyActionState
+              title={t("sources.actionFailedTitle")}
+              detail={
+                rotateSourceIngestToken.error instanceof Error &&
+                hasErrorCode(
+                  rotateSourceIngestToken.error,
+                  "source_config_conflict",
+                ) &&
+                "status" in rotateSourceIngestToken.error &&
+                rotateSourceIngestToken.error.status === 409
+                  ? t("sources.rotationConflictDetail")
+                  : t("sources.actionFailedDetail")
+              }
             />
           </div>
         ) : null}

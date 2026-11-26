@@ -121,7 +121,10 @@ it.each(seedScenarios)(
         updated_at TEXT NOT NULL DEFAULT NOW()::text
       )
     `);
-      vi.doMock("../db/client.js", () => ({ getDbExec: () => exec }));
+      vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
+        getDbExec: () => exec,
+      }));
       vi.doMock("../db/ddl-guard.js", () => ({
         ensureColumnExists: vi.fn().mockResolvedValue(undefined),
         ensureTableExists: vi.fn().mockResolvedValue(undefined),
@@ -210,7 +213,10 @@ it.each([
         paused: false,
         onMissingRead: async () => {},
       });
-      vi.doMock("../db/client.js", () => ({ getDbExec: () => exec }));
+      vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
+        getDbExec: () => exec,
+      }));
       vi.doMock("../db/ddl-guard.js", () => ({
         ensureColumnExists: vi.fn().mockResolvedValue(undefined),
         ensureTableExists: vi.fn().mockResolvedValue(undefined),
@@ -267,7 +273,10 @@ it("invalidates a cached empty doc after a client-backed seed before a write", a
       paused: false,
       onMissingRead: async () => {},
     });
-    vi.doMock("../db/client.js", () => ({ getDbExec: () => exec }));
+    vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
+      getDbExec: () => exec,
+    }));
     vi.doMock("../db/ddl-guard.js", () => ({
       ensureColumnExists: vi.fn().mockResolvedValue(undefined),
       ensureTableExists: vi.fn().mockResolvedValue(undefined),
@@ -319,7 +328,10 @@ it("accepts one initial XmlFragment seed across independent manager instances", 
         updated_at TEXT NOT NULL DEFAULT NOW()::text
       )
     `);
-    vi.doMock("../db/client.js", () => ({ getDbExec: () => exec }));
+    vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
+      getDbExec: () => exec,
+    }));
     vi.doMock("../db/ddl-guard.js", () => ({
       ensureColumnExists: vi.fn().mockResolvedValue(undefined),
       ensureTableExists: vi.fn().mockResolvedValue(undefined),
@@ -401,7 +413,10 @@ it.each([
         paused: false,
         onMissingRead: async () => {},
       });
-      vi.doMock("../db/client.js", () => ({ getDbExec: () => exec }));
+      vi.doMock("../db/client.js", () => ({
+        getEnclosingTransactionDbExec: () => undefined,
+        getDbExec: () => exec,
+      }));
       vi.doMock("../db/ddl-guard.js", () => ({
         ensureColumnExists: vi.fn().mockResolvedValue(undefined),
         ensureTableExists: vi.fn().mockResolvedValue(undefined),
@@ -480,7 +495,10 @@ it("replaces only an empty paragraph filler and broadcasts its removal", async (
       paused: false,
       onMissingRead: async () => {},
     });
-    vi.doMock("../db/client.js", () => ({ getDbExec: () => exec }));
+    vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
+      getDbExec: () => exec,
+    }));
     vi.doMock("../db/ddl-guard.js", () => ({
       ensureColumnExists: vi.fn().mockResolvedValue(undefined),
       ensureTableExists: vi.fn().mockResolvedValue(undefined),

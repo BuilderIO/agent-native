@@ -60,6 +60,7 @@ function runOperation<T>(
   operationId: string,
   agentThreadId: string,
   run: () => Promise<T>,
+  runId = `run-${operationId}`,
 ) {
   return runWithRequestContext(
     {
@@ -67,7 +68,7 @@ function runOperation<T>(
       run: {
         actionScope: { kind: "content-comment-ai", requestId: operationId },
         threadId: agentThreadId,
-        runId: `run-${operationId}`,
+        runId,
         model: "openai/gpt-5.6-sol",
       },
     },
@@ -502,6 +503,136 @@ describe("comment AI durable action binding", () => {
     });
   });
 
+  it("binds a Retry's turn, so the turn that ended can't send the new try to review", async () => {
+    const started = await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A)),
+    );
+    await bindTurn(OP_A);
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({ status: "needs-review" })
+      .where(eq(schema.commentAiRequests.id, OP_A));
+
+    await asUser(() =>
+      commentAi.resolveCommentAiActionSurface({
+        ownerEmail: OWNER,
+        threadId: started.agentThreadId,
+        queuedMessageId: "retry-operation",
+        requestedTurnId: "retry-turn",
+        actionScope: { kind: "content-comment-ai", requestId: OP_A },
+      }),
+    );
+    await runOperation(
+      OP_A,
+      started.agentThreadId,
+      async () => {
+        const request = await commentAi.requireCommentAiRequest("reply");
+        return commentAi.beginCommentAiAttempt(request);
+      },
+      "run-retry",
+    );
+
+    await expect(
+      asUser(() =>
+        commentAi.reconcileCommentAiSession({
+          operationId: OP_A,
+          threadId: started.agentThreadId,
+          turnId: TURN_ID,
+          status: "completed",
+          runId: "run-first",
+        }),
+      ),
+    ).rejects.toMatchObject({ errorCode: "comment_ai_turn_conflict" });
+    const [restarted] = await getDb()
+      .select()
+      .from(schema.commentAiRequests)
+      .where(eq(schema.commentAiRequests.id, OP_A));
+    expect(restarted).toMatchObject({
+      agentTurnId: "retry-turn",
+      status: "running",
+      runId: "run-retry",
+    });
+
+    const finished = await asUser(() =>
+      commentAi.reconcileCommentAiSession({
+        operationId: OP_A,
+        threadId: started.agentThreadId,
+        turnId: "retry-turn",
+        status: "completed",
+        runId: "run-retry",
+      }),
+    );
+    expect(finished).toMatchObject({
+      status: "needs-review",
+      errorCode: "run_unavailable",
+    });
+  });
+
+  it("lets one of two racing Retry turns take a stopped request and refuses the other", async () => {
+    const started = await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A)),
+    );
+    await bindTurn(OP_A);
+    await getDb()
+      .update(schema.commentAiRequests)
+      .set({ status: "needs-review" })
+      .where(eq(schema.commentAiRequests.id, OP_A));
+    const turns = ["retry-turn-a", "retry-turn-b"];
+
+    const outcomes = await Promise.allSettled(
+      turns.map((requestedTurnId) =>
+        asUser(() =>
+          commentAi.resolveCommentAiActionSurface({
+            ownerEmail: OWNER,
+            threadId: started.agentThreadId,
+            queuedMessageId: `${requestedTurnId}-operation`,
+            requestedTurnId,
+            actionScope: { kind: "content-comment-ai", requestId: OP_A },
+          }),
+        ),
+      ),
+    );
+
+    expect(outcomes.map((outcome) => outcome.status).sort()).toEqual([
+      "fulfilled",
+      "rejected",
+    ]);
+    expect(
+      outcomes.find((outcome) => outcome.status === "rejected"),
+    ).toMatchObject({ reason: { errorCode: "comment_ai_turn_conflict" } });
+    const [request] = await getDb()
+      .select()
+      .from(schema.commentAiRequests)
+      .where(eq(schema.commentAiRequests.id, OP_A));
+    expect(request).toMatchObject({
+      agentTurnId:
+        turns[outcomes.findIndex((outcome) => outcome.status === "fulfilled")],
+    });
+  });
+
+  it("keeps a working request on its own turn when another turn on its thread starts", async () => {
+    const started = await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A)),
+    );
+    await bindTurn(OP_A);
+
+    await asUser(() =>
+      commentAi.resolveCommentAiActionSurface({
+        ownerEmail: OWNER,
+        threadId: started.agentThreadId,
+        queuedMessageId: "follow-up-operation",
+        requestedTurnId: "follow-up-turn",
+        actionScope: { kind: "content-comment-ai", requestId: OP_A },
+      }),
+    );
+
+    const [request] = await getDb()
+      .select()
+      .from(schema.commentAiRequests)
+      .where(eq(schema.commentAiRequests.id, OP_A));
+    expect(request).toMatchObject({ status: "queued", agentTurnId: TURN_ID });
+  });
+
   it("fails closed when protected thread scope has no request binding", async () => {
     const agentThreadId = `agent-thread-${crypto.randomUUID()}`;
     await createThread(OWNER, {
@@ -649,6 +780,55 @@ describe("operation-scoped refresh and commits", () => {
       status: "needs-review",
       attemptCount: 2,
       errorCode: "refresh_exhausted",
+    });
+  });
+
+  it("gives a new run, such as a Retry, its own two reasoning attempts", async () => {
+    const started = await asUser(() =>
+      commentAi.startCommentAiRequest(startArgs(OP_A, ROOT_A, "reply")),
+    );
+    const begin = (runId?: string) =>
+      runOperation(
+        OP_A,
+        started.agentThreadId,
+        async () => {
+          const request = await commentAi.requireCommentAiRequest("reply");
+          return commentAi.beginCommentAiAttempt(request);
+        },
+        runId,
+      );
+    const endInReview = async ({
+      attempt,
+    }: {
+      attempt: { id: string } | null;
+    }) => {
+      if (!attempt)
+        throw new Error("The run did not start a reasoning attempt.");
+      await commentAi.completeCommentAiAttempt(attempt.id, "needs-review");
+      await getDb()
+        .update(schema.commentAiRequests)
+        .set({ status: "needs-review" })
+        .where(eq(schema.commentAiRequests.id, OP_A));
+    };
+
+    await endInReview(await begin());
+    await endInReview(await begin());
+    await expect(begin()).rejects.toMatchObject({ code: "refresh_exhausted" });
+
+    const retried = await begin("run-retry");
+
+    expect(retried.attempt).toMatchObject({
+      attemptNumber: 3,
+      status: "reasoning",
+    });
+    const [request] = await getDb()
+      .select()
+      .from(schema.commentAiRequests)
+      .where(eq(schema.commentAiRequests.id, OP_A));
+    expect(request).toMatchObject({
+      status: "running",
+      attemptCount: 3,
+      errorCode: null,
     });
   });
 

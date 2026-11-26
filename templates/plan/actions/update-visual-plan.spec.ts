@@ -30,18 +30,22 @@ const normalizePlanContentMock = vi.hoisted(() =>
 const originalAuthMode = process.env.AUTH_MODE;
 const originalPlanLocalMode = process.env.PLAN_LOCAL_MODE;
 
-const mirrorMock = vi.hoisted(() => ({
-  comments: vi.fn(async (..._args: unknown[]) => undefined),
-  deleted: vi.fn(async (..._args: unknown[]) => undefined),
-}));
+const writePlanCommentRowsMock = vi.hoisted(() =>
+  vi.fn(async (..._args: unknown[]) => undefined),
+);
 
 vi.mock("@agent-native/core/review", () => ({
   ensureReviewTables: vi.fn(async () => undefined),
 }));
 
-vi.mock("../server/lib/plan-comment-mirror.js", () => ({
-  mirrorPlanComments: mirrorMock.comments,
-  deleteMirroredPlanComments: mirrorMock.deleted,
+vi.mock("../server/lib/plan-comments.js", async () => ({
+  completePlanCommentRow: (
+    await vi.importActual<typeof import("../server/lib/plan-comments.js")>(
+      "../server/lib/plan-comments.js",
+    )
+  ).completePlanCommentRow,
+  listPlanCommentRows: vi.fn(async () => []),
+  writePlanCommentRows: writePlanCommentRowsMock,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -184,7 +188,8 @@ vi.mock("../server/plans.js", async () => {
     }),
     emitPlanCommented: vi.fn(),
     emitPlanStatusChanged: vi.fn(),
-    withFreshIdsForKitHeldComments: (rows: unknown) => Promise.resolve(rows),
+    withFreshIdsForKitHeldComments: (_planId: string, rows: unknown) =>
+      Promise.resolve(rows),
     writeEvent: vi.fn(),
   };
 });
@@ -323,6 +328,7 @@ function useSuccessfulDb() {
 describe("update-visual-plan comments", () => {
   beforeEach(() => {
     request.email = undefined;
+    writePlanCommentRowsMock.mockClear();
     assertPlanEditorMock.mockReset();
     assertPlanEditorMock.mockResolvedValue(undefined);
     buildUpdatedPlanCommentRowsMock.mockReset();
@@ -591,11 +597,11 @@ describe("update-visual-plan comments", () => {
         updatedAt: "2026-06-05T00:00:00.000Z",
       }),
     );
-    expect(txInsertValuesMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: "comment_test",
-        kind: "annotation",
-      }),
+    expect(writePlanCommentRowsMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "plan_public",
+      [expect.objectContaining({ id: "comment_test", kind: "annotation" })],
+      [],
     );
     expect(txInsertValuesMock).toHaveBeenCalledWith(
       expect.objectContaining({

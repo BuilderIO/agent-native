@@ -395,12 +395,21 @@ export async function resolveCredential(
  *    channel) and whether Settings lets a member save that key as Personal
  *    are both unknown here, so "the integration did it" and "save your own"
  *    are each wrong for some runs. The fix comes first, so a chat stop's
- *    240-character headline keeps it for every key name.
+ *    240-character headline keeps it.
  *  - The key is saved in a DIFFERENT organization the caller also belongs to.
  *    Credentials are per-organization, so gaining a second organization (or
  *    having `active-org-id` repointed at one) orphans every key synced under
  *    the first. Without this, the only symptom is a missing-env-var error that
- *    names the key rather than the org mismatch that actually caused it.
+ *    names the key rather than the org mismatch that actually caused it. Its
+ *    two fixes come first too, so the same headline keeps both. The
+ *    organization's name has no length limit, so it comes after both fixes,
+ *    where a long one is all the cut can drop.
+ *
+ * Neither message names the key before its fixes, since its name has no
+ * length limit either: both callers' sentence before it already names what's
+ * missing, and their "Tried:" list after it names the keys. When more than
+ * one key was tried, the message ends by naming the one it found, which that
+ * list can't show.
  *
  * SECURITY: both probes are bounded to organizations the caller is a member
  * of, report only the scope kind (and, for the cross-org case, the name of an
@@ -439,11 +448,12 @@ export async function describeCredentialScopeGap(
   const scopedCtx: CredentialContext = { ...ctx, orgId: orgLookup.orgId };
 
   for (const key of keys) {
+    const found = keys.length > 1 ? ` The saved key is ${key}.` : "";
     if (await hasForeignPersonalCredentialInOrg(key, scopedCtx)) {
       return (
-        `Ask an organization owner or admin to save "${key}" with ` +
-        `Workspace or Organization scope. This workspace has it only as a ` +
-        `Personal key, which works only for the member who saved it.`
+        `Ask an organization owner or admin to save it with Workspace or ` +
+        `Organization scope. This workspace has it only as a ` +
+        `Personal key, which works only for the member who saved it.${found}`
       );
     }
 
@@ -451,13 +461,11 @@ export async function describeCredentialScopeGap(
       ? null
       : await findMemberOrgHoldingCredential(key, scopedCtx);
     if (holder) {
+      const target = holder.name ? `"${holder.name}", where` : "one where";
       return (
-        `A "${key}" key is saved in the ${holder} organization, but this ` +
-        `request resolved to a different organization you also belong to. ` +
-        `Credentials are scoped per organization and are not shared between ` +
-        `them, so this is an organization mismatch rather than a missing key. ` +
-        `Either switch your active organization back to ${holder}, or save ` +
-        `"${key}" in the organization this request runs in.`
+        `Save it in this organization, or switch your active organization ` +
+        `to ${target} it's saved. Credentials aren't shared between ` +
+        `organizations.${found}`
       );
     }
   }
@@ -489,7 +497,7 @@ async function hasForeignPersonalCredentialInOrg(
 async function findMemberOrgHoldingCredential(
   key: string,
   ctx: CredentialContext,
-): Promise<string | null> {
+): Promise<{ name: string | null } | null> {
   try {
     const { rows } = await getDbExec().execute({
       sql: `SELECT o.name AS org_name
@@ -506,9 +514,9 @@ async function findMemberOrgHoldingCredential(
     });
     if (rows.length === 0) return null;
     const name = (rows[0] as { org_name?: unknown }).org_name;
-    return typeof name === "string" && name.trim()
-      ? `"${name.trim()}"`
-      : "another";
+    return {
+      name: typeof name === "string" && name.trim() ? name.trim() : null,
+    };
   } catch {
     return null;
   }

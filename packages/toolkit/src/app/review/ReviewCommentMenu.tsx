@@ -39,6 +39,7 @@ export function ReviewCommentMenu({
   className,
 }: ReviewCommentMenuProps) {
   const editChosenRef = useRef(false);
+  const deleteChosenRef = useRef(false);
   if (!onEdit && !onDelete) return null;
   return (
     <DropdownMenu>
@@ -66,6 +67,10 @@ export function ReviewCommentMenu({
           // Edit puts focus in its composer; leave it there.
           if (editChosenRef.current) event.preventDefault();
           editChosenRef.current = false;
+          if (!deleteChosenRef.current) return;
+          deleteChosenRef.current = false;
+          event.preventDefault();
+          onDelete?.();
         }}
       >
         {onEdit ? (
@@ -86,7 +91,9 @@ export function ReviewCommentMenu({
               ITEM_CLASS,
               "text-destructive focus:text-destructive",
             )}
-            onSelect={onDelete}
+            onSelect={() => {
+              deleteChosenRef.current = true;
+            }}
           >
             {deleteLabel}
           </DropdownMenuItem>

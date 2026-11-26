@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { resolve } from "path";
 
 import tailwindcss from "@tailwindcss/vite";
@@ -6,6 +8,7 @@ import { defineConfig } from "electron-vite";
 import type { Plugin } from "vite";
 
 import desktopPackage from "./package.json";
+import { findUnpackagedImports, packagedModuleNames } from "./packaged-imports";
 
 function desktopDependencyExternal(
   exclude: string[],
@@ -142,6 +145,41 @@ function assertElectronIsExternalPlugin(): Plugin {
   };
 }
 
+function assertExternalImportsArePackagedPlugin(): Plugin {
+  return {
+    name: "agent-native:assert-external-imports-are-packaged",
+    generateBundle(_options, bundle) {
+      const external = Object.values(bundle)
+        .flatMap((output) =>
+          output.type === "chunk"
+            ? [...output.imports, ...output.dynamicImports]
+            : [],
+        )
+        .filter((id) => !(id in bundle));
+      const desktopRequire = createRequire(resolve("package.json"));
+      const missing = findUnpackagedImports({
+        specifiers: new Set(external),
+        packaged: packagedModuleNames(
+          readFileSync(resolve("electron-builder.yml"), "utf8"),
+        ),
+        readImportsOf: "@agent-native/core",
+        resolveFile: (specifier) => desktopRequire.resolve(specifier),
+      });
+      if (missing.length === 0) return;
+      throw new Error(
+        [
+          "The packaged app would not start: electron-builder.yml leaves out packages its main process imports.",
+          ...missing.map(
+            ({ specifier, importedThrough }) =>
+              `- ${specifier}, imported through ${[...importedThrough, specifier].join(" > ")}`,
+          ),
+          'Add each one to "files" in packages/desktop-app/electron-builder.yml, or stop importing it.',
+        ].join("\n"),
+      );
+    },
+  };
+}
+
 function firstNonEmpty(...values: Array<string | undefined>): string {
   for (const value of values) {
     const trimmed = value?.trim();
@@ -228,7 +266,10 @@ const desktopDefines = {
 export default defineConfig({
   main: {
     define: desktopDefines,
-    plugins: [assertElectronIsExternalPlugin()],
+    plugins: [
+      assertElectronIsExternalPlugin(),
+      assertExternalImportsArePackagedPlugin(),
+    ],
     resolve: {
       alias: {
         "@shared": resolve("shared"),

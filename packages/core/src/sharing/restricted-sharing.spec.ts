@@ -13,6 +13,7 @@ import { createSharesTable, type ShareRole } from "./schema.js";
 
 vi.mock("../db/client.js", () => {
   return {
+    getEnclosingTransactionDbExec: () => undefined,
     getDbExec: () => sharedClient,
     getScopedDbExec: () => undefined,
     isProductionServerlessFunctionRuntime: () => false,

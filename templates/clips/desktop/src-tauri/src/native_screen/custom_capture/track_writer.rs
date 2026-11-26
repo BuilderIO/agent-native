@@ -110,11 +110,19 @@ impl TrackWriter {
             static AVMediaTypeVideo: *const AnyObject;
             static AVMediaTypeAudio: *const AnyObject;
             static AVFileTypeProfileMPEG4AppleHLS: *const AnyObject;
+            static AVFileTypeProfileMPEG4CMAFCompliant: *const AnyObject;
         }
 
         let media_type = match media {
             TrackMedia::Video { .. } => AVMediaTypeVideo,
             TrackMedia::Audio { .. } => AVMediaTypeAudio,
+        };
+        // The AAC encoder puts 44 ms of lead-in before the sound. The HLS
+        // profile starts the file with it, so sound from the recording's first
+        // 44 ms can't keep its time; the CMAF profile's edit list drops it.
+        let profile = match media {
+            TrackMedia::Video { .. } => AVFileTypeProfileMPEG4AppleHLS,
+            TrackMedia::Audio { .. } => AVFileTypeProfileMPEG4CMAFCompliant,
         };
         let writer_cls =
             av_class_named("AVAssetWriter").ok_or_else(|| "AVAssetWriter missing".to_string())?;
@@ -168,8 +176,7 @@ impl TrackWriter {
             let _: () = msg_send![&*writer_ptr, setPreferredOutputSegmentInterval: interval];
             let _: () =
                 msg_send![&*writer_ptr, setInitialSegmentStartTime: track_time(0.0, timescale)];
-            let _: () =
-                msg_send![&*writer_ptr, setOutputFileTypeProfile: AVFileTypeProfileMPEG4AppleHLS];
+            let _: () = msg_send![&*writer_ptr, setOutputFileTypeProfile: profile];
             let _: () = msg_send![&*writer_ptr, setDelegate: &*delegate];
             let _: () = msg_send![&*input_ptr, setExpectsMediaDataInRealTime: true];
             // An audio input takes no media timescale; its sample rate is it.
@@ -359,4 +366,116 @@ pub(super) unsafe fn h264_settings(
     );
     av_dict_set(&settings, AVVideoCompressionPropertiesKey, &compression);
     Ok(settings)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{av_audio_output_settings, LiveAudioMixer};
+    use super::*;
+    use std::time::Instant;
+
+    const SAMPLE_RATE: i32 = 48_000;
+    const BUFFER_FRAMES: usize = 480;
+    /// The lead-in the AAC encoder puts before the sound: 44 ms.
+    const LEAD_IN_FRAMES: u64 = 2112;
+    const READY_TIMEOUT: Duration = Duration::from_secs(10);
+
+    fn be_u32(bytes: &[u8]) -> u32 {
+        u32::from_be_bytes(bytes[..4].try_into().unwrap())
+    }
+
+    fn be_u64(bytes: &[u8]) -> u64 {
+        u64::from_be_bytes(bytes[..8].try_into().unwrap())
+    }
+
+    /// What the first box at `path` holds, or nothing without one.
+    fn first_box<'a>(bytes: &'a [u8], path: &[&[u8; 4]]) -> Option<&'a [u8]> {
+        let Some((kind, inner)) = path.split_first() else {
+            return Some(bytes);
+        };
+        let mut rest = bytes;
+        while rest.len() >= 8 {
+            let size = be_u32(rest) as usize;
+            assert!((8..=rest.len()).contains(&size), "box of {size} bytes");
+            if &rest[4..8] == *kind {
+                return first_box(&rest[8..size], inner);
+            }
+            rest = &rest[size..];
+        }
+        None
+    }
+
+    /// The decode time of the file's first fragment.
+    fn first_decode_time(file: &[u8]) -> u64 {
+        let tfdt = first_box(file, &[b"moof", b"traf", b"tfdt"]).expect("a first fragment");
+        match tfdt[0] {
+            0 => be_u32(&tfdt[4..]).into(),
+            _ => be_u64(&tfdt[4..]),
+        }
+    }
+
+    /// Where the file's one edit starts playing its media.
+    fn edit_media_time(file: &[u8]) -> Option<u64> {
+        let elst = first_box(file, &[b"moov", b"trak", b"edts", b"elst"])?;
+        assert_eq!(be_u32(&elst[4..]), 1, "edits");
+        Some(match elst[0] {
+            0 => be_u32(&elst[12..]).into(),
+            _ => be_u64(&elst[16..]),
+        })
+    }
+
+    /// The bytes of a sound file whose first buffer starts `start_frame`
+    /// frames into the recording.
+    fn sound_file(start_frame: i64) -> Vec<u8> {
+        let path = std::env::temp_dir().join(format!(
+            "clips-track-writer-{}-{start_frame}.mp4",
+            std::process::id()
+        ));
+        let mixer = LiveAudioMixer::new(false, true, true, false).unwrap();
+        // SAFETY: this thread makes the writer and is the only one to use it.
+        unsafe {
+            let settings = av_audio_output_settings().unwrap();
+            let media = TrackMedia::Audio {
+                sample_rate: SAMPLE_RATE,
+            };
+            let writer = TrackWriter::create(&path, media, &settings).unwrap();
+            writer.start().unwrap();
+            let mut frame = start_frame;
+            for _ in 0..200 {
+                let deadline = Instant::now() + READY_TIMEOUT;
+                while !writer.is_ready() {
+                    assert!(
+                        Instant::now() < deadline,
+                        "writer not ready for more sound{}",
+                        av_writer_error_suffix(&writer.writer)
+                    );
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                let buffer = mixer
+                    .build_sample_buffer(&[0.0; BUFFER_FRAMES * 2], frame)
+                    .unwrap();
+                writer.append(&buffer).unwrap();
+                frame += BUFFER_FRAMES as i64;
+            }
+            writer
+                .finish(frame as f64 / f64::from(SAMPLE_RATE))
+                .unwrap();
+            assert_eq!(writer.sink_failure(), None);
+        }
+        let file = std::fs::read(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+        file
+    }
+
+    #[test]
+    fn sound_keeps_its_recording_time() {
+        // 5 ms in, sooner than the encoder's lead-in lasts, and 500 ms in.
+        for start_frame in [240, 24_000] {
+            let file = sound_file(start_frame);
+            // The first fragment is the lead-in, then the sound: it decodes at
+            // the sound's own time because the edit starts past the lead-in.
+            assert_eq!(first_decode_time(&file), start_frame as u64);
+            assert_eq!(edit_media_time(&file), Some(LEAD_IN_FRAMES));
+        }
+    }
 }

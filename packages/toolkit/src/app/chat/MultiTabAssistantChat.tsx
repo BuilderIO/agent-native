@@ -2142,6 +2142,7 @@ export function MultiTabAssistantChat({
     // are removed from the sidebar on load but remain accessible via history.
     const now = Date.now();
     const isStale = (id: string) => {
+      if (id === urlThreadIdRef.current) return false;
       const thread = threadMap.get(id);
       return thread
         ? now - thread.updatedAt > STALE_THREAD_THRESHOLD_MS
@@ -2204,6 +2205,7 @@ export function MultiTabAssistantChat({
     const activeThread = threads.find((thread) => thread.id === activeThreadId);
     if (
       activeThread &&
+      activeThreadId !== urlThreadIdRef.current &&
       Date.now() - activeThread.updatedAt > STALE_THREAD_THRESHOLD_MS
     ) {
       return;

@@ -2,6 +2,8 @@ import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js"
 
 export default {
   common: {
+    calendarRateLimited:
+      "Google カレンダーのリクエストが制限されています。保存済みの予定は最新でない可能性があります。",
     connect: "接続",
     connected: "接続済み",
     connecting: "接続中...",
@@ -572,6 +574,12 @@ export default {
     custom: "カスタム",
     customLink: "カスタムリンク",
     customLinkDescription: "会議 URL を貼り付けます",
+    reminderEmail: "リマインダーメール",
+    reminderEmailDescription:
+      "予約した人と、その人が追加したゲストに送信されます。",
+    reminderOff: "リマインダーなし",
+    reminderOneHour: "1時間前",
+    reminderOneDay: "1日前",
     date: "日付",
     dateAndTime: "日時",
     dateSelection: "日付選択",

@@ -174,7 +174,13 @@ export function renderLeftSidebar({
   const { handleLayerLeave } = editorCanvasAndScreens;
   const { initialGenerationChromeLimited, resolveAssetScreenPoint } =
     editorLiveEditsAndPresence;
-  const { hoveredCodeLayerNode } = editorContentAndComponents;
+  const {
+    hoveredCodeLayerNode,
+    handleOpenLibraryComponent,
+    libraryComponents,
+    libraryComponentsLoading,
+    setLibraryComponentsOpen,
+  } = editorContentAndComponents;
   const { designExtensionContext } = editorSelectionAndStyles;
   const { handleSidebarScreenSelect } = editorModes;
   const { layersPanelRef } = editorExportAndHandoff;
@@ -295,6 +301,15 @@ export function renderLeftSidebar({
                   expandedIds={layerPanelExpandedIds}
                   searchQuery={layersSearchQuery}
                   onScreenSelect={handleSidebarScreenSelect}
+                  components={libraryComponents}
+                  componentsLoading={libraryComponentsLoading}
+                  onComponentsExpandedChange={setLibraryComponentsOpen}
+                  onComponentSelect={(component) =>
+                    void handleOpenLibraryComponent({
+                      fileId: component.sampleFileId,
+                      nodeId: component.sampleNodeId,
+                    })
+                  }
                   onAddScreen={
                     canEditDesign ? handleAddScreenAffordance : undefined
                   }
@@ -425,10 +440,12 @@ export function renderLeftSidebar({
             >
               {id && canEditDesign && !shellMode ? (
                 <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
-                  <TokensPanel
-                    designId={id}
-                    onTokensApplied={handleTokensApplied}
-                  />
+                  {activeLeftPanel === "library" ? (
+                    <TokensPanel
+                      designId={id}
+                      onTokensApplied={handleTokensApplied}
+                    />
+                  ) : null}
                 </div>
               ) : (
                 <ReadOnlyEditorPanel

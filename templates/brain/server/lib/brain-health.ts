@@ -2,7 +2,12 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { getSetting, putSetting } from "@agent-native/core/settings";
+import {
+  getOrgSetting,
+  getSetting,
+  putOrgSetting,
+  putSetting,
+} from "@agent-native/core/settings";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { listWorkspaceConnectionProviderCatalogForApp } from "@agent-native/core/workspace-connections";
 import { and, desc, eq, inArray, isNull, ne, or } from "drizzle-orm";
@@ -108,12 +113,20 @@ export async function writeBrainEvalSnapshot(result: EvalResultLike) {
     fallbackSeeded: result.fallbackSeeded,
     ranAt: new Date().toISOString(),
   };
-  await putSetting(LAST_EVAL_SETTINGS_KEY, { ...snapshot }).catch(() => {});
+  const orgId = getRequestOrgId();
+  await (
+    orgId
+      ? putOrgSetting(orgId, LAST_EVAL_SETTINGS_KEY, { ...snapshot })
+      : putSetting(LAST_EVAL_SETTINGS_KEY, { ...snapshot })
+  ).catch(() => {});
   return snapshot;
 }
 
 export async function readBrainEvalSnapshot() {
-  const value = await getSetting(LAST_EVAL_SETTINGS_KEY).catch(() => null);
+  const orgId = getRequestOrgId();
+  const value = await (orgId
+    ? getOrgSetting(orgId, LAST_EVAL_SETTINGS_KEY)
+    : getSetting(LAST_EVAL_SETTINGS_KEY));
   if (!value || typeof value !== "object") return null;
   const snapshot = value as Partial<BrainEvalSnapshot>;
   if (

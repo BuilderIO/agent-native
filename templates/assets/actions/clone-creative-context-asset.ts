@@ -23,6 +23,7 @@ export default defineAction({
     title: z.string().optional(),
   }),
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
+  mcpTool: "search",
   run: async (args) => {
     await requireLibrary(args.libraryId);
     const reference = await resolveNativeContextCloneReference({

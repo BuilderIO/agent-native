@@ -26,6 +26,8 @@ export {
 
 export { startLocalPlanBridge } from "./cli/plan-local.js";
 
+export { readDevActionDiscoveryFile } from "./server/dev-action-discovery.js";
+
 export {
   prepareDesignConnectManifest,
   startDesignConnectBridge,

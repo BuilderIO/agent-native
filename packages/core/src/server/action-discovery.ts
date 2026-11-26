@@ -22,6 +22,7 @@ async function getFs(): Promise<typeof import("fs")> {
 }
 import { fileURLToPath } from "node:url";
 
+import { scanActionDir } from "./action-files.js";
 import { importRuntimeSourceModule } from "./runtime-source-module.js";
 
 const SKIP_FILES = new Set([
@@ -33,13 +34,6 @@ const SKIP_FILES = new Set([
   "migrate-production",
 ]);
 
-function isRuntimeSourceFile(filename: string): boolean {
-  if (!/\.(ts|js)$/.test(filename)) return false;
-  if (/\.d\.ts$/.test(filename)) return false;
-  if (/\.(test|spec)\.(ts|js)$/.test(filename)) return false;
-  return true;
-}
-
 // Dev agent chat imports each of these files to read its tool definition, which
 // executes the module. `scripts/` holds CLI scripts with top-level side effects
 // (one closed the shared database at boot), so only `actions/` is listed.
@@ -47,16 +41,9 @@ export async function listDevActionFiles(cwd: string): Promise<string[]> {
   const fs = await getFs();
   const actionsDir = nodePath.join(cwd, "actions");
   if (!fs.existsSync(actionsDir)) return [];
-  return fs
-    .readdirSync(actionsDir)
-    .filter(
-      (f: string) =>
-        f.endsWith(".ts") &&
-        !f.startsWith("_") &&
-        !/\.(test|spec)\.ts$/.test(f) &&
-        !SKIP_FILES.has(f.replace(/\.ts$/, "")),
-    )
-    .map((f: string) => nodePath.join(actionsDir, f));
+  return scanActionDir(actionsDir, SKIP_FILES).map((f) =>
+    nodePath.join(actionsDir, f.relPath),
+  );
 }
 
 const PACKAGE_ACTION_REGISTRY_KEY = Symbol.for(
@@ -164,25 +151,12 @@ async function loadActionsIntoRegistry(
   registry: Record<string, ActionEntry>,
   skipExisting: boolean,
 ): Promise<void> {
-  let files: string[];
-  try {
-    const fs = await getFs();
-    if (!fs.existsSync(actionsDir)) return;
-    files = fs.readdirSync(actionsDir);
-  } catch {
-    return;
-  }
+  let actionFiles: { relPath: string; name: string }[];
+  const fs = await getFs();
+  if (!fs.existsSync(actionsDir)) return;
+  actionFiles = scanActionDir(actionsDir, SKIP_FILES);
 
-  const actionFiles = files.filter((f) => {
-    if (!isRuntimeSourceFile(f)) return false;
-    const name = f.replace(/\.(ts|js)$/, "");
-    if (name.startsWith("_")) return false;
-    if (SKIP_FILES.has(name)) return false;
-    return true;
-  });
-
-  for (const file of actionFiles) {
-    const name = file.replace(/\.(ts|js)$/, "");
+  for (const { relPath: file, name } of actionFiles) {
     if (skipExisting && registry[name]) continue;
 
     const filePath = nodePath.join(actionsDir, file);

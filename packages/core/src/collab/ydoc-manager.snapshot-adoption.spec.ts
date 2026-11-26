@@ -98,7 +98,10 @@ async function setUp(docId: string) {
     },
   };
   const emit = vi.fn();
-  vi.doMock("../db/client.js", () => ({ getDbExec: () => exec }));
+  vi.doMock("../db/client.js", () => ({
+    getEnclosingTransactionDbExec: () => undefined,
+    getDbExec: () => exec,
+  }));
   vi.doMock("../db/ddl-guard.js", () => ({
     ensureColumnExists: vi.fn().mockResolvedValue(undefined),
     ensureTableExists: vi.fn().mockResolvedValue(undefined),

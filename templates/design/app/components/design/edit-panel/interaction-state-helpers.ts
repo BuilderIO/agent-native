@@ -13,6 +13,8 @@ export const AUTHORED_INLINE_STYLE_PROPERTIES = [
   "scale",
   "lineHeight",
   "letterSpacing",
+  "fontSize",
+  "opacity",
   "gridTemplateColumns",
   "gridTemplateRows",
   "gridAutoFlow",

@@ -186,14 +186,31 @@ describe("isWaitingOnApprovalRequest", () => {
       isWaitingOnApprovalRequest({
         ...waiting(),
         approvals: {},
-      }),
+        approvalRunIds: {},
+        events: [
+          {
+            type: "approval.requested",
+            runId: "run-1",
+            request: { id: "approval-1" },
+          },
+          {
+            type: "approval.resolved",
+            runId: "run-1",
+            approvalId: "approval-1",
+          },
+        ],
+      } as unknown as AgentThreadState),
     ).toBe(false);
+  });
+
+  it("stays true for a paused run restored before its approval request", () => {
     expect(
       isWaitingOnApprovalRequest({
         ...waiting(),
-        approvalRunIds: { "approval-1": "run-0" },
+        approvals: {},
+        approvalRunIds: {},
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("requires every active run to be waiting on an approval", () => {

@@ -85,6 +85,7 @@ export default defineAction({
     callerAppId: z.string().optional(),
     waitForCompletion: z.coerce.boolean().default(false),
   }),
+  mcpTool: "search",
   run: async (input, context?: ActionRunContext) => {
     const libraryId = input.libraryId;
     if (!libraryId) {

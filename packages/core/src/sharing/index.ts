@@ -9,6 +9,11 @@ export {
 } from "./schema.js";
 
 export {
+  sharesTableMigrationSql,
+  ensureSharesTableColumns,
+} from "./share-columns.js";
+
+export {
   registerShareableResource,
   getShareableResource,
   requireShareableResource,

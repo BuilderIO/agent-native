@@ -16,11 +16,9 @@ import {
 } from "@agent-native/toolkit/app/shared";
 import {
   IconArchive,
-  IconCalendarTime,
   IconClock,
   IconFileText,
   IconInbox,
-  IconListCheck,
   IconMail,
   IconPlus,
   IconSend,
@@ -30,7 +28,6 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useState, type ComponentType } from "react";
 
-import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   Dialog,
   DialogClose,
@@ -45,6 +42,8 @@ import { MailCount } from "./MailCount";
 export const MAIL_SIDEBAR_COLLAPSED_KEY = "mail.sidebar.collapsed";
 const WIDE_WINDOW_QUERY = "(min-width: 1280px)";
 
+const DRAFTS_VIEWS = new Set(["drafts", "scheduled", "draft-queue"]);
+
 const MAIL_SIDEBAR_VIEWS: {
   id: string;
   labelKey: string;
@@ -55,8 +54,6 @@ const MAIL_SIDEBAR_VIEWS: {
   { id: "starred", labelKey: "mail.views.starred", icon: IconStar },
   { id: "snoozed", labelKey: "mail.views.snoozed", icon: IconClock },
   { id: "sent", labelKey: "mail.views.sent", icon: IconSend },
-  { id: "draft-queue", labelKey: "mail.views.draftQueue", icon: IconListCheck },
-  { id: "scheduled", labelKey: "mail.views.scheduled", icon: IconCalendarTime },
   { id: "drafts", labelKey: "mail.views.drafts", icon: IconFileText },
   { id: "archive", labelKey: "mail.views.archive", icon: IconArchive },
   { id: "trash", labelKey: "mail.views.trash", icon: IconTrash },
@@ -128,10 +125,10 @@ export function MailSidebar({
     to: `/${item.id}`,
     label: t(item.labelKey),
     icon: item.icon,
-    active: view === item.id,
+    active: item.id === "drafts" ? DRAFTS_VIEWS.has(view) : view === item.id,
     onClick: closeMobile,
     badge:
-      item.id === "draft-queue" && queuedDraftCount > 0 ? (
+      item.id === "drafts" && queuedDraftCount > 0 ? (
         <MailCount
           display={formatNumber(queuedDraftCount)}
           meaning={t("mail.inbox.draftsToReviewCount", {
@@ -204,12 +201,7 @@ export function MailSidebar({
                 )}
               />
             }
-            footerExtras={
-              <>
-                <DevDatabaseLink />
-                <ThemeToggle className="size-9 shrink-0 !bg-transparent text-primary hover:!bg-accent/60 hover:!text-primary" />
-              </>
-            }
+            footerExtras={<DevDatabaseLink />}
           />
         </>
       }

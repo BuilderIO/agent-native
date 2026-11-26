@@ -44,6 +44,8 @@ import type {
   DocumentProperty,
   DocumentSyncStatus,
 } from "@shared/api";
+import type { EditorBlockIds } from "@shared/block-identity-ids";
+import { readBlockLink, withoutBlockLink } from "@shared/block-link";
 import { suggestionBlocksFieldId } from "@shared/blocks-field-suggestions";
 import type { CommentAiRequest } from "@shared/comment-ai";
 import { commentPropertyTarget } from "@shared/comment-property-target";
@@ -57,7 +59,9 @@ import {
   LIVE_BODY_BACKFILL_FLAG,
   LIVE_BODY_SHADOW_FLAG,
 } from "@shared/feature-flags";
+import { isLocalSourceDirectoryId } from "@shared/local-source-directory";
 import { canonicalizeNfm, docToNfm } from "@shared/nfm";
+import { sameSourceMarkdown } from "@shared/source-markdown";
 import {
   joinRewrittenParagraphs,
   markdownSuggestionOperations,
@@ -177,7 +181,10 @@ import { documentContentHash } from "@/lib/document-content-hash";
 import { registerDocumentHistoryRestoreController } from "@/lib/document-history-restore-controller";
 import { documentReadFailure } from "@/lib/document-read-failures";
 import { rememberLandingTitleHint } from "@/lib/document-title-hint";
-import { cachedFilesRootDocumentIds } from "@/lib/files-navigation";
+import {
+  cachedFilesRootDocumentIds,
+  cachedFilesSiblingDocumentIds,
+} from "@/lib/files-navigation";
 import { filesRootHintScope } from "@/lib/files-root-hint";
 import { rememberLastLocationHint } from "@/lib/last-location-hint";
 import {
@@ -3054,20 +3061,29 @@ export function documentEditorBreadcrumbItems(
   documents: Pick<Document, "id" | "parentId" | "title" | "icon">[], // i18n-ignore type expression
 ) {
   const byId = new Map(documents.map((doc) => [doc.id, doc]));
-  const parents: { id: string; title: string; icon: Document["icon"] }[] = [];
+  const parents: ToolbarBreadcrumbItem[] = [];
   const seen = new Set<string>([document.id]);
-  let parentId = document.parentId;
+  const pathParentId = byId.get(document.id)?.parentId;
+  let parentId =
+    document.parentId ??
+    (pathParentId && isLocalSourceDirectoryId(pathParentId)
+      ? pathParentId
+      : null);
 
   while (parentId) {
     if (seen.has(parentId)) break;
     seen.add(parentId);
     const parent = byId.get(parentId);
     if (!parent) break;
-    parents.unshift({
-      id: parent.id,
-      title: parent.title,
-      icon: parent.icon,
-    });
+    parents.unshift(
+      isLocalSourceDirectoryId(parent.id)
+        ? { title: parent.title, icon: null, iconKind: "folder" }
+        : {
+            id: parent.id,
+            title: parent.title,
+            icon: parent.icon,
+          },
+    );
     parentId = parent.parentId;
   }
 
@@ -3322,6 +3338,18 @@ function PageEditorSessionBody({
   );
   const navigate = useNavigate();
   const location = useLocation();
+  const blockLink = useMemo(
+    () => readBlockLink(location.search),
+    [location.search],
+  );
+  const runInteractiveHtml = document.accessRole === "owner";
+  const closeBlockLink = useCallback(() => {
+    if (!blockLink.fullScreen) return;
+    void navigate(
+      { search: withoutBlockLink(location.search), hash: location.hash },
+      { replace: true, preventScrollReset: true },
+    );
+  }, [blockLink.fullScreen, location.hash, location.search, navigate]);
   const mcpDirectoryWidgetReadOnly =
     document.mcpDirectoryWidgetReadOnly === true;
   const widgetEditability = directoryWidgetEditability(document);
@@ -3757,6 +3785,11 @@ function PageEditorSessionBody({
         ? null
         : remainingPageAfterDelete(documentId, {
             activePath: navigationPath,
+            siblingDocumentIds: cachedFilesSiblingDocumentIds(
+              queryClient,
+              documentId,
+              navigationPath,
+            ),
             filesRootDocumentIds: cachedFilesRootDocumentIds(
               queryClient,
               documentId,
@@ -3883,6 +3916,16 @@ function PageEditorSessionBody({
     updatedAt: null,
     revision: undefined,
   });
+  const editorBlockIdsRef = useRef<{
+    markdown: string;
+    ids: EditorBlockIds;
+  } | null>(null);
+  const handleBlockIdentityIds = useCallback(
+    (markdown: string, ids: EditorBlockIds) => {
+      editorBlockIdsRef.current = { markdown, ids };
+    },
+    [],
+  );
   const isInitializedRef = useRef(false);
   const prevDocIdRef = useRef<string | null>(null);
   const localSnapshotEpochRef = useRef(0);
@@ -4638,8 +4681,10 @@ function PageEditorSessionBody({
           if (!baseline.ok) throw new Error(baseline.error);
           if (
             baseline.revision &&
-            (baseline.document.content !==
-              lastSavedContentRef.current.content ||
+            (!sameSourceMarkdown(
+              baseline.document.content,
+              lastSavedContentRef.current.content,
+            ) ||
               baseline.document.title !== lastSavedTitleRef.current.title)
           ) {
             setLocalSourceConflict({
@@ -4664,7 +4709,10 @@ function PageEditorSessionBody({
           result = await writeDocumentToLinkedLocalSource(
             fileFirstDocument,
             localSource,
-            { expectedRevision: expectedLocalSourceRevision },
+            {
+              expectedRevision: expectedLocalSourceRevision,
+              changed: updates,
+            },
           );
         } catch (error) {
           if (pendingLocalSourceWriteRef.current === pendingLocalWrite) {
@@ -4749,6 +4797,10 @@ function PageEditorSessionBody({
                     )
                   : undefined,
               ...updates,
+              ...(updates.content !== undefined &&
+              editorBlockIdsRef.current?.markdown === updates.content
+                ? { editorBlockIds: editorBlockIdsRef.current.ids }
+                : {}),
               historySessionId:
                 options.historySessionId ??
                 historySessionRef.current.activity(documentId),
@@ -5051,7 +5103,7 @@ function PageEditorSessionBody({
     if (
       !isLinkedLocalSourceDocument ||
       document.title !== localTitleRef.current ||
-      document.content !== localContentRef.current ||
+      !sameSourceMarkdown(document.content, localContentRef.current) ||
       !document.updatedAt
     ) {
       return;
@@ -5468,7 +5520,9 @@ function PageEditorSessionBody({
           (updates.title === undefined ||
             saved.document.title === updates.title) &&
           (updates.content === undefined ||
-            saved.document.content === updates.content)
+            saved.document.content === updates.content ||
+            (isLinkedLocalSourceDocument &&
+              sameSourceMarkdown(saved.document.content, updates.content)))
         )
           saved = saved.document;
       }
@@ -12395,6 +12449,7 @@ function PageEditorSessionBody({
                                 schema={getContentEditorSchema()}
                                 content={visualEditorContent}
                                 documentId={documentId}
+                                runInteractiveHtml={runInteractiveHtml}
                               />
                             </div>
                           ) : (
@@ -12527,6 +12582,7 @@ function PageEditorSessionBody({
                                     : document.collabContentRevision
                                 }
                                 requestCollabSync={requestCollabSync}
+                                flushCollabUpdates={flushCollabUpdates}
                                 onChange={
                                   isSuggesting
                                     ? handleSuggestionDraftChange
@@ -12632,6 +12688,19 @@ function PageEditorSessionBody({
                                 onSuggestionPlacementsChange={
                                   handleSuggestionPlacementsChange
                                 }
+                                blockLinks={
+                                  !isLocalFileDocument &&
+                                  !mcpDirectoryWidgetReadOnly
+                                }
+                                linkedBlockId={blockLink.blockId}
+                                linkedBlockFullScreen={blockLink.fullScreen}
+                                onFullScreenClosed={closeBlockLink}
+                                runInteractiveHtml={runInteractiveHtml}
+                                onBlockIdentityIds={
+                                  isSuggesting
+                                    ? undefined
+                                    : handleBlockIdentityIds
+                                }
                               />
                             </WidgetVisualEditorBoundary>
                           )}
@@ -12671,6 +12740,7 @@ function PageEditorSessionBody({
                                 primaryEditor={primaryEditor}
                                 primaryContent={exportContent}
                                 privateImageUploads={privateImageUploads}
+                                runInteractiveHtml={runInteractiveHtml}
                                 onFieldTabChange={
                                   blockFieldComments.onFieldTabChange
                                 }

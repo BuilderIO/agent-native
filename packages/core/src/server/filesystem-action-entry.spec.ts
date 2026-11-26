@@ -111,6 +111,40 @@ describe("filesystemActionEntry", () => {
     expect(entry.capabilityScopes).toEqual(["messages:send"]);
   });
 
+  it("keeps a script write and its contract in the dev scan and a built registry", () => {
+    const contract = {
+      rowBound: (args: { ids: string[] }) => args.ids.length,
+      receiptLocator: (args: { ids: string[] }) => ({
+        scope: "rows",
+        idempotencyKey: args.ids.join(","),
+        payloadDigest: "digest",
+      }),
+      reconcile: async () => ({ status: "absent" as const }),
+      fence: async () => ({ status: "fenced" as const }),
+      destructive: false,
+    };
+    const action = defineAction({
+      description: "Rank rows",
+      schema: z.object({ ids: z.array(z.string()) }),
+      mcpScript: "write",
+      mcpScriptWrite: contract,
+      run: async () => ({ ok: true }),
+    });
+
+    for (const entry of [
+      filesystemActionEntry(action),
+      loadActionsFromStaticRegistry({ rank: { default: action } }).rank,
+    ]) {
+      expect(entry.mcpScript).toBe("write");
+      expect(entry.mcpScriptWrite?.rowBound({ ids: ["a", "b"] })).toBe(2);
+      expect(entry.mcpScriptWrite?.destructive).toBe(false);
+    }
+    const { mcpScriptWrite: _contract, ...withoutContract } = action;
+    expect(
+      filesystemActionEntry(withoutContract as never).mcpScript,
+    ).toBeUndefined();
+  });
+
   it("keeps the approval card's question in the dev scan and a built registry", () => {
     const action = defineAction({
       description: "Send a message",

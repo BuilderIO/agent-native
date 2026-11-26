@@ -9,6 +9,7 @@ describe("MCP app config", () => {
     expect(mcpConfig.parse({})).toEqual({
       allowDevOpen: false,
       scriptTools: false,
+      scriptOrgs: [],
       scriptWrites: false,
       scriptWriteRowBudget: 200,
       scriptWriteRecoveryMs: 2 * 60_000,
@@ -51,6 +52,19 @@ describe("MCP app config", () => {
       readEnvConfigLayer(mcpConfig, { AGENT_NATIVE_MCP_SCRIPT_TOOLS: "0" }),
     ).toEqual({ scriptTools: false });
     expect(readEnvConfigLayer(mcpConfig, {})).toEqual({});
+  });
+
+  it("reads the organizations offered the script catalog as a list", () => {
+    expect(
+      readEnvConfigLayer(mcpConfig, {
+        AGENT_NATIVE_MCP_SCRIPT_ORGS: "org_1, org_2",
+      }),
+    ).toEqual({ scriptOrgs: ["org_1", "org_2"] });
+    expect(
+      mcpConfig.parse(
+        readEnvConfigLayer(mcpConfig, { AGENT_NATIVE_MCP_SCRIPT_ORGS: "" }),
+      ).scriptOrgs,
+    ).toEqual([]);
   });
 
   it("documents how a connection opts into the script catalog", () => {

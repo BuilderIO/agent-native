@@ -15,7 +15,6 @@ const messages = {
       starred: "Starred",
       snoozed: "Snoozed",
       sent: "Sent",
-      draftQueue: "Entwurfswarteschlange",
       scheduled: "Scheduled",
       drafts: "Drafts",
       archive: "Archiv",
@@ -47,7 +46,7 @@ const messages = {
         "Mach aus diesem Feedback eine Regel für Wichtigkeit oder automatisches Archivieren.",
       priorityFeedbackAskAgent: "Agent um Regelvorschläge bitten",
       aiSetupTitle: "KI-Posteingang einrichten",
-      aiSetupTagLabel: "KI-Tag erstellen",
+      aiSetupTagLabel: "KI-Label erstellen",
       aiSetupImportanceLabel: "Wichtige E-Mails",
       aiSetupSpamLabel: "Unerwünscht",
       aiSetupArchiveLabel: "Posteingang überspringen",
@@ -128,7 +127,7 @@ const messages = {
       aiSetupImportantExample:
         "Alles von meinem Chef, Priya (priya@company.com)…",
       aiSetupTagsDescription:
-        "Die KI versieht passende E-Mails mit Tags und erstellt für jeden Tag einen eigenen Tab neben deinem Posteingang.",
+        "Die KI versieht passende E-Mails mit Labels und erstellt für jedes Label einen eigenen Tab neben deinem Posteingang.",
       aiSetupImportantDescription:
         "Die KI versieht passende E-Mails mit dem Label Wichtig, damit sie im Tab Wichtig erscheinen.",
       aiSetupSkipInboxDescription:
@@ -166,7 +165,7 @@ const messages = {
       accounts: "Accounts",
       closeSidebar: "Seitenleiste schließen",
       settings: "Einstellungen",
-      aiSettings: "Tags und Regeln verwalten",
+      aiSettings: "Labels und Regeln verwalten",
     },
     search: {
       label: "Suchen",
@@ -191,7 +190,7 @@ const messages = {
       combinedInbox: "Kombinierter Posteingang",
       allTab: "Alle-Tab",
       help: "Zeigt deine ausgewählten Ansichten, Labels und gespeicherten Filter als eigene Posteingangs-Tabs. Deaktiviere es, um alle E-Mails im Posteingang in einem Tab zu sehen.",
-      aiSetup: "KI-Tags und Regeln einrichten",
+      aiSetup: "KI-Labels und Regeln einrichten",
     },
     accounts: {
       remove: "Entfernen",
@@ -211,6 +210,7 @@ const messages = {
       moveToTrash: "In Papierkorb verschieben",
       star: "Markieren",
       unstar: "Markierung entfernen",
+      copyLink: "Link kopieren",
     },
     labels: {
       labelAsPlaceholder: "Label zuweisen…",
@@ -334,14 +334,10 @@ const messages = {
       close: "Schließen",
     },
     integrations: {
-      addIntegration: "Integration hinzufügen",
       checking: "Prüfe...",
       connect: "Verbinden",
       disconnect: "Trennen",
       getApiKey: "So erhältst du deinen API-Schlüssel:",
-      newIntegration: "Neue Integration",
-      newIntegrationPlaceholder:
-        "z. B. Salesforce CRM — Dealphase und letzte Aktivität des Kontakts anzeigen",
       openProviderSettings: "Open {{provider}} Settings",
       apolloDescription: "Kontaktanreicherung und Unternehmensdaten",
       hubspotDescription: "CRM-Kontakte, Deals und Tickets",
@@ -357,8 +353,6 @@ const messages = {
       experience: "Erfahrung",
       tickets: "Tickets",
       save: "Speichern",
-      submit: "Submit",
-      submitShortcut: "Submit ({{shortcut}})",
       updateKey: "Schlüssel aktualisieren",
     },
     recipients: {
@@ -474,10 +468,13 @@ const messages = {
       tryDifferentKeywords: "Andere Schlüsselwörter versuchen",
       nothingHere: "Hier ist noch nichts",
       loadingMore: "Mehr wird geladen...",
+      loadOlder: "Ältere Unterhaltungen laden",
       openAllMailForOlder: "Alle E-Mails öffnen für ältere Nachrichten",
     },
     toasts: {
       noEmailSelected: "Keine E-Mail ausgewählt.",
+      linkCopied: "Link kopiert.",
+      linkCopyFailed: "Der Link konnte nicht kopiert werden.",
       reportedSpam: "Als Spam gemeldet.",
       reportedSpamBlocked: "Reported as spam & blocked {{email}}.",
       noThreadSelected: "Kein Thread ausgewählt.",
@@ -573,8 +570,14 @@ const messages = {
       tryAgain: "Erneut versuchen",
       rateLimitTitle: "Gmail-Ratenlimit erreicht",
       loadTitle: "E-Mails konnten nicht geladen werden",
+      staleSaved:
+        "E-Mails konnten nicht aktualisiert werden. Gespeicherte Unterhaltungen werden angezeigt.",
       rateLimitDescription:
         "Zu viele aktuelle Anfragen an Google. Vor dem erneuten Versuch wird kurz gewartet.",
+      limitedListFrom:
+        "Zuletzt aktualisiert: {{time}}. Möglicherweise fehlen E-Mails. Google begrenzt die Anfragen von Mail.",
+      limitedList:
+        "Möglicherweise fehlen E-Mails. Google begrenzt die Anfragen von Mail.",
       failedToConnect: "No se pudo conectar. Inténtalo de nuevo.",
       failedToParseJson: "No se pudo analizar JSON",
       missingGoogleCredentials:
@@ -676,7 +679,7 @@ const messages = {
       instructionsTitle: "Anweisungen",
       instructionCount: "{{count}} Anweisung(en)",
       instructionPlaceholder:
-        "z. B. Betreffzeilen wie „question for you, Steve“ sind unerwünscht",
+        "z. B. Betreffzeilen wie „quick question for you“ sind unerwünscht",
       addInstruction: "Hinzufügen",
       noInstructions: "Noch keine Anweisungen.",
       instructionExample:
@@ -722,23 +725,24 @@ const messages = {
       autoArchiveMode: "Automatisch archivieren",
       skipInboxMode: "Posteingang überspringen",
       spamMode: "Unerwünscht",
-      tagMode: "Tag",
-      aiTagsTitle: "KI-Tags",
+      tagMode: "Label",
+      aiTagsTitle: "KI-Labels",
       ruleHelpLabel: "{{mode}}-Regeln erklären",
       aiTagRuleHelp:
-        "Beschreibe es in natürlicher Sprache. Jev versieht passende Nachrichten mit diesem Tag.",
+        "Beschreibe es in natürlicher Sprache. Mail versieht passende Nachrichten mit diesem Label.",
       importantRuleHelp:
-        "Beschreibe es in natürlicher Sprache. Jev markiert passende Nachrichten als wichtig.",
+        "Beschreibe es in natürlicher Sprache. Mail markiert passende Nachrichten als wichtig.",
       skipInboxRuleHelp:
-        "Beschreibe es in natürlicher Sprache. Jev archiviert passende Nachrichten, damit sie den Posteingang überspringen.",
+        "Beschreibe es in natürlicher Sprache. Mail archiviert passende Nachrichten, damit sie den Posteingang überspringen.",
       spamRuleHelp:
-        "Beschreibe es in natürlicher Sprache. Jev fügt passenden Nachrichten das Label agent-native-filtered hinzu und archiviert sie. Das ist nicht Gmails Spam-Ordner.",
+        "Beschreibe es in natürlicher Sprache. Mail fügt passenden Nachrichten das Label agent-native-filtered hinzu und archiviert sie. Das ist nicht Gmails Spam-Ordner.",
       filteredMode: "Gefiltert",
       manageSettings: "Verwalten",
-      askJev: "Jev fragen",
+      askJev: "Mail-Agent fragen",
       askJevPrompt:
         "Hilf mir, diese Mail-Regel zu verfeinern: {{condition}}. Frag mich, was ich ändern möchte, und aktualisiere sie dann.",
-      composerPlaceholder: "Bitte Jev, deinen Posteingang zu organisieren…",
+      composerPlaceholder:
+        "Bitte den Mail-Agenten, deinen Posteingang zu organisieren…",
       chatSuggestionFilter: "Ähnliche Nachrichten herausfiltern",
       chatSuggestionPriority: "E-Mails von … priorisieren",
       chatSuggestionArchive: "Bot-Benachrichtigungen automatisch archivieren",
@@ -771,7 +775,7 @@ const messages = {
         "z. B. Nachrichten, die eine Antwort oder einen Termin erfordern",
       ruleAdded: "KI-Regel hinzugefügt.",
       instructionHelp: "Klare Sprache verwenden",
-      tagNamePlaceholder: "Tag-Name",
+      tagNamePlaceholder: "Labelname",
       spamLabelHint:
         "Treffer werden markiert und aus dem Posteingang verschoben.",
       spamPlaceholder:
@@ -803,8 +807,8 @@ const messages = {
         "Starte eine Vorschau, um wahrscheinliche Treffer zu sehen.",
       previewFailed: "Die aktuellen E-Mails konnten nicht geprüft werden.",
       promptRulesCleared: "Triage-Regeln entfernt.",
-      tagTabsHelp: "Jedes Tag wird zu einem Tab im Posteingang",
-      addTag: "Tag hinzufügen",
+      tagTabsHelp: "Jedes Label wird zu einem Tab im Posteingang",
+      addTag: "Label hinzufügen",
       triageTitle: "KI-Triage",
       connectJev: "KI-Anbieter verbinden",
       connectJevToRunTriage:
@@ -818,7 +822,7 @@ const messages = {
       addOpenAiApiKey: "OpenAI-API-Schlüssel hinzufügen",
     },
     draftQueue: {
-      title: "Cola de borradores",
+      title: "Angefragte Entwürfe",
       queueDraft: "Poner borrador en cola",
       reviewer: "Revisor",
       chooseMember: "Elegir miembro",
@@ -843,15 +847,19 @@ const messages = {
       send: "Enviar",
       awaitingApproval: "Pendiente de aprobación",
       newDraftRequest: "Nueva solicitud de borrador",
-      needsOrg: "La cola de borradores necesita una organización activa.",
+      needsOrg: "Entwurfsanfragen benötigen eine aktive Organisation.",
       openSettings: "Abrir ajustes",
       statusInReview: "en revisión",
       awaitingApprovalCount: "{{count}} Entwürfe warten auf Genehmigung",
       requestedCount: "{{count}} Entwurfsanfragen erstellt",
+      requested: "Angefragt",
+      askedBy: "Anfrage von {{name}}:",
+      toReview: "Zu prüfen",
+      moreOptions: "Weitere Entwurfsoptionen",
     },
     routeTitles: {
       notFound: "No encontrado - Mail",
-      draftQueue: "Cola de borradores - Mail",
+      draftQueue: "Angefragte Entwürfe - Mail",
       settings: "Ajustes - Mail",
       team: "Equipo - Mail",
       emailThread: "Conversación de email",
@@ -879,13 +887,47 @@ const messages = {
     contacts: {
       noContactSelected: "Kein Kontakt ausgewählt",
     },
+    contactPanel: {
+      addToPanel: "Zu diesem Bereich hinzufügen",
+      builtIn: "Integriert",
+      connections: "Verbindungen",
+      yourWidgets: "Deine Widgets",
+      notes: "Notizen",
+      attachments: "Anhänge",
+      recent: "Neueste",
+      connected: "An",
+      buildYourOwn: "Eigenes erstellen…",
+      buildYourOwnTitle: "Eigenes erstellen",
+      back: "Zurück",
+      widgetSees:
+        "Ein Widget sieht Name und E-Mail-Adresse dieser Person und die geöffnete Unterhaltung.",
+      widgetDoes:
+        "Es kann deine Mail-Daten anzeigen, andere Dienste mit gespeicherten Schlüsseln aufrufen und eigene Notizen führen.",
+      examplePrompt:
+        'Erstelle ein Widget für den Bereich neben einer geöffneten E-Mail (Slot "{{slotId}}") und füge es meinem Bereich hinzu: {{idea}}',
+      exampleDeals: "Offene Deals dieser Person aus Salesforce anzeigen",
+      exampleLinks:
+        "Auf die Firmenwebsite und LinkedIn-Seite dieser Person verlinken",
+      addNote: "Notiz hinzufügen",
+      notesLoadError: "Notizen konnten nicht geladen werden.",
+      notesContentUnreachable: "Content ist nicht erreichbar.",
+      olderNotesInContent: "Ältere Notizen stehen auf der Seite in Content.",
+      noteSaveError: "Die Notiz konnte nicht gespeichert werden.",
+      savedToMailNotes: "In Mail-Notizen gespeichert",
+      open: "Öffnen",
+      openInContent: "In Content öffnen",
+      attachmentsLoadError: "Dateien konnten nicht geladen werden.",
+      noAttachments: "Noch keine Dateien",
+      moreAttachments: "{{count}} weitere",
+    },
     readingPane: {
       empty: "Keine E-Mail ausgewählt",
       resizeList: "Größe der E-Mail-Liste ändern",
     },
   },
   agent: {
-    emptyState: "Frag mich alles zu deinen E-Mails",
+    emptyState:
+      "Ich bin der Mail-Agent. Frag mich zu deinen E-Mails oder lass sie von mir sortieren.",
     suggestionSummarize: "Fasse meine ungelesenen E-Mails zusammen",
     suggestionReplies: "Was braucht heute meine Antwort?",
     suggestionWidget: "Baue ein eigenes Widget fur meinen Posteingang",
@@ -954,6 +996,7 @@ const messages = {
     sendAndMarkDone: "Senden und als erledigt markieren",
     autocompleteSaveFailed:
       "Die Autovervollständigungseinstellung konnte nicht gespeichert werden.",
+    signaturePlaceholder: "Viele Grüße\nDein Name",
     writingStylePlaceholder:
       "Kurz, konkret, warm. Vermeide formelle Füllwörter.",
     saveDraftingSettings: "Entwurfseinstellungen speichern",
@@ -983,8 +1026,8 @@ const messages = {
     slackDraftRequests: "Entwurfsanfragen",
     slackDraftQueue: "Entwürfe aus Slack einreihen",
     slackDraftQueueDescription:
-      "Teammitglieder erwähnen den Agenten in Slack, um einen E-Mail-Entwurf anzufordern. Entwürfe warten in deiner Entwurfswarteschlange auf Prüfung.",
-    openDraftQueue: "Entwurfswarteschlange öffnen",
+      "Teammitglieder erwähnen den Agenten in Slack, um einen E-Mail-Entwurf anzufordern. Du prüfst jeden Entwurf, bevor er gesendet wird.",
+    openDraftQueue: "Angefragte Entwürfe öffnen",
     aiFilter: "KI-Triage",
     gmailFilters: "Gmail-Filter",
     aliases: "Aliasse",

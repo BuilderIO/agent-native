@@ -154,6 +154,7 @@ async function fixture(
     getBetterAuthSync: () => undefined,
   }));
   vi.doMock("../db/client.js", () => ({
+    getEnclosingTransactionDbExec: () => undefined,
     getDbExec: () => ({
       execute: vi.fn(async (statement: { sql: string; args?: unknown[] }) => {
         if (persistFailed && statement.sql.startsWith("INSERT INTO sessions"))

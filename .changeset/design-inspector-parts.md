@@ -1,6 +1,0 @@
----
-"@agent-native/design-system": minor
-"@agent-native/toolkit": minor
----
-
-Compose editable inspector sections, labeled property rows, transparency-aware paint swatches, and custom slider tracks and thumbs. Edit single or mixed frame dimensions with preview, commit, and cancel events. Compose token-bound solid and gradient fills, override inspector geometry, and keep overlays inside a scoped theme. Mixed flip selections expose their state to assistive technology and share the mixed-state indicator used by the aspect-ratio lock. Controlled number fields retain pointer movement when focus enters the scrub field. Inspector dimensions support one-pixel adjustments. Selection property updates and code previews retain the application’s geometry type. Compose axis constraints inline or in a compact picker, with keyboard-operable physical edge pins and independent mixed values. Set an accessible name on Select to label both its trigger and its portaled listbox. Alignment and grid size pickers support spatial keyboard navigation in right-to-left layouts. Paint fields support canceling numeric previews and interrupted stop drags, and gradient tracks follow the theme’s reading direction. Matching fills can be edited across layers while preserving each layer’s fill and gradient stop IDs.

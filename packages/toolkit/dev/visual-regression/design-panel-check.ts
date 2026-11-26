@@ -59,8 +59,8 @@ async function checkPanelGrid(page: Page, prototype: Page) {
   });
   for (const [travel, expected] of [
     [13, 296],
-    [-55, 240],
-    [105, 344],
+    [-55, 280],
+    [65, 344],
     [96, 400],
   ]) {
     const grip = await bounds(handle);

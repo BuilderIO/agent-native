@@ -15,6 +15,7 @@ describe("resolveDevUserEmail", () => {
     vi.stubEnv("AGENT_USER_EMAIL", "explicit@test.com");
     const execute = vi.fn();
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => ({ execute }),
     }));
 
@@ -28,6 +29,7 @@ describe("resolveDevUserEmail", () => {
     vi.stubEnv("NODE_ENV", "production");
     const execute = vi.fn();
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => ({ execute }),
     }));
 
@@ -42,6 +44,7 @@ describe("resolveDevUserEmail", () => {
     vi.stubEnv("AUTH_MODE", "google");
     const execute = vi.fn();
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => ({ execute }),
     }));
 
@@ -57,6 +60,7 @@ describe("resolveDevUserEmail", () => {
       rows: [{ email: "matthew@builder.io" }],
     });
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => ({ execute }),
     }));
 
@@ -78,6 +82,7 @@ describe("resolveDevUserEmail", () => {
       rows: [{ email: "alice@local" }],
     });
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => ({ execute }),
     }));
 
@@ -93,6 +98,7 @@ describe("resolveDevUserEmail", () => {
       rows: [{ email: "emma@builder.io" }, { email: "tim@builder.io" }],
     });
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => ({ execute }),
     }));
 
@@ -108,6 +114,7 @@ describe("resolveDevUserEmail", () => {
     vi.stubEnv("NODE_ENV", "development");
     const execute = vi.fn().mockResolvedValue({ rows: [] });
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => ({ execute }),
     }));
 
@@ -122,6 +129,7 @@ describe("resolveDevUserEmail", () => {
       .fn()
       .mockRejectedValue(new Error('relation "sessions" does not exist'));
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => ({ execute }),
     }));
 
@@ -134,6 +142,7 @@ describe("resolveDevUserEmail", () => {
     vi.stubEnv("NODE_ENV", "development");
     const execute = vi.fn().mockResolvedValue({ rows: [{ email: "   " }] });
     vi.doMock("../db/client.js", () => ({
+      getEnclosingTransactionDbExec: () => undefined,
       getDbExec: () => ({ execute }),
     }));
 

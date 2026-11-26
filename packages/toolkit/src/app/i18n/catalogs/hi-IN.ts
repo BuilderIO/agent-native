@@ -707,6 +707,8 @@ const messages: ToolkitAgentChatTranslation = {
     "एक टूल स्कीमा अमान्य था, इसलिए मॉडल ने अनुरोध शुरू होने से पहले ही अस्वीकार कर दिया। अमान्य टूल को छोड़कर अनुरोध दोबारा किया जा सकता है।",
   "errorMessages.malformedRequest":
     "मॉडल प्रदाता ने इस अनुरोध को त्रुटिपूर्ण मानकर अस्वीकार कर दिया, इसलिए इसे दोबारा नहीं भेजा गया। फिर से प्रयास करें, या बार-बार होने पर नई चैट शुरू करें।",
+  "errorMessages.requestNotRead":
+    "अनुरोध बहुत बड़ा या जटिल होने के कारण (उदाहरण के लिए बहुत अधिक टूल) मॉडल इसे पढ़ नहीं सका, इसलिए इसे दोबारा नहीं भेजा गया। नई चैट शुरू करें या कोई दूसरा मॉडल चुनें।",
   "errorMessages.requestTooLarge":
     "यह अनुरोध सर्वर की आकार सीमा से बड़ा था (HTTP 413)। नई चैट शुरू करें या बड़े अटैचमेंट या संदर्भ हटाकर फिर कोशिश करें।",
   "errorMessages.capabilityUnavailable":
@@ -715,6 +717,8 @@ const messages: ToolkitAgentChatTranslation = {
     "यह ऐप अभी आपके सहेजे गए संदेश को सुरक्षित रूप से दोबारा नहीं भेज सकता। ऐप अपडेट करें और फिर कोशिश करें।",
   "errorMessages.runInterrupted": "एजेंट काम पूरा करने से पहले रुक गया।",
   "errorMessages.runFailed": "एजेंट का रन विफल हो गया।",
+  "errorMessages.writeOutcomeUnknown":
+    "मैंने लिखने की कार्रवाई दोहराने से पहले रोक दिया, क्योंकि पिछले प्रयास में बदलाव पहले ही सहेजे गए हो सकते हैं और मैं परिणाम की पुष्टि नहीं कर सका। फिर से कोशिश करने से पहले देखें कि क्या सहेजा गया था।",
   "errorMessages.runUnverified":
     "यह चैट एजेंट को ट्रैक नहीं कर पा रही है, जो शायद अभी भी चल रहा हो। उसकी प्रगति देखने के लिए पेज रीलोड करें।",
   "errorMessages.runSignedOut":
@@ -3469,6 +3473,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mcpApps.openInNewTab": "नए टैब में खोलें",
   "mcpApps.initFailed": "MCP ऐप शुरू नहीं हो सका।",
   "mcpApps.readOnly": "यह सहेजा गया MCP ऐप केवल पढ़ने के लिए है।",
+  "markdown.opensInNewTab": "(नए टैब में खुलता है)",
   "iframeEmbed.blocked": "एम्बेड ब्लॉक किया गया",
   "iframeEmbed.missingSrc": "स्रोत मौजूद नहीं है",
   "iframeEmbed.crossOrigin": "दूसरे ऑरिजिन का URL अनुमत नहीं है",

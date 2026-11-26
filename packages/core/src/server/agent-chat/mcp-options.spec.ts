@@ -24,6 +24,12 @@ describe("resolveAgentChatMcpOptions", () => {
     ).toBe(true);
   });
 
+  it("preserves the MCP skills opt-in", () => {
+    expect(
+      resolveAgentChatMcpOptions({ mcp: { skills: ["assets"] } }).skills,
+    ).toEqual(["assets"]);
+  });
+
   it("preserves the server-only task candidate provider", () => {
     const taskCandidates = async () => [];
     expect(

@@ -158,6 +158,10 @@ export {
   CROSS_APP_ORG_FEDERATION_SCOPE,
 } from "./feature-flags.js";
 
+export const withFederatedMembershipSnapshot = lazyFunction(
+  loadOrgFederation,
+  "withFederatedMembershipSnapshot",
+);
 export const addFederatedOrganizationMember = lazyFunction(
   loadOrgFederation,
   "addFederatedOrganizationMember",

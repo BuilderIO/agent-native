@@ -170,6 +170,7 @@ export class EmbeddingProviderError extends Error {
     readonly status: number,
     /** How long the provider's Retry-After asked callers to wait. */
     readonly retryAfterMs?: number,
+    readonly code?: string,
   ) {
     super(message);
     this.name = "EmbeddingProviderError";
@@ -183,6 +184,32 @@ function retryAfterMs(header: string | null): number | undefined {
   if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
   const at = Date.parse(header);
   return Number.isNaN(at) ? undefined : Math.max(0, at - Date.now());
+}
+
+async function providerErrorCode(
+  response: Response,
+): Promise<string | undefined> {
+  let body: unknown;
+  try {
+    const bytes = await readBoundedResponseBytes(response, 16_000);
+    body = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    if (response.body && !response.body.locked)
+      void response.body.cancel().catch(() => undefined);
+    // coercion-ok: an unreadable reply only loses its code; the status still throws
+    return undefined;
+  }
+  const nested =
+    body && typeof body === "object"
+      ? (body as { error?: unknown }).error
+      : undefined;
+  const source = nested && typeof nested === "object" ? nested : body;
+  if (!source || typeof source !== "object") return undefined;
+  const { code, type } = source as { code?: unknown; type?: unknown };
+  return [code, type].find(
+    (value): value is string =>
+      typeof value === "string" && /^[\w.-]{1,80}$/.test(value),
+  );
 }
 
 async function postJson(
@@ -208,18 +235,21 @@ async function postJson(
         signal,
       }),
     );
-    if (!response.ok)
+    if (!response.ok) {
       throw new EmbeddingProviderError(
         `Embedding provider ${providerModel} failed with status ${response.status}.`,
         response.status,
         retryAfterMs(response.headers.get("retry-after")),
+        await providerErrorCode(response),
       );
+    }
     const bytes = await readBoundedResponseBytes(response, 1_000_000);
     return JSON.parse(new TextDecoder().decode(bytes)) as Record<
       string,
       unknown
     >;
   } catch (error) {
+    if (error instanceof EmbeddingProviderError) throw error;
     if (options?.signal?.aborted) throw options.signal.reason ?? error;
     if (controller.signal.aborted)
       throw new Error(`Embedding provider ${providerModel} timed out.`);

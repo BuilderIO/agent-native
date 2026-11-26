@@ -16,7 +16,10 @@ import {
 } from "../server/lib/documents.js";
 import { assertEditableDocument } from "./_document-edit-mutation.js";
 import { assertDocumentMutationAccess } from "./_document-mutation-access.js";
-import { assertSourceAllowsPageEdit } from "./_document-source.js";
+import {
+  assertSourceAllowsPageEdit,
+  linkedNestedLocalFile,
+} from "./_document-source.js";
 import { movePageToSpace } from "./_move-page-to-space.js";
 import {
   documentsPositionScope,
@@ -401,6 +404,24 @@ export default defineAction({
             await assertDocumentMutationAccess(id, "editor", "id")
           ).resource;
           assertEditableDocument(current);
+          if (
+            args.parentId !== undefined &&
+            args.parentId !== current.parentId
+          ) {
+            const linked = await tx
+              .select({ id: schema.documents.id })
+              .from(schema.documents)
+              .where(
+                and(eq(schema.documents.id, id), linkedNestedLocalFile(tx)),
+              )
+              .limit(1);
+            if (linked.length > 0) {
+              throw new ActionContractError(
+                "This page follows a file in a local subfolder, so it stays in that folder.",
+                { errorCode: "LOCAL_FOLDER_FILE_MOVE", statusCode: 409 },
+              );
+            }
+          }
           if (
             current.ownerEmail !== ownerEmail ||
             current.spaceId !== existing.spaceId ||

@@ -198,7 +198,7 @@ test("a Screen-root card: a 360x315 Screen with vertical auto layout holds a dra
   await page.getByRole("button", { name: /^W sizing mode — / }).click();
   await page.getByRole("menuitem", { name: "Fill container" }).click();
   await enter(
-    page.getByRole("textbox", { name: /^H(?: size in pixels)?$/ }),
+    page.getByRole("combobox", { name: /^H(?: size in pixels)?$/ }),
     "240",
   );
   await expect

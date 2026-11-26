@@ -9,7 +9,10 @@ import {
   runBuilderArticleAutosaveWithDeps,
   type BuilderArticleAutosaveDeps,
 } from "./_builder-article-autosave.js";
-import { getContentDatabaseSourceSnapshotForWrite } from "./_database-source-utils.js";
+import {
+  getContentDatabaseSourceSnapshotForWrite,
+  processBuilderBodyHydrationQueue,
+} from "./_database-source-utils.js";
 import {
   executeBuilderSourceExecutionWithDeps,
   realExecutionDeps,
@@ -27,10 +30,13 @@ export function realBuilderArticleAutosaveDeps(): BuilderArticleAutosaveDeps {
     assertPageEditor: async (documentId) => {
       await assertAccess("document", documentId, "editor");
     },
-    getSourceSnapshot: ({ database, sourceId, documentId }) =>
-      getContentDatabaseSourceSnapshotForWrite(database, sourceId, [
-        documentId,
-      ]),
+    getSourceSnapshot: ({ database, sourceId, documentId, unreadBodies }) =>
+      getContentDatabaseSourceSnapshotForWrite(
+        database,
+        sourceId,
+        [documentId],
+        { unreadBodies },
+      ),
     prepareReview: async (args) => prepareBuilderSourceReview.run(args),
     execute: (args) =>
       executeBuilderSourceExecutionWithDeps(
@@ -39,6 +45,13 @@ export function realBuilderArticleAutosaveDeps(): BuilderArticleAutosaveDeps {
         { automatic: true },
       ),
     refreshSource: async (args) => refreshContentDatabaseSource.run(args),
+    readBody: (args) =>
+      processBuilderBodyHydrationQueue({
+        ...args,
+        limit: 1,
+        retryFailed: true,
+        retryTerminal: true,
+      }),
   };
 }
 

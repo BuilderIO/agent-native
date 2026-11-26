@@ -185,6 +185,7 @@ export default defineAction({
           hosts: source.hosts,
           customFields: source.customFields,
           conferencing: source.conferencing,
+          reminderMinutes: source.reminderMinutes,
           color: source.color,
           isActive: source.isActive,
           ownerEmail,

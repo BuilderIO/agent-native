@@ -93,12 +93,12 @@ description: "이메일/비밀번호, 소셜 공급자, 조직 및 MCP 보유자
 몇 가지 플래그가 이를 조정합니다. full details are in the [Environment Variables](#environment-variables) table:
 
 - `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` — 자동 개발자 계정 대신 로컬 개발자의 일반 가입 페이지를 사용하세요.
-- `AUTH_DISABLED=true` — 로그인/가입을 완전히 건너뛰고 모든 요청을 하나의 공유 사용자로 실행합니다(로컬 개발/미리 보기/데모만, 실제 사용자와의 프로덕션은 하지 않음).
+- `AUTH_DISABLED=true` — 로그인/가입을 완전히 건너뛰고 모든 요청을 하나의 공유 사용자로 실행합니다. 루프백(`localhost`) 서버의 로컬 개발 전용이며, 호스팅된 미리 보기, 데모, 프로덕션에는 절대 설정하지 마세요.
 - `AUTH_MODE=local` — CLI/에이전트 ID(개발자 사용자 `pnpm action`가 실행되는 ID)에만 영향을 미칩니다. 이는 브라우저 로그인 우회가 **아닙니다**.
 
 <Callout id="doc-block-18jli2j" tone="warning">
 
-`AUTH_DISABLED=true` runs **every request as one shared user**. Use it only for local dev, previews, or demos — never in production with real users, where it would expose all data to anyone.
+`AUTH_DISABLED=true`는 **모든 요청을 같은 공유 사용자로 로그인**시키므로, 서버에 접근할 수 있는 누구나 전체 권한을 갖습니다. 루프백(`localhost`) 서버의 로컬 개발에만 사용하세요. 호스팅된 미리 보기, 데모, 프로덕션에는 실제 로그인이 필요합니다. QA 미리 보기에서는 `AUTH_SKIP_EMAIL_VERIFICATION=1`로 인증을 끄지 않고도 이메일 대기를 없앨 수 있습니다.
 
 </Callout>
 
@@ -463,7 +463,7 @@ const state = encodeOAuthState({
 | `BETTER_AUTH_SECRET`                    | 더 나은 인증을 위한 서명 키(설정되지 않은 경우 자동 생성)                                                                                                                        |
 | `AUTH_SKIP_EMAIL_VERIFICATION`          | QA/미리보기 환경에서 `1`로 설정하면 확인 없이 이메일/비밀번호 가입이 진행될 수 있습니다. 기본적으로 로컬 개발/테스트 건너뛰기                                                    |
 | `AUTH_REQUIRE_EMAIL_VERIFICATION`       | `0` 또는 `1`로 설정하면 프로덕션을 포함한 모든 환경에서 비밀번호 가입 확인 정책을 선언합니다. `AUTH_SKIP_EMAIL_VERIFICATION`보다 우선합니다                                      |
-| `AUTH_DISABLED`                         | 로그인/가입을 건너뛰려면 `true` 또는 `1`로 설정하세요. 모든 요청은 하나의 공유 사용자로 실행됩니다(로컬 개발/미리 보기에만 해당 - 실제 사용자가 있는 프로덕션에는 해당되지 않음) |
+| `AUTH_DISABLED`                         | 로그인/가입을 건너뛰려면 `true` 또는 `1`로 설정하세요. 모든 요청은 하나의 공유 사용자로 실행됩니다(루프백의 로컬 개발 전용 - 호스팅된 미리 보기, 데모, 프로덕션에서는 사용 금지) |
 | `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | 새로운 개발 데이터베이스에서 로컬 호스트 자동 로그인을 비활성화하려면 `1`로 설정하세요.                                                                                          |
 | `AUTH_MODE`                             | `local`는 CLI/에이전트 ID만 확인합니다(개발자 사용자 `pnpm action`가 실행되는 ID). 브라우저 로그인 우회는 절대 안 됩니다                                                         |
 | `COOKIE_DOMAIN`                         | 동일 데이터베이스 하위 도메인 전체에서 공유 세션 쿠키를 선택합니다([Cookie Realms](#cookie-realms) 참조)                                                                         |

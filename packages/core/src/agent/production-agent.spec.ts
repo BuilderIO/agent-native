@@ -175,6 +175,7 @@ import {
   resolveChatEngine,
   shouldChainBackgroundContinuation,
   toolCallCacheKey,
+  resolveToolFailureLimit,
   MAX_IDENTICAL_TOOL_CALLS,
   shouldGuardRepeatedSourceSweep,
   resolveSourceSweepToolCallThreshold,
@@ -187,6 +188,7 @@ import {
   type AgentLoopFinalResponseGuardContext,
   type AgentLoopOutcome,
   type ProductionAgentOptions,
+  type ToolLimits,
 } from "./production-agent.js";
 import type { ActiveRun } from "./run-manager.js";
 import * as runManager from "./run-manager.js";
@@ -503,7 +505,12 @@ function isLoopBreakerCloseout(options: EngineStreamOptions): boolean {
 async function runToolCallSequence(
   calls: Array<{ name: string; input: Record<string, unknown> }>,
   actions: Record<string, ActionEntry>,
-  options?: { threadId?: string; turnId?: string; messages?: EngineMessage[] },
+  options?: {
+    threadId?: string;
+    turnId?: string;
+    messages?: EngineMessage[];
+    toolLimits?: ToolLimits;
+  },
 ) {
   let nextCall = 0;
   const events: AgentChatEvent[] = [];
@@ -9614,6 +9621,394 @@ describe("createProductionAgentHandler", () => {
     }
   });
 
+  it.each(["inline", "owned URL", "SVG"])(
+    "report 1794895549.934559: preserves %s submission identity through a durable worker",
+    async (source) => {
+      const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+      const previousA2ASecret = process.env.A2A_SECRET;
+      process.env.AGENT_CHAT_DURABLE_BACKGROUND = "1";
+      process.env.A2A_SECRET = "fixture-a2a-secret";
+      let uploadCalls = 0;
+      const preUpload = vi
+        .spyOn(preUploadAttachmentsModule, "preUploadAttachments")
+        .mockImplementation(async ({ attachments }) => {
+          uploadCalls += 1;
+          const prepared = attachments ?? [];
+          const attachment = prepared.at(0);
+          if (!attachment) throw new Error("Fixture attachment missing");
+          attachment.url = "https://files.example.test/screen.png";
+          if (source === "SVG") {
+            Object.assign(attachment, {
+              type: "file",
+              referenceOnly: true,
+              contentType: "image/svg+xml",
+            });
+          } else if (uploadCalls > 1) attachment.contentType = "image/jpeg";
+          return {
+            attachments: prepared,
+            uploaded: [],
+            uploadedFiles: [],
+            readFailures: [],
+            providerMissing: false,
+            uploadFailed: false,
+            readableWithoutStorage: [],
+            injectedText: null,
+          };
+        });
+      mockTryClaimRunSlot.mockClear();
+      mockTryClaimRunSlot.mockResolvedValueOnce({
+        claimed: true,
+        activeRunId: null,
+      });
+
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+      const onRunPrepared = vi.fn(async () => ({}));
+      const handler = createProductionAgentHandler({
+        systemPrompt: "Test",
+        engine,
+        actions: {},
+        onRunPrepared,
+      });
+      const image = {
+        type: "image" as const,
+        name: source === "SVG" ? "screen.svg" : "screen.png",
+        contentType: source === "SVG" ? "image/svg+xml" : "image/png",
+        ...(source === "SVG"
+          ? { data: "data:image/svg+xml;base64,INLINE_IMAGE_BYTES" }
+          : source === "inline"
+            ? { data: "data:image/png;base64,INLINE_IMAGE_BYTES" }
+            : { url: "https://files.example.test/screen.png" }),
+      };
+      const submissionPayload = {
+        threadId: `thread-image-payload-${source}`,
+        id: `message-image-payload-${source}`,
+        text: "Inspect this image",
+        requestAttachments: [
+          {
+            type: "image" as const,
+            name: image.name,
+            contentType: image.contentType,
+            fingerprint: fingerprintAgentSubmissionAttachment(image, "image"),
+          },
+        ],
+      };
+      const event = mockEvent(
+        new Request("http://app.example.com/_agent-native/agent-chat", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            message: "Inspect this image",
+            threadId: `thread-image-payload-${source}`,
+            __agentNativeBrowserSessionId: "untrusted-session",
+            agentKitMessageId: submissionPayload.id,
+            submissionPayload,
+            attachments: [image],
+          }),
+        }),
+      );
+
+      try {
+        const forged = mockEvent(
+          new Request("http://app.example.com/_agent-native/agent-chat", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              message: submissionPayload.text,
+              threadId: submissionPayload.threadId,
+              agentKitMessageId: submissionPayload.id,
+              submissionPayload,
+              attachments: [{ ...image, name: "different.png" }],
+              __agentNativeDurableSubmissionProjection: {
+                files: [],
+                images: [
+                  fingerprintAgentSubmissionAttachment(
+                    { ...image, name: "different.png" },
+                    "image",
+                  ),
+                ],
+              },
+            }),
+          }),
+        );
+        expect(
+          await runWithRequestContext(
+            { userEmail: "alice@example.com", run: {} },
+            () => handler(forged),
+          ),
+        ).toMatchObject({
+          error: "submissionPayload does not match this message",
+        });
+        expect(forged.res.status).toBe(400);
+        const malformedName = mockEvent(
+          new Request("http://app.example.com/_agent-native/agent-chat", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              message: submissionPayload.text,
+              threadId: submissionPayload.threadId,
+              agentKitMessageId: submissionPayload.id,
+              submissionPayload: {
+                ...submissionPayload,
+                requestAttachments: [
+                  {
+                    ...submissionPayload.requestAttachments[0],
+                    name: "different.png",
+                  },
+                ],
+              },
+              attachments: [image],
+            }),
+          }),
+        );
+        expect(
+          await runWithRequestContext(
+            { userEmail: "alice@example.com", run: {} },
+            () => handler(malformedName),
+          ),
+        ).toMatchObject({
+          error: "submissionPayload does not match this message",
+        });
+        expect(malformedName.res.status).toBe(400);
+        const result = await runWithRequestContext(
+          {
+            userEmail: "alice@example.com",
+            browserSessionId: "origin-session",
+            requestOrigin: "http://127.0.0.1:8080",
+            isLoopbackRequest: true,
+            isDirectLoopbackRequest: true,
+            run: {},
+          },
+          () => handler(event),
+        );
+
+        expect(result).toBeInstanceOf(ReadableStream);
+        expect(preUpload).toHaveBeenCalledOnce();
+        const dispatchPayload = (
+          mockTryClaimRunSlot.mock.calls[0] as unknown as [
+            unknown,
+            unknown,
+            unknown,
+            { dispatchPayload: string },
+          ]
+        )[3].dispatchPayload as string;
+        expect(dispatchPayload).toBeTruthy();
+        expect(dispatchPayload).not.toContain("INLINE_IMAGE_BYTES");
+        const stored = JSON.parse(dispatchPayload);
+        expect(stored.submissionPayload).toEqual(submissionPayload);
+        expect(onRunPrepared).toHaveBeenCalledWith(
+          expect.objectContaining({ submissionPayload }),
+        );
+        const claim = vi
+          .spyOn(runStore, "claimBackgroundRun")
+          .mockResolvedValue(true);
+        const tampered = mockEvent(
+          new Request("http://app.example.com/_agent-native/agent-chat", {
+            method: "POST",
+            body: "{}",
+          }),
+        );
+        tampered.context.__agentChatBackgroundBody = {
+          ...stored,
+          attachments: [
+            {
+              ...stored.attachments[0],
+              url: "https://files.example.test/different.png",
+            },
+          ],
+          [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
+            runId: `run-tampered-${source}`,
+            turnId: `turn-tampered-${source}`,
+          },
+        };
+        expect(
+          await runWithRequestContext(
+            { userEmail: "alice@example.com", run: {} },
+            () => handler(tampered),
+          ),
+        ).toMatchObject({
+          error: "submissionPayload does not match this message",
+        });
+        expect(tampered.res.status).toBe(400);
+        const worker = mockEvent(
+          new Request("http://app.example.com/_agent-native/agent-chat", {
+            method: "POST",
+            body: "{}",
+          }),
+        );
+        worker.context.__agentChatBackgroundBody = {
+          ...stored,
+          [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
+            runId: `run-image-payload-${source}`,
+            turnId: `turn-image-payload-${source}`,
+          },
+        };
+        const workerResult = await runWithRequestContext(
+          { userEmail: "alice@example.com", run: {} },
+          () => handler(worker),
+        );
+        expect(workerResult).toMatchObject({ ok: true });
+        const successorBody = JSON.parse(
+          serializeDurableDispatchPayload(
+            worker.context.__agentChatBackgroundBody,
+          ),
+        );
+        expect(successorBody.submissionPayload).toEqual(submissionPayload);
+        expect(successorBody.attachments[0].contentType).toBe(
+          image.contentType,
+        );
+        expect(successorBody.__agentNativeDurableSubmissionProjection).toEqual(
+          stored.__agentNativeDurableSubmissionProjection,
+        );
+        let successorPayload = "";
+        await chainServerDrivenContinuation({
+          event: {},
+          run: {
+            runId: `run-image-payload-${source}`,
+            threadId: submissionPayload.threadId,
+            turnId: `turn-image-payload-${source}`,
+            events: [
+              {
+                seq: 0,
+                event: { type: "auto_continue", reason: "run_timeout" },
+              },
+            ],
+            status: "completed",
+            subscribers: new Set(),
+            abort: new AbortController(),
+            startedAt: Date.now(),
+          },
+          effectiveThreadId: submissionPayload.threadId,
+          effectiveTurnId: `turn-image-payload-${source}`,
+          requestBody: {
+            ...stored,
+            attachments: [
+              {
+                ...stored.attachments[0],
+                ...(source === "SVG"
+                  ? {
+                      type: "file",
+                      referenceOnly: true,
+                      contentType: "image/svg+xml",
+                    }
+                  : { contentType: "image/jpeg" }),
+                data: "data:image/png;base64,INLINE_HYDRATED",
+              },
+            ],
+          },
+          submissionBindings: {
+            count: 1,
+            files: [],
+            images: [
+              { index: 0, name: image.name, type: "image", imageFile: false },
+            ],
+          },
+          backgroundContinuationCount: 0,
+          chainViaDurableBackground: true,
+          deps: {
+            countRunsForTurn: vi.fn().mockResolvedValue(1),
+            readTurnStartedAt: vi.fn().mockResolvedValue(Date.now()),
+            isTurnAborted: vi.fn().mockResolvedValue(false),
+            isRunAborted: vi.fn().mockResolvedValue(false),
+            emitRunText: vi.fn().mockResolvedValue(undefined),
+            insertRun: vi.fn(async (_id, _thread, _turn, options) => {
+              successorPayload = options?.dispatchPayload ?? "";
+            }),
+            fireInternalDispatch: vi.fn().mockResolvedValue(undefined),
+            readBackgroundRunClaim: vi.fn().mockResolvedValue({
+              dispatchMode: "background",
+              status: "running",
+              diagStage: null,
+              workerStage: null,
+              lastLivenessAt: Date.now(),
+            }),
+            updateRunHeartbeat: vi.fn().mockResolvedValue(undefined),
+            updateRunStatusIfRunning: vi.fn().mockResolvedValue(true),
+            setRunTerminalReason: vi.fn().mockResolvedValue(undefined),
+            setRunError: vi.fn().mockResolvedValue(undefined),
+            markRunAborted: vi.fn().mockResolvedValue(true),
+            recordRunDiagnostic: vi.fn().mockResolvedValue(undefined),
+            markBackgroundContinuationChunkTerminal: vi
+              .fn()
+              .mockResolvedValue(true),
+            generateRunId: () => `run-successor-${source}`,
+            sleep: vi.fn().mockResolvedValue(undefined),
+          },
+        });
+        expect(successorPayload).not.toContain("INLINE_HYDRATED");
+        const successor = JSON.parse(successorPayload);
+        expect(successor.submissionPayload).toEqual(submissionPayload);
+        expect(successor.attachments[0].contentType).toBe(
+          source === "SVG" ? "image/svg+xml" : "image/jpeg",
+        );
+        expect(successor.attachments[0]).toMatchObject({
+          type: "image",
+          ...(source === "SVG" ? { referenceOnly: true } : {}),
+        });
+        const successorEvent = mockEvent(
+          new Request("http://app.example.com/_agent-native/agent-chat", {
+            method: "POST",
+            body: "{}",
+          }),
+        );
+        successorEvent.context.__agentChatBackgroundBody = {
+          ...successor,
+          [AGENT_CHAT_BACKGROUND_RUN_FIELD]: {
+            runId: `run-successor-${source}`,
+            turnId: `turn-image-payload-${source}`,
+          },
+        };
+        expect(
+          await runWithRequestContext(
+            { userEmail: "alice@example.com", run: {} },
+            () => handler(successorEvent),
+          ),
+        ).toMatchObject({ ok: true });
+        claim.mockRestore();
+        expect(JSON.parse(dispatchPayload).attachments[0]).toEqual({
+          type: "image",
+          name: image.name,
+          contentType: image.contentType,
+          url: "https://files.example.test/screen.png",
+          ...(source === "SVG" ? { referenceOnly: true } : {}),
+        });
+        expect(JSON.parse(dispatchPayload).__agentNativeBrowserSessionId).toBe(
+          "origin-session",
+        );
+        expect(
+          JSON.parse(dispatchPayload)[AGENT_CHAT_REQUEST_CONTEXT_FIELD],
+        ).toEqual({
+          requestOrigin: "http://127.0.0.1:8080",
+          isLoopbackRequest: false,
+          isDirectLoopbackRequest: false,
+        });
+      } finally {
+        preUpload.mockRestore();
+        if (previousDurableFlag === undefined) {
+          delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+        } else {
+          process.env.AGENT_CHAT_DURABLE_BACKGROUND = previousDurableFlag;
+        }
+        if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+        else process.env.A2A_SECRET = previousA2ASecret;
+      }
+    },
+  );
+
   it("does not replay a consumed queue promotion claim to a background worker", async () => {
     const previousDurableFlag = process.env.AGENT_CHAT_DURABLE_BACKGROUND;
     const previousA2ASecret = process.env.A2A_SECRET;
@@ -18287,6 +18682,40 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it("lets toolLimits.maxSameErrorAcrossArguments raise the across-arguments stop", async () => {
+    const calls = [1, 2, 3, 4, 5].map((id) => ({
+      name: "fetch-page",
+      input: { id },
+    }));
+    const actions = {
+      "fetch-page": preExecutionCheckedWrite(async () =>
+        fail("HTTP 403 Forbidden"),
+      ),
+    };
+
+    const defaulted = await runToolCallSequence(calls, actions);
+    expect(
+      (defaulted.find((e) => e.type === "done") as { message?: string })
+        .message,
+    ).toContain("rejected 3 different attempts the same way");
+
+    const raised = await runToolCallSequence(calls, actions, {
+      toolLimits: { maxSameErrorAcrossArguments: 5 },
+    });
+    expect(
+      (raised.find((e) => e.type === "done") as { message?: string }).message,
+    ).toContain("rejected 5 different attempts the same way");
+  });
+
+  it("falls back to the default when a failure limit is not a positive whole number", () => {
+    expect(resolveToolFailureLimit(undefined, 3)).toBe(3);
+    expect(resolveToolFailureLimit(0, 3)).toBe(3);
+    expect(resolveToolFailureLimit(-2, 3)).toBe(3);
+    expect(resolveToolFailureLimit(2.5, 3)).toBe(3);
+    expect(resolveToolFailureLimit(Number.NaN, 3)).toBe(3);
+    expect(resolveToolFailureLimit(7, 3)).toBe(7);
+  });
+
   it("quotes the last error's first line when the across-arguments breaker stops the turn", async () => {
     const events = await runToolCallSequence(
       [1, 2, 3].map((id) => ({
@@ -19254,32 +19683,86 @@ describe("runAgentLoop", () => {
       label: "keeps the longest missing-key error's fix and drops its key list",
       thrown:
         "hubspot credential not configured. Ask an organization owner or " +
-        'admin to save "HUBSPOT_PRIVATE_APP_TOKEN" with Workspace or ' +
-        "Organization scope. This workspace has it only as a Personal key, " +
-        "which works only for the member who saved it. Tried: " +
-        "HUBSPOT_PRIVATE_APP_TOKEN, HUBSPOT_ACCESS_TOKEN",
+        "admin to save it with Workspace or Organization scope. This " +
+        "workspace has it only as a Personal key, which works only for the " +
+        "member who saved it. Tried: HUBSPOT_PRIVATE_APP_TOKEN, " +
+        "HUBSPOT_ACCESS_TOKEN",
       headline:
         "I stopped because github-repo-list-files can't run yet: hubspot " +
         "credential not configured. Ask an organization owner or admin to " +
-        'save "HUBSPOT_PRIVATE_APP_TOKEN" with Workspace or Organization ' +
-        "scope. This workspace has it only as a Personal key, which works " +
-        "only for the member who saved it. That needs to be fixed outside " +
-        "this chat",
+        "save it with Workspace or Organization scope. This workspace has " +
+        "it only as a Personal key, which works only for the member who " +
+        "saved it. That needs to be fixed outside this chat",
     },
     {
       label:
-        "keeps the fix and drops the cause when the longest key name pushes the cause past the limit",
+        "keeps the whole Personal-key explanation however long the credential key is",
       thrown:
-        "bigquery credential not configured. Ask an organization owner or " +
-        'admin to save "GOOGLE_APPLICATION_CREDENTIALS_JSON" with Workspace ' +
-        "or Organization scope. This workspace has it only as a Personal " +
-        "key, which works only for the member who saved it. Tried: " +
-        "BIGQUERY_PROJECT_ID, GOOGLE_APPLICATION_CREDENTIALS_JSON",
+        "acme-warehouse credential not configured. Ask an organization " +
+        "owner or admin to save it with Workspace or Organization scope. " +
+        "This workspace has it only as a Personal key, which works only " +
+        "for the member who saved it. Tried: ACME_" +
+        "WAREHOUSE_ANALYTICS_EXPORT_".repeat(5) +
+        "SERVICE_ACCOUNT_TOKEN",
+      headline:
+        "I stopped because github-repo-list-files can't run yet: " +
+        "acme-warehouse credential not configured. Ask an organization " +
+        "owner or admin to save it with Workspace or Organization scope. " +
+        "This workspace has it only as a Personal key, which works only " +
+        "for the member who saved it. That needs to be fixed outside this " +
+        "chat",
+    },
+    {
+      label:
+        "keeps the whole cross-organization explanation with the longest key name and a long organization name",
+      thrown:
+        "bigquery credential not configured. Save it in this organization, " +
+        'or switch your active organization to "Builder.io Developer ' +
+        "Relations and Community Programs\", where it's saved. Credentials " +
+        "aren't shared between organizations. Tried: BIGQUERY_PROJECT_ID, " +
+        "GOOGLE_APPLICATION_CREDENTIALS_JSON",
       headline:
         "I stopped because github-repo-list-files can't run yet: bigquery " +
-        "credential not configured. Ask an organization owner or admin to " +
-        'save "GOOGLE_APPLICATION_CREDENTIALS_JSON" with Workspace or ' +
-        "Organization scope. That needs to be fixed outside this chat",
+        "credential not configured. Save it in this organization, or " +
+        'switch your active organization to "Builder.io Developer ' +
+        "Relations and Community Programs\", where it's saved. Credentials " +
+        "aren't shared between organizations. That needs to be fixed " +
+        "outside this chat",
+    },
+    {
+      label:
+        "keeps both cross-organization fixes and the opening words of an organization name too long for the headline",
+      thrown:
+        "bigquery credential not configured. Save it in this organization, " +
+        'or switch your active organization to "The Builder.io Developer ' +
+        "Relations, Community Programs and Open Source Partnerships Working " +
+        "Group for the Americas, Europe, the Middle East, Africa and the " +
+        "Asia-Pacific Region\", where it's saved. Credentials aren't shared " +
+        "between organizations. Tried: GOOGLE_APPLICATION_CREDENTIALS_JSON",
+      headline:
+        "I stopped because github-repo-list-files can't run yet: bigquery " +
+        "credential not configured. Save it in this organization, or " +
+        'switch your active organization to "The Builder.io Developer ' +
+        "Relations, Community Programs and Open Source Partnerships Working " +
+        "Group for the Americas, Europe, the Middle… That needs to be fixed " +
+        "outside this chat",
+    },
+    {
+      label:
+        "keeps both cross-organization fixes however long the credential key is",
+      thrown:
+        "acme-warehouse credential not configured. Save it in this " +
+        "organization, or switch your active organization to " +
+        "\"Builder.io\", where it's saved. Credentials aren't shared " +
+        "between organizations. Tried: ACME_" +
+        "WAREHOUSE_ANALYTICS_EXPORT_".repeat(5) +
+        "SERVICE_ACCOUNT_TOKEN",
+      headline:
+        "I stopped because github-repo-list-files can't run yet: " +
+        "acme-warehouse credential not configured. Save it in this " +
+        "organization, or switch your active organization to " +
+        "\"Builder.io\", where it's saved. Credentials aren't shared " +
+        "between organizations. That needs to be fixed outside this chat",
     },
   ])("$label in the stop headline", async ({ thrown, headline }) => {
     let streamCalls = 0;
@@ -23881,7 +24364,7 @@ describe("runAgentLoop", () => {
   });
 
   describe("a failed guard retry keeps the model's draft", () => {
-    type Turn = string | EngineError | "empty";
+    type Turn = string | EngineError | "empty" | EngineEvent;
     const keptDraftEngine = (turns: Turn[], calls: { count: number }) => {
       const engine: AgentEngine = {
         name: "test",
@@ -23899,6 +24382,10 @@ describe("runAgentLoop", () => {
           const turn = turns[Math.min(calls.count, turns.length - 1)];
           calls.count += 1;
           if (turn instanceof EngineError) throw turn;
+          if (typeof turn === "object") {
+            yield turn;
+            return;
+          }
           if (turn === "empty") {
             yield { type: "stop", reason: "end_turn" };
             return;
@@ -24090,6 +24577,66 @@ describe("runAgentLoop", () => {
       ]);
     });
 
+    const requestNotReadStop: EngineEvent = {
+      type: "stop",
+      reason: "error",
+      error:
+        'Model "gpt-test" did not read the request (the provider reported no input tokens). Retrying the same request will not help; reduce the request size, for example the number or size of tool definitions.',
+      errorCode: "request_not_read",
+      providerRetryable: false,
+    };
+
+    it("shows the draft and records the code when the retry stops with request_not_read", async () => {
+      const calls = { count: 0 };
+      const events: AgentChatEvent[] = [];
+      const outcomes: unknown[] = [];
+
+      await runAgentLoopWithMainChatInternalContinuations({
+        ...loopOptions(
+          keptDraftEngine(
+            ["I cannot read that file.", requestNotReadStop],
+            calls,
+          ),
+          events,
+        ),
+        onOutcome: (outcome) => outcomes.push(outcome),
+        finalResponseGuard: ({ text, retryCount }) =>
+          labelled(text, retryCount),
+      });
+
+      expect(calls.count).toBe(2);
+      expect(events.some((event) => event.type === "error")).toBe(false);
+      expect(events).toContainEqual({
+        type: "text",
+        text: "No changes were saved.\n\nI cannot read that file.",
+      });
+      expect(recordedKeptDraft(events)).toEqual([
+        expect.objectContaining({
+          event: expect.objectContaining({
+            data: expect.objectContaining({ errorCode: "request_not_read" }),
+          }),
+        }),
+      ]);
+      expect(events.at(-1)).toEqual({ type: "done" });
+      expect(outcomes).toEqual([
+        expect.objectContaining({ state: "failed", code: "request_not_read" }),
+      ]);
+    });
+
+    it("ends the run on a request_not_read stop without sending the request again", async () => {
+      const calls = { count: 0 };
+
+      await expect(
+        runAgentLoopWithMainChatInternalContinuations(
+          loopOptions(keptDraftEngine([requestNotReadStop], calls), []),
+        ),
+      ).rejects.toMatchObject({
+        errorCode: "request_not_read",
+        providerRetryable: false,
+      });
+      expect(calls.count).toBe(1);
+    });
+
     it("still throws a non-resumable engine error when the guard sets no prefix", async () => {
       const calls = { count: 0 };
       const rejected = new EngineError("Provider rejected the request", {
@@ -24113,6 +24660,7 @@ describe("runAgentLoop", () => {
     it.each([
       ["invalid_request", { errorCode: "invalid_request" }, true],
       ["invalid_request_error", { errorCode: "invalid_request_error" }, true],
+      ["request_not_read", { errorCode: "request_not_read" }, true],
       ["credits limit", { errorCode: "credits-limit-daily" }, false],
       ["missing credentials", { errorCode: "missing_credentials" }, false],
       ["throttled provider", { statusCode: 429 }, false],
@@ -24854,7 +25402,8 @@ describe("runAgentLoop", () => {
       expect.objectContaining({
         type: "error",
         errorCode: "empty_final_response",
-        error: expect.stringMatching(/empty response/i),
+        error:
+          "The model returned an empty response, even after retrying. Try again, or pick a different model from the model menu.",
         recoverable: false,
       }),
     );
@@ -28053,6 +28602,17 @@ describe("isRecoverableContinuationError", () => {
         }),
       ).toBe(true);
     }
+  });
+
+  it("keeps a request the provider did not read from continuing on timeout wording", () => {
+    expect(
+      isRecoverableContinuationError({
+        type: "error",
+        error: "Request not read, timed out",
+        errorCode: "request_not_read",
+        recoverable: true,
+      }),
+    ).toBe(false);
   });
 
   it("keeps explicitly terminal invalid requests from continuing on timeout wording", () => {

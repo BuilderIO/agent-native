@@ -12,6 +12,10 @@ import {
 import * as Y from "yjs";
 
 import {
+  editorBlockIdsOf,
+  type EditorBlockIds,
+} from "../../shared/block-identity-ids.js";
+import {
   rebaseBodyEdit,
   type BodyTextRange,
 } from "../../shared/body-rebase.js";
@@ -37,6 +41,7 @@ import {
 } from "./apply-suggestion-edit.js";
 import {
   CONTENT_ANCHOR_TEXT_TASK,
+  CONTENT_BLOCK_IDS_TASK,
   CONTENT_HOLDS_BODY_TASK,
   type HoldsBodyResult,
 } from "./task-names.js";
@@ -367,6 +372,25 @@ export const tasks = {
     // serialization says what the save holds.
     if (!isCanonical(candidate)) return "noncanonical";
     return bodyHoldsChanges(base, stored, candidate) ? "held" : "unheld";
+  },
+  async [CONTENT_BLOCK_IDS_TASK](
+    input: unknown,
+  ): Promise<EditorBlockIds | null> {
+    const state = (input as { state?: unknown } | null)?.state;
+    if (!(state instanceof Uint8Array)) {
+      throw new TypeError("expected { state } as a Uint8Array");
+    }
+    const doc = new Y.Doc();
+    try {
+      Y.applyUpdate(doc, state);
+      const fragment = doc.getXmlFragment(LIVE_BODY_FIELD);
+      if (fragment.length === 0) return null;
+      return editorBlockIdsOf(
+        yXmlFragmentToProseMirrorRootNode(fragment, schema()).toJSON(),
+      );
+    } finally {
+      doc.destroy();
+    }
   },
   /** The text comment quotes on a live copy were captured from; see `liveCopyAnchorText`. */
   async [CONTENT_ANCHOR_TEXT_TASK](input: unknown): Promise<string | null> {

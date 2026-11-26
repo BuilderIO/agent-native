@@ -116,7 +116,7 @@ export function LabelPicker({
                   pick({ id: label.id, name: label.name, isNew: false })
                 }
               >
-                <IconTag className="text-muted-foreground" />
+                <IconTag className="me-2 size-4 shrink-0 text-muted-foreground" />
                 <span data-an-block className="truncate">
                   {label.name}
                 </span>
@@ -131,7 +131,7 @@ export function LabelPicker({
               value={`create:${name}`}
               onSelect={() => pick({ id: labelKey(name), name, isNew: true })}
             >
-              <IconPlus className="text-muted-foreground" />
+              <IconPlus className="me-2 size-4 shrink-0 text-muted-foreground" />
               <span className="truncate">
                 {t("mail.labels.create", { name })}
               </span>

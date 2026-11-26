@@ -135,7 +135,25 @@ export const agentConfig = z.object({
     .optional()
     .meta({
       env: ["AGENT_RUN_SOFT_TIMEOUT_MS"],
-      doc: "Soft timeout for an agent run, in milliseconds. 0 disables it.",
+      doc: "Soft timeout for an agent run, in milliseconds. 0 disables it. On a hosted (serverless) runtime a foreground run is clamped to hostedRunSoftTimeoutCeilingMs.",
+    }),
+  hostedRunSoftTimeoutCeilingMs: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .meta({
+      env: ["AGENT_HOSTED_RUN_SOFT_TIMEOUT_CEILING_MS"],
+      doc: "Longest foreground run soft timeout on a hosted runtime, in milliseconds, and the default there when runSoftTimeoutMs is unset. Unset keeps 40000. Raise it on hosts that allow long requests, such as Google Cloud Run.",
+    }),
+  maxAutoContinuesPerTurn: z
+    .number()
+    .int()
+    .positive()
+    .default(3)
+    .meta({
+      env: ["AGENT_MAX_AUTO_CONTINUES_PER_TURN"],
+      doc: "Automatic continuations of one user turn after the server stopped it at its run time limit. Past it the turn waits for the user to press Continue. The turn wall-clock limit still ends a runaway turn.",
     }),
   completedRunRetentionMs: z
     .number()

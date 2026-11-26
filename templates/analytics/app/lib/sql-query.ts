@@ -72,6 +72,8 @@ type SqlQuerySlotPool = {
   pending: PendingSqlQuerySlot[];
 };
 
+export const REFRESH_PENDING_POLL_MS = 5_000;
+
 const sqlQuerySlotPools: Record<SqlQueryLane, SqlQuerySlotPool> = {
   "first-party": {
     active: 0,
@@ -208,8 +210,10 @@ function responseMetadata(data: DashboardPanelQueryResponse): {
   truncated?: boolean;
   partial?: boolean;
   fetchedAt?: string;
+  refreshPending?: boolean;
 } {
   const metadata: ReturnType<typeof responseMetadata> = {};
+  if (data.refreshPending === true) metadata.refreshPending = true;
   if (data.usageAccounting !== undefined)
     metadata.usageAccounting = data.usageAccounting;
   if (typeof data.cached === "boolean") metadata.cached = data.cached;
@@ -475,6 +479,17 @@ export function useSqlQuery(
   ) {
     completedManualRefresh.current = null;
   }
+  const queuedManualRefresh = useRef<{
+    token: number;
+    queryKeyHash: string;
+    rowsFromMs: number;
+  } | null>(null);
+  if (
+    queuedManualRefresh.current &&
+    queuedManualRefresh.current.queryKeyHash !== queryKeyHash
+  ) {
+    queuedManualRefresh.current = null;
+  }
   const observedRefreshToken = useRef(refreshToken);
   if (refreshToken > observedRefreshToken.current) {
     observedRefreshToken.current = refreshToken;
@@ -569,6 +584,36 @@ export function useSqlQuery(
           completedAt: Date.now(),
         };
       }
+      if (!signal.aborted) {
+        const queued = queuedManualRefresh.current;
+        if (manual && forceRefresh) {
+          queuedManualRefresh.current =
+            !manual.failed && result.refreshPending === true
+              ? {
+                  token: manual.token,
+                  queryKeyHash,
+                  rowsFromMs: result.fetchedAt
+                    ? Date.parse(result.fetchedAt)
+                    : Number.NEGATIVE_INFINITY,
+                }
+              : null;
+        } else if (
+          queued?.queryKeyHash === queryKeyHash &&
+          result.refreshPending !== true
+        ) {
+          queuedManualRefresh.current = null;
+          if (
+            result.fetchedAt !== undefined &&
+            Date.parse(result.fetchedAt) > queued.rowsFromMs
+          ) {
+            completedManualRefresh.current = {
+              token: queued.token,
+              queryKeyHash,
+              completedAt: Date.now(),
+            };
+          }
+        }
+      }
       if (options?.snapshots) {
         writeSqlQuerySnapshotForSession({
           accountScope,
@@ -580,9 +625,14 @@ export function useSqlQuery(
       return result;
     },
     enabled,
-    ...(options?.refetchInterval === undefined
-      ? {}
-      : { refetchInterval: options.refetchInterval }),
+    refetchInterval: (current) => {
+      const interval = options?.refetchInterval ?? false;
+      return current.state.data?.refreshPending === true &&
+        current.state.status !== "error" &&
+        (interval === false || interval > REFRESH_PENDING_POLL_MS)
+        ? REFRESH_PENDING_POLL_MS
+        : interval;
+    },
     refetchOnMount: options?.refetchOnMount ?? Boolean(options?.rerunPartial),
     refetchOnReconnect: options?.refetchOnReconnect ?? false,
     refetchOnWindowFocus: options?.refetchOnWindowFocus ?? false,

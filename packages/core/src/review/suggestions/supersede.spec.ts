@@ -32,6 +32,7 @@ const client = {
 };
 const resolveThread = vi.fn();
 vi.mock("../../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => client,
   isProductionServerlessFunctionRuntime: () => false,
 }));

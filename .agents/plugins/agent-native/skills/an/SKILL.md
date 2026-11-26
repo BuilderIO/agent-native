@@ -88,19 +88,36 @@ never guess a tool name.
 
 ## Keep the open app in step with the chat
 
-Claude opens an embedded app in its side panel. The panel is one live app: an
-edit made through a tool shows there, and an edit the user makes by hand is in
-the app's data the next time you read it.
+An opened app is one live view beside the chat, in Claude's side panel, a
+ChatGPT inline card, or the Agent-Native desktop and Dispatch panes. An edit
+made through a tool shows there, and an edit the user makes by hand is in the
+app's data the next time it is read.
 
-- To change what the open panel shows (filter a list, open a record, switch a
-  week), call the view tools `read_view` and `navigate_view` on the open app
-  instead of calling `open_app` again. Each new `open_app` call opens a new
-  view and replaces the panel.
-- Before acting on "this", "it" or "the one I opened", call `read_view`;
-  the user may have clicked or typed in the panel since your last turn.
-- Draft and edit with the app's own actions (create or update a draft, an
-  event, a task), then read it back. Send, delete or move only when the user
-  asks.
+- **When a view helps.** Mail, events, tasks, decks and records are easier to
+  check and change on screen than in a paragraph. When the answer is a set of
+  those things, opening the app at that list or record is often the most useful
+  reply, and the earlier it appears the sooner the user can act on it. Where a
+  host shows only a small inline card, it should show the answer itself, with
+  the full view one tap away.
+- **What the user is pointing at.** "This", "that one", a dragged chip, or "the
+  one I opened" means the item selected in the open view, or the item the last
+  turn showed. `read_view` returns the view's path, selection and visible text,
+  and it is current: the user may have clicked or typed since the last turn. Ids
+  come from it, not from a title or position.
+- **The same view, updated.** `navigate_view` changes the open view in place
+  (a filtered list, one record, another week), so the user keeps their place.
+  A new `open_app` replaces the panel with a new view. After a change, the
+  useful result is the same view showing the changed item, with the app's own
+  read action confirming what was saved; a tool's acknowledgment or a queued
+  task is not that confirmation.
+- **Short answers when the view answers.** When the view already shows the
+  result, a sentence naming what changed is enough. A table or list repeating
+  what is on screen adds nothing.
+- **Unrelated turns leave the view alone.** A question that needs no app is
+  answered in chat, and the open view stays where the user left it.
+- **Approvals stay as they are.** Drafts and edits go through the app's own
+  actions. Sending, deleting or moving happens only when the user asks, and an
+  approval the host or app asks for is the user's to give.
 
 ## First run and sign-in
 

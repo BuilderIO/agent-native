@@ -350,7 +350,8 @@ Shared properties: `$mcp_source` (`http` / `stdio`), `$mcp_server_name`,
 `$mcp_client_user_agent`, `$mcp_vendor_client`, `$mcp_protocol_version`. Per
 event: `$mcp_tool_name`, `$mcp_tool_description`, `$mcp_tool_category`
 (`read` / `write`), `$mcp_listed_tool_names`, `$mcp_duration_ms`,
-`$mcp_is_error`, `$mcp_error_type`, `$mcp_error_message`, `$mcp_resource_name`,
+`$mcp_response_text_chars`, `$mcp_response_structured_chars`, `$mcp_is_error`,
+`$mcp_error_type`, `$mcp_error_message`, `$mcp_resource_name`,
 `$mcp_resource_uri`.
 
 - **A client's own name is only on the wire at `initialize`.** The mount is
@@ -364,6 +365,15 @@ event: `$mcp_tool_name`, `$mcp_tool_description`, `$mcp_tool_category`
   where it returns rather than having it guessed back out of the response text.
 - **Payloads stay out.** `$mcp_response` is never emitted. `$mcp_parameters` is
   off by default and redacted when on — tool arguments carry user content.
+- **A result's size goes in, counted per part.** `$mcp_response_text_chars`
+  counts the characters in the result's text blocks, and
+  `$mcp_response_structured_chars` the structured content as JSON (absent when
+  the result has none). Hosts cut or move a result past about 40,000
+  characters, and they read different parts: Claude Code and OpenCode show the
+  model only the structured content when there is one, Codex shows both. The
+  handler measures the result only when MCP analytics are on
+  (`mcpAnalyticsEnabled()`), and passes only the two numbers, so no part of
+  the payload reaches `trackMcpToolCall`.
 
 Off switches: `MCP_ANALYTICS=false` (`observability.mcpEvents`) disables the
 events; `MCP_ANALYTICS_PARAMETERS=true` (`observability.mcpCaptureParameters`)

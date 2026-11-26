@@ -313,6 +313,60 @@ describe("tool-search", () => {
     vi.unstubAllEnvs();
   });
 
+  it("loads exactly the named tools when the whole query is known action names", () => {
+    const registry = {
+      "list-projects": action("List projects"),
+      "get-project": action("Get one project by id"),
+      "list-project-members": action("List project members"),
+      "archive-project": action("Archive a project"),
+    };
+    for (const query of [
+      "list-projects, get-project",
+      "list-projects get-project",
+      "LIST-PROJECTS,get-project",
+    ]) {
+      const result = searchToolRegistry(registry, { query });
+      expect(result.results.map((r) => r.name).sort()).toEqual([
+        "get-project",
+        "list-projects",
+      ]);
+    }
+    const viaQueries = searchToolRegistry(registry, {
+      queries: ["list-projects", "get-project"],
+    });
+    expect(viaQueries.results.map((r) => r.name).sort()).toEqual([
+      "get-project",
+      "list-projects",
+    ]);
+  });
+
+  it("falls back to fuzzy search when any word is not a known action name", () => {
+    const registry = {
+      "list-projects": action("List projects"),
+      "get-project": action("Get one project by id"),
+      "archive-project": action("Archive a project"),
+    };
+    const result = searchToolRegistry(registry, {
+      query: "list-projects, project",
+    });
+    expect(result.results.map((r) => r.name)).toContain("archive-project");
+  });
+
+  it("still applies the read-only filter to an exact-name query", () => {
+    const registry = {
+      "list-projects": action("List projects"),
+      "delete-project": {
+        ...action("Delete a project"),
+        readOnly: false,
+      } as ActionEntry,
+    };
+    const result = searchToolRegistry(registry, {
+      query: "list-projects, delete-project",
+      readOnlyOnly: true,
+    });
+    expect(result.results.map((r) => r.name)).toEqual(["list-projects"]);
+  });
+
   it("searches action names, descriptions, and parameter metadata", () => {
     const registry = {
       "send-email": action(

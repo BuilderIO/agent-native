@@ -47,7 +47,7 @@ function targetKey(
   kind: GmailMutationKind,
   target: GmailMutationTarget,
 ): string {
-  return `${kind}:${target.id}:${target.removeLabel ?? ""}:${target.flag ?? ""}`;
+  return `${kind}:${target.accountEmail ?? ""}:${target.id}:${target.removeLabel ?? ""}`;
 }
 
 function bulkArgs(targets: GmailMutationTarget[]) {
@@ -199,6 +199,7 @@ class GmailMutationQueue {
     return new Promise<void>((resolve, reject) => {
       const existing = this.pending.get(key);
       if (existing) {
+        if (target.flag !== undefined) existing.flag = target.flag;
         existing.resolves.push(resolve);
         existing.rejects.push(reject);
       } else {

@@ -25,6 +25,12 @@ const mocks = vi.hoisted(() => {
       id: "designVersions.id",
       designId: "designVersions.designId",
     },
+    designVersionFiles: {
+      designId: "designVersionFiles.designId",
+    },
+    designContents: {
+      designId: "designContents.designId",
+    },
     designLocalhostWriteGrants: {
       id: "designLocalhostWriteGrants.id",
       designId: "designLocalhostWriteGrants.designId",
@@ -255,6 +261,12 @@ describe("delete-design snapshot cleanup", () => {
     );
     expect(mocks.tx.delete).toHaveBeenCalledWith({
       designId: "designVisualEditPending.designId",
+    });
+    expect(mocks.tx.delete).toHaveBeenCalledWith({
+      designId: "designVersionFiles.designId",
+    });
+    expect(mocks.tx.delete).toHaveBeenCalledWith({
+      designId: "designContents.designId",
     });
     expect(mocks.events).toEqual(["queue-cleanup", "commit", "cleanup"]);
   });

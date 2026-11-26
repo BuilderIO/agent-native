@@ -133,13 +133,16 @@ export function BubbleToolbar({
     editor.on("selectionUpdate", update);
     editor.on("transaction", update);
     document.addEventListener("selectionchange", update);
+    let blurTimeout: ReturnType<typeof setTimeout> | undefined;
     const onBlur = () => {
-      setTimeout(() => {
+      clearTimeout(blurTimeout);
+      blurTimeout = setTimeout(() => {
         if (!editor.isFocused) setVisible(false);
       }, 140);
     };
     editor.on("blur", onBlur);
     return () => {
+      clearTimeout(blurTimeout);
       editor.off("selectionUpdate", update);
       editor.off("transaction", update);
       document.removeEventListener("selectionchange", update);

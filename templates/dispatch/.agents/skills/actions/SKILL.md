@@ -30,6 +30,8 @@ When a workflow is research, analysis, generation, recommendation, or synthesis 
 
 **One action per file, default-exported. The filename is the action name** (kebab-case): `actions/list-meals.ts` is the `list-meals` action. Don't put several `defineAction`s as named exports in one file — the registry keys actions by filename and only the default export is registered, so extra named exports never become callable and won't match `.generated/action-types.d.ts`.
 
+Subfolders group actions by domain: the name is the relative path with `-` between segments, so `actions/billing/create-invoice.ts` is `billing-create-invoice`. Two files that resolve to the same name (that one and a flat `actions/billing-create-invoice.ts`) fail boot. Folders and files starting with `_` are helpers and are never registered.
+
 ```ts
 // actions/list-meals.ts
 import { z } from "zod";

@@ -834,10 +834,13 @@ export function PanelSection({
           : undefined
       }
     >
-      <div data-design-inspector-section-header className="px-2">
+      <div
+        data-design-inspector-section-header
+        className="px-[var(--design-inspector-section-padding-inline)]"
+      >
         <InspectorGrid
           className="min-h-[var(--design-section-height)] items-center"
-          layout={actions ? "header-actions" : "columns"}
+          layout="header-actions"
         >
           <InspectorGridCell span={actions ? 20 : 28}>
             <div className="flex min-w-0 items-center">{heading}</div>

@@ -86,7 +86,7 @@ function approvalRequiredMessage(input: RefusalInput, job: string): string {
   const ceiling = formatUsd(budget?.person.ceilingBytes ?? 0);
   return input.askVia
     ? `${past} Calling ${input.askVia} with the same arguments asks you once to allow up to ${ceiling} of BigQuery today, until 00:00 UTC.`
-    : `${past} Allowing up to ${ceiling} today needs your approval on Analytics' review page, which this call can't ask for. Analytics asks once over MCP, when a get-onboarding-journey or get-first-party-analytics-health call needs more, and that approval covers all your outside agents until 00:00 UTC; an Analytics organization admin can also raise your daily allowance. Until then, do not retry this call today.${untilReset(budget)}`;
+    : `${past} Allowing up to ${ceiling} today needs your approval on Analytics' review page, which this call can't ask for. Analytics asks once over MCP, when a get-onboarding-journey, get-first-party-analytics-health or query-warehouse call needs more, and that approval covers all your outside agents until 00:00 UTC; an Analytics organization admin can also raise your daily allowance. Until then, do not retry this call today.${untilReset(budget)}`;
 }
 
 export function refusalMessage(input: RefusalInput): string {
@@ -124,6 +124,7 @@ export interface OutsideAgentBigQueryAdmission {
   created: boolean;
   exclusive: boolean;
   submitBy: number;
+  utcDay: string;
 }
 
 export function submitByForLease(leaseExpiresAt: string): number {
@@ -171,6 +172,7 @@ export interface OutsideAgentBigQueryGate {
     capBytes: number;
     estimate?: () => Promise<BigQueryBillableEstimate>;
     reconciler?: BigQueryAgentReconciler;
+    location?: string | null;
   }): Promise<OutsideAgentBigQueryAdmission>;
   submitted(
     admission: OutsideAgentBigQueryAdmission,
@@ -323,6 +325,7 @@ export function createOutsideAgentBigQueryGate(options: {
                 : Math.min(estimatedBytes, reservedBytes),
             reservedBytes,
             leaseMs: options.leaseMs,
+            ...(input.location ? { location: input.location } : {}),
           },
           {
             now: now(),
@@ -360,6 +363,7 @@ export function createOutsideAgentBigQueryGate(options: {
       }
       const admission: OutsideAgentBigQueryAdmission = {
         submitBy,
+        utcDay: result.utcDay,
         requestId: result.requestId,
         projectId: input.projectId,
         jobId: input.jobId,

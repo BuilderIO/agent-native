@@ -64,6 +64,8 @@ import {
 } from "../shared/builder-mdx.js";
 import { keepRuledOptions } from "../shared/column-rules.js";
 import {
+  documentPropertyDateTimestamp,
+  isDocumentPropertyDateValue,
   normalizePropertyValueWithOptions,
   parsePropertyOptions,
   parsePropertyValue,
@@ -95,6 +97,7 @@ import {
   localFolderSourceIdentityFromMetadata,
 } from "./_local-folder-source.js";
 export { bulkChunkSizeForColumnCount } from "./_batch-utils.js";
+import { BUILDER_ARTICLE_AUTOSAVE_UNSETTLED_EXECUTION_STATES } from "./_builder-article-autosave-rules.js";
 import {
   builderExecutionPayloadReference,
   isBuilderPrivatePayloadBoundToSource,
@@ -168,6 +171,10 @@ import {
   lockExistingDatabaseMemberships,
 } from "./_database-membership-lock.js";
 import { ensureFilesSystemPropertyDefinitions } from "./_files-system-properties.js";
+import {
+  keepInteractiveHtmlBlocks,
+  withPublishedInteractiveHtmlLinks,
+} from "./_interactive-html-blocks.js";
 import {
   createAppendPositionAllocator,
   databaseItemsPositionScope,
@@ -269,6 +276,7 @@ type SourceMetadataRecord = {
   lastReadNextCursor?: string;
   lastReadSuspiciousEmpty?: boolean;
   activeReadSourceRowIds?: string[];
+  activeReadStartedAt?: string;
   sourceFetchState?: "idle" | "fetching" | "error";
   builderContinuationClaimId?: string;
   builderContinuationClaimOffset?: number;
@@ -1294,11 +1302,40 @@ function builderPageTitleRead(args: {
 function builderSourceFieldComparisonValue(
   field: { sourceFieldKey: string; sourceFieldType?: string | null },
   values: Record<string, DocumentPropertyValue>,
+  localValue?: unknown,
 ) {
   const value = values[field.sourceFieldKey];
-  return field.sourceFieldType?.trim().toLowerCase() === "reference"
-    ? (values[builderReferenceIdSourceValueKey(field.sourceFieldKey)] ?? value)
-    : value;
+  const sourceFieldType = field.sourceFieldType?.trim().toLowerCase();
+  if (sourceFieldType === "reference") {
+    return (
+      values[builderReferenceIdSourceValueKey(field.sourceFieldKey)] ?? value
+    );
+  }
+  if (
+    (sourceFieldType === "date" || sourceFieldType === "datetime") &&
+    typeof value === "number" &&
+    isDocumentPropertyDateValue(localValue)
+  ) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    const start = localValue.start.trim();
+    const same = /^\d{4}-\d{2}-\d{2}$/.test(start)
+      ? date.toISOString().slice(0, 10) === start
+      : documentPropertyDateTimestamp(start) === value;
+    return same ? localValue : value;
+  }
+  if (sourceFieldType === "file" && typeof value === "string") {
+    const links = Array.isArray(localValue) ? localValue : [localValue];
+    return links.length === 1 && canonicalWebLink(links[0]) === value
+      ? localValue
+      : value;
+  }
+  return value;
+}
+
+function canonicalWebLink(value: unknown) {
+  if (typeof value !== "string" || !URL.canParse(value)) return null;
+  return new URL(value).toString();
 }
 
 function stringSourceValue(
@@ -2055,6 +2092,7 @@ async function enqueueBuilderBodyHydrations(
 async function reenqueueRetryableBuilderBodyHydration(args: {
   sourceId: string;
   documentId?: string | null;
+  includeTerminal?: boolean;
   now: string;
 }) {
   const rows = await getDb()
@@ -2097,8 +2135,15 @@ async function reenqueueRetryableBuilderBodyHydration(args: {
         args.documentId
           ? eq(schema.contentDatabaseSourceRows.documentId, args.documentId)
           : undefined,
-        eq(schema.contentDatabaseItems.bodyHydrationStatus, "error"),
-        eq(schema.contentDatabaseItems.bodyHydrationRetryable, 1),
+        args.includeTerminal
+          ? inArray(schema.contentDatabaseItems.bodyHydrationStatus, [
+              "error",
+              "unavailable",
+            ])
+          : and(
+              eq(schema.contentDatabaseItems.bodyHydrationStatus, "error"),
+              eq(schema.contentDatabaseItems.bodyHydrationRetryable, 1),
+            ),
         isNull(schema.contentDatabaseBodyHydrationQueue.id),
       ),
     );
@@ -2210,6 +2255,7 @@ export async function enqueueBuilderBodyHydrationForItems(args: {
     const entry = args.builderEntriesByDocumentId.get(item.document.id);
     if (!entry) continue;
     const persistedState = persistedStateByDocumentId.get(item.document.id);
+    if (persistedState && persistedState.entry.id !== entry.id) continue;
     const persistedEntry = persistedState?.entry ?? entry;
     const bodyHydrationStatus =
       persistedState?.bodyHydrationStatus ?? item.bodyHydration?.status;
@@ -2884,6 +2930,19 @@ async function processBuilderBodyHydrationJob(
       .where(eq(schema.documents.id, row.documentId));
     const documentContent = document?.content;
     const currentContent = documentContent ?? "";
+    const keptContent = await keepInteractiveHtmlBlocks({
+      db: tx as unknown as ReturnType<typeof getDb>,
+      documentId: row.documentId,
+      local: currentContent,
+      incoming: nextContent,
+    });
+    if (keptContent !== nextContent) {
+      nextContent = keptContent;
+      nextValues = {
+        ...nextValues,
+        [BUILDER_CMS_BODY_CONTENT_KEY]: keptContent,
+      };
+    }
     const shouldWriteBody =
       currentContent === "" ||
       isEffectivelyEmptyDocumentContent(currentContent) ||
@@ -3701,6 +3760,7 @@ export async function processBuilderBodyHydrationQueue(args: {
   preloadedJobs?: ContentDatabaseBodyHydrationQueueRowDb[];
   preloadBodies?: boolean;
   retryFailed?: boolean;
+  retryTerminal?: boolean;
   runBudgetMs?: number;
 }) {
   const runDeadline =
@@ -3719,6 +3779,7 @@ export async function processBuilderBodyHydrationQueue(args: {
     await reenqueueRetryableBuilderBodyHydration({
       sourceId: args.sourceId,
       documentId: args.documentId,
+      includeTerminal: args.retryTerminal,
       now,
     });
   }
@@ -4287,7 +4348,10 @@ async function convertBuilderBodyCached(
 }
 
 export async function builderBodyChangeForLocalContent(args: {
-  row: Pick<ContentDatabaseSourceRecordRowDb, "sourceValuesJson">;
+  row: Pick<
+    ContentDatabaseSourceRecordRowDb,
+    "documentId" | "sourceValuesJson"
+  >;
   localContent: string | null | undefined;
   usesCurrentHydrationCodec?: boolean;
   /**
@@ -4370,6 +4434,10 @@ export async function builderBodyChangeForLocalContent(args: {
     return null;
   }
   const currentBodyExcerpt = liveBaseline ? null : bodyExcerpt(currentContent);
+  const emptyBaseline: Pick<ContentDatabaseSourceBodyChange, "currentEmpty"> =
+    !liveBaseline && !currentHash && builderCmsBodyKnownEmpty(sourceValues)
+      ? { currentEmpty: true }
+      : {};
 
   if (args.comparison === "text") {
     args.onNeedsBlocks?.();
@@ -4394,6 +4462,7 @@ export async function builderBodyChangeForLocalContent(args: {
       sidecarsJson,
       warnings: [],
       textOnly: true,
+      ...emptyBaseline,
     };
   }
 
@@ -4411,6 +4480,10 @@ export async function builderBodyChangeForLocalContent(args: {
     sidecars = {};
   }
 
+  const builderContent = await withPublishedInteractiveHtmlLinks(
+    args.row.documentId,
+    localContent,
+  );
   try {
     const canMergeReadableBaseline =
       !!losslessContent &&
@@ -4418,7 +4491,7 @@ export async function builderBodyChangeForLocalContent(args: {
       (args.usesCurrentHydrationCodec || !usesCurrentMediaConverter);
     const proposed = await convertBuilderBodyCached(
       {
-        localContent,
+        localContent: builderContent,
         losslessContent: canMergeReadableBaseline ? losslessContent : null,
         sidecars,
         mergeReadableBaseline: canMergeReadableBaseline,
@@ -4426,13 +4499,13 @@ export async function builderBodyChangeForLocalContent(args: {
       async () =>
         canMergeReadableBaseline
           ? builderReadableBodyToBuilderBlocks({
-              localContent,
+              localContent: builderContent,
               losslessContent,
               sidecars,
             })
           : {
               blocks: await builderMdxBodyToBuilderBlocks(
-                normalizeUnsourcedBuilderCreateMdx(localContent),
+                normalizeUnsourcedBuilderCreateMdx(builderContent),
                 sidecars,
               ),
               warnings: [] as string[],
@@ -4463,6 +4536,7 @@ export async function builderBodyChangeForLocalContent(args: {
       proposedBlocksJson: proposed.blocksJson,
       sidecarsJson,
       warnings: proposed.warnings,
+      ...emptyBaseline,
     };
   } catch (error) {
     const message =
@@ -4500,6 +4574,7 @@ function normalizeUnsourcedBuilderCreateMdx(content: string) {
 }
 
 export async function builderBodyChangeForUnsourcedLocalCreate(args: {
+  documentId: string;
   localContent: string | null | undefined;
   comparison?: "text" | "blocks";
   onNeedsBlocks?: () => void;
@@ -4525,7 +4600,9 @@ export async function builderBodyChangeForUnsourcedLocalCreate(args: {
 
   try {
     const blocks = await builderMdxBodyToBuilderBlocks(
-      normalizeUnsourcedBuilderCreateMdx(localContent),
+      normalizeUnsourcedBuilderCreateMdx(
+        await withPublishedInteractiveHtmlLinks(args.documentId, localContent),
+      ),
       {},
     );
     return {
@@ -4558,7 +4635,28 @@ export async function builderBodyChangeForUnsourcedLocalCreate(args: {
   }
 }
 
+function builderBodyDiffersFromStored(
+  row: { sourceValuesJson: string },
+  localContent: string | null | undefined,
+) {
+  const sourceValues =
+    parseObject<Record<string, DocumentPropertyValue>>(row.sourceValuesJson) ??
+    {};
+  const local = normalizeBuilderBodyBaselineContent(localContent);
+  const lossless = normalizeBuilderBodyBaselineContent(
+    stringSourceValue(sourceValues, BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY),
+  );
+  return (
+    local !==
+      normalizeBuilderBodyBaselineContent(
+        stringSourceValue(sourceValues, BUILDER_CMS_BODY_CONTENT_KEY),
+      ) &&
+    (!lossless || local !== lossless)
+  );
+}
+
 export async function builderBodyChangeForSourceSnapshotDocument(args: {
+  documentId: string;
   row?: {
     documentId: string;
     sourceRowId: string;
@@ -4573,17 +4671,24 @@ export async function builderBodyChangeForSourceSnapshotDocument(args: {
   liveBaseline?: { blocksHash: string | null; bodyEmpty: boolean } | null;
   comparison?: "text" | "blocks";
   onNeedsBlocks?: () => void;
+  onBodyUnread?: () => void;
 }): Promise<ContentDatabaseSourceBodyChange | null> {
   if (args.row) {
     const identity = builderCmsSourceRowIdentityState({ row: args.row });
     if (identity.isSyntheticFixture) {
       return builderBodyChangeForUnsourcedLocalCreate({
+        documentId: args.documentId,
         localContent: args.localContent,
         comparison: args.comparison,
         onNeedsBlocks: args.onNeedsBlocks,
       });
     }
-    if (!args.isHydrated) return null;
+    if (!args.isHydrated) {
+      if (builderBodyDiffersFromStored(args.row, args.localContent)) {
+        args.onBodyUnread?.();
+      }
+      return null;
+    }
     return builderBodyChangeForLocalContent({
       row: args.row,
       localContent: args.localContent,
@@ -4597,6 +4702,7 @@ export async function builderBodyChangeForSourceSnapshotDocument(args: {
   }
   if (!args.allowUnsourcedCreate) return null;
   return builderBodyChangeForUnsourcedLocalCreate({
+    documentId: args.documentId,
     localContent: args.localContent,
     comparison: args.comparison,
     onNeedsBlocks: args.onNeedsBlocks,
@@ -4804,7 +4910,11 @@ export function buildBuilderLocalOutboundChangeSets(args: {
         if (
           sameMappedSourceFieldValue(
             localValue,
-            builderSourceFieldComparisonValue(field, rowSourceValues),
+            builderSourceFieldComparisonValue(
+              field,
+              rowSourceValues,
+              localValue,
+            ),
             field.propertyType,
             field.propertyOptions,
           )
@@ -4830,21 +4940,19 @@ export function buildBuilderLocalOutboundChangeSets(args: {
     const bodyChange = args.bodyChangeByDocumentId?.get(row.documentId) ?? null;
     const transitionOnly = fieldChanges.length === 0 && !bodyChange;
     if (transitionOnly && !stagedTransition) continue;
-    const matchesStoredChange = args.storedChangeSets.some((changeSet) => {
-      if (
-        changeSet.direction !== "outbound" ||
-        changeSet.documentId !== row.documentId ||
-        changeSet.pushMode !== "autosave" ||
-        changeSet.state === "rejected" ||
-        changeSet.state === "applied"
-      ) {
-        return false;
-      }
-      // Any open change for the row carries its staged publish or unpublish.
-      if (transitionOnly) return true;
-      return (
-        changeSet.fieldChanges.some((stored) =>
-          fieldChanges.some((change) => {
+    const openChangeSets = args.storedChangeSets.filter(
+      (changeSet) =>
+        changeSet.direction === "outbound" &&
+        changeSet.documentId === row.documentId &&
+        changeSet.pushMode === "autosave" &&
+        changeSet.state !== "rejected" &&
+        changeSet.state !== "applied",
+    );
+    if (transitionOnly && openChangeSets.length > 0) continue;
+    const pendingFieldChanges = fieldChanges.filter(
+      (change) =>
+        !openChangeSets.some((changeSet) =>
+          changeSet.fieldChanges.some((stored) => {
             if (change.localFieldKey !== stored.localFieldKey) return false;
             const writableField = args.writableFields?.find(
               (field) => field.localFieldKey === change.localFieldKey,
@@ -4863,11 +4971,20 @@ export function buildBuilderLocalOutboundChangeSets(args: {
               sameStoredValue(change.proposedValue, stored.proposedValue)
             );
           }),
-        ) ||
-        (!!bodyChange && !!changeSet.bodyChange)
-      );
-    });
-    if (matchesStoredChange) continue;
+        ),
+    );
+    const pendingBodyChange = openChangeSets.some(
+      (changeSet) => changeSet.bodyChange,
+    )
+      ? null
+      : bodyChange;
+    if (
+      !transitionOnly &&
+      pendingFieldChanges.length === 0 &&
+      !pendingBodyChange
+    ) {
+      continue;
+    }
 
     const now = new Date().toISOString();
     const displayTitle = localTitle || sourceTitle;
@@ -4877,7 +4994,7 @@ export function buildBuilderLocalOutboundChangeSets(args: {
       documentId: row.documentId,
       kind: transitionOnly
         ? "metadata_update"
-        : bodyChange && fieldChanges.length === 0
+        : pendingBodyChange && pendingFieldChanges.length === 0
           ? "body_update"
           : "field_update",
       direction: "outbound",
@@ -4886,16 +5003,16 @@ export function buildBuilderLocalOutboundChangeSets(args: {
       localOnly: true,
       summary: transitionOnly
         ? `Pending local Builder CMS ${stagedTransition} for "${displayTitle}".`
-        : bodyChange && fieldChanges.length === 0
+        : pendingBodyChange && pendingFieldChanges.length === 0
           ? `Pending local Builder CMS body change for "${displayTitle}".`
-          : fieldChanges.length === 1 &&
-              fieldChanges[0]?.localFieldKey === "title"
+          : pendingFieldChanges.length === 1 &&
+              pendingFieldChanges[0]?.localFieldKey === "title"
             ? `Pending local Builder CMS title change for "${localTitle}".`
             : `Pending local Builder CMS changes for "${displayTitle}".`,
-      fieldChanges,
-      bodyChange,
+      fieldChanges: pendingFieldChanges,
+      bodyChange: pendingBodyChange,
       riskLevel: "low",
-      riskReasons: bodyChange ? ["body diff"] : ["single field diff"],
+      riskReasons: pendingBodyChange ? ["body diff"] : ["single field diff"],
       conflictState: "none",
       reviewEvents: [],
       executions: [],
@@ -5072,7 +5189,13 @@ export async function getContentDatabaseSourceSnapshotById(
 export type BuilderReviewBodyComparisonOptions = {
   builderBodyComparison?: "text" | "blocks";
   blocksCheckDocumentIds?: Set<string>;
+  unreadBodies?: Map<string, BuilderUnreadBody>;
 };
+
+export interface BuilderUnreadBody {
+  failed: boolean;
+  error: string | null;
+}
 
 export async function getContentDatabaseSourceSnapshotForWrite(
   database: ContentDatabaseRow | ContentDatabase,
@@ -5145,6 +5268,7 @@ export function builderReviewSourceValueTextProjection(
 async function findBuilderReviewBodyCandidateDocumentIds(args: {
   database: ContentDatabaseRow | ContentDatabase;
   source: ContentDatabaseSourceRowDb;
+  limit?: number;
 }) {
   const sourceRows = schema.contentDatabaseSourceRows;
   const items = schema.contentDatabaseItems;
@@ -5167,13 +5291,9 @@ async function findBuilderReviewBodyCandidateDocumentIds(args: {
       eq(sourceRows.provenance, BUILDER_CMS_FIXTURE_ROW_PROVENANCE),
     ),
   );
-  const rows = await getDb()
-    .select({
-      documentId: sourceRows.documentId,
-      isSyntheticFixture: sql<boolean>`COALESCE(${isSyntheticFixture}, false)`,
-      localContentDiffers,
-      bodyHydrationVersion: items.bodyHydrationVersion,
-    })
+  const codecSuffix = `:${BUILDER_BODY_HYDRATION_CODEC_VERSION}`;
+  const query = getDb()
+    .select({ documentId: sourceRows.documentId })
     .from(sourceRows)
     .innerJoin(
       items,
@@ -5200,28 +5320,24 @@ async function findBuilderReviewBodyCandidateDocumentIds(args: {
             or(localContentDiffers, usesCurrentMediaConverter),
           ),
         ),
+        or(
+          isSyntheticFixture,
+          localContentDiffers,
+          isNull(items.bodyHydrationVersion),
+          sql<boolean>`RIGHT(${items.bodyHydrationVersion}, CHAR_LENGTH(${codecSuffix})) <> ${codecSuffix}`,
+        ),
       ),
-    );
-  return rows
-    .filter(
-      (row) =>
-        row.isSyntheticFixture ||
-        row.localContentDiffers ||
-        !row.bodyHydrationVersion ||
-        builderBodyHydrationIsCodecMigration(row.bodyHydrationVersion),
     )
-    .map((row) => row.documentId);
+    .orderBy(asc(sourceRows.createdAt));
+  const rows =
+    args.limit === undefined ? await query : await query.limit(args.limit);
+  return rows.map((row) => row.documentId);
 }
 
-export async function builderReviewDocumentScope(
+async function builderReviewSource(
   database: ContentDatabaseRow | ContentDatabase,
   sourceId?: string | null,
-): Promise<{
-  source: ContentDatabaseSourceRowDb;
-  lightweight: ContentDatabaseSource;
-  reviewableChangeSetIds: string[];
-  documentIds: string[] | null;
-} | null> {
+): Promise<ContentDatabaseSourceRowDb | undefined> {
   const db = getDb();
   const [source] = sourceId
     ? await db
@@ -5241,17 +5357,91 @@ export async function builderReviewDocumentScope(
           asc(schema.contentDatabaseSources.createdAt),
           asc(schema.contentDatabaseSources.id),
         );
+  return source;
+}
+
+export function isReviewableBuilderChangeSet(changeSet: {
+  direction: string;
+  state: string;
+}) {
+  return (
+    changeSet.direction === "outbound" &&
+    (changeSet.state === "pending_push" ||
+      changeSet.state === "staged_revision" ||
+      changeSet.state === "approved")
+  );
+}
+
+export async function builderReviewFirstDocumentIds(
+  database: ContentDatabaseRow | ContentDatabase,
+  sourceId: string | null | undefined,
+  limit: number,
+): Promise<{
+  sourceId: string;
+  sourceTable: string;
+  sourceType: ContentDatabaseSourceType;
+  documentIds: string[];
+} | null> {
+  const source = await builderReviewSource(database, sourceId);
+  if (!source) return null;
+  const found = {
+    sourceId: source.id,
+    sourceTable: source.sourceTable,
+    sourceType: normalizeSourceType(source.sourceType),
+  };
+  const changeSets = await getDb()
+    .select({
+      documentId: schema.contentDatabaseSourceChangeSets.documentId,
+      direction: schema.contentDatabaseSourceChangeSets.direction,
+      state: schema.contentDatabaseSourceChangeSets.state,
+    })
+    .from(schema.contentDatabaseSourceChangeSets)
+    .where(eq(schema.contentDatabaseSourceChangeSets.sourceId, source.id));
+  if (changeSets.some(isReviewableBuilderChangeSet)) {
+    return { ...found, documentIds: [] };
+  }
+  const rejected = new Set(
+    changeSets.flatMap((changeSet) =>
+      changeSet.state === "rejected" && changeSet.documentId
+        ? [changeSet.documentId]
+        : [],
+    ),
+  );
+  const bodyDocumentIds = [
+    ...new Set(
+      await findBuilderReviewBodyCandidateDocumentIds({
+        database,
+        source,
+        limit: limit + rejected.size,
+      }),
+    ),
+  ];
+  return {
+    ...found,
+    documentIds: [
+      ...bodyDocumentIds.filter((documentId) => !rejected.has(documentId)),
+      ...bodyDocumentIds.filter((documentId) => rejected.has(documentId)),
+    ].slice(0, limit),
+  };
+}
+
+export async function builderReviewDocumentScope(
+  database: ContentDatabaseRow | ContentDatabase,
+  sourceId?: string | null,
+): Promise<{
+  source: ContentDatabaseSourceRowDb;
+  lightweight: ContentDatabaseSource;
+  reviewableChangeSetIds: string[];
+  documentIds: string[] | null;
+} | null> {
+  const source = await builderReviewSource(database, sourceId);
   if (!source) return null;
 
   const lightweight = await loadSourceSnapshot(source, database, {
     includeHeavyBuilderBodyValues: false,
   });
   const reviewableChanges = lightweight.changeSets.filter(
-    (changeSet) =>
-      changeSet.direction === "outbound" &&
-      (changeSet.state === "pending_push" ||
-        changeSet.state === "staged_revision" ||
-        changeSet.state === "approved"),
+    isReviewableBuilderChangeSet,
   );
   const reviewableChangeSetIds = reviewableChanges.map(
     (changeSet) => changeSet.id,
@@ -5271,22 +5461,12 @@ export async function builderReviewDocumentScope(
   if (reviewableChanges.some((changeSet) => !changeSet.documentId)) {
     return { source, lightweight, reviewableChangeSetIds, documentIds: null };
   }
-  const candidateDocumentIds = new Set(
-    reviewableChanges.flatMap((changeSet) =>
+  const candidateDocumentIds = new Set([
+    ...reviewableChanges.flatMap((changeSet) =>
       changeSet.documentId ? [changeSet.documentId] : [],
     ),
-  );
-  const bodyCandidateDocumentIds = new Set(
-    await findBuilderReviewBodyCandidateDocumentIds({ database, source }),
-  );
-  for (const row of lightweight.rows) {
-    if (bodyCandidateDocumentIds.delete(row.documentId)) {
-      candidateDocumentIds.add(row.documentId);
-    }
-  }
-  for (const documentId of bodyCandidateDocumentIds) {
-    candidateDocumentIds.add(documentId);
-  }
+    ...(await findBuilderReviewBodyCandidateDocumentIds({ database, source })),
+  ]);
   return {
     source,
     lightweight,
@@ -5404,6 +5584,7 @@ async function readSourceSnapshotRowsOnce(args: {
           id: schema.contentDatabaseItems.id,
           documentId: schema.contentDatabaseItems.documentId,
           bodyHydrationStatus: schema.contentDatabaseItems.bodyHydrationStatus,
+          bodyHydrationError: schema.contentDatabaseItems.bodyHydrationError,
           bodyHydrationVersion:
             schema.contentDatabaseItems.bodyHydrationVersion,
         })
@@ -5957,6 +6138,17 @@ async function loadSourceSnapshot(
         item.bodyHydrationVersion,
       ]),
     );
+    const unreadBodyByDocumentId = new Map(
+      databaseItemRows.map((item) => [
+        item.documentId,
+        {
+          failed:
+            item.bodyHydrationStatus === "error" ||
+            item.bodyHydrationStatus === "unavailable",
+          error: item.bodyHydrationError,
+        },
+      ]),
+    );
     await Promise.all(
       allDocumentIds.map(async (documentId) => {
         const row = sourceRowByDocumentId.get(documentId);
@@ -5966,6 +6158,7 @@ async function loadSourceSnapshot(
           !otherSourceDocumentIds.has(documentId) &&
           !taggedSourceByDocumentId.has(documentId);
         bodyChange = await builderBodyChangeForSourceSnapshotDocument({
+          documentId,
           row,
           isHydrated: hydratedDocumentIds.has(documentId),
           bodyHydrationVersion:
@@ -5982,6 +6175,14 @@ async function loadSourceSnapshot(
               : null,
           comparison: options.builderBodyComparison,
           onNeedsBlocks: () => options.blocksCheckDocumentIds?.add(documentId),
+          onBodyUnread: () =>
+            options.unreadBodies?.set(
+              documentId,
+              unreadBodyByDocumentId.get(documentId) ?? {
+                failed: false,
+                error: null,
+              },
+            ),
         });
         if (bodyChange) bodyChangeByDocumentId.set(documentId, bodyChange);
       }),
@@ -6395,6 +6596,7 @@ export function serializeBuilderCmsSourceReadMetadataRecord(args: {
   progress?: BuilderCmsReadProgress;
   sourceFetchState?: "idle" | "fetching" | "error";
   activeReadSourceRowIds?: string[];
+  activeReadStartedAt?: string | undefined;
   suspiciousEmpty?: boolean;
   builderModelFields?: BuilderCmsModelFieldSummary[];
   existingMetadataJson?: string | null;
@@ -6428,6 +6630,10 @@ export function serializeBuilderCmsSourceReadMetadataRecord(args: {
     activeReadSourceRowIds: args.suspiciousEmpty
       ? []
       : args.activeReadSourceRowIds,
+    activeReadStartedAt:
+      args.suspiciousEmpty || !args.activeReadSourceRowIds
+        ? undefined
+        : args.activeReadStartedAt,
     sourceFetchState:
       args.sourceFetchState ??
       (args.progress?.partial
@@ -6999,7 +7205,7 @@ function mockSourceRowsForSeed(args: {
   items: ContentDatabaseItem[];
   now: string;
   existingBuilderRows?: Map<string, ExistingBuilderSourceRowIdentity>;
-  builderEntriesByDocumentId?: Map<string, BuilderCmsSourceEntry>;
+  builderEntriesByDocumentId?: Map<string, BuilderCmsSourceEntry> | undefined;
 }) {
   return args.items.map((item, index) => {
     const builderEntry = args.builderEntriesByDocumentId?.get(item.document.id);
@@ -7106,6 +7312,7 @@ export async function replaceMockSourceRows(args: {
   existingBuilderRows?: Map<string, ExistingBuilderSourceRowIdentity>;
   builderEntriesByDocumentId?: Map<string, BuilderCmsSourceEntry>;
   documentIds?: string[];
+  linkedPagesOnly?: boolean;
   /** Writes the refreshed values into the source's mapped properties. */
   materializeFields?: boolean;
 }) {
@@ -7154,7 +7361,6 @@ export async function replaceMockSourceRows(args: {
     const oldRows = await tx
       .select({
         databaseItemId: schema.contentDatabaseSourceRows.databaseItemId,
-        documentId: schema.contentDatabaseSourceRows.documentId,
       })
       .from(schema.contentDatabaseSourceRows)
       .where(scope);
@@ -7167,18 +7373,70 @@ export async function replaceMockSourceRows(args: {
     const existingBuilderRows = args.existingBuilderRows
       ? await lockedExistingBuilderRows(tx, scope, args.existingBuilderRows)
       : null;
+    const builderEntriesByDocumentId = entriesUnlessRowTookAnother({
+      entriesByDocumentId: args.builderEntriesByDocumentId,
+      rowsBeforeLock: args.existingBuilderRows,
+      lockedRows: existingBuilderRows,
+    });
+    const items =
+      existingBuilderRows && args.linkedPagesOnly
+        ? args.items.filter(
+            (item) =>
+              builderEntriesByDocumentId?.has(item.document.id) ||
+              existingBuilderRows.has(item.document.id),
+          )
+        : args.items;
     const rows = existingBuilderRows
       ? await refreshBuilderPageTitles(tx, {
-          rows: mockSourceRowsForSeed({ ...args, existingBuilderRows }),
+          rows: mockSourceRowsForSeed({
+            ...args,
+            items,
+            existingBuilderRows,
+            builderEntriesByDocumentId,
+          }),
           previousRows: existingBuilderRows,
           now: args.now,
         })
       : lockRows;
-    await tx.delete(schema.contentDatabaseSourceRows).where(scope);
+    const replacedRows = await tx
+      .delete(schema.contentDatabaseSourceRows)
+      .where(
+        args.linkedPagesOnly
+          ? and(scope, sourceRowNotSyncedSince(args.now))
+          : scope,
+      )
+      .returning({ documentId: schema.contentDatabaseSourceRows.documentId });
+    if (args.linkedPagesOnly) {
+      const readDocumentIds = new Set(
+        args.items.map((item) => item.document.id),
+      );
+      const syncedSinceRows = await tx
+        .select({
+          id: schema.contentDatabaseSourceRows.id,
+          documentId: schema.contentDatabaseSourceRows.documentId,
+        })
+        .from(schema.contentDatabaseSourceRows)
+        .where(scope);
+      for (const idChunk of chunks(
+        syncedSinceRows
+          .filter((row) => readDocumentIds.has(row.documentId))
+          .map((row) => row.id),
+        idChunkSize(),
+      )) {
+        replacedRows.push(
+          ...(await tx
+            .delete(schema.contentDatabaseSourceRows)
+            .where(inArray(schema.contentDatabaseSourceRows.id, idChunk))
+            .returning({
+              documentId: schema.contentDatabaseSourceRows.documentId,
+            })),
+        );
+      }
+    }
     await insertMockSourceRows(tx, rows, args.now);
     await clearBuilderStatusValues(tx, {
       databaseId: source.databaseId,
-      documentIds: oldRows
+      documentIds: replacedRows
         .map((row) => row.documentId)
         .filter((documentId): documentId is string => !!documentId),
     });
@@ -7305,6 +7563,33 @@ async function refreshBuilderPageTitles(
   return rows;
 }
 
+function sourceRowNotSyncedSince(time: string) {
+  return or(
+    isNull(schema.contentDatabaseSourceRows.lastSyncedAt),
+    lte(schema.contentDatabaseSourceRows.lastSyncedAt, time),
+  );
+}
+
+function entriesUnlessRowTookAnother(args: {
+  entriesByDocumentId: Map<string, BuilderCmsSourceEntry> | undefined;
+  rowsBeforeLock: Map<string, ExistingBuilderSourceRowIdentity> | undefined;
+  lockedRows: Map<string, ExistingBuilderSourceRowIdentity> | null;
+}) {
+  const { entriesByDocumentId, rowsBeforeLock, lockedRows } = args;
+  if (!entriesByDocumentId || !lockedRows) return entriesByDocumentId;
+  return new Map(
+    Array.from(entriesByDocumentId).filter(([documentId, entry]) => {
+      const row = lockedRows.get(documentId);
+      return (
+        !row ||
+        row.sourceRowId === entry.id ||
+        row.sourceRowId === rowsBeforeLock?.get(documentId)?.sourceRowId ||
+        builderCmsSourceRowIdentityState({ row }).isSyntheticFixture
+      );
+    }),
+  );
+}
+
 async function lockedExistingBuilderRows(
   tx: Pick<ReturnType<typeof getDb>, "select">,
   scope: SQL | undefined,
@@ -7422,6 +7707,13 @@ function builderSourceValuesWithPreservedBodyBaseline(args: {
       next[BUILDER_CMS_BODY_LAST_UPDATED_KEY] =
         args.existingLastSourceUpdatedAt;
     }
+  }
+  if (
+    builderCmsBodyKnownEmpty(existing) &&
+    !incomingHash &&
+    !(BUILDER_CMS_BODY_BLOCK_COUNT_KEY in next)
+  ) {
+    next[BUILDER_CMS_BODY_BLOCK_COUNT_KEY] = 0;
   }
   const referenceIdPrefix = "__agent_native_builder_reference_id:";
   for (const [key, value] of Object.entries(existing)) {
@@ -7636,6 +7928,7 @@ async function sourceFieldValueWrites(
         const previousValue = builderSourceFieldComparisonValue(
           field,
           previousSourceValues,
+          localValue,
         );
         const editedInContent =
           existing.valueJson !==
@@ -7651,6 +7944,7 @@ async function sourceFieldValueWrites(
           const nextValue = builderSourceFieldComparisonValue(
             field,
             sourceValues,
+            localValue,
           );
           const flaggedBefore =
             previousConflicts?.state === "invalid" ||
@@ -8090,6 +8384,9 @@ export function mapBuilderCmsEntriesToLocalItems(args: {
   sourceTable: string;
   now: string;
   existingRows: ContentDatabaseSourceRecordRowDb[];
+  importedEntriesByDocumentId?:
+    | ReadonlyMap<string, BuilderCmsSourceEntry>
+    | undefined;
 }) {
   const entriesById = new Map(args.entries.map((entry) => [entry.id, entry]));
   const entriesByQualifiedId = new Map(
@@ -8112,9 +8409,28 @@ export function mapBuilderCmsEntriesToLocalItems(args: {
   const existingRowsByDocumentId = new Map(
     args.existingRows.map((row) => [row.documentId, row]),
   );
-  const entriesByDocumentId = new Map<string, BuilderCmsSourceEntry>();
+  const entriesByDocumentId = new Map<string, BuilderCmsSourceEntry>(
+    args.importedEntriesByDocumentId,
+  );
+  const heldEntryIds = new Set(
+    Array.from(entriesByDocumentId.values(), (entry) => entry.id),
+  );
+  for (const row of args.existingRows) {
+    if (builderCmsSourceRowIdentityState({ row }).isSyntheticFixture) continue;
+    const held =
+      entriesById.get(row.sourceRowId) ??
+      entriesByQualifiedId.get(row.sourceQualifiedId);
+    if (held) heldEntryIds.add(held.id);
+  }
+  const unheldEntry = (entry: BuilderCmsSourceEntry | undefined) =>
+    entry && !heldEntryIds.has(entry.id) ? entry : undefined;
+  const naturalKeyMatches: Array<{
+    documentId: string;
+    entry: BuilderCmsSourceEntry;
+  }> = [];
 
   for (const item of args.items) {
+    if (args.importedEntriesByDocumentId?.has(item.document.id)) continue;
     const existing = existingRowsByDocumentId.get(item.document.id);
     const fixtureEntry = buildBuilderCmsFixtureEntry({
       item,
@@ -8128,13 +8444,28 @@ export function mapBuilderCmsEntriesToLocalItems(args: {
     const allowNaturalKeyFallback =
       !existing ||
       builderCmsSourceRowIdentityState({ row: existing }).isSyntheticFixture;
-    const match =
-      exactIdentityMatch ??
-      (allowNaturalKeyFallback
-        ? (entriesByUrlPath.get(fixtureEntry.urlPath.toLowerCase()) ??
-          entriesByTitle.get(item.document.title.trim().toLowerCase()))
-        : null);
-    if (match) entriesByDocumentId.set(item.document.id, match);
+    if (exactIdentityMatch) {
+      entriesByDocumentId.set(item.document.id, exactIdentityMatch);
+      continue;
+    }
+    if (!allowNaturalKeyFallback) continue;
+    const entry =
+      unheldEntry(entriesByUrlPath.get(fixtureEntry.urlPath.toLowerCase())) ??
+      unheldEntry(entriesByTitle.get(item.document.title.trim().toLowerCase()));
+    if (entry) naturalKeyMatches.push({ documentId: item.document.id, entry });
+  }
+
+  const matchCountByEntryId = new Map<string, number>();
+  for (const { entry } of naturalKeyMatches) {
+    matchCountByEntryId.set(
+      entry.id,
+      (matchCountByEntryId.get(entry.id) ?? 0) + 1,
+    );
+  }
+  for (const { documentId, entry } of naturalKeyMatches) {
+    if (matchCountByEntryId.get(entry.id) === 1) {
+      entriesByDocumentId.set(documentId, entry);
+    }
   }
 
   return entriesByDocumentId;
@@ -8193,6 +8524,7 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
   sourceTable: string;
   existingSourceRows?: ContentDatabaseSourceRecordRowDb[];
   skipTitleDedup?: boolean;
+  unmatchedDocumentIds?: ReadonlySet<string>;
 }): Promise<{
   imported: number;
   importedEntriesByDocumentId: Map<string, BuilderCmsSourceEntry>;
@@ -8283,7 +8615,11 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
   );
   const existingUnlinkedTitles = new Set(
     currentItems
-      .filter((row) => !representedDocumentIds.has(row.document.id))
+      .filter(
+        (row) =>
+          !representedDocumentIds.has(row.document.id) &&
+          !args.unmatchedDocumentIds?.has(row.document.id),
+      )
       .map((row) => row.document.title.trim().toLowerCase()),
   );
   const currentRowByDocumentId = new Map(
@@ -8582,6 +8918,40 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
   );
 }
 
+async function titlesWithUnsettledBuilderSaves(sourceId: string) {
+  const saves = await getDb()
+    .select({
+      fieldChangesJson: schema.contentDatabaseSourceChangeSets.fieldChangesJson,
+    })
+    .from(schema.contentDatabaseSourceExecutions)
+    .innerJoin(
+      schema.contentDatabaseSourceChangeSets,
+      eq(
+        schema.contentDatabaseSourceChangeSets.id,
+        schema.contentDatabaseSourceExecutions.changeSetId,
+      ),
+    )
+    .where(
+      and(
+        eq(schema.contentDatabaseSourceExecutions.sourceId, sourceId),
+        inArray(schema.contentDatabaseSourceExecutions.state, [
+          ...BUILDER_ARTICLE_AUTOSAVE_UNSETTLED_EXECUTION_STATES,
+        ]),
+      ),
+    );
+  return new Set(
+    saves.flatMap((save) =>
+      parseArray<ContentDatabaseSourceFieldChange>(
+        save.fieldChangesJson,
+      ).flatMap(({ localFieldKey, proposedValue }) =>
+        localFieldKey === "title" && typeof proposedValue === "string"
+          ? [proposedValue.trim().toLowerCase()]
+          : [],
+      ),
+    ),
+  );
+}
+
 export async function resyncBuilderCmsSourceSnapshot(args: {
   database: ContentDatabaseRow;
   source: ContentDatabaseSourceRowDb;
@@ -8639,10 +9009,6 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     builderModelFields && builderModelFields.length > 0
       ? builderModelFields
       : (sourceMetadata.builderModelFields ?? []);
-  const existingRowsPromise = db
-    .select()
-    .from(schema.contentDatabaseSourceRows)
-    .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
   const builderRead = await readBuilderCmsContentEntries({
     model: args.source.sourceTable,
     expectedSourceSpace: sourceMetadata.builderSpacePublicKey,
@@ -8697,7 +9063,22 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
   }
   const { properties, response: initialResponse } = await setupPromise;
   let response = initialResponse;
-  const existingRows = await existingRowsPromise;
+  const titlesBeingSaved = await titlesWithUnsettledBuilderSaves(
+    args.source.id,
+  );
+  const existingRows = await db
+    .select()
+    .from(schema.contentDatabaseSourceRows)
+    .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
+  const settledEntries = builderEntries.filter(
+    (entry) =>
+      !titlesBeingSaved.has(entry.title.trim().toLowerCase()) ||
+      builderCmsEntryAlreadyRepresented({
+        entry,
+        sourceTable: args.source.sourceTable,
+        existingSourceRows: existingRows,
+      }),
+  );
   const readStartOffset = builderRead.progress?.startOffset ?? 0;
   const activeReadSourceRowIdSet = new Set(activeReadSourceRowIds);
   const suspiciousEmptyRead =
@@ -8733,15 +9114,32 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     source: args.source,
     now: args.now,
   });
+  const matchSettledEntries = (
+    importedEntriesByDocumentId?: ReadonlyMap<string, BuilderCmsSourceEntry>,
+  ) =>
+    mapBuilderCmsEntriesToLocalItems({
+      entries: settledEntries,
+      items: response.items,
+      sourceTable: args.source.sourceTable,
+      now: args.now,
+      existingRows,
+      importedEntriesByDocumentId,
+    });
   let importedEntriesByDocumentId = new Map<string, BuilderCmsSourceEntry>();
   if (builderRead.state === "live") {
+    const matchedBeforeImport = matchSettledEntries();
     const importResult = await importBuilderCmsEntriesAsDatabaseItems({
       database: args.database,
       sourceId: args.source.id,
-      entries: builderEntries,
+      entries: settledEntries,
       now: args.now,
       sourceTable: args.source.sourceTable,
       existingSourceRows: existingRows,
+      unmatchedDocumentIds: new Set(
+        response.items
+          .map((item) => item.document.id)
+          .filter((documentId) => !matchedBeforeImport.has(documentId)),
+      ),
     });
     importedEntriesByDocumentId = importResult.importedEntriesByDocumentId;
     if (importResult.imported > 0) {
@@ -8757,17 +9155,8 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
   }
   const builderEntriesByDocumentId =
     builderRead.state === "live"
-      ? mapBuilderCmsEntriesToLocalItems({
-          entries: builderEntries,
-          items: response.items,
-          sourceTable: args.source.sourceTable,
-          now: args.now,
-          existingRows,
-        })
+      ? matchSettledEntries(importedEntriesByDocumentId)
       : new Map<string, BuilderCmsSourceEntry>();
-  for (const [documentId, entry] of importedEntriesByDocumentId) {
-    builderEntriesByDocumentId.set(documentId, entry);
-  }
   const existingBuilderRows = new Map<string, ExistingBuilderSourceRowIdentity>(
     existingRows.map((row) => [
       row.documentId,
@@ -8836,7 +9225,9 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
         now: args.now,
       });
     }
-    if (!hasMore && nextActiveReadSourceRowIds.length > 0) {
+    const readStartedAt =
+      continueOffset > 0 ? sourceMetadata.activeReadStartedAt : args.now;
+    if (!hasMore && nextActiveReadSourceRowIds.length > 0 && readStartedAt) {
       const activeSourceRowIds = new Set(nextActiveReadSourceRowIds);
       const staleRows = (
         await db
@@ -8844,7 +9235,6 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
             id: schema.contentDatabaseSourceRows.id,
             sourceRowId: schema.contentDatabaseSourceRows.sourceRowId,
             databaseItemId: schema.contentDatabaseSourceRows.databaseItemId,
-            documentId: schema.contentDatabaseSourceRows.documentId,
           })
           .from(schema.contentDatabaseSourceRows)
           .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id))
@@ -8854,19 +9244,31 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
           tx,
           staleRows.map((row) => row.databaseItemId).filter(Boolean),
         );
+        const droppedDocumentIds: string[] = [];
         for (const idChunk of chunks(
           staleRows.map((row) => row.id),
           idChunkSize(),
         )) {
-          await tx
+          const dropped = await tx
             .delete(schema.contentDatabaseSourceRows)
-            .where(inArray(schema.contentDatabaseSourceRows.id, idChunk));
+            .where(
+              and(
+                inArray(schema.contentDatabaseSourceRows.id, idChunk),
+                sourceRowNotSyncedSince(readStartedAt),
+              ),
+            )
+            .returning({
+              documentId: schema.contentDatabaseSourceRows.documentId,
+            });
+          droppedDocumentIds.push(
+            ...dropped
+              .map((row) => row.documentId)
+              .filter((documentId): documentId is string => !!documentId),
+          );
         }
         await clearBuilderStatusValues(tx, {
           databaseId: args.database.id,
-          documentIds: staleRows
-            .map((row) => row.documentId)
-            .filter((documentId): documentId is string => !!documentId),
+          documentIds: droppedDocumentIds,
         });
       });
     }
@@ -8888,6 +9290,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
       sourceFetchState: hasMore ? "fetching" : "idle",
       syncState: hasMore ? "refreshing" : "idle",
       activeReadSourceRowIds: hasMore ? nextActiveReadSourceRowIds : undefined,
+      activeReadStartedAt: readStartedAt,
       refreshClaimId: args.refreshClaimId,
     });
     return;
@@ -8930,6 +9333,7 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     now: args.now,
     existingBuilderRows,
     builderEntriesByDocumentId,
+    linkedPagesOnly: builderRead.state === "live",
     materializeFields: true,
   });
   if (builderRead.state === "live") {
@@ -8952,7 +9356,12 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
     .from(schema.contentDatabaseSourceChangeSets)
     .where(eq(schema.contentDatabaseSourceChangeSets.sourceId, args.source.id));
   const orphanIds = openChangeSets
-    .filter((row) => row.documentId && !currentDocumentIds.has(row.documentId))
+    .filter(
+      (row) =>
+        row.documentId &&
+        !currentDocumentIds.has(row.documentId) &&
+        row.createdAt <= args.now,
+    )
     .map((row) => row.id);
   if (orphanIds.length > 0) {
     await deleteSourceChangeSetRecords({
@@ -9407,6 +9816,7 @@ export async function updateBuilderCmsSourceReadMetadata(args: {
   progress?: BuilderCmsReadProgress;
   sourceFetchState?: "idle" | "fetching" | "error";
   activeReadSourceRowIds?: string[] | undefined;
+  activeReadStartedAt?: string | undefined;
   syncState?: ContentDatabaseSourceSyncState;
   builderModelFields?: BuilderCmsModelFieldSummary[] | undefined;
   suspiciousEmpty?: boolean;
@@ -9448,6 +9858,10 @@ export async function updateBuilderCmsSourceReadMetadata(args: {
         progress: args.progress,
         sourceFetchState: args.sourceFetchState,
         activeReadSourceRowIds: args.activeReadSourceRowIds,
+        activeReadStartedAt:
+          (args.progress?.startOffset ?? 0) > 0
+            ? args.activeReadStartedAt
+            : args.now,
         suspiciousEmpty: args.suspiciousEmpty,
         builderModelFields: args.builderModelFields,
         existingMetadataJson: currentSource.metadataJson,

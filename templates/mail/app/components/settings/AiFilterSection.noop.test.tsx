@@ -628,7 +628,7 @@ describe("AiFilterSection", () => {
     await waitFor(() => {
       expect(mocks.updateRuleAsync).toHaveBeenCalledWith({
         id: "tag-archive-rule",
-        name: "AI tag: Receipts from online orders",
+        name: "AI label: Receipts from online orders",
         condition: "Receipts from online orders",
         actions: [
           { type: "label", labelName: "Receipts" },

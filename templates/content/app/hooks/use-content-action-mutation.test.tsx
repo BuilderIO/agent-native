@@ -2,6 +2,7 @@
 
 import { useActionMutation } from "@agent-native/core/client/hooks";
 import type { ContentNavigationContext, Document } from "@shared/api";
+import { localSourceDirectoryId } from "@shared/local-source-directory";
 import {
   QueryClient,
   QueryClientProvider,
@@ -18,7 +19,10 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
 }));
 
 import { useDeleteComment } from "./use-comments";
-import { useContentActionMutation } from "./use-content-action-mutation";
+import {
+  invalidateContentQueries,
+  useContentActionMutation,
+} from "./use-content-action-mutation";
 import {
   useDuplicateDatabaseItem,
   useRemoveDatabaseItems,
@@ -190,6 +194,24 @@ async function refetched() {
     .sort();
 }
 
+function mountFolderReads(folderReads: Array<[string, QueryKey, unknown]>) {
+  const fetched: string[] = [];
+  for (const [name, key, data] of folderReads) {
+    queryClient.setQueryData(key, data);
+    const observer = new QueryObserver(queryClient, {
+      queryKey: key,
+      queryFn: async () => {
+        fetched.push(name);
+        return data;
+      },
+      staleTime: Infinity,
+      retry: false,
+    });
+    unsubscribes.push(observer.subscribe(() => {}));
+  }
+  return fetched;
+}
+
 async function renderHook<T>(hook: () => T) {
   const result: { current: T | null } = { current: null };
   function Harness() {
@@ -289,6 +311,32 @@ describe("useContentActionMutation", () => {
     expect(await refetched()).toEqual(["comments"]);
     expect(order).toEqual(["onSuccess", "refetch"]);
   });
+
+  it("reads again when a refresh lands during a read's first load, rather than keeping that load's answer", async () => {
+    const key: QueryKey = ["action", "query-content-database-items", {}];
+    let answerFirstLoad!: (value: string) => void;
+    const queryFn = vi
+      .fn<() => Promise<string>>()
+      .mockImplementationOnce(
+        () => new Promise((resolve) => (answerFirstLoad = resolve)),
+      )
+      .mockResolvedValue("after the write");
+    const observer = new QueryObserver(queryClient, {
+      queryKey: key,
+      queryFn,
+      retry: false,
+    });
+    unsubscribes.push(observer.subscribe(() => {}));
+    await vi.waitFor(() => expect(queryFn).toHaveBeenCalledTimes(1));
+
+    invalidateContentQueries(queryClient, [key]);
+    answerFirstLoad("before the write");
+
+    await vi.waitFor(() =>
+      expect(queryClient.getQueryData(key)).toBe("after the write"),
+    );
+    expect(queryFn).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("sidebar writes refresh only the affected branch", () => {
@@ -317,6 +365,154 @@ describe("sidebar writes refresh only the affected branch", () => {
     expect(queryClient.getQueryData<any>(keys.recent).entries[0].title).toBe(
       "Renamed",
     );
+  });
+
+  it("rename of a linked folder's file refreshes every folder above it, up to the top level", async () => {
+    const a = localSourceDirectoryId({ rootPath: "vault", path: "a" });
+    const ab = localSourceDirectoryId({ rootPath: "vault", path: "a/b" });
+    const folderReads: Array<[string, QueryKey, unknown]> = [
+      ["top", navigation(FILES, null), branch(a, "other")],
+      ["a", navigation(FILES, a), branch(ab)],
+      ["ab", navigation(FILES, ab), branch("only")],
+      ["other", navigation(FILES, "other"), branch("other-child")],
+    ];
+    const fetched: string[] = [];
+    for (const [name, key, data] of folderReads) {
+      queryClient.setQueryData(key, data);
+      const observer = new QueryObserver(queryClient, {
+        queryKey: key,
+        queryFn: async () => {
+          fetched.push(name);
+          return data;
+        },
+        staleTime: Infinity,
+        retry: false,
+      });
+      unsubscribes.push(observer.subscribe(() => {}));
+    }
+    actionResponses["update-document"] = {
+      id: "only",
+      title: "Renamed",
+      updatedAt: "2026-09-27T00:00:00.000Z",
+      softDeletedDatabaseIds: [],
+    };
+    const update = await renderHook(() => useUpdateDocument());
+
+    await act(() =>
+      update.current.mutateAsync({ id: "only", title: "Renamed" }),
+    );
+    await refetched();
+
+    expect(fetched.sort()).toEqual(["a", "ab", "top"]);
+  });
+
+  it("rename of a linked folder's file known only from its path refreshes its folder and every folder above it", async () => {
+    const a = localSourceDirectoryId({ rootPath: "vault", path: "a" });
+    const ab = localSourceDirectoryId({ rootPath: "vault", path: "a/b" });
+    const folderReads: Array<[string, QueryKey, unknown]> = [
+      ["top", navigation(FILES, null), branch(a, "other")],
+      ["a", navigation(FILES, a), branch(ab)],
+      ["ab", navigation(FILES, ab), branch("loaded")],
+      ["other", navigation(FILES, "other"), branch("other-child")],
+    ];
+    const fetched: string[] = [];
+    for (const [name, key, data] of folderReads) {
+      queryClient.setQueryData(key, data);
+      const observer = new QueryObserver(queryClient, {
+        queryKey: key,
+        queryFn: async () => {
+          fetched.push(name);
+          return data;
+        },
+        staleTime: Infinity,
+        retry: false,
+      });
+      unsubscribes.push(observer.subscribe(() => {}));
+    }
+    queryClient.setQueryData(
+      ["action", "get-content-navigation-context", { id: "unloaded" }],
+      {
+        document: { id: "unloaded" },
+        path: [
+          { id: a, parentId: null },
+          { id: ab, parentId: a },
+          { id: "unloaded", parentId: ab },
+        ],
+      },
+    );
+    actionResponses["update-document"] = {
+      id: "unloaded",
+      title: "Renamed",
+      updatedAt: "2026-09-27T00:00:00.000Z",
+      softDeletedDatabaseIds: [],
+    };
+    const update = await renderHook(() => useUpdateDocument());
+
+    await act(() =>
+      update.current.mutateAsync({ id: "unloaded", title: "Renamed" }),
+    );
+    await refetched();
+
+    expect(fetched.sort()).toEqual(["a", "ab", "top"]);
+  });
+
+  it("rename of a file whose folders no read lists rereads the top level, where a folder can appear", async () => {
+    const a = localSourceDirectoryId({ rootPath: "vault", path: "a" });
+    const ab = localSourceDirectoryId({ rootPath: "vault", path: "a/b" });
+    const c = localSourceDirectoryId({ rootPath: "vault", path: "c" });
+    const fetched = mountFolderReads([
+      ["top", navigation(FILES, null), branch(c, "other")],
+      ["c", navigation(FILES, c), branch("c-file")],
+      ["other", navigation(FILES, "other"), branch("other-child")],
+    ]);
+    queryClient.setQueryData(
+      ["action", "get-content-navigation-context", { id: "hidden" }],
+      {
+        document: { id: "hidden" },
+        path: [
+          { id: a, parentId: null },
+          { id: ab, parentId: a },
+          { id: "hidden", parentId: ab },
+        ],
+      },
+    );
+    actionResponses["update-document"] = {
+      id: "hidden",
+      title: "Renamed",
+      updatedAt: "2026-09-27T00:00:00.000Z",
+      softDeletedDatabaseIds: [],
+    };
+    const update = await renderHook(() => useUpdateDocument());
+
+    await act(() =>
+      update.current.mutateAsync({ id: "hidden", title: "Renamed" }),
+    );
+    await refetched();
+
+    expect(fetched.sort()).toEqual(["top"]);
+  });
+
+  it("rename of a page no cached read or path places rereads the top level and open linked folders", async () => {
+    const c = localSourceDirectoryId({ rootPath: "vault", path: "c" });
+    const fetched = mountFolderReads([
+      ["top", navigation(FILES, null), branch(c, "other")],
+      ["c", navigation(FILES, c), branch("c-file")],
+      ["other", navigation(FILES, "other"), branch("other-child")],
+    ]);
+    actionResponses["update-document"] = {
+      id: "nowhere",
+      title: "Renamed",
+      updatedAt: "2026-09-27T00:00:00.000Z",
+      softDeletedDatabaseIds: [],
+    };
+    const update = await renderHook(() => useUpdateDocument());
+
+    await act(() =>
+      update.current.mutateAsync({ id: "nowhere", title: "Renamed" }),
+    );
+    await refetched();
+
+    expect(fetched.sort()).toEqual(["c", "top"]);
   });
 
   it("rename refreshes the path through the renamed page's parent, whose arrow can follow a name filter", async () => {
@@ -474,6 +670,69 @@ describe("Trash writes", () => {
         ...trashLists,
       ].sort(),
     );
+  });
+
+  it("delete of a linked folder's last file refreshes every folder above it, up to the top level", async () => {
+    const a = localSourceDirectoryId({ rootPath: "vault", path: "a" });
+    const ab = localSourceDirectoryId({ rootPath: "vault", path: "a/b" });
+    const folderReads: Array<[string, QueryKey, unknown]> = [
+      ["top", navigation(FILES, null), branch(a, "other")],
+      ["a", navigation(FILES, a), branch(ab)],
+      ["ab", navigation(FILES, ab), branch("only")],
+      ["other", navigation(FILES, "other"), branch("other-child")],
+    ];
+    const fetched: string[] = [];
+    for (const [name, key, data] of folderReads) {
+      queryClient.setQueryData(key, data);
+      const observer = new QueryObserver(queryClient, {
+        queryKey: key,
+        queryFn: async () => {
+          fetched.push(name);
+          return data;
+        },
+        staleTime: Infinity,
+        retry: false,
+      });
+      unsubscribes.push(observer.subscribe(() => {}));
+    }
+    actionResponses["delete-document"] = { success: true, deleted: 1 };
+    const remove = await renderHook(() => useDeleteDocument());
+
+    await act(() => remove.current.mutateAsync({ id: "only" }));
+    await refetched();
+
+    expect(fetched.sort()).toEqual(["a", "ab", "top"]);
+  });
+
+  it("delete of a page no cached branch or path places rereads the top level and open linked folders", async () => {
+    const a = localSourceDirectoryId({ rootPath: "vault", path: "a" });
+    const ab = localSourceDirectoryId({ rootPath: "vault", path: "a/b" });
+    const folderReads: Array<[string, QueryKey, unknown]> = [
+      ["top", navigation(FILES, null), branch(a, "other")],
+      ["a", navigation(FILES, a), branch(ab)],
+      ["other", navigation(FILES, "other"), branch("other-child")],
+    ];
+    const fetched: string[] = [];
+    for (const [name, key, data] of folderReads) {
+      queryClient.setQueryData(key, data);
+      const observer = new QueryObserver(queryClient, {
+        queryKey: key,
+        queryFn: async () => {
+          fetched.push(name);
+          return data;
+        },
+        staleTime: Infinity,
+        retry: false,
+      });
+      unsubscribes.push(observer.subscribe(() => {}));
+    }
+    actionResponses["delete-document"] = { success: true, deleted: 1 };
+    const remove = await renderHook(() => useDeleteDocument());
+
+    await act(() => remove.current.mutateAsync({ id: "pinned-only" }));
+    await refetched();
+
+    expect(fetched.sort()).toEqual(["a", "top"]);
   });
 
   it("delete refreshes the open parent's path when only a cached path knows the parent", async () => {

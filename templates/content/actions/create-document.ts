@@ -48,11 +48,13 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import { assertInteractiveHtmlBlocks } from "../server/lib/interactive-html-blocks.js";
 import {
   syncPrivateBodyReferences,
   syncPrivateIconReference,
   verifyPrivateIconAssignment,
 } from "../server/lib/private-icon-references.js";
+import { isLocalSourceDirectoryId } from "../shared/local-source-directory.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { observeRecoveryDocumentCreate } from "./_content-save-outcomes.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
@@ -61,7 +63,10 @@ import {
   documentContentHash,
   documentRevisionToken,
 } from "./_document-edit-mutation.js";
-import { NFM_CONTAINER_SYNTAX } from "./_nfm-syntax.js";
+import {
+  NFM_CONTAINER_SYNTAX,
+  NFM_INTERACTIVE_HTML_SYNTAX,
+} from "./_nfm-syntax.js";
 import {
   documentsPositionScope,
   nextAppendPosition,
@@ -421,6 +426,9 @@ export default defineAction({
   schema: z.object({
     id: z
       .string()
+      .refine((id) => !isLocalSourceDirectoryId(id), {
+        message: "That ID is reserved for linked folder rows.",
+      })
       .optional()
       .describe(
         "Optional pre-generated document ID for optimistic UI. When replaying a create result with creativeContextProjectionStatus pending, use its returned id and the same arguments.",
@@ -442,7 +450,7 @@ export default defineAction({
       .describe(
         "Initial Markdown body; omit to create an empty document. Plain Markdown, no admonition/callout " +
           'shorthand like "> [!TIP]" — use a <callout icon="💡"> block. ' +
-          NFM_CONTAINER_SYNTAX,
+          `${NFM_CONTAINER_SYNTAX} ${NFM_INTERACTIVE_HTML_SYNTAX}`,
       ),
     preserveLeadingTitleHeading: z
       .boolean()
@@ -512,6 +520,7 @@ export default defineAction({
         content = content.slice(h1Match[0].length).trimStart();
       }
     }
+    assertInteractiveHtmlBlocks(ctx, null, content);
 
     let parentId = args.parentId || null;
     const icon = args.icon

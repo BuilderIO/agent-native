@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconAdjustmentsHorizontal,
   IconArrowBackUp,
@@ -12,6 +13,7 @@ import {
   IconChevronDown,
   IconLayoutDistributeHorizontal,
   IconLayoutDistributeVertical,
+  IconUnlink,
 } from "@tabler/icons-react";
 import {
   Fragment,
@@ -26,7 +28,9 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -50,6 +54,7 @@ import {
   InspectorGrid,
   InspectorGridCell,
 } from "../edit-panel/inspector-grid";
+import { MIXED_VALUE } from "../edit-panel/selection-helpers";
 import type {
   AlignmentHorizontal,
   AlignmentMatrixValue,
@@ -78,6 +83,11 @@ import {
   type ScrubInputChangeMeta,
   type ScrubInputProps,
 } from "./ScrubInput";
+import {
+  TokenScrubInput,
+  useTokenFieldMenu,
+  type TokenFieldBinding,
+} from "./TokenScrubInput";
 
 export type AutoLayoutDirection = "horizontal" | "vertical";
 export type AutoLayoutWrap = "nowrap" | "wrap";
@@ -293,6 +303,9 @@ export interface AutoLayoutMatrixProps {
     value: number,
     meta?: ScrubInputChangeMeta,
   ) => void;
+  sizeTokenBindings?: Partial<
+    Record<AutoLayoutSizingAxis, Omit<TokenFieldBinding, "extraGroups">>
+  >;
   onChildMinMaxChange?: (
     axis: AutoLayoutSizingAxis,
     kind: "min" | "max",
@@ -387,6 +400,7 @@ export function AutoLayoutMatrix({
   onFlowChange,
   onDisplayChange,
   onChildSizeChange,
+  sizeTokenBindings,
   availableChildSizing,
   showChildLayoutControls = true,
   showSizingControls = true,
@@ -429,20 +443,15 @@ export function AutoLayoutMatrix({
         {showChildLayoutControls ? (
           <InspectorGrid
             className="design-sidebar-property-grid items-center"
-            layout="label-field-action"
+            layout={value.flowMixed ? "label-field-action" : "field-action"}
           >
-            <InspectorGridCell span={28}>
-              <div className="flex min-h-3 items-center justify-between">
-                <ControlLabel>
-                  {"Flow" /* i18n-ignore design inspector label */}
-                </ControlLabel>
-                {value.flowMixed ? (
-                  <span className="!text-[11px] text-muted-foreground">
-                    {"Mixed" /* i18n-ignore design mixed value */}
-                  </span>
-                ) : null}
-              </div>
-            </InspectorGridCell>
+            {value.flowMixed ? (
+              <InspectorGridCell span={28}>
+                <span className="!text-[11px] text-muted-foreground">
+                  {MIXED_VALUE}
+                </span>
+              </InspectorGridCell>
+            ) : null}
             <InspectorGridCell span={24}>
               <div
                 data-flow-value={activeFlow}
@@ -523,26 +532,8 @@ export function AutoLayoutMatrix({
         {showSizingControls ? (
           <InspectorGrid
             className="design-sidebar-property-grid items-start"
-            layout="label-action-pair"
+            layout={canResizeToFit ? "action-pair" : "pair"}
           >
-            <InspectorGridCell span={28}>
-              <div className="flex items-center justify-between gap-2">
-                <ControlLabel>
-                  {"Resizing" /* i18n-ignore design inspector label */}
-                </ControlLabel>
-                <span
-                  aria-hidden="true"
-                  className="flex items-center gap-0.5 text-[9px] text-muted-foreground/70"
-                >
-                  <kbd className="rounded border border-border/60 px-1 font-mono">
-                    F
-                  </kbd>
-                  <kbd className="rounded border border-border/60 px-1 font-mono">
-                    H
-                  </kbd>
-                </span>
-              </div>
-            </InspectorGridCell>
             <InspectorGridCell span={11}>
               <SizingField
                 axis="W"
@@ -565,6 +556,7 @@ export function AutoLayoutMatrix({
                 }
                 onMinMaxChange={onChildMinMaxChange}
                 onApplyVariable={onApplyVariable}
+                tokenBinding={sizeTokenBindings?.horizontal}
               />
             </InspectorGridCell>
             <InspectorGridCell span={1} ariaHidden />
@@ -590,11 +582,12 @@ export function AutoLayoutMatrix({
                 }
                 onMinMaxChange={onChildMinMaxChange}
                 onApplyVariable={onApplyVariable}
+                tokenBinding={sizeTokenBindings?.vertical}
               />
             </InspectorGridCell>
-            <InspectorGridCell span={1} ariaHidden />
-            <InspectorGridCell span={4} className="flex justify-center">
-              {canResizeToFit ? (
+            {canResizeToFit ? <InspectorGridCell span={1} ariaHidden /> : null}
+            {canResizeToFit ? (
+              <InspectorGridCell span={4} className="flex justify-center">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -622,8 +615,8 @@ export function AutoLayoutMatrix({
                     {"Resize to fit" /* i18n-ignore inspector tooltip */}
                   </TooltipContent>
                 </Tooltip>
-              ) : null}
-            </InspectorGridCell>
+              </InspectorGridCell>
+            ) : null}
           </InspectorGrid>
         ) : null}
 
@@ -1652,12 +1645,16 @@ function FourSideSpacingProperties({
   };
 
   return (
-    <div className="design-sidebar-property-group">
-      <ControlLabel>{label}</ControlLabel>
+    <div
+      role="group"
+      aria-label={label}
+      className="design-sidebar-property-group"
+    >
       {linked ? (
         <InspectorGrid className="items-center" layout="action-pair">
           <InspectorGridCell span={11}>
             <SpacingField
+              groupLabel={label}
               icon={IconPaddingHorizontal}
               ariaLabel={sideLabels.left + " / " + sideLabels.right}
               value={horizontalValue}
@@ -1673,6 +1670,7 @@ function FourSideSpacingProperties({
           <InspectorGridCell span={1} ariaHidden />
           <InspectorGridCell span={11}>
             <SpacingField
+              groupLabel={label}
               icon={IconPaddingVertical}
               ariaLabel={sideLabels.top + " / " + sideLabels.bottom}
               value={verticalValue}
@@ -1717,6 +1715,7 @@ function FourSideSpacingProperties({
                   ) : null}
                   <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
                     <SpacingField
+                      groupLabel={label}
                       icon={icon}
                       ariaLabel={sideLabels[side]}
                       value={value[side]}
@@ -1804,6 +1803,7 @@ export function MarginProperties({
 function SpacingField({
   icon: Icon,
   ariaLabel,
+  groupLabel,
   value,
   textValue,
   mixed = false,
@@ -1813,6 +1813,7 @@ function SpacingField({
 }: {
   icon: (props: { className?: string }) => ReactNode;
   ariaLabel: string;
+  groupLabel: string;
   value: number;
   textValue?: string;
   mixed?: boolean;
@@ -1830,7 +1831,11 @@ function SpacingField({
       <ScrubInput
         label={ariaLabel}
         ariaLabel={ariaLabel}
-        tooltipLabel={ariaLabel}
+        tooltipLabel={
+          ariaLabel.toLowerCase().includes(groupLabel.toLowerCase())
+            ? ariaLabel
+            : `${groupLabel} · ${ariaLabel}`
+        }
         icon={Icon}
         value={value}
         textValue={textValue}
@@ -1917,6 +1922,7 @@ export interface SizingFieldProps {
     meta?: ScrubInputChangeMeta,
   ) => void;
   onApplyVariable?: (axis: AutoLayoutSizingAxis) => void;
+  tokenBinding?: Omit<TokenFieldBinding, "extraGroups">;
 }
 
 export function SizingField({
@@ -1935,8 +1941,11 @@ export function SizingField({
   onSizeChange,
   onMinMaxChange,
   onApplyVariable,
+  tokenBinding,
 }: SizingFieldProps) {
   const labels = { ...DEFAULT_AUTO_LAYOUT_LABELS, ...labelOverrides };
+  const t = useT();
+  const tokenMenu = useTokenFieldMenu(tokenBinding);
   const isWidth = sizingAxis === "horizontal";
 
   const minValue = minMax?.min ?? null;
@@ -1964,6 +1973,7 @@ export function SizingField({
 
   const handleShortcut = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (
+      (event.target as HTMLElement).hasAttribute("aria-autocomplete") ||
       disabled ||
       event.metaKey ||
       event.ctrlKey ||
@@ -1989,6 +1999,53 @@ export function SizingField({
 
   const dropdownContent = (
     <DropdownMenuContent align="start" className="min-w-[180px]" sideOffset={4}>
+      {tokenBinding && tokenMenu.boundVar ? (
+        <>
+          <SizingMenuItem
+            icon={<IconUnlink />}
+            label={t("designEditor.tokens.field.detach")}
+            onSelect={() => tokenBinding.onDetach(tokenMenu.boundResolved)}
+          />
+          <DropdownMenuSeparator />
+        </>
+      ) : null}
+      {tokenBinding &&
+      (tokenMenu.status === "loading" || tokenMenu.status === "error") ? (
+        <>
+          <DropdownMenuLabel className="text-muted-foreground">
+            {tokenMenu.status === "loading"
+              ? t("designEditor.tokens.field.loading")
+              : t("editPanel.colorPicker.tokensFailed")}
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+        </>
+      ) : null}
+      {tokenBinding && tokenMenu.groups.length > 0 ? (
+        <>
+          {tokenMenu.groups.map((group) => (
+            <DropdownMenuGroup key={group.key}>
+              {group.label ? (
+                <DropdownMenuLabel>{group.label}</DropdownMenuLabel>
+              ) : null}
+              {group.options.map((option) => (
+                <DropdownMenuItem
+                  key={option.cssVar}
+                  data-token-field-option={option.name}
+                  onSelect={() =>
+                    tokenBinding.onBind(option.cssVar, option.resolved)
+                  }
+                >
+                  <span className="min-w-0 flex-1 truncate">{option.name}</span>
+                  <span className="shrink-0 tabular-nums text-muted-foreground">
+                    {option.value}
+                  </span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuGroup>
+          ))}
+          <DropdownMenuSeparator />
+        </>
+      ) : null}
       <SizingMenuItem
         icon={<IconSizingFixed />}
         label={labels.fixed}
@@ -2040,7 +2097,7 @@ export function SizingField({
         </>
       ) : null}
 
-      {showAdvancedOptions ? (
+      {showAdvancedOptions && !tokenBinding ? (
         <>
           <DropdownMenuSeparator />
           <SizingMenuItem
@@ -2057,7 +2114,7 @@ export function SizingField({
   return (
     <div className="flex min-w-0 flex-col gap-1" onKeyDown={handleShortcut}>
       {isEditableFixed ? (
-        <DropdownMenu>
+        <DropdownMenu onOpenChange={(open) => open && tokenMenu.request()}>
           <div
             className={cn(
               "flex h-6 w-full items-center overflow-hidden rounded-md",
@@ -2065,7 +2122,9 @@ export function SizingField({
               disabled && "pointer-events-none opacity-40",
             )}
           >
-            <ScrubInput
+            <TokenScrubInput
+              tokenBinding={tokenBinding}
+              showChevron={false}
               label={axis}
               ariaLabel={`${axis} size in pixels`}
               tooltipLabel={`${axis} size`}
@@ -2109,7 +2168,7 @@ export function SizingField({
           {dropdownContent}
         </DropdownMenu>
       ) : (
-        <DropdownMenu>
+        <DropdownMenu onOpenChange={(open) => open && tokenMenu.request()}>
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>

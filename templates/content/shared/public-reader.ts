@@ -1,9 +1,16 @@
 import type { IconValue } from "@agent-native/core/icons";
 
+import type { InteractiveHtmlDisplaySources } from "./interactive-html.js";
+
 export interface PublicReaderPage {
   id: string;
   title: string;
   icon: IconValue | null;
+}
+
+export interface PublicInteractiveHtml {
+  blockIds: Record<string, string>;
+  displaySources: InteractiveHtmlDisplaySources;
 }
 
 /**
@@ -22,4 +29,5 @@ export interface PublicReaderContext {
    * names. A block whose page isn't public has no entry and stays inert.
    */
   pageLinks: Record<string, PublicReaderPage>;
+  interactiveHtml: PublicInteractiveHtml | null;
 }

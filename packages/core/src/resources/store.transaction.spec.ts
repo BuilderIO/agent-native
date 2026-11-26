@@ -9,6 +9,7 @@ vi.mock("./emitter.js", () => ({
 }));
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: vi.fn(),
   isPostgres: () => false,
   intType: () => "INTEGER",

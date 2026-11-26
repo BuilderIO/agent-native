@@ -38,6 +38,7 @@ client.transaction = async (run: (tx: any) => Promise<unknown>) => {
 };
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => client,
   getScopedDbExec: () => undefined,
   getScopedTransactionDbExec: () => undefined,

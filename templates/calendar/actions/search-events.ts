@@ -26,6 +26,11 @@ export default defineAction({
       ),
   }),
   http: false,
+  mcpAnnotations: {
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   readOnly: true,
   run: async (args) => {
     const email = getRequestUserEmail();
@@ -69,6 +74,7 @@ export default defineAction({
       location: e.location || undefined,
       accountEmail: e.accountEmail || undefined,
       googleEventId: e.googleEventId || undefined,
+      revision: e.revision || undefined,
       htmlLink: e.htmlLink || undefined,
       attendees: e.attendees || [],
       conferenceData: e.conferenceData || undefined,

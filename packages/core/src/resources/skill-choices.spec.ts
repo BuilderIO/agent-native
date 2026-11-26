@@ -62,6 +62,7 @@ vi.mock("./store.js", () => ({
 }));
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: (...args: unknown[]) => mockExecute(...args) }),
 }));
 

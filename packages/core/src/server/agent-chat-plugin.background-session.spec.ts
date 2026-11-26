@@ -334,6 +334,48 @@ afterAll(async () => {
 });
 
 describe("background agent sessions through the agent-chat plugin", () => {
+  it("preserves a claimed run when a duplicate invocation fails before entering the agent handler", async () => {
+    const previousA2ASecret = process.env.A2A_SECRET;
+    const runId = "duplicate-worker-startup-error";
+    process.env.A2A_SECRET = "fixture-a2a-secret";
+    await runStore.insertRun(runId, "duplicate-worker-thread", runId, {
+      dispatchMode: "background",
+    });
+    expect(await runStore.claimBackgroundRun(runId)).toBe(true);
+    const seedOwner = vi
+      .spyOn(agentRunContext, "seedBackgroundAgentRunOwnerContext")
+      .mockRejectedValueOnce(
+        new Error("owner context temporarily unavailable"),
+      );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    try {
+      const response = await fetch(AGENT_CHAT_PROCESS_RUN_PATH, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${signInternalToken(runId)}`,
+        },
+        body: JSON.stringify({
+          [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId },
+        }),
+      });
+
+      expect(response.status).toBe(500);
+      expect(await response.json()).toEqual({ error: "process-run failed" });
+      expect(await runStore.getRunStatus(runId)).toBe("running");
+      expect(await runStore.getLastTerminalRunEvent(runId)).toBeNull();
+    } finally {
+      consoleError.mockRestore();
+      seedOwner.mockRestore();
+      await runStore.markRunAborted(runId, "user");
+      if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
+      else process.env.A2A_SECRET = previousA2ASecret;
+    }
+  });
+
   it("keeps the process-run error response when finalization also fails", async () => {
     const previousA2ASecret = process.env.A2A_SECRET;
     const runId = "process-run-finalization-failure";
@@ -342,7 +384,10 @@ describe("background agent sessions through the agent-chat plugin", () => {
     process.env.A2A_SECRET = "fixture-a2a-secret";
     const seedOwner = vi
       .spyOn(agentRunContext, "seedBackgroundAgentRunOwnerContext")
-      .mockRejectedValue(workerError);
+      .mockResolvedValue(undefined);
+    const isTurnAborted = vi
+      .spyOn(runStore, "isTurnAborted")
+      .mockRejectedValueOnce(workerError);
     const finalizeFailure = vi
       .spyOn(processRunFailure, "finalizeClaimedAgentChatProcessRunFailure")
       .mockRejectedValue(finalizationError);
@@ -395,6 +440,7 @@ describe("background agent sessions through the agent-chat plugin", () => {
       unregisterCapture();
       consoleError.mockRestore();
       seedOwner.mockRestore();
+      isTurnAborted.mockRestore();
       finalizeFailure.mockRestore();
       if (previousA2ASecret === undefined) delete process.env.A2A_SECRET;
       else process.env.A2A_SECRET = previousA2ASecret;

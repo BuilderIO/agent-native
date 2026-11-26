@@ -1,7 +1,11 @@
+import type { QueryClient } from "@tanstack/react-query";
+
 import {
   contentFilesCollectionFilter,
+  contentLocalFolderBranchesFilter,
   contentNavigationBranchFilter,
   contentNavigationContextInDatabaseFilter,
+  invalidateContentQueries,
   SEARCH_QUERY_KEYS,
   type ContentQueryTarget,
 } from "../hooks/use-content-action-mutation";
@@ -20,8 +24,27 @@ export function localFolderSyncTreeTargets(
       parentIds: [null],
       databaseId: sync.filesDatabaseId,
     }),
+    contentLocalFolderBranchesFilter(sync.filesDatabaseId),
     contentNavigationContextInDatabaseFilter(sync.filesDatabaseId),
     contentFilesCollectionFilter(),
     ...SEARCH_QUERY_KEYS,
   ];
+}
+
+export function refreshFilesAfterLocalFolderDisconnect(
+  queryClient: Pick<QueryClient, "getQueryCache" | "invalidateQueries">,
+  filesDatabaseId: string,
+) {
+  void queryClient.invalidateQueries({
+    ...contentLocalFolderBranchesFilter(filesDatabaseId),
+    refetchType: "none",
+  });
+  invalidateContentQueries(queryClient, [
+    contentNavigationBranchFilter({
+      parentIds: [null],
+      databaseId: filesDatabaseId,
+    }),
+    contentNavigationContextInDatabaseFilter(filesDatabaseId),
+    contentFilesCollectionFilter(),
+  ]);
 }

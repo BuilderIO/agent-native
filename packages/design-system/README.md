@@ -62,7 +62,18 @@ It throws on a color it cannot parse.
   `--font-size-*`, `--duration-*`, `--layer-*`.
 - **Roles**: `--surface-*`, `--fg-*`, `--line-*`, `--fill-*`, `--status-*`,
   `--shape-*`, `--shadow-1..6`, `--gradient-*`.
-- **Part inputs**: `--button-*` and so on, set by themes.
+- **Part inputs** are documented alongside props in the parts catalog. Switch
+  resolves its inputs at the control so an unset input follows the current
+  theme, appearance and props. For example, to change the unchecked soft
+  track throughout one section:
+
+  ```css
+  [data-app-theme="design"] {
+    --switch-soft-track-color: var(--gray-a6);
+  }
+  ```
+
+  The Components token collection exports the Switch defaults for Figma.
 
 With Tailwind, roles and steps are utilities: `bg-surface-canvas`,
 `text-fg-muted`, `border-line`, `bg-fill-hover`, `bg-brand-9`,
@@ -75,7 +86,7 @@ With Tailwind, roles and steps are utilities: `bg-surface-canvas`,
 | `tokens.css`        | primitives, default color scales, density, radius and corner presets (generated) |
 | `main.css`          | Tailwind v4 mapping of roles and scales to utilities and variants                |
 | `styles.css`        | component CSS, one file per part                                                 |
-| `themes/<name>.css` | one theme's roles, values and part inputs (generated)                            |
+| `themes/<name>.css` | one theme's roles and values (generated)                                         |
 
 For a smaller bundle, import the component stylesheets used by your screen in place of `styles.css`. Focused entries are available for `announcement`, `autocomplete`, `button`, `combobox`, `design-file-panel`, `dialog`, `dock-workspace`, `icon-button`, `image-card`, `layer-tree`, `meter`, `progress`, `tabs`, and `toast`. Each includes its built-in parts, such as the dialog close button and the combobox chips. The dock workspace entry includes the tab strip, split handles, and Arrange menu. The design file panel entry includes its tabs, page list, and editable layer tree. Import styles for controls you place inside a panel separately. Load tokens and the app theme once.
 

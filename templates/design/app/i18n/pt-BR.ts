@@ -366,6 +366,8 @@ export default {
       blur: "Desfoque",
       spread: "Espalhamento",
       rotation3d: "Rotação 3D",
+      constraints: "Restrições",
+      absolutePosition: "Posição absoluta",
       rotationX: "Girar X",
       rotationY: "Girar Y",
       perspective: "Perspectiva",
@@ -859,6 +861,10 @@ export default {
     exportPreview: {
       rendering: "Gerando pré-visualização…",
       failed: "Pré-visualização indisponível",
+      noPreview: "Nenhuma tela para visualizar",
+      externalPreview: "A visualização precisa do app ao vivo",
+      readOnlyPreview: "Visualização indisponível no modo somente leitura",
+      selectionUnresolved: "Seleção não encontrada nesta tela",
     },
     framePresets: {
       title: "Quadro",
@@ -1152,6 +1158,12 @@ export default {
         opacity: "Opacidade",
       },
       editColor: "Editar a cor de {{name}}",
+      field: {
+        open: "Tokens",
+        detach: "Desvincular token",
+        primitives: "Primitivos de {{group}}",
+        loading: "Carregando tokens…",
+      },
     },
     import: {
       description:
@@ -1862,8 +1874,6 @@ export default {
       redoSkippedConcurrentEdit: "Refazer ignorado — outra pessoa moveu isso",
       saveConflict:
         "Esta página foi alterada em outro lugar. Sua última edição não foi salva.",
-      versionHistoryUnavailable:
-        "O histórico de versões não está disponível para este design. Sua edição foi salva mesmo assim.",
       removeAutoLayoutFailed: "Não foi possível remover o auto layout",
       autoLayoutScreensUnsupported:
         "Adicionar layout automático não se aplica a páginas",
@@ -1941,6 +1951,7 @@ export default {
   layersPanel: {
     title: "Camadas",
     screens: "Páginas",
+    components: "Componentes",
     resizeScreens: "Redimensionar a seção de páginas",
     thumbnail: "Miniatura",
     addScreen: "Adicionar página",

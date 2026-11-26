@@ -367,6 +367,8 @@ export default {
       blur: "Flou",
       spread: "Diffusion",
       rotation3d: "Rotation 3D",
+      constraints: "Contraintes",
+      absolutePosition: "Position absolue",
       rotationX: "Rotation X",
       rotationY: "Rotation Y",
       perspective: "Perspective",
@@ -863,6 +865,10 @@ export default {
     exportPreview: {
       rendering: "Génération de l'aperçu…",
       failed: "Aperçu indisponible",
+      noPreview: "Aucun écran à prévisualiser",
+      externalPreview: "L'aperçu nécessite l'app en direct",
+      readOnlyPreview: "Aperçu indisponible en lecture seule",
+      selectionUnresolved: "Sélection introuvable sur cet écran",
     },
     framePresets: {
       title: "Cadre",
@@ -1161,6 +1167,12 @@ export default {
         opacity: "Opacité",
       },
       editColor: "Modifier la couleur de {{name}}",
+      field: {
+        open: "Jetons",
+        detach: "Détacher le jeton",
+        primitives: "Primitives {{group}}",
+        loading: "Chargement des jetons…",
+      },
     },
     import: {
       description:
@@ -1874,8 +1886,6 @@ export default {
         "Rétablissement ignoré : quelqu'un d'autre a déplacé cet élément",
       saveConflict:
         "Cette page a été modifiée ailleurs. Votre dernière modification n’a pas été enregistrée.",
-      versionHistoryUnavailable:
-        "L'historique des versions n'est pas disponible pour ce design. Votre modification a quand même été enregistrée.",
       removeAutoLayoutFailed: "Impossible de supprimer l'auto layout",
       autoLayoutScreensUnsupported:
         "L’ajout de la mise en page automatique ne s’applique pas aux pages",
@@ -1956,6 +1966,7 @@ export default {
   layersPanel: {
     title: "Calques",
     screens: "Pages",
+    components: "Composants",
     resizeScreens: "Redimensionner la section des pages",
     thumbnail: "Miniature",
     addScreen: "Ajouter une page",

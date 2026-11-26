@@ -311,7 +311,7 @@ test("K-dragging a Frame to 1.5x scales its size, borders, spacing and fixed chi
   const { designId, fileId } = await seedSizedScreen(app, FRAME_HTML, 400, 400);
   await openAndFit(app, designId);
   await selectOnCanvas(app, "ordinary-frame", "Ordinary Frame");
-  const widthInput = page.getByRole("textbox", { name: "W size in pixels" });
+  const widthInput = page.getByRole("combobox", { name: "W size in pixels" });
   await expect(widthInput).toHaveValue("200");
   expect(await renderedBox(app, "ordinary-frame")).toEqual({
     width: 200,
@@ -646,7 +646,7 @@ test("board K scales a selected nested Frame through the reserved board file", a
   await expect(boardFrame).toBeVisible();
   await chooseBoardLayer(page, "Board frame");
   await expect(
-    page.getByRole("textbox", { name: "W size in pixels" }),
+    page.getByRole("combobox", { name: "W size in pixels" }),
   ).toHaveValue("120");
   const before = await boardState(page);
   expect(before.frame.width).toBeCloseTo(120, 0);
@@ -657,7 +657,7 @@ test("board K scales a selected nested Frame through the reserved board file", a
     page.getByRole("button", { name: "Scale", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   await expect(
-    page.getByRole("textbox", { name: "W size in pixels" }),
+    page.getByRole("combobox", { name: "W size in pixels" }),
   ).toHaveValue("120");
   const se = boardFrame
     .first()

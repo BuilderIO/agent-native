@@ -219,6 +219,14 @@ export default defineAction({
           .where(eq(schema.designFiles.designId, id));
 
         await tx
+          .delete(schema.designVersionFiles)
+          .where(eq(schema.designVersionFiles.designId, id));
+
+        await tx
+          .delete(schema.designContents)
+          .where(eq(schema.designContents.designId, id));
+
+        await tx
           .delete(schema.designVersions)
           .where(eq(schema.designVersions.designId, id));
 

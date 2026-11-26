@@ -359,6 +359,8 @@ export default {
       blur: "ضبابية",
       spread: "انتشار",
       rotation3d: "دوران ثلاثي الأبعاد",
+      constraints: "القيود",
+      absolutePosition: "موضع مطلق",
       rotationX: "دوران X",
       rotationY: "دوران Y",
       perspective: "المنظور",
@@ -848,6 +850,10 @@ export default {
     exportPreview: {
       rendering: "جارٍ إنشاء المعاينة…",
       failed: "المعاينة غير متوفرة",
+      noPreview: "لا توجد شاشة للمعاينة",
+      externalPreview: "تحتاج المعاينة إلى التطبيق المباشر",
+      readOnlyPreview: "المعاينة غير متاحة في وضع القراءة فقط",
+      selectionUnresolved: "العنصر المحدد غير موجود في هذه الشاشة",
     },
     framePresets: {
       title: "الإطار",
@@ -1135,6 +1141,12 @@ export default {
         opacity: "العتامة",
       },
       editColor: "تعديل لون {{name}}",
+      field: {
+        open: "الرموز",
+        detach: "فصل الرمز",
+        primitives: "رموز {{group}} الأساسية",
+        loading: "جارٍ تحميل الرموز…",
+      },
     },
     import: {
       description: "استورد HTML من حافظة Figma أو HTML مستقلًا كصفحات في Design.",
@@ -1827,8 +1839,6 @@ export default {
       undoSkippedConcurrentEdit: "تم تخطي التراجع — قام شخص آخر بنقله",
       redoSkippedConcurrentEdit: "تم تخطي الإعادة — قام شخص آخر بنقله",
       saveConflict: "تغيّرت هذه الصفحة في مكان آخر. لم يُحفظ آخر تعديل لك.",
-      versionHistoryUnavailable:
-        "سجل الإصدارات غير متاح لهذا التصميم. تم حفظ تعديلك رغم ذلك.",
       removeAutoLayoutFailed: "تعذّرت إزالة التخطيط التلقائي",
       autoLayoutScreensUnsupported:
         "لا تنطبق إضافة التخطيط التلقائي على الصفحات",
@@ -1902,6 +1912,7 @@ export default {
   layersPanel: {
     title: "الطبقات",
     screens: "الصفحات",
+    components: "المكوّنات",
     resizeScreens: "تغيير حجم قسم الصفحات",
     thumbnail: "الصورة المصغرة",
     addScreen: "إضافة صفحة",

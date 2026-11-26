@@ -238,10 +238,10 @@ test("Layers moves a Frame into auto layout while keeping nested content anchore
   );
 
   await artworkRow.click();
-  const width = page.getByRole("textbox", {
+  const width = page.getByRole("combobox", {
     name: /^W(?: size in pixels)?$/,
   });
-  const height = page.getByRole("textbox", {
+  const height = page.getByRole("combobox", {
     name: /^H(?: size in pixels)?$/,
   });
   await expect(width).toBeVisible();

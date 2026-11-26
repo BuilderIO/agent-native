@@ -29,9 +29,13 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: mocks.assertAccess,
 }));
 
-vi.mock("drizzle-orm", () => ({ eq: vi.fn(() => "where") }));
+vi.mock("drizzle-orm", () => ({
+  eq: vi.fn(() => "where"),
+  and: vi.fn(() => "where"),
+  isNull: vi.fn(() => "null"),
+}));
 
-const set = vi.fn(() => ({ where: vi.fn() }));
+const set = vi.fn(() => ({ where: vi.fn(() => ({ returning: limit })) }));
 const limit = vi.fn(async () => [{ id: "source-1" }]);
 const select = vi.fn(() => ({
   from: vi.fn(() => ({ where: vi.fn(() => ({ limit })) })),

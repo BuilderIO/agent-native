@@ -78,7 +78,6 @@ import {
   getLastTerminalRunEvent,
   resolveErroredRunTerminalEvent,
   setRunError,
-  setRunTerminalReason,
   setRunTerminalReasonIfStatus,
   persistRunCheckpointEvent,
   recordRunDiagnostic,
@@ -549,9 +548,12 @@ export function resolveRunSoftTimeoutMs(
 ): number {
   const hosted = isHostedRuntime();
   const background = options?.backgroundFunction === true;
+  const hostedForegroundCeilingMs =
+    getAppConfig().agent.hostedRunSoftTimeoutCeilingMs ??
+    HOSTED_SOFT_TIMEOUT_CEILING_MS;
   const ceiling = background
     ? BACKGROUND_SOFT_TIMEOUT_CEILING_MS
-    : HOSTED_SOFT_TIMEOUT_CEILING_MS;
+    : hostedForegroundCeilingMs;
   const clampHosted = (ms: number): number =>
     hosted && ms > ceiling ? ceiling : ms;
 
@@ -564,7 +566,7 @@ export function resolveRunSoftTimeoutMs(
     return hosted ? BACKGROUND_SOFT_TIMEOUT_CEILING_MS : 0;
   }
   return options?.useHostedDefault && hosted
-    ? DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS
+    ? Math.min(DEFAULT_HOSTED_RUN_SOFT_TIMEOUT_MS, hostedForegroundCeilingMs)
     : 0;
 }
 
@@ -1009,7 +1011,6 @@ export function startRun(
     },
   };
   let softTimedOut = false;
-  let checkpointBoundaryStarted = false;
   let resolveFinalized: () => void = () => {};
   let rejectFinalized: (reason?: unknown) => void = () => {};
   let resolveLivenessReady: (ready: boolean) => void = () => {};
@@ -1578,7 +1579,6 @@ export function startRun(
     )
       return checkpointRunBoundaryTask;
     checkpointAbortInFlight = true;
-    checkpointBoundaryStarted = true;
     const task = (async () => {
       let checkpointPersisted = false;
       try {
@@ -2616,18 +2616,10 @@ export function startRun(
       );
       const terminalStatusOptions = {
         ...(threadProjectionPending ? { threadProjectionPending: true } : {}),
-        ...(checkpointBoundaryStarted || persistedStatus === "truncated"
-          ? { terminalReason }
-          : {}),
+        terminalReason,
       };
       const persistTerminalStatus = () =>
-        Object.keys(terminalStatusOptions).length === 0
-          ? updateRunStatusIfRunning(runId, persistedStatus)
-          : updateRunStatusIfRunning(
-              runId,
-              persistedStatus,
-              terminalStatusOptions,
-            );
+        updateRunStatusIfRunning(runId, persistedStatus, terminalStatusOptions);
       const persistOwnTerminalState = async (
         persist: () => Promise<boolean>,
       ) => {
@@ -2900,11 +2892,6 @@ export function startRun(
               reportTerminalStatusPersistenceError(error);
             }
             if (statusUpdated) {
-              if (!checkpointBoundaryStarted) {
-                await withWorkerFence(() =>
-                  setRunTerminalReason(runId, terminalReason),
-                );
-              }
               terminalPersistenceEstablished = !terminalPersistenceError;
             } else {
               terminalPersistenceEstablished = await reconcileTerminalRun();

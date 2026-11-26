@@ -1,4 +1,5 @@
 import type { Document } from "@shared/api";
+import { isLocalSourceDirectoryId } from "@shared/local-source-directory";
 
 type SidebarDocumentAccess = Pick<
   Document,
@@ -42,6 +43,7 @@ export function remainingPageAfterDelete(
   deletedId: string,
   {
     activePath,
+    siblingDocumentIds = [],
     filesRootDocumentIds,
     pendingTrashIds = new Set(),
   }: {
@@ -50,20 +52,29 @@ export function remainingPageAfterDelete(
       parentId: string | null;
       canView?: boolean;
     }[];
+    siblingDocumentIds?: readonly string[];
     filesRootDocumentIds: readonly string[];
     pendingTrashIds?: ReadonlySet<string>;
   },
 ): string | null {
   const parentId = activePath.find((entry) => entry.id === deletedId)?.parentId;
   const parent = activePath.find((entry) => entry.id === parentId);
-  if (parent && parent.canView !== false && !pendingTrashIds.has(parent.id)) {
+  if (
+    parent &&
+    parent.canView !== false &&
+    !isLocalSourceDirectoryId(parent.id) &&
+    !pendingTrashIds.has(parent.id)
+  ) {
     return parent.id;
   }
+  const remains = (documentId: string) =>
+    documentId !== deletedId && !pendingTrashIds.has(documentId);
   return (
-    filesRootDocumentIds.find(
-      (documentId) =>
-        documentId !== deletedId && !pendingTrashIds.has(documentId),
-    ) ?? null
+    (parentId && isLocalSourceDirectoryId(parentId)
+      ? siblingDocumentIds.find(remains)
+      : undefined) ??
+    filesRootDocumentIds.find(remains) ??
+    null
   );
 }
 

@@ -28,6 +28,7 @@ vi.mock("../org/context.js", async (importOriginal) => {
 });
 
 import { defineAction } from "../action.js";
+import { devActionDiscoveryFilePath } from "../server/dev-action-discovery.js";
 import { openCliHandoff, runScript } from "./runner.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -528,9 +529,11 @@ describe("runScript package actions", () => {
         }
       `,
     );
-    fs.mkdirSync(path.join(tmpDir, ".agent-native"), { recursive: true });
+    const homeDir = path.join(tmpDir, "home");
+    const discoveryPath = devActionDiscoveryFilePath(tmpDir, homeDir);
+    fs.mkdirSync(path.dirname(discoveryPath), { recursive: true });
     fs.writeFileSync(
-      path.join(tmpDir, ".agent-native", "dev-server.json"),
+      discoveryPath,
       JSON.stringify({
         origin: "http://127.0.0.1:9488",
         pid: process.pid,
@@ -570,6 +573,7 @@ describe("runScript package actions", () => {
     }
     env.DATABASE_URL = databaseUrl;
     env.NODE_ENV = "development";
+    env.HOME = homeDir;
 
     const result = spawnSync(
       tsxCommand,

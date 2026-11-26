@@ -74,6 +74,7 @@ vi.mock("../collab/ydoc-manager.js", () => ({
   seedFromJson: mocks.seedFromJson,
 }));
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({
     execute: mocks.execute,
     ...(mocks.transaction ? { transaction: mocks.transaction } : {}),

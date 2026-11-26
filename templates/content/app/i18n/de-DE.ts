@@ -543,6 +543,71 @@ const database = {
   unfreezeColumns: "Spaltenfixierung aufheben",
   selectAllLoadedRows: "Alle geladenen Zeilen auswählen",
   clearSelectedRows: "Zeilenauswahl aufheben",
+  fillWithAi: "Mit KI ausfüllen",
+  fillWithAiTitle: "{{name}} mit KI ausfüllen",
+  fillWithAiDescription:
+    "Jede Zeile bekommt ihren eigenen KI-Durchlauf, der die Seite dieser Zeile liest und nur die Zelle dieser Zeile schreibt.",
+  fillWithAiDescriptionOptions:
+    "Jede Zeile bekommt ihren eigenen KI-Durchlauf, der die Seite dieser Zeile liest und aus den Optionen dieser Spalte wählt.",
+  fillWithAiInstructionLabel: "Was soll in jede Zelle?",
+  fillWithAiInstructionPlaceholder:
+    "Zum Beispiel: eine Beschreibung der Seite in einem Satz für Suchergebnisse",
+  fillWithAiRewrite: "Auch Zellen mit einem Wert neu schreiben",
+  fillWithAiCount_zero: "Füllt {{count}} leere Zellen in dieser Ansicht",
+  fillWithAiCount_one: "Füllt {{count}} leere Zelle in dieser Ansicht",
+  fillWithAiCount_two: "Füllt {{count}} leere Zellen in dieser Ansicht",
+  fillWithAiCount_few: "Füllt {{count}} leere Zellen in dieser Ansicht",
+  fillWithAiCount_many: "Füllt {{count}} leere Zellen in dieser Ansicht",
+  fillWithAiCount_other: "Füllt {{count}} leere Zellen in dieser Ansicht",
+  fillWithAiRewriteCount_zero: "Füllt {{count}} Zellen in dieser Ansicht",
+  fillWithAiRewriteCount_one: "Füllt {{count}} Zelle in dieser Ansicht",
+  fillWithAiRewriteCount_two: "Füllt {{count}} Zellen in dieser Ansicht",
+  fillWithAiRewriteCount_few: "Füllt {{count}} Zellen in dieser Ansicht",
+  fillWithAiRewriteCount_many: "Füllt {{count}} Zellen in dieser Ansicht",
+  fillWithAiRewriteCount_other: "Füllt {{count}} Zellen in dieser Ansicht",
+  fillWithAiNothingEmpty:
+    "Jede Zelle in dieser Ansicht hat bereits einen Wert.",
+  fillWithAiNoRows: "In dieser Ansicht gibt es keine Zeilen zum Ausfüllen.",
+  fillWithAiTooMany:
+    "Mit KI ausfüllen füllt bis zu {{max}} Zellen auf einmal. Filtern Sie die Ansicht auf weniger Zeilen.",
+  fillWithAiLoadedOnly: "Nur die bisher geladenen Zeilen sind enthalten.",
+  fillWithAiAlreadyRunning: "Diese Spalte wird bereits ausgefüllt.",
+  fillWithAiNeedsSetup: "Richten Sie KI ein, um Zellen auszufüllen.",
+  fillWithAiSetUp: "KI einrichten",
+  fillWithAiStart: "Ausfüllen",
+  fillWithAiStartFailed: "Das Ausfüllen konnte nicht gestartet werden.",
+  fillProgress: "{{done}} von {{total}} werden ausgefüllt",
+  fillStopping: "Wird angehalten…",
+  fillStop: "Anhalten",
+  fillStopLabel: "Ausfüllen von {{name}} anhalten",
+  fillStopFailed: "Das Ausfüllen konnte nicht angehalten werden.",
+  fillCellWaiting: "Wartet",
+  fillCellRunning: "Wird ausgefüllt…",
+  fillCellFailed: "Konnte nicht ausgefüllt werden",
+  fillTryAgain: "Erneut versuchen",
+  fillRetryFailed: "Der erneute Versuch ist fehlgeschlagen.",
+  fillOpenChat: "Chat öffnen",
+  fillEditInChat: "Im Chat bearbeiten",
+  fillStarted_zero: "{{count}} Zellen in {{name}} werden ausgefüllt.",
+  fillStarted_one: "{{count}} Zelle in {{name}} wird ausgefüllt.",
+  fillStarted_two: "{{count}} Zellen in {{name}} werden ausgefüllt.",
+  fillStarted_few: "{{count}} Zellen in {{name}} werden ausgefüllt.",
+  fillStarted_many: "{{count}} Zellen in {{name}} werden ausgefüllt.",
+  fillStarted_other: "{{count}} Zellen in {{name}} werden ausgefüllt.",
+  fillFinished: "{{name}} ist ausgefüllt.",
+  fillFinishedWithFailures_zero:
+    "{{name}} ist ausgefüllt. {{count}} Zellen konnten nicht ausgefüllt werden.",
+  fillFinishedWithFailures_one:
+    "{{name}} ist ausgefüllt. {{count}} Zelle konnte nicht ausgefüllt werden.",
+  fillFinishedWithFailures_two:
+    "{{name}} ist ausgefüllt. {{count}} Zellen konnten nicht ausgefüllt werden.",
+  fillFinishedWithFailures_few:
+    "{{name}} ist ausgefüllt. {{count}} Zellen konnten nicht ausgefüllt werden.",
+  fillFinishedWithFailures_many:
+    "{{name}} ist ausgefüllt. {{count}} Zellen konnten nicht ausgefüllt werden.",
+  fillFinishedWithFailures_other:
+    "{{name}} ist ausgefüllt. {{count}} Zellen konnten nicht ausgefüllt werden.",
+  fillStoppedAnnouncement: "Ausfüllen von {{name}} angehalten.",
 };
 
 const databaseExactEnglish = {
@@ -801,6 +866,17 @@ const editor = {
       "Der Block hat sich geändert, bevor er verschoben werden konnte. Nichts wurde verschoben.",
     moveFailed: "Der Block konnte nicht nach {{title}} verschoben werden",
     openPage: "Öffnen",
+    copyLink: "Link kopieren",
+    linkCopied: "Link kopiert",
+    copyLinkFailed: "Der Link konnte nicht kopiert werden",
+    linkNotReady:
+      "Der Link zu diesem Block ist noch nicht bereit. Versuche es gleich noch einmal.",
+    linkedBlockDeleted:
+      "Der Block, auf den dieser Link verweist, wurde gelöscht.",
+    linkedBlockMissing:
+      "Der Block, auf den dieser Link verweist, wurde nicht gefunden.",
+    linkedBlockLookupFailed:
+      "Der Block, auf den dieser Link verweist, konnte nicht geöffnet werden. Lade die Seite neu, um es noch einmal zu versuchen.",
   },
   noDocumentSelected: "Kein Dokument ausgewählt",
   registryBlockLoadError:
@@ -938,6 +1014,9 @@ const editor = {
     imageUploadsFailed:
       "{{failed}} von {{total}} Bildern konnten nicht hochgeladen werden.",
     imageView: "Bildansicht",
+    imagePosition: "{{current}} von {{total}}",
+    nextImage: "Nächstes Bild",
+    previousImage: "Vorheriges Bild",
     keptYourAltText: "Ihr Alternativtext wurde beibehalten.",
     link: "Link [de-DE]",
     loadingAssetsPicker: "Assets-Auswahl wird geladen",
@@ -1171,6 +1250,8 @@ const editor = {
     fourColumns: "4 Spalten",
     codeBlock: "Codeblock",
     codeBlockDescription: "Codeausschnitt",
+    interactiveHtml: "Interaktives HTML",
+    interactiveHtmlDescription: "HTML, das auf der Seite läuft",
     toggleHeading1: "Aufklappbare Überschrift 1",
     toggleHeading2: "Aufklappbare Überschrift 2",
     toggleHeading3: "Aufklappbare Überschrift 3",
@@ -1498,10 +1579,11 @@ const comments = {
   openRowComments_other: "{{count}} offene Kommentare zu {{title}}",
   openRow: "Zeile öffnen",
   suggestions: "Vorschläge",
-  suggestionAdd: "Hinzufügen",
-  suggestionDelete: "Löschen",
-  suggestionWith: "durch",
-  suggestionReplace: "Ersetzen",
+  suggestionReplaceWith: "„{{old}}“ durch „{{new}}“ ersetzen",
+  suggestionAddText: "„{{text}}“ hinzufügen",
+  suggestionRemoveText: "„{{text}}“ entfernen",
+  suggestionAddParagraph: "Absatz „{{text}}“ hinzufügen",
+  suggestionRemoveParagraph: "Absatz „{{text}}“ entfernen",
   suggestionDetails: "Vorschlagsdetails",
   proposalEditCount_one: "{{count}} Änderung",
   proposalEditCount_other: "{{count}} Änderungen",
@@ -1627,6 +1709,21 @@ const exactEnglish = {
       doneShortcut: "Quelltext schließen (Esc)",
       editDiagram: "Diagramm bearbeiten",
       cantDraw: "Dieses Diagramm kann nicht gezeichnet werden",
+    },
+    interactiveHtml: {
+      untitled: "Interaktives HTML",
+      showSource: "Quelltext anzeigen",
+      hideSource: "Quelltext ausblenden",
+      copyHtml: "HTML kopieren",
+      copied: "HTML kopiert",
+      copyFailed: "HTML konnte nicht kopiert werden",
+      copyLink: "Link zu diesem Block kopieren",
+      fullScreen: "Vollbild",
+      closeFullScreen: "Vollbild schließen",
+      run: "Ausführen",
+      runHint:
+        "Dieser Block führt eigenen Code in einem abgeschotteten Rahmen aus.",
+      runsOnPage: "Auf der Seite ausführen",
     },
     failedToCreatePage: "Seite konnte nicht erstellt werden",
     slash: {

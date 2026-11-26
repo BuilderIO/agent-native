@@ -2,6 +2,8 @@ import { zoomAddFailedMessages } from "../../shared/zoom-add-failed-messages.js"
 
 export default {
   common: {
+    calendarRateLimited:
+      "تم تقييد طلبات تقويم Google. قد تكون الأحداث المحفوظة غير محدثة.",
     connect: "اتصال",
     connected: "متصل",
     connecting: "جارٍ الاتصال...",
@@ -580,6 +582,11 @@ export default {
     custom: "مخصص",
     customLink: "رابط مخصص",
     customLinkDescription: "لصق أي اجتماع URL",
+    reminderEmail: "رسالة تذكير",
+    reminderEmailDescription: "تُرسل إلى الشخص الذي حجز وإلى أي ضيوف أضافهم.",
+    reminderOff: "بدون تذكير",
+    reminderOneHour: "قبل ساعة واحدة",
+    reminderOneDay: "قبل يوم واحد",
     date: "التاريخ",
     dateAndTime: "التاريخ والوقت",
     dateSelection: "اختيار التاريخ",

@@ -149,6 +149,7 @@ export default defineAction({
     runId: z.string(),
     threadId: z.string().nullable().optional(),
   }),
+  mcpTool: "search",
   run: async ({ runId, threadId }, ctx?: ActionRunContext) => {
     const db = getDb();
     const [run] = await db

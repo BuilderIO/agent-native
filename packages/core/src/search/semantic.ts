@@ -710,7 +710,7 @@ export function drainSemanticIndex(
     .catch((error: unknown) => {
       console.error(
         `[search] Embedding ${registration.app}/${registration.type} changes failed:`,
-        error instanceof Error ? error.message : String(error),
+        failureText(error),
       );
     })
     .finally(() => {
@@ -798,6 +798,13 @@ function refusedCredentialsWaitSeconds(error: unknown): number | undefined {
     (error.status === 401 || error.status === 403)
     ? REFUSED_CREDENTIALS_WAIT_SECONDS
     : undefined;
+}
+
+function failureText(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  return error instanceof EmbeddingProviderError && error.code
+    ? `${error.message} The provider's code: ${error.code}.`
+    : error.message;
 }
 
 /** Puts changes back untried, logging rather than throwing when it can't. */
@@ -911,7 +918,7 @@ async function embedGroup(
     // Out of time isn't a failure: the changes stay claimed, and are claimed
     // again when their lease expires.
     if (error instanceof DrainDeadlineReached || Date.now() >= deadline) return;
-    const message = error instanceof Error ? error.message : String(error);
+    const message = failureText(error);
     const only = changes.length === 1 ? changes.at(0) : undefined;
     if (!only) {
       console.warn(
@@ -1205,7 +1212,7 @@ async function embedAudienceGroup(
         limited === undefined
           ? `[search] The embedding provider refused the credentials for ${label}. Of the changes left, ${changesWait(sent.length, 2 * wait)} (those it was sent, retried one by one next) and ${changesWait(rest.length, wait)}:`
           : `[search] The embedding provider is rate limiting ${label}, so ${changesWait(rest.length, wait)}:`,
-        error instanceof Error ? error.message : String(error),
+        failureText(error),
       );
       limits.set(scope, wait);
       await holdDocumentBudget(family, wait, label);
@@ -1886,7 +1893,8 @@ async function queryVector(
       if (wait !== undefined && family.documentBudget) {
         const seconds = Math.max(SEARCH_FIRST_SECONDS, wait);
         console.warn(
-          `[search] ${label} searches were rate limited, so indexing with the same credentials waits ${seconds}s on every server.`,
+          `[search] ${label} searches were rate limited, so indexing with the same credentials waits ${seconds}s on every server:`,
+          failureText(error),
         );
         await holdDocumentBudget(family, seconds, label);
       }
@@ -2015,7 +2023,7 @@ export async function searchSemanticIndex(
   } catch (error) {
     console.warn(
       `[search] ${label} semantic search failed, so it answered by words alone:`,
-      error instanceof Error ? error.message : String(error),
+      failureText(error),
     );
     return { status: "unavailable", reason: "error" };
   }

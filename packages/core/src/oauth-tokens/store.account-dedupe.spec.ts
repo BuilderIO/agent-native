@@ -101,6 +101,7 @@ const mockDb = {
 };
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => mockDb,
   withDbExec: (_exec: unknown, run: () => unknown) => run(),
 }));

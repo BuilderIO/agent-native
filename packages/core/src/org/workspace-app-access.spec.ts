@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({ execute: mocks.execute }),
 }));
 
@@ -1292,27 +1293,68 @@ describe("isWorkspaceAppAccessAllowed", () => {
     ).rejects.toThrow();
   });
 
-  it("does not call the registry with an unscoped token when the active org has no domain", async () => {
+  it("names the org by id in the registry token when the active org has no domain", async () => {
     vi.stubEnv("A2A_SECRET", "test-a2a-secret");
     vi.stubEnv(
       "AGENT_NATIVE_ORG_DIRECTORY_URL",
       "https://dispatch.example.test",
     );
-    mocks.execute
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] });
+    mocks.execute.mockResolvedValue({ rows: [] });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([{ id: "analytics" }]), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      isWorkspaceAppAccessAllowed("analytics", {
+        email: "member@example.com",
+        orgId: "shared-org",
+      }),
+    ).resolves.toBe(true);
+
+    const authorization = (fetchMock.mock.calls[0]?.[1] as RequestInit)
+      .headers as Record<string, string>;
+    const claims = JSON.parse(
+      Buffer.from(
+        authorization.Authorization.replace(/^Bearer /, "").split(".")[1] ?? "",
+        "base64url",
+      ).toString("utf8"),
+    ) as Record<string, unknown>;
+    expect(claims).toMatchObject({
+      sub: "member@example.com",
+      org_id: "shared-org",
+    });
+    expect(claims).not.toHaveProperty("org_domain");
+  });
+
+  it("still refuses a delegated member when the active org has no domain", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    mocks.execute.mockResolvedValue({ rows: [] });
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
-      checkWorkspaceAppAccess("analytics", {
-        email: "member@example.com",
-        orgId: "sender-local-org",
-      }),
+      runWithRequestContext(
+        {
+          userEmail: "member@example.com",
+          orgId: "shared-org",
+          a2aIdentityAssurance: "org-member",
+        },
+        () =>
+          checkWorkspaceAppAccess("analytics", {
+            email: "member@example.com",
+            orgId: "shared-org",
+          }),
+      ),
     ).resolves.toMatchObject({
       status: WORKSPACE_APP_ACCESS_UNAVAILABLE,
       reason: "org-domain-missing",
-      audience: "https://dispatch.example.test",
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });

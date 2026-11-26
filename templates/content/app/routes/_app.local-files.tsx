@@ -2,7 +2,10 @@ import { callAction, setClientAppState } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 import type { Document } from "@shared/api";
-import { CONTENT_SOURCE_ROOT } from "@shared/content-source";
+import {
+  CONTENT_SOURCE_ROOT,
+  mergeContentSourceFiles,
+} from "@shared/content-source";
 import {
   IconAlertCircle,
   IconCircleCheck,
@@ -30,6 +33,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { invalidateContentQueries } from "@/hooks/use-content-action-mutation";
 import { useDocuments } from "@/hooks/use-documents";
 import { messagesByLocale } from "@/i18n-data";
 import {
@@ -57,6 +61,10 @@ import {
   runNativeFolderPickerWithCrashSentinel,
 } from "@/lib/local-folder-picker-safety";
 import { isUnsafeNativeFolderPickerHost } from "@/lib/local-folder-picker-support";
+import {
+  localFolderSyncTreeTargets,
+  refreshFilesAfterLocalFolderDisconnect,
+} from "@/lib/local-folder-sync-refresh";
 import { cn } from "@/lib/utils";
 
 type PermissionState = "granted" | "denied" | "prompt";
@@ -139,6 +147,7 @@ interface ImportContentSourceResult {
   filesSeen: number;
   created: Array<{ id: string; path: string; title: string }>;
   updated: Array<{ id: string; path: string; title: string }>;
+  removed?: Array<{ id: string; path: string; title: string }>;
   unchanged: Array<{ id: string; path: string; title: string }>;
   skipped: Array<{ path: string; reason: string }>;
   errors: Array<{ path: string; reason: string }>;
@@ -1110,6 +1119,17 @@ export default function LocalFilesRoute() {
       void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-database"],
       });
+      if (connection.filesDatabaseId) {
+        invalidateContentQueries(
+          queryClient,
+          localFolderSyncTreeTargets({
+            filesDatabaseId: connection.filesDatabaseId,
+            created: result.created,
+            updated: result.updated,
+            removed: result.removed ?? [],
+          }),
+        );
+      }
     }
     return { directories: nextDirectories, result };
   }
@@ -1195,7 +1215,6 @@ export default function LocalFilesRoute() {
         { sourceId: connection.sourceId } as never,
         { method: "GET" },
       );
-      const files = bundle.files;
       if (directory.kind === "desktop") {
         const desktopFiles = getDesktopContentFiles();
         if (!desktopFiles) {
@@ -1205,6 +1224,10 @@ export default function LocalFilesRoute() {
           folderId: directory.id,
         });
         if (!observed.ok) throw new Error(observed.error);
+        if (!observed.sources) {
+          throw new Error(t("localFiles.desktopFolderUnavailable"));
+        }
+        const files = mergeContentSourceFiles(observed.sources, bundle.files);
         const expectedRevisions: Record<string, string | null> = {
           ...(observed.revisions ?? {}),
         };
@@ -1222,6 +1245,8 @@ export default function LocalFilesRoute() {
           updateDirectory(current, desktopDirectoryFromFolder(result.folder)),
         );
       } else {
+        const current = await readSourceFilesFromDirectory(directory);
+        const files = mergeContentSourceFiles(current.files, bundle.files);
         const expectedPaths = new Set(Object.keys(files));
         await Promise.all(
           Object.entries(files).map(([path, content]) =>
@@ -1306,6 +1331,12 @@ export default function LocalFilesRoute() {
         "disconnect-local-folder-source" as never,
         { sourceId: connection.sourceId } as never,
       );
+      if (connection.filesDatabaseId) {
+        refreshFilesAfterLocalFolderDisconnect(
+          queryClient,
+          connection.filesDatabaseId,
+        );
+      }
       const nextDirectories = directories.filter(
         (candidate) => candidate.id !== directory.id,
       );

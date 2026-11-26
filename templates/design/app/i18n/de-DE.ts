@@ -371,6 +371,8 @@ export default {
       blur: "Unschärfe",
       spread: "Ausbreitung",
       rotation3d: "3D-Rotation",
+      constraints: "Constraints",
+      absolutePosition: "Absolute Position",
       rotationX: "X-Rotation",
       rotationY: "Y-Rotation",
       perspective: "Perspektive",
@@ -867,6 +869,10 @@ export default {
     exportPreview: {
       rendering: "Vorschau wird erstellt…",
       failed: "Vorschau nicht verfügbar",
+      noPreview: "Kein Screen zur Vorschau",
+      externalPreview: "Die Vorschau benötigt die Live-App",
+      readOnlyPreview: "Vorschau im Nur-Lese-Modus nicht verfügbar",
+      selectionUnresolved: "Auswahl auf diesem Screen nicht gefunden",
     },
     framePresets: {
       title: "Rahmen",
@@ -1167,6 +1173,12 @@ export default {
         opacity: "Deckkraft",
       },
       editColor: "Farbe von {{name}} bearbeiten",
+      field: {
+        open: "Tokens",
+        detach: "Token lösen",
+        primitives: "{{group}}-Primitive",
+        loading: "Tokens werden geladen…",
+      },
     },
     import: {
       description:
@@ -1883,8 +1895,6 @@ export default {
         "Wiederholen übersprungen – jemand anderes hat das verschoben",
       saveConflict:
         "Diese Seite wurde an anderer Stelle geändert. Deine letzte Änderung wurde nicht gespeichert.",
-      versionHistoryUnavailable:
-        "Der Versionsverlauf ist für dieses Design nicht verfügbar. Deine Änderung wurde trotzdem gespeichert.",
       removeAutoLayoutFailed: "Auto-Layout konnte nicht entfernt werden",
       autoLayoutScreensUnsupported:
         "Auto-Layout hinzufügen gilt nicht für Seiten",
@@ -1965,6 +1975,7 @@ export default {
   layersPanel: {
     title: "Ebenen",
     screens: "Seiten",
+    components: "Komponenten",
     resizeScreens: "Größe des Seitenbereichs ändern",
     thumbnail: "Miniaturansicht",
     addScreen: "Seite hinzufügen",

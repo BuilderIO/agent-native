@@ -45,7 +45,6 @@ vi.mock(
 );
 
 vi.mock("../server/lib/design-versions.js", () => ({
-  cleanupPreparedDesignVersionCheckpoint: vi.fn(),
   persistPreparedDesignVersionCheckpoint: vi.fn(),
   prepareDesignVersionBeforeAgentEditInVersionLock: vi.fn(async () => null),
   snapshotDesignBeforeAgentEditInVersionLock: vi.fn(),

@@ -8,6 +8,7 @@ let failRead = false;
 vi.mock("./connect-store.js", () => ({ ensureConnectTables: async () => {} }));
 vi.mock("./oauth-store.js", () => ({ ensureOAuthTables: async () => {} }));
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({
     execute: async (input: Parameters<DbExec["execute"]>[0]) => {
       if (failRead) throw new Error("database unavailable");

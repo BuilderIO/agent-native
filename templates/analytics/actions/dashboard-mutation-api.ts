@@ -61,7 +61,7 @@ type PanelConfig = Record<string, unknown> & {
 type PanelPatch = {
   title?: string;
   sql?: string;
-  source?: "bigquery" | "ga4" | "amplitude" | "first-party" | "demo" | "prometheus" | "program";
+  source?: "bigquery" | "ga4" | "amplitude" | "first-party" | "demo" | "prometheus" | "program" | "postgres";
   chartType?: ${PANEL_CHART_TYPES.map((type) => `"${type}"`).join(" | ")};
   width?: number;
   /** Fixed height in 180px units (1-6); omit for content height. */

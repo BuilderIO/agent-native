@@ -161,6 +161,7 @@ import {
   resolveNativeAuthCopy,
   signupDomainNotAllowedMessage,
 } from "../shared/auth-copy.js";
+import { isAuthDisabled } from "../shared/auth-disabled.js";
 import type {
   AuthPageProps,
   ResetPasswordPageProps,
@@ -1081,20 +1082,20 @@ export function getConfiguredLoginHtml(
  * `X-Forwarded-For` value — a remote client cannot spoof its way past this.
  * Used to scope local-only conveniences (the desktop SSO broker and the dev
  * auto-account) so a directly network-reachable dev server never exposes
- * them to a remote visitor. NOTE: a reverse proxy / tunnel that connects to
- * the dev server over localhost still appears as loopback, so this is a
- * necessary but not sufficient gate — callers pair it with NODE_ENV and,
- * for the dev account, a throwaway per-DB password.
+ * them to a remote visitor. NOTE: a peer address alone does not prove a
+ * local caller — a same-host proxy or tunnel connects over loopback too.
+ * Gate on `isLoopbackRequest(event)`, which also checks the headers and the
+ * environment.
  */
 export function isLoopbackAddress(ip: string | undefined): boolean {
   return loopback.isLoopbackAddress(ip);
 }
 /**
- * True when the request's actual socket peer is loopback. Uses
- * `getRequestIP(event)` WITHOUT `{ xForwardedFor: true }`, so it reflects the
- * real connecting IP and a remote client cannot spoof it via the `Host` /
- * `X-Forwarded-*` headers. Use this — not a parsed `Host`-header origin — for
- * any "is this local dev?" security gate (MCP/connect dev-open).
+ * True when the request comes from the developer's own machine: the real
+ * socket peer is loopback, `Host` and any forwarding headers name only
+ * loopback, and this is not a dev container whose preview URL is public.
+ * Use this — not a parsed `Host`-header origin — for any "is this local
+ * dev?" security gate (MCP/connect dev-open).
  */
 export function isLoopbackRequest(event: H3Event): boolean {
   return loopback.isLoopbackRequest(event);
@@ -4771,21 +4772,21 @@ function createAuthGuardFn(
     if (
       p === "/_agent-native/dev/action" &&
       resolveDeployEnvironment() !== "production" &&
-      isLoopbackRequest(event)
+      loopback.isLoopbackPeerRequest(event)
     ) {
       return;
     }
     if (
       p === "/_agent-native/dev/db-query" &&
       resolveDeployEnvironment() !== "production" &&
-      isLoopbackRequest(event)
+      loopback.isLoopbackPeerRequest(event)
     ) {
       return;
     }
     if (
       p === "/_agent-native/dev/db-migrate" &&
       resolveDeployEnvironment() !== "production" &&
-      isLoopbackRequest(event)
+      loopback.isLoopbackPeerRequest(event)
     ) {
       return;
     }
@@ -4982,11 +4983,6 @@ const LEGACY_AUTO_DEV_ACCOUNT_EMAIL = "dev@local";
 
 let authDisabledWarningLogged = false;
 
-function isAuthDisabled(): boolean {
-  const value = process.env.AUTH_DISABLED?.trim().toLowerCase();
-  return value === "1" || value === "true";
-}
-
 function getAuthDisabledSession(event: H3Event): AuthSession | null {
   if (!isAuthDisabled()) return null;
   if (getCookieValues(event, AUTH_DISABLED_OPT_OUT_COOKIE).includes("1")) {
@@ -5100,9 +5096,6 @@ function isHostedPreviewRequest(event: H3Event): boolean {
   );
 }
 
-const BUILDER_PREVIEW_LOCAL_DEV_ENV =
-  "AGENT_NATIVE_ALLOW_BUILDER_PREVIEW_LOCAL_DEV";
-
 function isBuilderPreviewHost(host: string): boolean {
   return (
     host.endsWith(".builderio.xyz") ||
@@ -5112,15 +5105,8 @@ function isBuilderPreviewHost(host: string): boolean {
   );
 }
 
-function isBuilderPreviewLocalDevEnabled(): boolean {
-  const value = process.env[BUILDER_PREVIEW_LOCAL_DEV_ENV]
-    ?.trim()
-    .toLowerCase();
-  return value === "1" || value === "true";
-}
-
 function isBuilderPreviewLocalDevRequest(event: H3Event): boolean {
-  if (!isBuilderPreviewLocalDevEnabled()) return false;
+  if (!getAppConfig().auth.allowBuilderPreviewLocalDev) return false;
   const host = getRequestHost(event)?.split(",")[0]?.trim().toLowerCase() ?? "";
   return isBuilderPreviewHost(host);
 }

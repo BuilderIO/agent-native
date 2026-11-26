@@ -17,8 +17,10 @@ import type {
   DaySchedule,
   OverlayPerson,
 } from "@shared/api";
+import { DEFAULT_BOOKING_REMINDER_MINUTES } from "@shared/api";
 import { getWeekdayOrder, getWeekStartsOn } from "@shared/calendar-week";
 import {
+  IconBell,
   IconBrandGoogle,
   IconBrandZoom,
   IconCalendar,
@@ -221,6 +223,7 @@ type DraftLink = {
   hosts: BookingHost[];
   customFields: CustomField[];
   conferencing: ConferencingConfig;
+  reminderMinutes: number;
   isActive: boolean;
   /** Whether the user has manually edited the slug (vs auto-generated) */
   slugManuallyEdited: boolean;
@@ -264,6 +267,7 @@ function createEmptyDraft(): DraftLink {
     hosts: [],
     customFields: [],
     conferencing: { type: "none" },
+    reminderMinutes: DEFAULT_BOOKING_REMINDER_MINUTES,
     isActive: true,
     slugManuallyEdited: false,
   };
@@ -286,6 +290,7 @@ function draftFromBookingLink(link: BookingLink): DraftLink {
     hosts: link.hosts || [],
     customFields: link.customFields || [],
     conferencing: link.conferencing || { type: "none" },
+    reminderMinutes: link.reminderMinutes ?? DEFAULT_BOOKING_REMINDER_MINUTES,
     isActive: link.isActive,
     slugManuallyEdited: true,
   };
@@ -301,6 +306,7 @@ function getDraftSignature(draft: DraftLink) {
     hosts: draft.hosts,
     customFields: draft.customFields,
     conferencing: draft.conferencing,
+    reminderMinutes: draft.reminderMinutes,
     isActive: draft.isActive,
   });
 }
@@ -433,6 +439,58 @@ const CONFERENCING_OPTIONS = [
   descriptionKey: string;
   Icon: typeof IconVideo;
 }>;
+
+const REMINDER_OPTIONS = [
+  { minutes: 0, labelKey: "bookingLinks.reminderOff" },
+  { minutes: 60, labelKey: "bookingLinks.reminderOneHour" },
+  { minutes: 1440, labelKey: "bookingLinks.reminderOneDay" },
+] as const;
+
+function BookingReminderSelect({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (next: number) => void;
+}) {
+  const t = useT();
+  const selected =
+    REMINDER_OPTIONS.find((option) => option.minutes === value) ??
+    REMINDER_OPTIONS[0];
+  return (
+    <div className="space-y-3">
+      <Label
+        htmlFor="booking-link-reminder"
+        className="flex items-center gap-1.5"
+      >
+        <IconBell className="h-4 w-4" />
+        {t("bookingLinks.reminderEmail")}
+      </Label>
+      <Select
+        value={String(selected.minutes)}
+        onValueChange={(next) => onChange(Number(next))}
+      >
+        <SelectTrigger id="booking-link-reminder" className="h-11 py-2">
+          <span className="truncate font-medium">{t(selected.labelKey)}</span>
+        </SelectTrigger>
+        <SelectContent>
+          {REMINDER_OPTIONS.map((option) => (
+            <SelectItem
+              key={option.minutes}
+              value={String(option.minutes)}
+              className="py-2"
+            >
+              {t(option.labelKey)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <p className="text-xs text-muted-foreground">
+        {t("bookingLinks.reminderEmailDescription")}
+      </p>
+    </div>
+  );
+}
 
 function BookingConferencingSelect({
   value,
@@ -1175,6 +1233,7 @@ export default function BookingLinksPage({
         customFields:
           draft.customFields.length > 0 ? draft.customFields : undefined,
         conferencing: draft.conferencing,
+        reminderMinutes: draft.reminderMinutes,
         isActive: draft.isActive,
       });
       const nextDraft = draftFromBookingLink(updated);
@@ -1764,6 +1823,15 @@ export default function BookingLinksPage({
                       })
                     }
                     zoomPending={connectZoom.isPending}
+                  />
+                </div>
+
+                <div className="border-t border-border pt-8 pb-4">
+                  <BookingReminderSelect
+                    value={draft.reminderMinutes}
+                    onChange={(reminderMinutes) =>
+                      setDraft((prev) => ({ ...prev, reminderMinutes }))
+                    }
                   />
                 </div>
               </fieldset>

@@ -4082,6 +4082,34 @@ describe("document editor layout", () => {
     ).toBe("Untitled collection");
   });
 
+  it("shows a linked file's folders in its breadcrumb without linking to them", () => {
+    const notes = "local-source-directory:vault:notes";
+    const year = "local-source-directory:vault:notes%2F2026";
+    const path = [
+      { id: notes, parentId: null, title: "notes", icon: null },
+      { id: year, parentId: notes, title: "2026", icon: null },
+      { id: "today", parentId: year, title: "Today", icon: null },
+      { id: "child", parentId: "today", title: "Child", icon: null },
+    ];
+
+    expect(
+      documentEditorBreadcrumbItems(
+        { id: "today", parentId: null, title: "Today", icon: null },
+        path,
+      ),
+    ).toEqual([
+      { title: "notes", icon: null, iconKind: "folder" },
+      { title: "2026", icon: null, iconKind: "folder" },
+      { id: "today", title: "Today", icon: null },
+    ]);
+    expect(
+      documentEditorBreadcrumbItems(
+        { id: "child", parentId: "today", title: "Child", icon: null },
+        path,
+      ).map((item) => item.id ?? `[${item.title}]`),
+    ).toEqual(["[notes]", "[2026]", "today", "child"]);
+  });
+
   it("starts page breadcrumbs with the containing database", () => {
     expect(
       documentEditorBreadcrumbItems(

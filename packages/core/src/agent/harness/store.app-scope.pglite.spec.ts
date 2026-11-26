@@ -4,6 +4,7 @@ import { createTestPglite } from "../../a2a/test-pglite.js";
 
 const db = await createTestPglite();
 vi.mock("../../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({
     execute: async (input: string | { sql: string; args?: unknown[] }) => {
       if (typeof input === "string") {

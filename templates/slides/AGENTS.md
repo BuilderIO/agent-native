@@ -73,3 +73,4 @@ Before building common workspace or agent UI, read `agent-native-toolkit`; read 
 | Action | Purpose |
 | --- | --- |
 | `clone-context-slide` | Copy a pinned native library slide into an editable deck, preserving provenance |
+| `read-link-summary` | A deck link's title for another app's link card, only if the caller can open it |

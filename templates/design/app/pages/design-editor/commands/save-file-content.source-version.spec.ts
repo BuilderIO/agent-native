@@ -1,10 +1,11 @@
+// oracle-change: update-file no longer reports a skipped checkpoint, so the version-history-unavailable toast was removed
 import {
   sourceContentHash,
   sourceContentPatch,
 } from "@shared/source-workspace";
 import type { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   createDesignSaveOutboxEntry,
@@ -18,7 +19,6 @@ import {
 } from "@/pages/design-editor/editor-state";
 
 import {
-  __clearVersionHistoryWarningsForTests,
   runFileContentSaveKeepalive,
   runSaveFileContent,
   type SaveFileContentArgs,
@@ -35,10 +35,6 @@ function deferred<T>() {
 }
 
 describe("runSaveFileContent source version", () => {
-  beforeEach(() => {
-    __clearVersionHistoryWarningsForTests();
-  });
-
   it("waits for the queued outbox entry and keeps it replayable after a failed save", async () => {
     const pending: FileContentSaveRequest = {
       id: "screen-outbox-stall",
@@ -1194,73 +1190,5 @@ describe("runSaveFileContent source version", () => {
         },
       ],
     });
-  });
-
-  it("shows exactly one version-history-unavailable toast per design across repeated skipped-checkpoint saves", async () => {
-    const designId = "design-43";
-    const buildPending = (
-      content: string,
-      operationRevision: number,
-    ): FileContentSaveRequest => ({
-      id: "screen-a",
-      content,
-      syncCollab: true,
-      operationSource: "tab-a",
-      operationRevision,
-      expectedVersionHash: "hash-of-original-source",
-    });
-    const warningToast = vi
-      .spyOn(toast, "warning")
-      .mockImplementation(() => "test-toast");
-    const buildArgs = (): SaveFileContentArgs => ({
-      acknowledgeOutboxEntry: vi.fn(async () => {}),
-      canEditDesignRef: { current: true },
-      createFileSaveOutboxEntry: vi.fn(() => null),
-      designId,
-      fileSaveChainsRef: { current: {} },
-      journalOutboxEntry: vi.fn(async () => true),
-      latestFileSaveForUnloadRef: { current: {} },
-      rollbackPendingLocalFileContent: vi.fn(),
-      markPendingLocalFileContent: vi.fn(),
-      queryClient: {
-        setQueryData: vi.fn(),
-        invalidateQueries: vi.fn(),
-      } as unknown as QueryClient,
-      setPatchProof: vi.fn(),
-      t: (key) => key,
-      updateFileMutation: {
-        mutateAsync: vi.fn(async (input: { content: string }) => ({
-          updated: true,
-          versionHash: sourceContentHash(input.content),
-          checkpoint: { skipped: true, reason: "blob-storage-unavailable" },
-        })),
-      } as unknown as SaveFileContentArgs["updateFileMutation"],
-      warnChangesWillRetry: vi.fn(),
-    });
-
-    try {
-      const firstArgs = buildArgs();
-      const firstPending = buildPending("<main>large design content</main>", 1);
-      runSaveFileContent(firstArgs, firstPending);
-      await firstArgs.fileSaveChainsRef.current[firstPending.id];
-
-      const secondArgs = buildArgs();
-      const secondPending = buildPending(
-        "<main>large design content, edited</main>",
-        2,
-      );
-      runSaveFileContent(secondArgs, secondPending);
-      await secondArgs.fileSaveChainsRef.current[secondPending.id];
-
-      expect(warningToast).toHaveBeenCalledTimes(1);
-      expect(warningToast).toHaveBeenCalledWith(
-        "designEditor.toasts.versionHistoryUnavailable",
-        expect.objectContaining({
-          id: `design-version-history-unavailable:${designId}`,
-        }),
-      );
-    } finally {
-      warningToast.mockRestore();
-    }
   });
 });

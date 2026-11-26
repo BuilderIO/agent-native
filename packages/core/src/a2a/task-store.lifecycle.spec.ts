@@ -25,6 +25,7 @@ const dbExec: DbExec = {
 };
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => dbExec,
   getScopedTransactionDbExec: () => undefined,
   isProductionServerlessFunctionRuntime: () => false,

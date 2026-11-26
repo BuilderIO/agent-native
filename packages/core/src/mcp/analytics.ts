@@ -119,7 +119,7 @@ export function readClientInfoFromRequest(
   };
 }
 
-function analyticsEnabled(): boolean {
+export function mcpAnalyticsEnabled(): boolean {
   if (listTrackingProviders().length === 0) return false;
   return getAppConfig().observability.mcpEvents;
 }
@@ -194,7 +194,7 @@ function emit(
 }
 
 export function trackMcpInitialize(ctx: McpAnalyticsContext): void {
-  if (!analyticsEnabled()) return;
+  if (!mcpAnalyticsEnabled()) return;
   emit(MCP_ANALYTICS_EVENTS.initialize, ctx, {});
 }
 
@@ -202,12 +202,50 @@ export function trackMcpToolsList(
   ctx: McpAnalyticsContext,
   args: { toolNames: string[]; durationMs: number },
 ): void {
-  if (!analyticsEnabled()) return;
+  if (!mcpAnalyticsEnabled()) return;
   emit(MCP_ANALYTICS_EVENTS.toolsList, ctx, {
     $mcp_listed_tool_names: args.toolNames,
     $mcp_listed_tool_count: args.toolNames.length,
     $mcp_duration_ms: args.durationMs,
   });
+}
+
+export interface McpToolResultSize {
+  resultTextChars: number;
+  resultStructuredChars?: number;
+}
+
+/**
+ * How big an MCP tool result is, never what it says: the characters in its
+ * text blocks, and in its structured content as JSON when it has any. Hosts
+ * read different parts of a result, so each part is counted on its own.
+ */
+export function mcpToolResultSize(result: unknown): Partial<McpToolResultSize> {
+  if (typeof result !== "object" || result === null) return {};
+  const blocks: unknown[] =
+    "content" in result && Array.isArray(result.content) ? result.content : [];
+  let resultTextChars = 0;
+  for (const block of blocks) {
+    if (
+      typeof block === "object" &&
+      block !== null &&
+      "type" in block &&
+      block.type === "text" &&
+      "text" in block &&
+      typeof block.text === "string"
+    ) {
+      resultTextChars += block.text.length;
+    }
+  }
+  return {
+    resultTextChars,
+    ...("structuredContent" in result && result.structuredContent !== undefined
+      ? {
+          resultStructuredChars: JSON.stringify(result.structuredContent)
+            .length,
+        }
+      : {}),
+  };
 }
 
 export function trackMcpToolCall(
@@ -221,9 +259,9 @@ export function trackMcpToolCall(
     isError: boolean;
     errorType?: string;
     errorMessage?: string;
-  },
+  } & Partial<McpToolResultSize>,
 ): void {
-  if (!analyticsEnabled()) return;
+  if (!mcpAnalyticsEnabled()) return;
   emit(MCP_ANALYTICS_EVENTS.toolCall, ctx, {
     $mcp_tool_name: args.toolName,
     ...(args.toolDescription
@@ -234,6 +272,12 @@ export function trackMcpToolCall(
       ? { $mcp_parameters: safeValue(args.parameters) }
       : {}),
     $mcp_duration_ms: args.durationMs,
+    ...(args.resultTextChars !== undefined
+      ? { $mcp_response_text_chars: args.resultTextChars }
+      : {}),
+    ...(args.resultStructuredChars !== undefined
+      ? { $mcp_response_structured_chars: args.resultStructuredChars }
+      : {}),
     $mcp_is_error: args.isError,
     ...(args.errorType ? { $mcp_error_type: args.errorType } : {}),
     ...(args.errorMessage ? { $mcp_error_message: args.errorMessage } : {}),
@@ -244,7 +288,7 @@ export function trackMcpResourcesList(
   ctx: McpAnalyticsContext,
   args: { resourceCount: number; durationMs: number },
 ): void {
-  if (!analyticsEnabled()) return;
+  if (!mcpAnalyticsEnabled()) return;
   emit(MCP_ANALYTICS_EVENTS.resourcesList, ctx, {
     $mcp_listed_resource_count: args.resourceCount,
     $mcp_duration_ms: args.durationMs,
@@ -262,7 +306,7 @@ export function trackMcpResourceRead(
     errorMessage?: string;
   },
 ): void {
-  if (!analyticsEnabled()) return;
+  if (!mcpAnalyticsEnabled()) return;
   emit(MCP_ANALYTICS_EVENTS.resourceRead, ctx, {
     ...(args.resourceName ? { $mcp_resource_name: args.resourceName } : {}),
     ...(args.resourceUri ? { $mcp_resource_uri: args.resourceUri } : {}),
@@ -285,7 +329,7 @@ export function trackMcpOAuthAuthorizeOpened(
   ctx: McpAnalyticsContext,
   args: { route: McpOAuthRoute; signedIn: boolean },
 ): void {
-  if (!analyticsEnabled()) return;
+  if (!mcpAnalyticsEnabled()) return;
   emit(MCP_ANALYTICS_EVENTS.oauthAuthorizeOpened, ctx, {
     $mcp_oauth_route: args.route,
     $mcp_oauth_signed_in: args.signedIn,
@@ -296,7 +340,7 @@ export function trackMcpOAuthLoginWallShown(
   ctx: McpAnalyticsContext,
   args: { route: McpOAuthRoute },
 ): void {
-  if (!analyticsEnabled()) return;
+  if (!mcpAnalyticsEnabled()) return;
   emit(MCP_ANALYTICS_EVENTS.oauthLoginWallShown, ctx, {
     $mcp_oauth_route: args.route,
   });

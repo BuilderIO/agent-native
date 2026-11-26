@@ -5,6 +5,7 @@ import { isTransientDatabaseError } from "../db/errors.js";
 
 const evaluateFeatureFlagStrictMock = vi.hoisted(() => vi.fn());
 const executeMock = vi.hoisted(() => vi.fn());
+const getEnclosingTransactionDbExecMock = vi.hoisted(() => vi.fn());
 const createOrganizationMock = vi.hoisted(() => vi.fn());
 const setActiveOrgIdMock = vi.hoisted(() => vi.fn());
 const invalidateMemberOrgCachesMock = vi.hoisted(() => vi.fn());
@@ -19,6 +20,7 @@ vi.mock("../feature-flags/store.js", () => ({
   evaluateFeatureFlagStrict: evaluateFeatureFlagStrictMock,
 }));
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: getEnclosingTransactionDbExecMock,
   getDbExec: () => ({ execute: executeMock }),
 }));
 vi.mock("../a2a/index.js", () => ({
@@ -43,12 +45,14 @@ vi.mock("./request-org-cache.js", () => ({
 
 const {
   addFederatedOrganizationMember,
+  federatedSnapshotTransaction,
   provisionFederatedOrganization,
   revokeFederatedOrganizationMember,
   syncOrganizationToIdentityHub,
   updateFederatedOrganizationMemberRole,
   validateFederatedOrganizationMembership,
   validateFederatedOrganizationMembershipForCurrentRequest,
+  withFederatedMembershipSnapshot,
 } = await import("./federation.js");
 
 const identity = {
@@ -62,6 +66,7 @@ const identity = {
 describe("cross-app organization federation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getEnclosingTransactionDbExecMock.mockReturnValue(undefined);
     evaluateFeatureFlagStrictMock.mockResolvedValue(true);
     canonicalA2AAudienceMock.mockReturnValue(
       "https://dispatch.agent-native.com",
@@ -669,6 +674,155 @@ describe("cross-app organization federation", () => {
       }),
     ).resolves.toEqual({ active: true, role: "admin" });
     expect(getOriginMock).not.toHaveBeenCalled();
+  });
+
+  describe("membership snapshots", () => {
+    const input = { orgId: "local-org", email: identity.email };
+    const event = {} as H3Event;
+    let organization: {
+      name: string;
+      identity_authority: string;
+      identity_id: string;
+    };
+    let role: "owner" | "admin" | "member";
+
+    beforeEach(() => {
+      organization = {
+        name: identity.name,
+        identity_authority: identity.authority,
+        identity_id: identity.id,
+      };
+      role = "member";
+      executeMock.mockImplementation(async (query) => {
+        const sql = (typeof query === "string" ? query : query.sql).trim();
+        if (/SELECT name, identity_authority/i.test(sql)) {
+          return { rows: [organization] };
+        }
+        if (/SELECT role, federation_removal_pending_at/i.test(sql)) {
+          return { rows: [{ role }] };
+        }
+        if (/SET role = \?/i.test(sql)) {
+          role = query.args[0];
+          return { rows: [] };
+        }
+        throw new Error(`unexpected SQL in test: ${sql}`);
+      });
+      vi.mocked(fetch).mockImplementation(
+        async () =>
+          new Response(
+            JSON.stringify({
+              orgId: identity.id,
+              memberEmail: identity.email,
+              memberPresent: true,
+              memberRole: "admin",
+            }),
+            { status: 200 },
+          ),
+      );
+    });
+
+    it("reconciles before reading and reuses the validated identity and refreshed role", async () => {
+      const transaction = { execute: vi.fn() };
+      getEnclosingTransactionDbExecMock.mockReturnValue(transaction);
+      const phases: string[] = [];
+
+      expect(federatedSnapshotTransaction()).toBeUndefined();
+      const result = await withFederatedMembershipSnapshot(
+        async () => {
+          phases.push("reconcile");
+          expect(federatedSnapshotTransaction()).toBeUndefined();
+          const validation =
+            await validateFederatedOrganizationMembershipForCurrentRequest(
+              { ...input, email: `  ${identity.email.toUpperCase()}  ` },
+              event,
+            );
+          expect(validation).toEqual({ active: true, role: "admin" });
+          expect(role).toBe("admin");
+          return "reconciled";
+        },
+        async (reconciled) => {
+          phases.push("read");
+          expect(reconciled).toBe("reconciled");
+          expect(federatedSnapshotTransaction()).toBe(transaction);
+          return validateFederatedOrganizationMembershipForCurrentRequest(
+            input,
+            event,
+          );
+        },
+      );
+
+      expect(result).toEqual({ active: true, role: "admin" });
+      expect(phases).toEqual(["reconcile", "read"]);
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(federatedSnapshotTransaction()).toBeUndefined();
+    });
+
+    it.each([
+      "missing validation",
+      "authority",
+      "identity ID",
+      "role",
+    ] as const)(
+      "rejects a snapshot when %s does not match preflight",
+      async (change) => {
+        await expect(
+          withFederatedMembershipSnapshot(
+            async () => {
+              if (change !== "missing validation") {
+                await validateFederatedOrganizationMembershipForCurrentRequest(
+                  input,
+                  event,
+                );
+              }
+            },
+            async () => {
+              if (change === "authority") {
+                organization.identity_authority = "https://other.example.test";
+                resolveIdentityHubUrlMock.mockReturnValue(
+                  organization.identity_authority,
+                );
+              }
+              if (change === "identity ID")
+                organization.identity_id = "other-org";
+              if (change === "role") role = "owner";
+              return validateFederatedOrganizationMembershipForCurrentRequest(
+                input,
+                event,
+              );
+            },
+          ),
+        ).rejects.toThrow(
+          "Federated membership changed before the navigation snapshot.",
+        );
+        expect(fetch).toHaveBeenCalledTimes(
+          change === "missing validation" ? 0 : 1,
+        );
+      },
+    );
+
+    it.each(["reconcile", "read"] as const)(
+      "propagates %s errors and clears the snapshot context",
+      async (phase) => {
+        const cause = new Error(`${phase} failed`);
+        const read = vi.fn(async () => {
+          expect(federatedSnapshotTransaction()).toBeDefined();
+          throw cause;
+        });
+        getEnclosingTransactionDbExecMock.mockReturnValue({
+          execute: executeMock,
+        });
+
+        await expect(
+          withFederatedMembershipSnapshot(async () => {
+            expect(federatedSnapshotTransaction()).toBeUndefined();
+            if (phase === "reconcile") throw cause;
+            return "ready";
+          }, read),
+        ).rejects.toBe(cause);
+        expect(read).toHaveBeenCalledTimes(phase === "reconcile" ? 0 : 1);
+        expect(federatedSnapshotTransaction()).toBeUndefined();
+      },
+    );
   });
 
   it("refreshes a satellite membership role from the authority", async () => {

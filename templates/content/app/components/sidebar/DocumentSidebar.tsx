@@ -156,6 +156,7 @@ import {
 import { documentQueryKey } from "@/lib/document-query";
 import {
   cachedFilesRootDocumentIds,
+  cachedFilesSiblingDocumentIds,
   filesNavigationOrder,
   openFilesFolderIds,
 } from "@/lib/files-navigation";
@@ -2023,9 +2024,11 @@ export function DocumentSidebar({
             ({
               databaseId,
               databaseDocumentId,
+              canMove,
               ...entry
             }): ActivePathDocument => ({
               ...entry,
+              ...(canMove === false ? { canMove: false } : {}),
               content: "",
               description: "",
               position: 0,
@@ -3015,6 +3018,11 @@ export function DocumentSidebar({
           ? nextLocalPageId
           : remainingPageAfterDelete(id, {
               activePath,
+              siblingDocumentIds: cachedFilesSiblingDocumentIds(
+                queryClient,
+                id,
+                activePath,
+              ),
               filesRootDocumentIds: cachedFilesRootDocumentIds(queryClient, id),
               pendingTrashIds: pendingTrash.documentIds,
             });

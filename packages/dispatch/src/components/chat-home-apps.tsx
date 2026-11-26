@@ -155,7 +155,6 @@ export function DispatchChatHomeApps() {
                         href={href}
                         onOpen={() => launcher.openApp(app)}
                         showNewTabOption={Boolean(href)}
-                        external={app.source === "builtin"}
                         labels={appOpenActionLabels(t, app.name)}
                       />
                     </article>

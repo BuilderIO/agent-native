@@ -93,12 +93,12 @@ Auth 是通过 auth 服务器插件中的 `autoMountAuth(app)` 自动配置的�
 一些标志对此进行了调整；完整详细信息位于 [Environment Variables](#environment-variables) 表中：
 
 - `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` — 使用本地开发中的普通注册页面而不是自动开发帐户。
-- `AUTH_DISABLED=true` — 完全跳过登录/注册，并以一个共享用户身份运行每个请求（仅限本地开发/预览/演示，切勿与真实用户一起进行生产）。
+- `AUTH_DISABLED=true` — 完全跳过登录/注册，并以一个共享用户身份运行每个请求。仅限在环回（`localhost`）服务器上进行本地开发；切勿在托管预览、演示或生产环境中设置。
 - `AUTH_MODE=local` — 仅影响 CLI/代理身份（开发用户 `pnpm action` 运行时的身份）；它**不是**浏览器登录绕过。
 
 <Callout id="doc-block-18jli2j" tone="warning">
 
-`AUTH_DISABLED=true` runs **every request as one shared user**. Use it only for local dev, previews, or demos — never in production with real users, where it would expose all data to anyone.
+`AUTH_DISABLED=true` 会让**每个请求都以同一个共享用户身份登录**，因此任何能访问该服务器的人都拥有完全访问权限。仅在环回（`localhost`）服务器上进行本地开发时使用。托管预览、演示和生产环境需要真正的登录；对于 QA 预览，`AUTH_SKIP_EMAIL_VERIFICATION=1` 可以免去等待邮件，而无需关闭身份验证。
 
 </Callout>
 
@@ -462,7 +462,7 @@ const state = encodeOAuthState({
 | `BETTER_AUTH_SECRET`                    | 更好的身份验证签名密钥（如果未设置，则自动生成）                                                             |
 | `AUTH_SKIP_EMAIL_VERIFICATION`          | 在 QA/预览环境中设置为 `1`，让电子邮件/密码注册无需验证即可继续进行；默认情况下跳过本地开发/测试             |
 | `AUTH_REQUIRE_EMAIL_VERIFICATION`       | 设置为 `0` 或 `1` 可为任何环境（包括生产环境）声明密码注册的验证策略；优先于 `AUTH_SKIP_EMAIL_VERIFICATION`  |
-| `AUTH_DISABLED`                         | 设置为`true`或`1`跳过登录/注册；所有请求都作为一个共享用户运行（仅限本地开发/预览 - 不适用于真实用户的生产） |
+| `AUTH_DISABLED`                         | 设置为`true`或`1`跳过登录/注册；所有请求都作为一个共享用户运行（仅限 localhost 本地开发 - 不适用于托管环境） |
 | `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | 设置为 `1` 以在新的开发数据库上禁用本地主机自动登录                                                          |
 | `AUTH_MODE`                             | `local` 仅解析 CLI/代理身份（开发用户 `pnpm action` 作为其运行）；绝不绕过浏览器登录                         |
 | `COOKIE_DOMAIN`                         | 选择跨同一数据库子域共享会话 Cookie（请参阅 [Cookie Realms](#cookie-realms)）                                |

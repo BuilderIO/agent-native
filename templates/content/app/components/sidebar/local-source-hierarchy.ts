@@ -1,6 +1,8 @@
 import type { ContentDatabaseItem, DocumentProperty } from "@shared/api";
-
-const LOCAL_SOURCE_DIRECTORY_PREFIX = "local-source-directory:";
+import {
+  localSourceDirectoryId,
+  localSourceDirectoryTitle,
+} from "@shared/local-source-directory";
 
 function normalizedSourcePath(path: string | undefined) {
   const normalized = (path ?? "").replace(/\\/g, "/").replace(/^\/+/, "");
@@ -36,7 +38,7 @@ export function localSourceItemIdentity(item: ContentDatabaseItem) {
 }
 
 function directoryId(sourceIdentity: string, path: string) {
-  return `${LOCAL_SOURCE_DIRECTORY_PREFIX}${encodeURIComponent(sourceIdentity)}:${encodeURIComponent(path)}`;
+  return localSourceDirectoryId({ rootPath: sourceIdentity, path });
 }
 
 function systemProperties(
@@ -73,7 +75,7 @@ function directoryItem(
       ...template.document,
       id,
       parentId,
-      title: path.split("/").pop()?.replace(/[-_]+/g, " ") || path,
+      title: localSourceDirectoryTitle(path),
       content: "",
       description: "",
       icon: null,

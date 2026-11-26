@@ -19,7 +19,7 @@ import {
   parseAddressList,
   parseEmailAddress,
 } from "./google-auth.js";
-import { classifyAutomated } from "./inbox-classify.js";
+import { automationFlag, classifyAutomated } from "./inbox-classify.js";
 import { pushWatchState, steadyPollMaxAgeMs } from "./inbox-push-watch.js";
 import {
   hasOutstandingSyncWork,
@@ -41,6 +41,7 @@ import {
   purgeArchivedInboxThreadRows,
   readInboxPushGeneration,
   readInboxThreadIds,
+  readRecentLegacyThreadIds,
   readSyncAccounts,
   releaseSyncAccount,
   resetSyncAccountProgress,
@@ -287,11 +288,37 @@ function deriveRowFromThread(
   const classifiedHeaders = classified.payload?.headers || [];
   const from = parseEmailAddress(getHeader(classifiedHeaders, "From"));
   const to = parseAddressList(getHeader(classifiedHeaders, "To"));
-  const isAutomated = classifyAutomated({
-    headers: classifiedHeaders,
-    labelIds: [...labelSet],
-    fromEmail: from.email,
+  const inboxMessages = relevant.filter((message) => {
+    const labels = messageLabels(message);
+    return labels.includes("INBOX") && !labels.includes("TRASH");
   });
+  const classifications = inboxMessages.map((message) => {
+    const headers = message.payload?.headers || [];
+    const sender = parseEmailAddress(
+      getHeader(headers, "From"),
+    ).email.toLowerCase();
+    const recipients = ["To", "Cc", "Bcc"].flatMap((name) =>
+      parseAddressList(getHeader(headers, name)),
+    );
+    const selfAddressed =
+      connectedEmailsLower.has(sender) &&
+      recipients.some((recipient) =>
+        connectedEmailsLower.has(recipient.email.toLowerCase()),
+      );
+    return classifyAutomated({
+      headers,
+      labelIds: messageLabels(message),
+      fromEmail: sender,
+      selfAddressed,
+    });
+  });
+  const isAutomated = automationFlag(
+    classifications.includes("automated")
+      ? "automated"
+      : classifications.includes("personal")
+        ? "personal"
+        : "unclassified",
+  );
 
   const hasAttachments = relevant.some((m) =>
     (m.payload?.parts || []).some((p: any) => !!p.filename),
@@ -1357,6 +1384,7 @@ export async function syncInboxAccount(
   opts?: {
     budgetMs?: number;
     force?: boolean;
+    loadOlder?: boolean;
     connectedAccountEmails?: readonly string[];
     pushGeneration?: number;
     /** Internal: this attempt runs on a token refreshed after a 401. */
@@ -1517,6 +1545,7 @@ export async function syncInboxAccount(
       if (
         !syncResult.restartedFullSync &&
         row.fullSyncPageToken != null &&
+        opts?.loadOlder &&
         Date.now() < deadline
       ) {
         incrementalAlone = false;
@@ -1540,6 +1569,48 @@ export async function syncInboxAccount(
           ),
           changed: incrementalResult.changed || backfillResult.changed,
         };
+      }
+    }
+
+    if (
+      row.historyId != null &&
+      (!opts?.loadOlder || row.fullSyncPageToken == null) &&
+      !syncResult.restartedFullSync &&
+      !syncResult.changed &&
+      !hasOutstandingSyncWork(row, Date.now()) &&
+      Date.now() < deadline
+    ) {
+      const legacyIds = await readRecentLegacyThreadIds(
+        ownerEmail,
+        accountEmail,
+        opts?.loadOlder === true,
+      );
+      if (legacyIds.length > 0) {
+        const connected = await connectedEmailsLower(
+          ownerEmail,
+          accountEmail,
+          opts?.connectedAccountEmails,
+        );
+        await hydrateAndApply(
+          accessToken,
+          legacyIds,
+          ownerEmail,
+          accountEmail,
+          connected,
+          claim.claimId,
+          "incremental",
+          (skipped) =>
+            appendHydratePendingIds(
+              ownerEmail,
+              accountEmail,
+              claim.claimId,
+              skipped,
+            ),
+          () => {
+            changed = true;
+          },
+        );
+        syncResult = { ...syncResult, changed: true };
       }
     }
 
@@ -1651,11 +1722,6 @@ export async function syncInboxAccount(
   }
 }
 
-/**
- * A steady account synced inside the freshness window needs no Gmail call.
- * Initial sync, backfill, and a pending push must still advance one step per
- * call, so they never count as fresh even when the last step was recent.
- */
 function isFreshSteadyAccount(
   row: SyncAccountRow,
   pushGeneration: number,
@@ -1665,7 +1731,6 @@ function isFreshSteadyAccount(
   return (
     row.historyId != null &&
     row.status === "idle" &&
-    row.fullSyncPageToken == null &&
     row.fullSyncPhase == null &&
     !hasOutstandingSyncWork(row, now) &&
     row.lastPushGeneration >= pushGeneration &&
@@ -1737,7 +1802,12 @@ export async function ensureInboxFresh(
 
 export async function syncInbox(
   ownerEmail: string,
-  opts?: { accountEmails?: string[]; budgetMs?: number; force?: boolean },
+  opts?: {
+    accountEmails?: string[];
+    budgetMs?: number;
+    force?: boolean;
+    loadOlder?: boolean;
+  },
 ): Promise<SyncInboxResult> {
   const { accounts, errors: lookupErrors } =
     await getConnectedAccountsWithErrors(ownerEmail);
@@ -1764,6 +1834,7 @@ export async function syncInbox(
       // steady check, so it is never held back by the poll window.
       if (
         !opts?.force &&
+        !opts?.loadOlder &&
         isFreshSteadyAccount(
           row,
           pushGeneration,
@@ -1780,7 +1851,8 @@ export async function syncInbox(
       const synced = await syncInboxAccount(ownerEmail, accountEmail, {
         budgetMs: opts?.budgetMs ?? 1_800,
         connectedAccountEmails: accounts,
-        force: opts?.force,
+        ...(opts?.force !== undefined ? { force: opts.force } : {}),
+        ...(opts?.loadOlder !== undefined ? { loadOlder: opts.loadOlder } : {}),
       });
       return { ...synced, pushWatch: pushWatchState(row, now) };
     }),

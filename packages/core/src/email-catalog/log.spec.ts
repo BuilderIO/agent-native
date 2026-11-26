@@ -10,6 +10,7 @@ vi.mock("../db/client.js", async () => {
       storeLedgerResult(typeof q === "string" ? q : q.sql) ?? execute(q),
   };
   return {
+    getEnclosingTransactionDbExec: () => undefined,
     getDbExec: () => db,
   };
 });

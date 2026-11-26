@@ -1,14 +1,38 @@
 import { rmSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { withMigrationRuntime } from "@agent-native/core/db";
 import {
+  loadActionsFromStaticRegistry,
   runFrameworkReleaseMigrations,
   runWithRequestContext,
 } from "@agent-native/core/server";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+
+import {
+  createMCPServerForRequest,
+  type MCPConfig,
+} from "../../../packages/core/src/mcp/build-server.js";
+
+const requireFromCore = createRequire(
+  new URL("../../../packages/core/package.json", import.meta.url),
+);
+const [{ Client }, { InMemoryTransport }] = await Promise.all([
+  import(requireFromCore.resolve("@modelcontextprotocol/client")),
+  import(requireFromCore.resolve("@modelcontextprotocol/server")),
+]);
+type MCPClient = InstanceType<typeof Client>;
 
 // guard:allow-unscoped — isolated PGlite fixtures intentionally inspect rows directly.
 
@@ -1449,4 +1473,158 @@ describe("patch-database-items receipts for MCP script recovery", () => {
       });
     },
   );
+});
+
+describe("patch-database-items through the MCP script catalog", () => {
+  const PILOT_ORG = "org-script-pilot";
+  const sessions: Array<{ close(): Promise<void> }> = [];
+  let actions: MCPConfig["actions"];
+
+  beforeAll(async () => {
+    const { default: actionModules } =
+      await import("../.generated/actions-registry.js");
+    actions = loadActionsFromStaticRegistry(actionModules);
+  });
+
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    await Promise.all(sessions.splice(0).map((session) => session.close()));
+  });
+
+  async function scriptClient(orgId: string): Promise<MCPClient> {
+    const server = await createMCPServerForRequest(
+      {
+        name: "Content",
+        appId: "content",
+        description: "Agent-Native Content",
+        version: "1.0.0-test",
+        actions,
+        productionActions: actions,
+        builtinCrossAppTools: false,
+        externalAgents: { writes: "allowlisted" },
+      },
+      {
+        userEmail: OWNER,
+        orgId,
+        orgDomain: undefined,
+        oauthScopes: ["mcp:read", "mcp:write"],
+      },
+      {
+        origin: "http://content.test",
+        transport: "http",
+        inlineMcpApps: false,
+        scriptCatalog: true,
+      },
+    );
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "content-script-test", version: "1" });
+    await Promise.all([
+      client.connect(clientTransport),
+      server.connect(serverTransport),
+    ]);
+    sessions.push(client, server);
+    return client;
+  }
+
+  async function runScript(client: MCPClient, code: string) {
+    const result = await client.callTool({
+      name: "run-script",
+      arguments: { code },
+    });
+    const text = result.content
+      .map((entry: { type: string; text?: string }) => entry.text ?? "")
+      .join("\n");
+    return { result, payload: JSON.parse(text) };
+  }
+
+  function rankScript(
+    ids: Awaited<ReturnType<typeof fixture>>,
+    idempotencyKey: string,
+  ) {
+    return `
+      const read = await api.getContentDatabase({ databaseId: ${JSON.stringify(ids.databaseId)} });
+      const contract = read.mutationContract;
+      const written = await api.patchDatabaseItems({
+        target: contract.target,
+        expectedSchemaRevision: contract.schemaRevision,
+        idempotencyKey: ${JSON.stringify(idempotencyKey)},
+        rows: read.items.map((item, index) => ({
+          itemId: item.id,
+          documentId: item.document.id,
+          expectedRowRevision: item.rowRevision,
+          propertyEntries: [
+            { propertyId: ${JSON.stringify(ids.properties.rank)}, propertyType: "number", value: 30 - index },
+          ],
+        })),
+      });
+      return written.receipt.counts;
+    `;
+  }
+
+  it("lets an allowlisted organization read a collection and patch its rows from one script", async () => {
+    vi.stubEnv("AGENT_NATIVE_MCP_SCRIPT_TOOLS", "true");
+    vi.stubEnv("AGENT_NATIVE_MCP_SCRIPT_ORGS", PILOT_ORG);
+    vi.stubEnv("AGENT_NATIVE_MCP_SCRIPT_WRITES", "true");
+    const ids = await fixture("Scripted ranks");
+    const rows = await seedRows(ids, 3);
+    const client = await scriptClient(PILOT_ORG);
+
+    const listed = (await client.listTools()).tools.map((tool) => tool.name);
+    expect(listed).toEqual(
+      expect.arrayContaining(["run-script", "search-actions"]),
+    );
+    expect(listed).not.toContain("patch-database-items");
+
+    const reads = await runScript(
+      client,
+      `
+        const collections = await api.listContentDatabases({});
+        const found = await api.searchDocuments({ query: "Scripted", mode: "words" });
+        const rows = await api.searchContentDatabaseRows({ databaseId: ${JSON.stringify(ids.databaseId)} });
+        const page = await api.getDocument({ id: ${JSON.stringify(ids.databaseDocumentId)} });
+        return [collections, found, rows, page].map((value) => typeof value);
+      `,
+    );
+    expect(reads.payload).toMatchObject({
+      ok: true,
+      result: ["object", "object", "object", "object"],
+    });
+
+    const patched = await runScript(client, rankScript(ids, "scripted-ranks"));
+    expect(patched.payload).toMatchObject({
+      ok: true,
+      result: { requested: 3, updated: 3 },
+    });
+    expect(
+      await storedValues(
+        rows.map((row) => row.documentId),
+        ids.properties.rank,
+      ),
+    ).toEqual([30, 29, 28]);
+  });
+
+  it("refuses another organization's script before it reaches a row", async () => {
+    vi.stubEnv("AGENT_NATIVE_MCP_SCRIPT_TOOLS", "true");
+    vi.stubEnv("AGENT_NATIVE_MCP_SCRIPT_ORGS", PILOT_ORG);
+    vi.stubEnv("AGENT_NATIVE_MCP_SCRIPT_WRITES", "true");
+    const ids = await fixture("Unlisted ranks");
+    const rows = await seedRows(ids, 1);
+    const client = await scriptClient("org-not-on-the-list");
+
+    const listed = (await client.listTools()).tools.map((tool) => tool.name);
+    expect(listed).not.toContain("run-script");
+    expect(listed).toContain("patch-database-items");
+    const refused = await client.callTool({
+      name: "run-script",
+      arguments: { code: rankScript(ids, "unlisted-ranks") },
+    });
+    expect(refused.isError).toBe(true);
+    expect(
+      await storedValues(
+        rows.map((row) => row.documentId),
+        ids.properties.rank,
+      ),
+    ).toEqual([1]);
+  });
 });

@@ -11,6 +11,7 @@ export default defineAction({
     feedback: z.string().optional(),
   }),
   readOnly: true,
+  mcpTool: "search",
   run: async ({ id, feedback }) => {
     const detail = (await getGenerationSession.run({ id })) as any;
     const session = detail.session;

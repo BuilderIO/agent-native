@@ -27,6 +27,7 @@ describe("credential key lookup", () => {
     expect(keysFor("github")).toEqual(["GITHUB_TOKEN"]);
     expect(keysFor("clay")).toEqual(["CLAY_PUBLIC_API_KEY"]);
     expect(keysFor("builder")).toEqual(["BUILDER_PUBLIC_KEY"]);
+    expect(keysFor("youtube")).toEqual(["YOUTUBE_API_KEY"]);
     expect(keysFor("hubspot")).toEqual([
       "HUBSPOT_PRIVATE_APP_TOKEN",
       "HUBSPOT_ACCESS_TOKEN",

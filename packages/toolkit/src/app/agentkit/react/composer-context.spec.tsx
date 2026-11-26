@@ -747,6 +747,35 @@ describe("AgentKit composer context submission", () => {
     expect(onLocalSubmit).not.toHaveBeenCalled();
   });
 
+  it("lets a host override that never starts a run submit without AI setup", async () => {
+    const assertAiSetupReady = vi.fn(async () => {
+      throw new Error("AI setup is required");
+    });
+    const runtime = { ...transport(), assertAiSetupReady };
+    client = new AgentKitClient({ transport: runtime });
+    const onSubmit = vi.fn();
+    await act(async () =>
+      root.render(
+        <AgentKitProvider controller={client} threadId="thread-1">
+          <AgentKitComposer
+            onSubmit={onSubmit}
+            submitRequiresAiSetup={false}
+            autoFocus={false}
+          />
+        </AgentKitProvider>,
+      ),
+    );
+
+    await act(async () => {
+      if (!capture.props) throw new Error("capture.props missing");
+      await capture.props.onSubmit("quarterly roadmap", [], [], {});
+    });
+    expect(onSubmit).toHaveBeenCalledOnce();
+    expect(onSubmit.mock.calls[0]?.[0]).toBe("quarterly roadmap");
+    expect(assertAiSetupReady).not.toHaveBeenCalled();
+    expect(runtime.startRun).not.toHaveBeenCalled();
+  });
+
   it("preserves mode instructions when resubmitting an edited message on a fork", async () => {
     const runtime = {
       ...transport(),

@@ -72,7 +72,7 @@ export const ALLOWED_REFERENCES: readonly AllowedReference[] = [
       "Databases that already hold the table keep it: version 6 widens its timestamp columns and version 10 reads it. A fresh install never creates it.",
   },
   {
-    file: "packages/dispatch/src/server/plugins/db.ts",
+    file: "packages/core/src/identity/rekey.ts",
     tokens: ["vault_secrets"],
     reason:
       "The table's `created_by` stays in existing databases until it is dropped, and identity migrations refuse an identity-shaped column with no policy.",

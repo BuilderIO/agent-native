@@ -90,6 +90,7 @@ export function useUpdateBookingLink() {
       hosts?: BookingHost[];
       customFields?: CustomField[];
       conferencing?: ConferencingConfig;
+      reminderMinutes?: number;
       color?: string;
     }
   >("update-booking-link", {

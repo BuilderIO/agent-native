@@ -1,5 +1,36 @@
 # @agent-native/design-system
 
+## 0.234.0
+
+### Minor Changes
+
+- dd1218f: Expose Switch styling inputs in the parts catalog and the Components token collection. Existing switch appearances keep their defaults.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.233.0
+
+### Minor Changes
+
+- a57a58f: Add Image Card parts and edge-to-edge Dialog media and body slots. Compose both in the feature announcement recipe. Video playback controls stay reachable when a card has a full-card link. Long dialog titles wrap clear of the close button in either reading direction.
+- a57a58f: Add focused stylesheet imports for Button, Icon Button, Dialog, Autocomplete, and Combobox. Each includes the styles for its built-in parts.
+- a57a58f: Add a composable layer tree with keyboard navigation, selection, renaming, visibility, locking and subtree reordering. Set a viewport height to render large expanded trees with a bounded number of rows while preserving selection, focus, and keyboard navigation. Keep focus inside the tree when a document update removes the focused row, and navigate visible rows by typing their names. Horizontal arrow keys follow the reading direction. Drag previews check the selection and target without rebuilding the document order.
+- a57a58f: Compose editable inspector sections, labeled property rows, transparency-aware paint swatches, and custom slider tracks and thumbs. Edit single or mixed frame dimensions with preview, commit, and cancel events. Compose token-bound solid and gradient fills, override inspector geometry, and keep overlays inside a scoped theme. Mixed flip selections expose their state to assistive technology and share the mixed-state indicator used by the aspect-ratio lock. Controlled number fields retain pointer movement when focus enters the scrub field. Inspector dimensions support one-pixel adjustments. Selection property updates and code previews retain the application’s geometry type. Compose axis constraints inline or in a compact picker, with keyboard-operable physical edge pins and independent mixed values. Set an accessible name on Select to label both its trigger and its portaled listbox. Alignment and grid size pickers support spatial keyboard navigation in right-to-left layouts. Paint fields support canceling numeric previews and interrupted stop drags, and gradient tracks follow the theme’s reading direction. Matching fills can be edited across layers while preserving each layer’s fill and gradient stop IDs.
+- a57a58f: Compose editor workspaces with token-based stack, inline, and grid layouts and resizable panes with pointer and keyboard controls.
+
+  Reuse the Design File panel and property inspector independently or together in the editor workspace.
+
+  Arrange workspace tabs into persistent, resizable groups with pointer, touch, or keyboard docking.
+
+### Patch Changes
+
+- a57a58f: Keep loading button content mounted, preserve keyboard focus in interactive input slots, and render switch states distinctly in forced colors. App shell drawers and collapsed navigation tooltips inherit their overlay scope.
+- Release all public npm packages with a patch version bump.
+- a57a58f: Associate menu group labels with their command or radio group in menus, context menus and menubars. Menu transitions follow the popup lifecycle. Directional popups enter from their trigger side in right-to-left layouts.
+- a57a58f: Add a scoped ThemeProvider for appearance, app theme, density, radius, corners and registered palettes. Dialogs and other overlays inherit the theme of their nearest provider. Native form controls and scrollbars follow the nearest explicit light or dark appearance. Explicit left-to-right and right-to-left regions align keyboard navigation with their layout. Reduce WebKit style recalculation during continuous resizing when multiple app themes are loaded.
+
 ## 0.232.0
 
 ### Minor Changes

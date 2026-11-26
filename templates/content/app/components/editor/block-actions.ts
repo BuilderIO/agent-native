@@ -20,7 +20,10 @@ import {
   toggleTitleNode,
 } from "./extensions/NotionExtensions";
 import { isSourceComponentNode } from "./extensions/registryBlocks";
-import { isSuggestingEdits } from "./suggestions/read-only-blocks";
+import {
+  isSuggestingEdits,
+  SUGGESTING_REFUSAL_PROBE,
+} from "./suggestions/read-only-blocks";
 
 export const TURN_INTO_TARGETS = [
   "text",
@@ -257,6 +260,7 @@ export type BlockLock =
   | "uploadedClip";
 
 function refuses(state: EditorState, tr: Transaction) {
+  tr.setMeta(SUGGESTING_REFUSAL_PROBE, true);
   return state.plugins.some(
     (plugin) =>
       plugin.spec.filterTransaction &&

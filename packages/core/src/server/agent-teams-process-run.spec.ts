@@ -373,6 +373,7 @@ const queueDb = {
   }),
 };
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => queueDb,
   withDbExec: (_exec: unknown, fn: () => unknown) => fn(),
   describeDbError: (error: unknown) =>
@@ -970,6 +971,30 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     );
     expect(threadData.get("thread-1")).toContain("the result");
   }, 20_000);
+
+  it("sends no completion notification for a quiet task", async () => {
+    runAgentLoopMock.mockImplementation(
+      async (opts: {
+        send: (event: { type: "text"; text: string }) => void;
+      }) => {
+        opts.send({ type: "text", text: "filled" });
+      },
+    );
+    await seedTask("quiet-task");
+    appState.set("agent-task:quiet-task", {
+      ...appState.get("agent-task:quiet-task"),
+      quiet: true,
+    });
+
+    await processAgentTeamRun({
+      taskId: "quiet-task",
+      mode: "start",
+      resolveConfig: async () => resolveConfig(),
+    });
+
+    expect(appState.get("agent-task:quiet-task").status).toBe("completed");
+    expect(insertNotificationMock).not.toHaveBeenCalled();
+  });
 
   it("fails a public task error atomically and fences the active worker", async () => {
     await seedTask("public-error");

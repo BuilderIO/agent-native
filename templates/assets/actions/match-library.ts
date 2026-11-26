@@ -11,6 +11,7 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
+  mcpTool: "search",
   run: async ({ description }) => {
     const result = await listLibraries.run({ compact: false });
     const libraries = Array.isArray((result as any).libraries)

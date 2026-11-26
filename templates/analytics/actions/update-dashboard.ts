@@ -468,6 +468,7 @@ function collectDashboardConfigIssues(
     "demo",
     "prometheus",
     "program",
+    "postgres",
   ]);
   const isValidColumnCount = (v: unknown): v is number =>
     typeof v === "number" &&
@@ -544,7 +545,7 @@ function collectDashboardConfigIssues(
     ) {
       issue(
         "source",
-        `source must be 'bigquery', 'ga4', 'amplitude', 'first-party', 'demo', 'prometheus', or 'program' (got '${printable(p.source)}'). source selects the backend — put the PromQL/SQL/table name or program descriptor in sql, not here.`,
+        `source must be 'bigquery', 'ga4', 'amplitude', 'first-party', 'demo', 'prometheus', 'program', or 'postgres' (got '${printable(p.source)}'). source selects the backend — put the PromQL/SQL/table name or program descriptor in sql, not here.`,
       );
     }
     if (p.source === "program") {

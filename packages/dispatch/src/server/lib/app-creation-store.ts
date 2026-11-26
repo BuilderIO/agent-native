@@ -3885,9 +3885,13 @@ export async function startWorkspaceAppCreation(input: {
       projectId: builderProjectId,
       err,
       fallbackDetail: "Builder could not start the app branch",
-      builderErrorMessage: isBuilderEmailLookupFailure(err)
-        ? "Builder could not match your email to an account in the connected space. Ask a workspace admin to check the connected account and space membership."
-        : "Builder could not start the app branch. This is usually temporary — try again.",
+      builderErrorMessage:
+        isActionContractError(err) &&
+        err.errorCode === "builder_space_membership_required"
+          ? "Builder could not start the app branch because your email is not a member of the connected Builder space. Ask a space admin to add you, then try again."
+          : isBuilderEmailLookupFailure(err)
+            ? "Builder could not match your email to an account in the connected space. Ask a workspace admin to check the connected account and space membership."
+            : "Builder could not start the app branch. This is usually temporary — try again.",
     });
   }
 

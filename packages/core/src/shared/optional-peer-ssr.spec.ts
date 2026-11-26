@@ -26,7 +26,7 @@ import {
  */
 // Native modules cannot be bundled as plain JS and are provided by the host image, so they
 // are not part of this rule. Anything else that is loaded at runtime has to be bundled.
-const NATIVE_OR_HOST_PROVIDED = new Set(["sharp"]);
+const NATIVE_OR_HOST_PROVIDED = new Set(["sharp", "playwright"]);
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const coreSrc = path.resolve(here, "..");

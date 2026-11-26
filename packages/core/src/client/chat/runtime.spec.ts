@@ -3554,6 +3554,85 @@ describe("createAgentNativeChatRuntime", () => {
     expect(results).toHaveLength(64);
   });
 
+  it("carries configured history limits into the follow-up message", async () => {
+    const toolContent = Array.from({ length: 120 }, (_, index) => {
+      const id = `call-${index + 1}`;
+      return [
+        {
+          type: "tool-call" as const,
+          toolCallId: id,
+          toolName: "search",
+          input: { query: id },
+        },
+        {
+          type: "tool-result" as const,
+          toolCallId: id,
+          result: index === 0 ? "x".repeat(80 * 1024) : { result: id },
+        },
+      ];
+    }).flat();
+    const send = async (historyLimits?: {
+      maxToolCalls?: number;
+      maxBytes?: number;
+      maxValueBytes?: number;
+    }) => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValue(sseResponse([{ type: "done" }]));
+      const runtime = createAgentNativeChatRuntime({
+        apiUrl: "/_agent-native/agent-chat",
+        threadId: "thread-configured-history-limits",
+        fetch: fetchMock as typeof fetch,
+        ...(historyLimits ? { historyLimits } : {}),
+      });
+      const turn = await (
+        await runtime.createSession()
+      ).startTurn({
+        prompt: "Continue",
+        messages: [
+          { id: "assistant-tools", role: "assistant", content: toolContent },
+          {
+            id: "user-current",
+            role: "user",
+            content: [{ type: "text", text: "Continue" }],
+          },
+        ],
+      });
+      await drain(turn.events);
+      const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+      const parts = (
+        body.structuredHistory as Array<{
+          content: Array<{ type: string; id?: string; text?: string }>;
+        }>
+      ).flatMap((message) => message.content);
+      return parts;
+    };
+
+    const defaults = await send();
+    expect(defaults.filter((part) => part.type === "tool-call")).toHaveLength(
+      64,
+    );
+
+    const raised = await send({
+      maxToolCalls: 120,
+      maxBytes: 1024 * 1024,
+      maxValueBytes: 128 * 1024,
+    });
+    const raisedCalls = raised.filter((part) => part.type === "tool-call");
+    expect(raisedCalls).toHaveLength(120);
+    expect(raisedCalls[0]?.id).toBe("call-1");
+    expect(JSON.stringify(raised)).not.toContain("exceeds 64 KiB");
+    expect(JSON.stringify(raised)).not.toContain("history was omitted");
+
+    const lowered = await send({ maxToolCalls: 10 });
+    expect(lowered.filter((part) => part.type === "tool-call")).toHaveLength(
+      10,
+    );
+    expect(JSON.stringify(lowered)).toContain(
+      "within 256 KiB and 10 tool entries",
+    );
+  });
+
   it("omits unmatched boundary results when their calls fall outside the source window", async () => {
     let boundaryResultRead = false;
     const boundaryCall = {

@@ -3,8 +3,13 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  acceptedEditorBlockIds,
+  type EditorBlockIds,
+} from "../shared/block-identity-ids.js";
+import {
   blocksContentHash,
   blocksFieldId,
+  catchUpBlocksFieldIdentity,
   exposeBlocksFieldIdentity,
   legacyBlocksFieldIdentity,
   materializeLegacyBlocksFieldIdentity,
@@ -327,6 +332,7 @@ export async function persistBlocksFieldIdentity(args: {
   intermediateMarkdown?: readonly string[];
   expectedRevision?: number;
   preferredIdsByPath?: Readonly<Record<string, string>>;
+  editorIds?: EditorBlockIds;
   rejectCrossFieldIdRemapping?: boolean;
   now: string;
 }): Promise<StoredBlocksFieldIdentity> {
@@ -351,13 +357,7 @@ export async function persistBlocksFieldIdentity(args: {
     });
 
   if (previous.contentHash !== blocksContentHash(args.previousMarkdown)) {
-    previous = reconcileBlocksFieldIdentity({
-      documentId: args.documentId,
-      propertyId: args.propertyId,
-      previous,
-      markdown: args.previousMarkdown,
-      createId: () => `block_${nanoid(16)}`,
-    });
+    previous = catchUpBlocksFieldIdentity(previous, args.previousMarkdown);
   }
 
   for (const markdown of args.intermediateMarkdown ?? []) {
@@ -370,13 +370,18 @@ export async function persistBlocksFieldIdentity(args: {
     });
   }
 
+  const preferredIdsByPath =
+    args.preferredIdsByPath ??
+    (args.editorIds
+      ? acceptedEditorBlockIds(previous, args.markdown, args.editorIds)
+      : undefined);
   let next = reconcileBlocksFieldIdentity({
     documentId: args.documentId,
     propertyId: args.propertyId,
     previous,
     markdown: args.markdown,
     createId: () => `block_${nanoid(16)}`,
-    preferredIdsByPath: args.preferredIdsByPath,
+    ...(preferredIdsByPath ? { preferredIdsByPath } : {}),
   });
 
   if (next.blocks.length > 0) {

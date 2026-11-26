@@ -9,8 +9,19 @@ export default defineAction({
   schema: z.object({
     app: z.string().describe("Granted app id returned by ask_app."),
     taskId: z.string().describe("The durable task id returned by ask_app."),
+    taskHandle: z
+      .string()
+      .optional()
+      .describe(
+        "Opaque sealed task handle returned by ask_app. Preserves the original target route across polls.",
+      ),
   }),
   readOnly: true,
   parallelSafe: true,
-  run: async ({ app, taskId }) => getGrantedDispatchMcpAppTask(app, taskId),
+  run: async ({ app, taskId, taskHandle }) =>
+    getGrantedDispatchMcpAppTask(
+      app,
+      taskId,
+      taskHandle !== undefined ? { taskHandle } : undefined,
+    ),
 });

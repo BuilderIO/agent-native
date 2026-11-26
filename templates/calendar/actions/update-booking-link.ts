@@ -8,6 +8,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { normalizeBookingDurationInput } from "../server/lib/booking-durations.js";
 import {
+  bookingReminderMinutesSchema,
   parseBookingConferencingConfig,
   rowToBookingLink,
   serializeBookingHosts,
@@ -63,6 +64,11 @@ export default defineAction({
     ),
     customFields: z.array(z.any()).optional().describe("Custom form fields"),
     conferencing: z.any().optional().describe("Conferencing configuration"),
+    reminderMinutes: bookingReminderMinutesSchema
+      .optional()
+      .describe(
+        "When to email the guest a reminder before the meeting: 0 for none, 60 for 1 hour before, 1440 for 1 day before. Leave out to keep the current setting",
+      ),
     color: z.string().optional().describe("Display color"),
     isActive: z.boolean().optional().describe("Whether the link is active"),
   }),
@@ -102,6 +108,7 @@ export default defineAction({
         ownerEmail: schema.bookingLinks.ownerEmail,
         isActive: schema.bookingLinks.isActive,
         conferencing: schema.bookingLinks.conferencing,
+        reminderMinutes: schema.bookingLinks.reminderMinutes,
       })
       .from(schema.bookingLinks)
       .where(eq(schema.bookingLinks.id, args.id));
@@ -150,6 +157,7 @@ export default defineAction({
         conferencing: args.conferencing
           ? JSON.stringify(args.conferencing)
           : null,
+        reminderMinutes: args.reminderMinutes ?? current.reminderMinutes,
         color: args.color ? args.color.trim() : null,
         isActive: args.isActive ?? current.isActive,
         updatedAt: new Date().toISOString(),

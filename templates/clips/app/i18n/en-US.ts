@@ -1086,6 +1086,7 @@ const messages = {
     visibilityDescription:
       "Applied to recordings you create. You can change it on any recording.",
     useOrgDefault: "Use the {{org}} default ({{visibility}})",
+    enforceOrgDefault: "Members can't set their own default",
     useDefault: "Use the default ({{visibility}})",
     transcriptExport: "Transcript export",
     logoDescription: "Shown in share emails and on public clip pages.",

@@ -18,14 +18,34 @@ function base(
 }
 
 describe("classifyAutomated", () => {
-  it("is false for a plain personal email with no markers", () => {
-    expect(classifyAutomated(base())).toBe(false);
+  it("recognizes a self-addressed conversation unless it is automated", () => {
+    expect(classifyAutomated(base({ selfAddressed: true }))).toBe("personal");
+    expect(
+      classifyAutomated(
+        base({ selfAddressed: true, labelIds: ["CATEGORY_UPDATES"] }),
+      ),
+    ).toBe("automated");
+  });
+  it("leaves missing sender metadata unclassified unless another signal identifies it", () => {
+    expect(classifyAutomated(base({ fromEmail: "" }))).toBe("unclassified");
+    expect(
+      classifyAutomated(
+        base({ fromEmail: "", labelIds: ["CATEGORY_UPDATES"] }),
+      ),
+    ).toBe("automated");
+  });
+
+  it("does not infer personal mail from a lack of automation markers", () => {
+    expect(classifyAutomated(base())).toBe("unclassified");
+    expect(classifyAutomated(base({ labelIds: ["CATEGORY_PERSONAL"] }))).toBe(
+      "personal",
+    );
   });
 
   it("is true for reminder@ senders (Superhuman reminders and the like)", () => {
     expect(
       classifyAutomated(base({ fromEmail: "reminder@superhuman.com" })),
-    ).toBe(true);
+    ).toBe("automated");
   });
 
   it("is true when List-Unsubscribe is present", () => {
@@ -33,7 +53,7 @@ describe("classifyAutomated", () => {
       classifyAutomated(
         base({ headers: [h("List-Unsubscribe", "<mailto:x@y.com>")] }),
       ),
-    ).toBe(true);
+    ).toBe("automated");
   });
 
   it("is true when List-Id is present", () => {
@@ -41,19 +61,19 @@ describe("classifyAutomated", () => {
       classifyAutomated(
         base({ headers: [h("List-Id", "<list.example.com>")] }),
       ),
-    ).toBe(true);
+    ).toBe("automated");
   });
 
   it("is true when Precedence is bulk", () => {
     expect(
       classifyAutomated(base({ headers: [h("Precedence", "bulk")] })),
-    ).toBe(true);
+    ).toBe("automated");
   });
 
   it("is true when Precedence is list", () => {
     expect(
       classifyAutomated(base({ headers: [h("Precedence", "list")] })),
-    ).toBe(true);
+    ).toBe("automated");
   });
 
   it("is true when Auto-Submitted is not 'no'", () => {
@@ -61,13 +81,13 @@ describe("classifyAutomated", () => {
       classifyAutomated(
         base({ headers: [h("Auto-Submitted", "auto-generated")] }),
       ),
-    ).toBe(true);
+    ).toBe("automated");
   });
 
-  it("is false when Auto-Submitted is exactly 'no'", () => {
+  it("does not treat Auto-Submitted: no as an automation signal", () => {
     expect(
       classifyAutomated(base({ headers: [h("Auto-Submitted", "no")] })),
-    ).toBe(false);
+    ).toBe("unclassified");
   });
 
   it("is true when X-Auto-Response-Suppress is present", () => {
@@ -75,13 +95,13 @@ describe("classifyAutomated", () => {
       classifyAutomated(
         base({ headers: [h("X-Auto-Response-Suppress", "OOF")] }),
       ),
-    ).toBe(true);
+    ).toBe("automated");
   });
 
   it("is true when Feedback-ID is present", () => {
     expect(
       classifyAutomated(base({ headers: [h("Feedback-ID", "1:abc:gmail")] })),
-    ).toBe(true);
+    ).toBe("automated");
   });
 
   it("is true for CATEGORY_PROMOTIONS / SOCIAL / UPDATES / FORUMS labels", () => {
@@ -91,7 +111,7 @@ describe("classifyAutomated", () => {
       "CATEGORY_UPDATES",
       "CATEGORY_FORUMS",
     ]) {
-      expect(classifyAutomated(base({ labelIds: [label] }))).toBe(true);
+      expect(classifyAutomated(base({ labelIds: [label] }))).toBe("automated");
     }
   });
 
@@ -103,13 +123,13 @@ describe("classifyAutomated", () => {
       "notifications@somesaas.io",
       "alerts@somesaas.io",
     ]) {
-      expect(classifyAutomated(base({ fromEmail }))).toBe(true);
+      expect(classifyAutomated(base({ fromEmail }))).toBe("automated");
     }
   });
 
-  it("is false for a local-part that merely contains 'reply' mid-word", () => {
+  it("does not classify a local-part that merely contains 'reply' mid-word as automated", () => {
     expect(classifyAutomated(base({ fromEmail: "replyguy@example.com" }))).toBe(
-      false,
+      "unclassified",
     );
   });
 });

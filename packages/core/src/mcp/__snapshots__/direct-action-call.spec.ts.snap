@@ -1,6 +1,5 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-// oracle-change: each grant the store is asked to create now carries createdAt, the ask time the server dated the approval notice from
 exports[`direct tools/call wire output > approval: a client without elicitation gets the review page link 1`] = `
 {
   "trace": [
@@ -79,7 +78,6 @@ After they approve, call publish again with exactly the same arguments before 20
 }
 `;
 
-// oracle-change: each grant the store is asked to create now carries createdAt, the ask time the server dated the approval notice from
 exports[`direct tools/call wire output > approval: a grant that expired in the store is refused 1`] = `
 {
   "trace": [
@@ -219,7 +217,6 @@ Draft id: d-8",
 }
 `;
 
-// oracle-change: each grant the store is asked to create now carries createdAt, the ask time the server dated the approval notice from
 exports[`direct tools/call wire output > approval: a resume after the approval window is refused 1`] = `
 {
   "trace": [
@@ -404,7 +401,6 @@ exports[`direct tools/call wire output > approval: a static-token caller cannot 
 }
 `;
 
-// oracle-change: each grant the store is asked to create now carries createdAt, the ask time the server dated the approval notice from
 exports[`direct tools/call wire output > approval: client-fulfilled elicitation round trip 1`] = `
 {
   "trace": [
@@ -632,7 +628,6 @@ Draft id: d-4",
 }
 `;
 
-// oracle-change: each grant the store is asked to create now carries createdAt, the ask time the server dated the approval notice from
 exports[`direct tools/call wire output > approval: denied decision and predicate outcomes 1`] = `
 {
   "trace": [
@@ -950,7 +945,6 @@ Big: Yes",
 }
 `;
 
-// oracle-change: each grant the store is asked to create now carries createdAt, the ask time the server dated the approval notice from
 exports[`direct tools/call wire output > approval: elicitation, approved retry, and replay 1`] = `
 {
   "trace": [
@@ -1261,7 +1255,6 @@ Draft id: d-1",
 }
 `;
 
-// oracle-change: each grant the store is asked to create now carries createdAt, the ask time the server dated the approval notice from
 exports[`direct tools/call wire output > approval: the client gives up when its round limit is exhausted 1`] = `
 {
   "trace": [
@@ -1361,7 +1354,6 @@ Draft id: d-7",
 }
 `;
 
-// oracle-change: each grant the store is asked to create now carries createdAt, the ask time the server dated the approval notice from
 exports[`direct tools/call wire output > approval: two concurrent resumes of one approval run the action once 1`] = `
 {
   "firstLeg": {
@@ -1644,7 +1636,6 @@ Draft id: d-10",
 }
 `;
 
-// oracle-change: a read-only grant no longer gets cards by default, so the widget returns a plain result
 exports[`direct tools/call wire output > compact catalog, read-only OAuth scope: embed-widget 1`] = `
 {
   "trace": [

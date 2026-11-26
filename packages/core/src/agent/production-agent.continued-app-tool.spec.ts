@@ -266,11 +266,11 @@ describe("an app-owned tool loaded earlier in the turn", () => {
         error: expect.stringContaining(TOOL),
       }),
     );
-    expect(JSON.stringify(events)).not.toContain("output-token budget");
+    expect(JSON.stringify(events)).not.toContain("empty_final_response");
     expect(events.map((event) => event.type)).not.toContain("done");
   });
 
-  it("keeps the output-budget failure for an empty reply with no refusal", async () => {
+  it("keeps the empty-response failure for an empty reply with no refusal", async () => {
     const { engine } = scriptedEngine([[], [], []]);
 
     const events = await send(
@@ -283,12 +283,12 @@ describe("an app-owned tool loaded earlier in the turn", () => {
       expect.objectContaining({
         type: "error",
         errorCode: "empty_final_response",
-        error: expect.stringContaining("output-token budget"),
+        error: expect.stringContaining("The model returned an empty response"),
       }),
     );
   });
 
-  it("keeps the output-budget failure when another tool succeeded after the refusal", async () => {
+  it("keeps the empty-response failure when another tool succeeded after the refusal", async () => {
     const lookup: ActionEntry = {
       tool: {
         description: "Look something up",

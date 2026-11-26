@@ -1,3 +1,4 @@
+// oracle-change: delete-file writes its checkpoint inside the delete transaction and no longer stages a blob, so the staged-checkpoint cleanup tests were removed
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { screenRestoreContentHashes } from "../server/lib/screen-restore-claims.js";
@@ -123,7 +124,6 @@ const mocks = vi.hoisted(() => {
     designUpdatedAt: null as string | null,
     prepareDesignVersionBeforeAgentEditInVersionLock: vi.fn(),
     persistPreparedDesignVersionCheckpoint: vi.fn(),
-    cleanupPreparedDesignVersionCheckpoint: vi.fn(),
     withPreparedDesignVersionSourceFiles: vi.fn(),
     withDesignSourceMutationTransaction: vi.fn(),
     withSourceFileWriteLock: vi.fn(),
@@ -207,8 +207,6 @@ vi.mock("../server/db/index.js", () => ({
 }));
 
 vi.mock("../server/lib/design-versions.js", () => ({
-  cleanupPreparedDesignVersionCheckpoint:
-    mocks.cleanupPreparedDesignVersionCheckpoint,
   persistPreparedDesignVersionCheckpoint:
     mocks.persistPreparedDesignVersionCheckpoint,
   prepareDesignVersionBeforeAgentEditInVersionLock:
@@ -330,7 +328,6 @@ describe("delete-file", () => {
       createdAt: "now",
       label: "Before",
     });
-    mocks.cleanupPreparedDesignVersionCheckpoint.mockResolvedValue(undefined);
     mocks.withPreparedDesignVersionSourceFiles.mockImplementation(
       async (
         _designId: string,
@@ -399,6 +396,7 @@ describe("delete-file", () => {
     mocks.txDesignSelectChain.for.mockImplementation(async () => [
       {
         data: JSON.stringify(mocks.designData),
+        ownerEmail: "owner@example.com",
         updatedAt: mocks.designUpdatedAt,
       },
     ]);
@@ -638,6 +636,7 @@ describe("delete-file", () => {
       {
         id: "design_123",
         data: JSON.stringify(mocks.designData),
+        ownerEmail: "owner@example.com",
         updatedAt: mocks.designUpdatedAt,
         orgId: "org-1",
         visibility: "org",
@@ -839,16 +838,11 @@ describe("delete-file", () => {
       },
     );
     mocks.persistPreparedDesignVersionCheckpoint.mockImplementation(
-      async (_checkpoint, _preparedFiles, transaction) => {
+      async (_checkpoint, transaction) => {
         events.push("checkpoint");
         expect(transaction).toBe(mocks.tx);
         expect(insideSourceTransaction).toBe(true);
         return { id: "checkpoint-1", createdAt: "now", label: "Before" };
-      },
-    );
-    mocks.cleanupPreparedDesignVersionCheckpoint.mockImplementation(
-      async (_checkpoint, committed) => {
-        events.push(committed ? "cleanup-commit" : "cleanup-rollback");
       },
     );
     mocks.txSnapshotSelectChain.for.mockImplementation(async () => {
@@ -874,6 +868,7 @@ describe("delete-file", () => {
       return [
         {
           data: JSON.stringify(mocks.designData),
+          ownerEmail: "owner@example.com",
           updatedAt: mocks.designUpdatedAt,
         },
       ];
@@ -895,7 +890,6 @@ describe("delete-file", () => {
       "checkpoint",
       "snapshot-blobs",
       "delete",
-      "cleanup-commit",
     ]);
     expect(
       mocks.prepareDesignVersionBeforeAgentEditInVersionLock,
@@ -1368,6 +1362,7 @@ describe("delete-file", () => {
     mocks.txDesignSelectChain.for.mockImplementation(async () => [
       {
         data: JSON.stringify(mocks.designData),
+        ownerEmail: "owner@example.com",
         updatedAt: mocks.designUpdatedAt,
       },
     ]);
@@ -1406,7 +1401,7 @@ describe("delete-file", () => {
     ]);
   });
 
-  it("cleans the staged checkpoint when editor access is revoked before persistence", async () => {
+  it("does not persist the checkpoint when editor access is revoked before the delete", async () => {
     const preparedCheckpoint = { id: "checkpoint-1" };
     mocks.prepareDesignVersionBeforeAgentEditInVersionLock.mockResolvedValue(
       preparedCheckpoint,
@@ -1425,11 +1420,6 @@ describe("delete-file", () => {
     ).rejects.toThrow(/editor access revoked/i);
 
     expect(mocks.persistPreparedDesignVersionCheckpoint).not.toHaveBeenCalled();
-    expect(mocks.cleanupPreparedDesignVersionCheckpoint).toHaveBeenCalledWith(
-      preparedCheckpoint,
-      false,
-      true,
-    );
     expect(mocks.tx.delete).not.toHaveBeenCalled();
   });
 
@@ -1467,13 +1457,9 @@ describe("delete-file", () => {
     });
 
     expect(checkpoints).toEqual([]);
-    expect(mocks.persistPreparedDesignVersionCheckpoint).toHaveBeenCalledTimes(
-      1,
-    );
-    expect(mocks.cleanupPreparedDesignVersionCheckpoint).toHaveBeenCalledWith(
+    expect(mocks.persistPreparedDesignVersionCheckpoint).toHaveBeenCalledWith(
       preparedCheckpoint,
-      false,
-      true,
+      mocks.tx,
     );
   });
 
@@ -1518,44 +1504,11 @@ describe("delete-file", () => {
       2,
     );
     expect(
-      mocks.cleanupPreparedDesignVersionCheckpoint,
-    ).toHaveBeenNthCalledWith(1, firstCheckpoint, false, true);
+      mocks.persistPreparedDesignVersionCheckpoint,
+    ).toHaveBeenNthCalledWith(1, firstCheckpoint, mocks.tx);
     expect(
-      mocks.cleanupPreparedDesignVersionCheckpoint,
-    ).toHaveBeenNthCalledWith(2, retryCheckpoint, true);
+      mocks.persistPreparedDesignVersionCheckpoint,
+    ).toHaveBeenNthCalledWith(2, retryCheckpoint, mocks.tx);
     expect(mocks.tx.delete).toHaveBeenCalledTimes(1);
-  });
-
-  it("preserves the staged checkpoint when transaction commit outcome is unknown", async () => {
-    const checkpoints: string[] = [];
-    const preparedCheckpoint = { id: "checkpoint-1" };
-    mocks.prepareDesignVersionBeforeAgentEditInVersionLock.mockResolvedValue(
-      preparedCheckpoint,
-    );
-    mocks.persistPreparedDesignVersionCheckpoint.mockImplementation(
-      async (checkpoint) => {
-        checkpoints.push(checkpoint.id);
-        return { id: checkpoint.id, createdAt: "now", label: "Before" };
-      },
-    );
-    mocks.db.transaction.mockImplementation(async (callback) => {
-      await callback(mocks.tx);
-      throw new Error("transaction commit outcome unknown");
-    });
-
-    await expect(
-      action.run(
-        { id: "file-b", allowLockedLayers: true },
-        { caller: "frontend", actionName: "delete-file" },
-      ),
-    ).rejects.toThrow(/transaction commit outcome unknown/i);
-
-    expect(checkpoints).toEqual(["checkpoint-1"]);
-    expect(mocks.cleanupPreparedDesignVersionCheckpoint).toHaveBeenCalledWith(
-      preparedCheckpoint,
-      false,
-      false,
-    );
-    expect(mocks.deleteVisualEditSnapshotBlobs).not.toHaveBeenCalled();
   });
 });

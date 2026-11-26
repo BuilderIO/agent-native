@@ -14,11 +14,6 @@ import {
   getAppConfig,
   resolveContentClipsPeerSecret,
 } from "@agent-native/core/server";
-import { getBuiltinAgents } from "@agent-native/core/server/agent-discovery";
-import {
-  resolveEnvironmentTargets,
-  resolveLaneEndpoint,
-} from "@agent-native/core/shared/environment-lanes";
 
 import {
   CLIP_PLAYBACK_ERRORS,
@@ -38,6 +33,7 @@ import {
   type ClipUploadErrorCode,
   type ContentClipScope,
 } from "../../shared/clips-peer-contract.js";
+import { peerLinkOrigins, resolvePeerAppUrl } from "./app-peer.js";
 
 /**
  * Who Content vouches for. A public reader is never named to Clips: at most
@@ -79,10 +75,6 @@ export const CLIPS_ANSWER_MAX_BYTES = {
 /** A comment write answers with a few ids and flags. */
 const CLIPS_COMMENT_WRITE_MAX_BYTES = 16 * 1024;
 
-function hostnameOf(url: string | undefined): string | undefined {
-  return url && URL.canParse(url) ? new URL(url).hostname : undefined;
-}
-
 /**
  * The Clips this Content talks to: the deployment's built-in Clips (local
  * Clips in the monorepo, the catalog URL or `builtinAgents.urls` when
@@ -90,12 +82,7 @@ function hostnameOf(url: string | undefined): string | undefined {
  * entry: the token is signed for whatever URL this returns.
  */
 export function resolveClipsAppUrl(): string | null {
-  const clips = getBuiltinAgents("content").find((app) => app.id === "clips");
-  if (!clips?.url || !URL.canParse(clips.url)) return null;
-  return resolveLaneEndpoint(
-    clips.url,
-    hostnameOf(getAppConfig().app.url),
-  ).replace(/\/+$/, "");
+  return resolvePeerAppUrl("clips");
 }
 
 /**
@@ -103,17 +90,7 @@ export function resolveClipsAppUrl(): string | null {
  * one database, so a link copied from either lane names the same Clip.
  */
 export function clipsLinkOrigins(): string[] {
-  const appUrl = resolveClipsAppUrl();
-  if (!appUrl) return [];
-  const url = new URL(appUrl);
-  const lanes = resolveEnvironmentTargets(url.hostname);
-  const origins = [appUrl];
-  for (const host of lanes ? [lanes.betaHost, lanes.productionHost] : []) {
-    const lane = new URL(appUrl);
-    lane.hostname = host;
-    origins.push(lane.toString().replace(/\/+$/, ""));
-  }
-  return [...new Set(origins)];
+  return peerLinkOrigins("clips");
 }
 
 function readPeerSecret(): string | null {

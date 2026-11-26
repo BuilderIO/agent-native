@@ -360,6 +360,8 @@ export default {
       blur: "ब्लर",
       spread: "फैलाव",
       rotation3d: "3D रोटेशन",
+      constraints: "बाधाएँ",
+      absolutePosition: "निरपेक्ष स्थिति",
       rotationX: "X घुमाएं",
       rotationY: "Y घुमाएं",
       perspective: "पर्सपेक्टिव",
@@ -850,6 +852,10 @@ export default {
     exportPreview: {
       rendering: "पूर्वावलोकन बन रहा है…",
       failed: "पूर्वावलोकन उपलब्ध नहीं",
+      noPreview: "पूर्वावलोकन के लिए कोई स्क्रीन नहीं",
+      externalPreview: "पूर्वावलोकन के लिए लाइव ऐप ज़रूरी है",
+      readOnlyPreview: "केवल-पढ़ने मोड में पूर्वावलोकन उपलब्ध नहीं",
+      selectionUnresolved: "चयन इस स्क्रीन पर नहीं मिला",
     },
     framePresets: {
       title: "फ़्रेम",
@@ -1140,6 +1146,12 @@ export default {
         opacity: "अपारदर्शिता",
       },
       editColor: "{{name}} का रंग संपादित करें",
+      field: {
+        open: "टोकन",
+        detach: "टोकन अलग करें",
+        primitives: "{{group}} प्रिमिटिव",
+        loading: "टोकन लोड हो रहे हैं…",
+      },
     },
     import: {
       description:
@@ -1823,8 +1835,6 @@ export default {
       redoSkippedConcurrentEdit:
         "फिर से करना छोड़ दिया गया — किसी और ने इसे स्थानांतरित कर दिया",
       saveConflict: "यह पेज कहीं और बदला गया। आपका पिछला बदलाव सहेजा नहीं गया।",
-      versionHistoryUnavailable:
-        "इस डिज़ाइन के लिए वर्शन हिस्ट्री उपलब्ध नहीं है। आपका संपादन फिर भी सहेजा गया।",
       removeAutoLayoutFailed: "ऑटो लेआउट हटाया नहीं जा सका",
       autoLayoutScreensUnsupported: "ऑटो लेआउट जोड़ना पेज पर लागू नहीं होता",
       booleanSubtractUnsupported:
@@ -1896,6 +1906,7 @@ export default {
   layersPanel: {
     title: "परतें",
     screens: "पेज",
+    components: "कॉम्पोनेंट",
     resizeScreens: "पेज सेक्शन का आकार बदलें",
     thumbnail: "थंबनेल",
     addScreen: "पेज जोड़ें",

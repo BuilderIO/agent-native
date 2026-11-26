@@ -10,9 +10,10 @@ import {
   BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
   isTerminalRecoveryErrorCode,
 } from "../agent/engine/error-detail.js";
-import type {
-  A2APeerApproval,
-  AgentChatRichEventEnvelope,
+import {
+  UNKNOWN_TOOL_ERROR_CODE,
+  type A2APeerApproval,
+  type AgentChatRichEventEnvelope,
 } from "../agent/types.js";
 import type { ArtifactReceipt } from "../artifacts/detect.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
@@ -54,6 +55,12 @@ export type ContentPart =
       args: Record<string, string>;
       result?: string;
       isError?: boolean;
+      /**
+       * Machine-readable reason from `tool_done`. `unknown_tool` marks a call
+       * that never ran because the model invented the tool name; chat UIs hide
+       * those cells rather than show the raw identifier.
+       */
+      errorCode?: string;
       approvalPause?: true;
       approvalPauseCandidate?: true;
       approvalResumeCandidate?: true;
@@ -2154,6 +2161,9 @@ export function processEvent(
         delete part.approvalPauseCandidate;
         delete part.approvalResumeCandidate;
         if (ev.isError !== undefined) part.isError = ev.isError;
+        if (ev.errorCode === UNKNOWN_TOOL_ERROR_CODE) {
+          part.errorCode = ev.errorCode;
+        }
         if (ev.completedSideEffect !== undefined) {
           part.completedSideEffect = ev.completedSideEffect;
         }

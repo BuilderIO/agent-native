@@ -49,6 +49,7 @@ vi.mock("./sharing-store.js", () => ({
 }));
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => ({
     execute: executeMock,
     transaction: transactionMock,

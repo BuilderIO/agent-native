@@ -338,3 +338,45 @@ describe("new-thread URL handoff", () => {
     });
   });
 });
+
+describe("opening a stale saved thread by route", () => {
+  const staleThread = {
+    id: "thread-old",
+    title: "Old chat",
+    preview: "",
+    messageCount: 4,
+    createdAt: 1,
+    updatedAt: Date.now() - 48 * 60 * 60 * 1000,
+    scope: null,
+  };
+
+  beforeEach(() => {
+    threadState.threads = [staleThread];
+    threadState.activeThreadId = "thread-old";
+    threadState.newThreadIds = new Set();
+  });
+
+  it("keeps the explicitly routed thread instead of starting a fresh chat", async () => {
+    const navigate = vi.fn();
+    await mount(navigate, {
+      threadUrlSync: {
+        routeThreadId: "thread-old",
+        getPath: navigatePath,
+        navigate,
+      },
+    });
+
+    expect(threadState.createThread).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalledWith("/home", expect.anything());
+    expect(
+      container.querySelector('[data-testid="agent-chat-child"]'),
+    ).not.toBeNull();
+  });
+
+  it("still starts fresh when a stale thread is only restored from storage", async () => {
+    const navigate = vi.fn();
+    await mount(navigate);
+
+    expect(threadState.createThread).toHaveBeenCalledTimes(1);
+  });
+});

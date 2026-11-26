@@ -1111,7 +1111,7 @@ describe("McpClientManager", () => {
   it("reconnects once and replays concurrent calls after an HTTP session expires", async () => {
     let calls = 0;
     serverFixtures["http https://93.184.216.34/mcp"] = {
-      tools: [{ name: "ping" }],
+      tools: [{ name: "ping", annotations: { readOnlyHint: true } }],
       callImpl: () => {
         calls += 1;
         if (calls <= 2) {
@@ -1148,7 +1148,7 @@ describe("McpClientManager", () => {
       secondStarted = resolve;
     });
     serverFixtures["http https://93.184.216.34/mcp"] = {
-      tools: [{ name: "ping" }],
+      tools: [{ name: "ping", annotations: { readOnlyHint: true } }],
       callImpl: async () => {
         calls += 1;
         if (calls === 1) {
@@ -1237,7 +1237,11 @@ describe("McpClientManager", () => {
     await mgr.start();
 
     await expect(
-      mgr.callTool("mcp__remote__mutate", { recordId: "record-1" }),
+      mgr.callTool(
+        "mcp__remote__mutate",
+        { recordId: "record-1" },
+        { retryOnDisconnect: true },
+      ),
     ).resolves.toEqual({ content: [{ type: "text", text: "updated" }] });
     expect(authorize).toHaveBeenCalledTimes(2);
     expect(calls).toBe(2);
@@ -1266,7 +1270,11 @@ describe("McpClientManager", () => {
     await mgr.start();
 
     await expect(
-      mgr.callTool("mcp__remote__mutate", { recordId: "record-1" }),
+      mgr.callTool(
+        "mcp__remote__mutate",
+        { recordId: "record-1" },
+        { retryOnDisconnect: true },
+      ),
     ).rejects.toMatchObject({ name: "ForbiddenError", statusCode: 403 });
     expect(authorize).toHaveBeenCalledTimes(2);
     expect(calls).toBe(1);
@@ -1635,13 +1643,13 @@ describe("McpClientManager", () => {
 
   it("does not replay an expired request onto a reconfigured server", async () => {
     serverFixtures["http https://old.example.com/mcp"] = {
-      tools: [{ name: "ping" }],
+      tools: [{ name: "ping", annotations: { readOnlyHint: true } }],
       callImpl: () => {
         throw Object.assign(new Error("session expired"), { status: 404 });
       },
     };
     serverFixtures["http https://new.example.com/mcp"] = {
-      tools: [{ name: "ping" }],
+      tools: [{ name: "ping", annotations: { readOnlyHint: true } }],
       callImpl: () => ({ content: [{ type: "text", text: "new" }] }),
     };
     const mgr = new McpClientManager({

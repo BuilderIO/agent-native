@@ -2758,6 +2758,42 @@ describe("createBuilderEngine", () => {
     );
   });
 
+  it.each([
+    ["invalid_request", "errorCode"],
+    ["error", "errorCode"],
+    ["error", "code"],
+  ] as const)(
+    "keeps a request_not_read stop (reason %s, %s) terminal when the message looks transient",
+    async (reason, codeField) => {
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          jsonlResponse([
+            {
+              type: "stop",
+              reason,
+              requestId: "req_unread",
+              error:
+                'Model "gpt-6-luna" did not read the request; the upstream provider timed out.',
+              [codeField]: "request_not_read",
+            },
+          ]),
+        ),
+      );
+
+      const events = await collectEvents(
+        createBuilderEngine().stream(BASE_OPTS),
+      );
+
+      const stop = events.find((e) => e.type === "stop");
+      expect(stop?.reason).toBe("error");
+      expect(stop?.errorCode).toBe("request_not_read");
+      expect(stop?.providerRetryable).toBe(false);
+    },
+  );
+
   it("treats an uncoded masked envelope on invalid_request as a non-retryable internal error", async () => {
     const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.stubGlobal(

@@ -21,6 +21,7 @@ const mockDb = {
 };
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   getDbExec: () => mockDb,
   isUniqueViolation: () => false,
   retryOnDdlRace: (fn: () => unknown) => fn(),

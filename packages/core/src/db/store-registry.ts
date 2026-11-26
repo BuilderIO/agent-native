@@ -15,7 +15,12 @@
 
 import { withoutWriteObservation } from "../action-frame.js";
 import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
-import { getDbExec, type DbExec } from "./client.js";
+import {
+  getDbExec,
+  getEnclosingTransactionDbExec,
+  withDbExec,
+  type DbExec,
+} from "./client.js";
 import {
   appMigratesAtRelease,
   schemaEnsureSkipRequested,
@@ -910,15 +915,21 @@ export function defineStore(definition: StoreDefinition): Store {
       const mode = readiness();
       if (mode === "apply") {
         return tolerateRefusedDatabase(id, () => {
-          const exec = getDbExec();
+          const transaction = getEnclosingTransactionDbExec({
+            allowUnscoped: true,
+          });
+          const exec = transaction ?? getDbExec();
           const memo = isReleaseStep() ? appliedAtRelease : applied;
           const existing = memo.get(exec);
           if (existing) return existing;
+          const apply = () => applyWithLedger(store, exec);
           const tracked = retainRequestDbPoolScope(
-            applyWithLedger(store, exec).catch((err) => {
-              if (memo.get(exec) === tracked) memo.delete(exec);
-              throw err;
-            }),
+            (transaction ? withDbExec(transaction, apply) : apply()).catch(
+              (err) => {
+                if (memo.get(exec) === tracked) memo.delete(exec);
+                throw err;
+              },
+            ),
           );
           memo.set(exec, tracked);
           return tracked;

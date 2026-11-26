@@ -140,12 +140,17 @@ separate workspace app registry to edit. React Router apps must keep the
 For requests phrased as creating an "agent", classify the scope first: simple
 recurring Dispatch behavior can stay in Dispatch, while a robust app-like
 teammate should become a real workspace app listed with the rest of the apps.
-First-party apps such as Mail, Calendar, Analytics, Brain, Assets, and Dispatch should be
-treated as existing hosted or connected neighbors. If a new app needs access to
+First-party apps such as Mail, Calendar, Analytics, Brain, Assets, Content, and Dispatch
+should be treated as existing hosted or connected neighbors. If a new app needs access to
 their data or agents, link/delegate to those apps through the workspace/A2A
 path rather than creating wrapper apps, child apps, or cloned template copies
 inside the new app. Only fork one of those apps when the user explicitly asks
 for a customized copy.
+To save pages or Collection rows to Content, message Content to do the work as
+the signed-in person: `call-agent` to `content` from the agent, or
+`invokeAgent()` from a server request, passing the `userEmail`, `orgDomain` and
+`orgSecret` that `resolveA2ACallerAuth()` returns. Never ask the user for a
+Content token or keep one in an environment variable.
 
 ## Editing shared behavior
 

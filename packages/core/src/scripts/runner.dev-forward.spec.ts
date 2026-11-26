@@ -22,6 +22,7 @@ const mockIsValidDevActionHandoffUrl = vi.hoisted(() =>
 );
 
 vi.mock("../db/client.js", () => ({
+  getEnclosingTransactionDbExec: () => undefined,
   closeDbExec: vi.fn(async () => {}),
   getRuntimeDatabaseUrl: (...args: unknown[]) => mockGetDatabaseUrl(...args),
   isProcessAlive: (...args: unknown[]) => mockIsProcessAlive(...args),
