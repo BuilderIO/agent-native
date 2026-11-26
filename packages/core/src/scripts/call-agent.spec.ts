@@ -1189,6 +1189,11 @@ describe("call-agent action", () => {
   });
 
   describe("peer connect link", () => {
+    const peerContext = (): ActionRunContext => ({
+      send: vi.fn(),
+      blockedA2ATargets: new Map(),
+    });
+
     it.each([
       [
         "https://slides.agent-native.test/_agent-native/a2a",
@@ -1204,10 +1209,10 @@ describe("call-agent action", () => {
         );
         const { run } = await import("./call-agent.js");
 
-        const outcome = await run({ agent: "analytics", message: "first" }, {
-          send: vi.fn(),
-          blockedA2ATargets: new Map(),
-        } as any).catch((error) => error);
+        const outcome = await run(
+          { agent: "analytics", message: "first" },
+          peerContext(),
+        ).catch((error) => error);
 
         expect(outcome.message).toContain(`Open ${origin} and`);
         expect(outcome.message).not.toMatch(/Settings\s*[>\u2192]/i);
@@ -1223,10 +1228,10 @@ describe("call-agent action", () => {
         );
         const { run } = await import("./call-agent.js");
 
-        const outcome = await run({ agent: "analytics", message: "first" }, {
-          send: vi.fn(),
-          blockedA2ATargets: new Map(),
-        } as any).catch((error) => error);
+        const outcome = await run(
+          { agent: "analytics", message: "first" },
+          peerContext(),
+        ).catch((error) => error);
 
         expect(outcome.message).toContain("Open the Slides app and use");
         expect(outcome.message).not.toMatch(/Settings\s*[>\u2192]/i);
