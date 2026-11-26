@@ -80,14 +80,11 @@ export function isLlmCredentialError(
 export function formatLlmCredentialErrorMessage(options?: {
   agentName?: string;
   visitorFacing?: boolean;
-  /** The peer app's own origin, so the reader lands where its connect prompt lives. */
-  connectUrl?: string;
+  connectUrl?: string | undefined;
 }): string {
   if (options?.visitorFacing) return GATEWAY_UNAVAILABLE_VISITOR_MESSAGE;
   const agentName = options?.agentName?.trim();
   if (agentName) {
-    // No menu path: a peer's settings layout is its own, and the connect
-    // prompt in its agent chat is the surface every app shares.
     const where = options?.connectUrl
       ? `Open ${options.connectUrl} and use the connect prompt in its agent chat`
       : `Open the ${agentName} app and use the connect prompt in its agent chat`;
@@ -101,7 +98,7 @@ export function userFacingLlmCredentialError(
   options?: {
     agentName?: string;
     visitorFacing?: boolean;
-    connectUrl?: string;
+    connectUrl?: string | undefined;
   },
 ): string | null {
   return isLlmCredentialError(error)
