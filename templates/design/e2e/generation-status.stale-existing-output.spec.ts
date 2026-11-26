@@ -196,25 +196,21 @@ test("completed image edit with saved output shows no failure", async ({
     page.locator('[data-design-bottom-toolbar] button[aria-label="Edit"]'),
   ).toHaveAttribute("aria-pressed", "true");
   const pendingKey = `design.pending-generation.${designId}`;
-  let runTabId: string | null = null;
-  await expect
-    .poll(
-      async () => {
-        runTabId = await page.evaluate((id) => {
-          const browserTabId = sessionStorage.getItem(
-            "agent-native:browser-tab-id",
-          );
-          if (!browserTabId) return null;
-          return localStorage.getItem(
-            `agent-chat-active-thread:design:scope:design:${id}:tab:${browserTabId}`,
-          );
-        }, designId);
-        return Boolean(runTabId);
-      },
-      { timeout: 20_000 },
-    )
-    .toBe(true);
-  if (!runTabId) throw new Error("Design editor did not persist a chat thread");
+  const readRunTabId = () =>
+    page.evaluate((id) => {
+      const browserTabId = sessionStorage.getItem(
+        "agent-native:browser-tab-id",
+      );
+      if (!browserTabId) return null;
+      return localStorage.getItem(
+        `agent-chat-active-thread:design:scope:design:${id}:tab:${browserTabId}`,
+      );
+    }, designId);
+  await expect.poll(readRunTabId, { timeout: 20_000 }).not.toBeNull();
+  const runTabId = await readRunTabId();
+  if (runTabId === null) {
+    throw new Error("Design editor did not persist a chat thread");
+  }
 
   let outputStatusRequested = false;
   const activeRunRoute = /\/_agent-native\/agent-chat\/runs\/active(?:\?|$)/;
