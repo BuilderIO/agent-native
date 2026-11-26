@@ -38,8 +38,12 @@ until ln -s "$$" "$lock" 2>/dev/null; do
   if kill -0 "$owner" 2>/dev/null; then
     echo "worktree-setup: waiting for the setup already running in this worktree (see $log)"
     while [ "$(lock_owner)" = "$owner" ] && kill -0 "$owner" 2>/dev/null; do sleep 5; done
-  elif [ "$(lock_owner)" = "$owner" ]; then
-    rm -f "$lock" # its owner died without cleaning up
+  elif mkdir "$lock.reclaim" 2>/dev/null; then # one run at a time may remove a dead owner's lock
+    if [ "$(lock_owner)" = "$owner" ]; then rm -f "$lock"; fi
+    rmdir "$lock.reclaim"
+  else
+    find "$lock.reclaim" -maxdepth 0 -mmin +1 -exec rmdir {} + 2>/dev/null || true
+    sleep 1
   fi
 done
 trap 'rm -f "$lock"' EXIT
