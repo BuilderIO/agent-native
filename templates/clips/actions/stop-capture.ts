@@ -6,6 +6,12 @@ import { captureSessionStatusSchema } from "./lib/capture-schemas.js";
 
 export default defineAction({
   mcpTool: true,
+  // A stop before READY trashes only this take's unfinished recording, never a Clip.
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   description:
     "Request that the owning Clips recorder stop. Idempotent. Before READY (state recording) the take is discarded and ends cancelled with no Clip; after READY the Clip is kept, so poll get-capture-session for capture completion and media readiness.",
   schema: z.object({ sessionId: z.string().uuid() }),

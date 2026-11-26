@@ -6,6 +6,11 @@ import { captureSessionSchema } from "./lib/capture-schemas.js";
 
 export default defineAction({
   mcpTool: true,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   description:
     "Request bounded recording on an armed Clips host. Poll get-capture-session until recording; queued, starting and beginning are not READY. Reuse requestId only for retries of the same request.",
   schema: z.object({
