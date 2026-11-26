@@ -56,6 +56,15 @@ export const DESIGN_OUTPUT_ACTIONS = new Set([
   "update-screen-source",
 ]);
 
+/**
+ * Image generation and edits run on the Assets service, which saves the image
+ * to the asset store and returns it; a successful call is the typed proof the
+ * edit landed, even when nothing is placed in the design.
+ */
+export function isAssetsImageTool(tool: string): boolean {
+  return /(?:^|[-_]{1,2})(?:generate|edit)[-_]asset$/i.test(tool.trim());
+}
+
 export function designOutputWriteReceipt(
   designId: string,
   fileCount: number,
@@ -119,6 +128,9 @@ export function classifyDesignGenerationOutput(options: {
   for (const { event } of events) {
     if (!isRecord(event) || event.type !== "tool_done") continue;
     const tool = typeof event.tool === "string" ? event.tool : "";
+    if (isAssetsImageTool(tool) && event.completedSideEffect === true) {
+      return "has_output";
+    }
     if (!DESIGN_OUTPUT_ACTIONS.has(tool)) {
       if (event.completedSideEffect === true && tool !== "create-design") {
         const input = inputDesignId(event.input);

@@ -32,6 +32,30 @@ const base = {
 };
 
 describe("Design generation output receipts", () => {
+  it("confirms an image edit from the Assets service's completed call", () => {
+    const events = completedTurn({
+      type: "tool_done",
+      tool: "mcp__org_org-1_assets__edit-asset",
+      input: { assetId: "asset-1", prompt: "remove the background" },
+      completedSideEffect: true,
+    });
+    expect(classifyDesignGenerationOutput({ ...base, events })).toBe(
+      "has_output",
+    );
+  });
+
+  it("does not confirm an image edit whose call did not complete", () => {
+    const events = completedTurn({
+      type: "tool_done",
+      tool: "mcp__org_org-1_assets__edit-asset",
+      input: { assetId: "asset-1", prompt: "remove the background" },
+      completedSideEffect: false,
+    });
+    expect(classifyDesignGenerationOutput({ ...base, events })).toBe(
+      "no_output",
+    );
+  });
+
   it("confirms output from a receipt scoped to the requested design", () => {
     expect(
       classifyDesignGenerationOutput({
