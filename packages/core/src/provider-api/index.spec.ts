@@ -4586,6 +4586,57 @@ describe("provider API runtime", () => {
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
+  it("exposes the official X API's catalog entry and sends its Bearer token to api.x.com", async () => {
+    resolveCredential.mockResolvedValue("x-bearer-example");
+    createSsrfSafeDispatcher.mockResolvedValue({ dispatch: vi.fn() });
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        Response.json({ data: { id: "1", username: "builderio" } }),
+      );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["twitter"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const [catalogEntry] = await runtime.listCatalog("twitter");
+
+    expect(catalogEntry).toMatchObject({
+      id: "twitter",
+      label: "Twitter/X",
+      defaultBaseUrl: "https://api.x.com/2",
+      auth: "bearer",
+      credentialKeys: ["TWITTER_BEARER_TOKEN"],
+      docsUrls: ["https://docs.x.com/x-api/introduction"],
+      templateUses: ["analytics"],
+      examples: [
+        {
+          label: "Look up a user",
+          method: "GET",
+          path: "/users/by/username/{username}",
+        },
+      ],
+    });
+    expect(getProviderApiConfig("twitter").auth).toEqual({
+      type: "bearer",
+      keys: ["TWITTER_BEARER_TOKEN"],
+    });
+
+    await runtime.executeRequest({
+      provider: "twitter",
+      path: "/users/by/username/builderio",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://api.x.com/2/users/by/username/builderio",
+    );
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      Authorization: "Bearer x-bearer-example",
+    });
+  });
+
   it("requests a workspace connection when a custom resolver finds no credential", async () => {
     resolveCredential.mockResolvedValue("local-token");
     describeCredentialScopeGap.mockResolvedValue(null);
